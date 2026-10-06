@@ -1,11 +1,14 @@
-import { Banner, EmptyState, Glyph, HStack, IconButton, Text, VStack } from "sid-ui";
-import { formatUsagePrice, type AiUsageEntry } from "./use-ai-usage";
+import { useState } from "react";
+import { Dialog, DialogHeader } from "@astryxdesign/core";
+import { Banner, EmptyState, Glyph, HStack, IconButton, Spinner, Text, VStack } from "sid-ui";
+import { fetchUsageRequest, formatUsagePrice, type AiUsageEntry } from "./use-ai-usage";
 
 type UsageHistoryListProps = {
   entries: AiUsageEntry[];
   totalPrice: string;
   loading: boolean;
   error: string | null;
+  tabId: number | null;
   onRefresh: () => void;
 };
 
@@ -20,9 +23,24 @@ function formatWhen(iso: string): string {
   });
 }
 
+function formatDuration(ms: number): string {
+  if (!ms || ms < 0) return "";
+  if (ms < 1000) return `${Math.round(ms)} ms`;
+  const seconds = ms / 1000;
+  if (seconds < 60) {
+    const shown = seconds >= 10 ? Math.round(seconds).toString() : seconds.toFixed(1);
+    return `${shown} s`;
+  }
+  const minutes = Math.floor(seconds / 60);
+  const rest = Math.round(seconds % 60);
+  return `${minutes}m ${rest}s`;
+}
+
 function tokenLine(entry: AiUsageEntry): string {
   const total = entry.totalTokens.toLocaleString();
-  return `${total} tokens · ${entry.promptTokens.toLocaleString()} in · ${entry.completionTokens.toLocaleString()} out`;
+  const tokens = `${total} tokens · ${entry.promptTokens.toLocaleString()} in · ${entry.completionTokens.toLocaleString()} out`;
+  const duration = formatDuration(entry.durationMs);
+  return duration ? `${tokens} · ${duration}` : tokens;
 }
 
 /** AI calls made from the active Chrome tab, newest first. */
@@ -31,8 +49,32 @@ export function UsageHistoryList({
   totalPrice,
   loading,
   error,
+  tabId,
   onRefresh,
 }: UsageHistoryListProps) {
+  const [open, setOpen] = useState<AiUsageEntry | null>(null);
+  const [request, setRequest] = useState("");
+  const [requestError, setRequestError] = useState<string | null>(null);
+  const [requestLoading, setRequestLoading] = useState(false);
+
+  async function showRequest(entry: AiUsageEntry) {
+    setOpen(entry);
+    setRequest("");
+    setRequestError(null);
+    if (tabId == null) {
+      setRequestError("This tab is not ready.");
+      return;
+    }
+    setRequestLoading(true);
+    try {
+      setRequest(await fetchUsageRequest(entry.id, tabId));
+    } catch (err) {
+      setRequestError(err instanceof Error ? err.message : String(err));
+    } finally {
+      setRequestLoading(false);
+    }
+  }
+
   return (
     <VStack as="section" gap={3} aria-label="AI usage">
       <HStack gap={2} align="center" justify="between">
@@ -69,7 +111,17 @@ export function UsageHistoryList({
               <Text weight="semibold" maxLines={1}>
                 {entry.model || "Model"}
               </Text>
-              <Text weight="semibold">{entry.priced ? formatUsagePrice(entry.price) : "—"}</Text>
+              <HStack gap={1} align="center">
+                <Text weight="semibold">{entry.priced ? formatUsagePrice(entry.price) : "—"}</Text>
+                <IconButton
+                  variant="ghost"
+                  size="sm"
+                  icon={<Glyph name="eye" />}
+                  label={`View request for ${entry.model || "this call"}`}
+                  tooltip="View request"
+                  onClick={() => void showRequest(entry)}
+                />
+              </HStack>
             </HStack>
             <HStack gap={2} align="center" justify="between">
               <Text type="supporting" maxLines={1}>
@@ -77,9 +129,36 @@ export function UsageHistoryList({
               </Text>
               <Text type="supporting">{formatWhen(entry.createdAt)}</Text>
             </HStack>
+            {entry.error ? (
+              <Text type="supporting" className="acorn-usage-error">
+                {entry.error}
+              </Text>
+            ) : null}
           </VStack>
         ))}
       </VStack>
+      <Dialog
+        isOpen={open != null}
+        purpose="info"
+        width="min(560px, 100%)"
+        maxHeight="80dvh"
+        onOpenChange={(next) => {
+          if (!next) setOpen(null);
+        }}
+      >
+        <DialogHeader
+          title={open?.model || "Request"}
+          subtitle={open ? tokenLine(open) : undefined}
+          onOpenChange={() => setOpen(null)}
+        />
+        {requestLoading ? <Spinner label="Loading request" /> : null}
+        {requestError ? (
+          <Banner status="error" title="Couldn’t load the request" description={requestError} />
+        ) : null}
+        {!requestLoading && !requestError && request ? (
+          <pre className="acorn-usage-request">{request}</pre>
+        ) : null}
+      </Dialog>
     </VStack>
   );
 }

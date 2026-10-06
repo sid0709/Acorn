@@ -26,6 +26,7 @@ export function JobsPanel({ mainTab, nowCard, tabId, signedIn }: Props) {
         totalPrice={usage.totalPrice}
         loading={usage.loading}
         error={usage.error}
+        tabId={tabId}
         onRefresh={usage.reload}
       />
     </section>

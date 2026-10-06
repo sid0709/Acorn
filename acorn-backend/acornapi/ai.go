@@ -27,15 +27,15 @@ func decode(w http.ResponseWriter, r *http.Request, dest any) bool {
 // writeAcornError answers a failed model call: the caller's mistake, a missing
 // model key, or the model itself failing.
 func writeAcornError(w http.ResponseWriter, route string, err error) {
+	status := http.StatusBadGateway
 	switch {
 	case errors.Is(err, acorn.ErrInvalid):
-		writeError(w, http.StatusBadRequest, err.Error())
+		status = http.StatusBadRequest
 	case errors.Is(err, acorn.ErrModelUnavailable):
-		writeError(w, http.StatusServiceUnavailable, err.Error())
-	default:
-		slog.Warn("acorn route failed", "route", route, "error", err)
-		writeError(w, http.StatusBadGateway, err.Error())
+		status = http.StatusServiceUnavailable
 	}
+	slog.Warn("acorn route failed", "route", route, "status", status, "error", err)
+	writeError(w, status, err.Error())
 }
 
 // applicant renders the signed-in account for the model. A saved profile supplies

@@ -6,6 +6,8 @@ import (
 	"fmt"
 	"strings"
 	"time"
+
+	"github.com/sid0709/OpenSeat/backend-core/openai"
 )
 
 var generateSteps = []string{"load-jd", "summary", "skills", "experience", "finalize"}
@@ -125,7 +127,7 @@ func (s *Service) runTask(parent context.Context, task Task, model Model) {
 			continue
 		}
 		mark(purpose, "running")
-		raw, err := model.JSON(ctx, systemWriter, replacer.Replace(purposePrompt[purpose]), json.RawMessage(purposeSchema[purpose]))
+		raw, err := model.JSON(openai.WithCall(ctx, purpose), systemWriter, replacer.Replace(purposePrompt[purpose]), json.RawMessage(purposeSchema[purpose]))
 		if err != nil {
 			fail(purpose, err.Error())
 			return

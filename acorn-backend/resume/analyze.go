@@ -8,6 +8,8 @@ import (
 	"strings"
 	"time"
 	"unicode/utf8"
+
+	"github.com/sid0709/OpenSeat/backend-core/openai"
 )
 
 const (
@@ -111,7 +113,7 @@ func (s *Service) AnalyzeLibrary(ctx context.Context, accountID, id string, forc
 	if err != nil {
 		return LibraryRow{}, err
 	}
-	raw, err := model.JSON(ctx, skillAnalysisSystem, string(payload), json.RawMessage(skillAnalysisSchema))
+	raw, err := model.JSON(openai.WithCall(ctx, "library-analyze"), skillAnalysisSystem, string(payload), json.RawMessage(skillAnalysisSchema))
 	if err != nil {
 		return LibraryRow{}, fmt.Errorf("analyze résumé: %w", err)
 	}

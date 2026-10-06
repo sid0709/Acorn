@@ -1,10 +1,12 @@
 package openai
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"math/big"
 	"strings"
+	"time"
 
 	"github.com/sid0709/OpenSeat/backend-core/config"
 )
@@ -18,9 +20,13 @@ const (
 	lunaCacheReadNanosPerToken  int64 = 10  // $0.01 / 1,000,000
 	lunaCacheWriteNanosPerToken int64 = 125 // $0.125 / 1,000,000
 	nanosPerDollar                    = 1_000_000_000
+	// maxStoredRequest is how much of the provider request the usage history keeps.
+	maxStoredRequest = 512 << 10
+	maxPrettyRequest = 1 << 20
 )
 
-// Usage is one billed model call. CostNanos is USD × 1e9.
+// Usage is one model call. CostNanos is USD × 1e9. Duration is from the send
+// until the response body, including the last token, has arrived.
 type Usage struct {
 	Model            string
 	PromptTokens     int
@@ -30,6 +36,10 @@ type Usage struct {
 	TotalTokens      int
 	CostNanos        int64
 	Priced           bool
+	Duration         time.Duration
+	// Request is the JSON sent to the provider, without the API key.
+	Request string
+	Error   string
 }
 
 type recorderKey struct{}
@@ -45,7 +55,23 @@ func WithRecorder(ctx context.Context, record Recorder) context.Context {
 	return context.WithValue(ctx, recorderKey{}, record)
 }
 
-// Note reports a billed call when the context has a recorder.
+// StoredRequest is the provider request, pretty-printed and clipped, for the usage history.
+func StoredRequest(body []byte) string {
+	pretty := body
+	if len(body) > 0 && len(body) <= maxPrettyRequest {
+		var buf bytes.Buffer
+		if json.Indent(&buf, body, "", "  ") == nil {
+			pretty = buf.Bytes()
+		}
+	}
+	text := string(pretty)
+	if len(text) <= maxStoredRequest {
+		return text
+	}
+	return text[:maxStoredRequest] + "\n\n… truncated"
+}
+
+// Note reports a model call when the context has a recorder.
 func Note(ctx context.Context, usage Usage) {
 	if ctx == nil {
 		return

@@ -8,6 +8,8 @@ import (
 	"strconv"
 	"strings"
 	"time"
+
+	"github.com/sid0709/OpenSeat/backend-core/openai"
 )
 
 // Model is the language model that reads résumés: one JSON object per request, matching a schema.
@@ -86,7 +88,7 @@ func readResume(ctx context.Context, model Model, text string) (read, error) {
 	if len(runes) > maxReadRunes {
 		runes = runes[:maxReadRunes]
 	}
-	raw, err := model.JSON(ctx, readSystem, "Résumé:\n\n"+string(runes), readSchema)
+	raw, err := model.JSON(openai.WithCall(ctx, "profile-read"), readSystem, "Résumé:\n\n"+string(runes), readSchema)
 	if err != nil {
 		return read{}, fmt.Errorf("read résumé: %w", err)
 	}

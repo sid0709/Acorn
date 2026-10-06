@@ -12,8 +12,30 @@ export type AiUsageEntry = {
   totalTokens: number;
   price: string;
   priced: boolean;
+  durationMs: number;
+  error: string;
   createdAt: string;
 };
+
+const EMPTY_REQUEST = "This call was recorded before request bodies were saved.";
+
+/** The provider JSON for one call. The list poll does not include it. */
+export async function fetchUsageRequest(id: string, tabId: number): Promise<string> {
+  const base = (await getAcornApiUrl()).replace(/\/$/, "");
+  const res = await fetch(`${base}/acorn/ai-usage/${encodeURIComponent(id)}`, {
+    headers: await authHeaders(tabId),
+  });
+  const data = (await res.json().catch(() => ({}))) as {
+    entry?: { request?: string };
+    error?: string;
+    message?: string;
+  };
+  if (!res.ok) {
+    throw new Error(data.error || data.message || `Usage failed (${res.status})`);
+  }
+  const request = data.entry?.request?.trim() ?? "";
+  return request || EMPTY_REQUEST;
+}
 
 export function formatUsagePrice(price: string | null | undefined): string {
   if (!price) return "—";

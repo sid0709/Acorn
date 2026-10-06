@@ -2,12 +2,15 @@ package acornapi
 
 import (
 	"context"
+	"errors"
 	"log/slog"
 	"net/http"
 	"strings"
 	"unicode"
 
+	"github.com/sid0709/OpenSeat/acorn-backend/aiusage"
 	"github.com/sid0709/OpenSeat/backend-core/openai"
+	"go.mongodb.org/mongo-driver/v2/mongo"
 )
 
 const (
@@ -65,23 +68,55 @@ func (s *Server) listAIUsage(w http.ResponseWriter, r *http.Request) {
 	}
 	rows := make([]map[string]any, 0, len(entries))
 	for _, entry := range entries {
-		price := ""
-		if entry.Priced {
-			price = openai.FormatUSD(entry.CostNanos)
-		}
-		rows = append(rows, map[string]any{
-			"id":               entry.ID,
-			"model":            entry.Model,
-			"promptTokens":     entry.PromptTokens,
-			"completionTokens": entry.CompletionTokens,
-			"totalTokens":      entry.TotalTokens,
-			"price":            price,
-			"priced":           entry.Priced,
-			"createdAt":        entry.CreatedAt,
-		})
+		rows = append(rows, usageRow(entry, false))
 	}
 	writeJSON(w, http.StatusOK, map[string]any{
 		"entries":    rows,
 		"totalPrice": openai.FormatUSD(total),
 	})
+}
+
+func (s *Server) getAIUsage(w http.ResponseWriter, r *http.Request) {
+	session, ok := s.session(w, r)
+	if !ok {
+		return
+	}
+	if s.usage == nil {
+		writeError(w, http.StatusNotFound, "AI usage not found")
+		return
+	}
+	entry, err := s.usage.Get(r.Context(), session.User.ID, r.PathValue("id"))
+	if errors.Is(err, mongo.ErrNoDocuments) {
+		writeError(w, http.StatusNotFound, "AI usage not found")
+		return
+	}
+	if err != nil {
+		slog.Error("acorn ai usage", "error", err)
+		writeError(w, http.StatusInternalServerError, "could not load AI usage")
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"entry": usageRow(entry, true)})
+}
+
+func usageRow(entry aiusage.Entry, withRequest bool) map[string]any {
+	price := ""
+	if entry.Priced {
+		price = openai.FormatUSD(entry.CostNanos)
+	}
+	row := map[string]any{
+		"id":               entry.ID,
+		"model":            entry.Model,
+		"promptTokens":     entry.PromptTokens,
+		"completionTokens": entry.CompletionTokens,
+		"totalTokens":      entry.TotalTokens,
+		"price":            price,
+		"priced":           entry.Priced,
+		"durationMs":       entry.DurationMs,
+		"error":            entry.Error,
+		"createdAt":        entry.CreatedAt,
+	}
+	if withRequest {
+		row["request"] = entry.Request
+	}
+	return row
 }

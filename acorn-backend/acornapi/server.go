@@ -141,6 +141,7 @@ func New(accounts Accounts, listings *jobs.Store, brain *acorn.Service, opts Opt
 	}
 
 	mux.HandleFunc("GET /acorn/ai-usage", s.listAIUsage)
+	mux.HandleFunc("GET /acorn/ai-usage/{id}", s.getAIUsage)
 	mux.HandleFunc("GET /acorn/jobs/{jobId}", s.getJob)
 	mux.HandleFunc("POST /acorn/jobs/{jobId}/generate", s.requireAI(s.generateForJob))
 	mux.HandleFunc("POST /acorn/jobs/{jobId}/mark-applied", s.markApplied)
@@ -213,6 +214,7 @@ func (s *Server) session(w http.ResponseWriter, r *http.Request) (account.Sessio
 		writeError(w, http.StatusInternalServerError, "could not load the session")
 		return account.Session{}, false
 	}
+	httpkit.SetUserID(r.Context(), session.User.ID)
 	return session, true
 }
 

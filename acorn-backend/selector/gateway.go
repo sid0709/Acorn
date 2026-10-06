@@ -12,6 +12,7 @@ import (
 	"strings"
 
 	"github.com/sid0709/OpenSeat/backend-core/jev"
+	"github.com/sid0709/OpenSeat/backend-core/openai"
 )
 
 const (
@@ -92,7 +93,7 @@ func (g *Gateway) PickOption(ctx context.Context, q OptionQuery) (OptionPick, er
 	if q.AllowNotListed {
 		criteria[notListedKey] = "None of the listed options means the intended answer, and this list may be only part of the options (a search can show more)."
 	}
-	res, err := g.decider.Decide(ctx, jev.Request{
+	res, err := g.decider.Decide(openai.WithCall(ctx, "match-option"), jev.Request{
 		State: optionState(q),
 		Questions: map[string]jev.Question{optionQuestion: {
 			Type:         jev.TypeChoice,
@@ -156,7 +157,7 @@ func (g *Gateway) PickMany(ctx context.Context, q OptionQuery) (ManyPick, error)
 			},
 		}
 	}
-	res, err := g.decider.Decide(ctx, jev.Request{State: optionState(q), Questions: questions})
+	res, err := g.decider.Decide(openai.WithCall(ctx, "match-checkboxes"), jev.Request{State: optionState(q), Questions: questions})
 	if err != nil {
 		return ManyPick{}, err
 	}
@@ -247,7 +248,7 @@ func (g *Gateway) MatchPosting(ctx context.Context, posting string, candidates [
 	}
 	_, criteria := keyed(descriptions, resumeKeyPrefix)
 
-	res, err := g.decider.Decide(ctx, jev.Request{
+	res, err := g.decider.Decide(openai.WithCall(ctx, "recommend"), jev.Request{
 		State: posting,
 		Questions: map[string]jev.Question{
 			postingQuestion: {

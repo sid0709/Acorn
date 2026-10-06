@@ -80,41 +80,68 @@ func (c *Client) JSON(ctx context.Context, system, user string, schema json.RawM
 		return nil, err
 	}
 
+	started := time.Now()
+	request := StoredRequest(body)
 	var last error
+	var lastUsage Usage
 	for attempt := 0; attempt < maxAttempts; attempt++ {
+		attemptStarted := time.Now()
 		content, usage, status, retryAfter, err := c.complete(ctx, body)
 		if err == nil && status >= 200 && status < 300 {
 			if strings.TrimSpace(content) == "" {
-				return nil, fmt.Errorf("model returned an empty job")
+				empty := fmt.Errorf("model returned an empty job")
+				LogProvider(ctx, "chat", c.model, status, attempt+1, len(body), attemptStarted, usage, empty, "", false)
+				noteCall(ctx, c.model, started, request, usage, empty)
+				return nil, empty
 			}
-			if usage.Priced || usage.TotalTokens > 0 {
-				Note(ctx, usage)
+			if usage.Model == "" {
+				usage.Model = c.model
 			}
+			LogProvider(ctx, "chat", usage.Model, status, attempt+1, len(body), attemptStarted, usage, nil, "", false)
+			noteCall(ctx, usage.Model, started, request, usage, nil)
 			return []byte(content), nil
 		}
+		callErr := err
+		if callErr == nil {
+			callErr = statusError(status, content)
+		}
+		willRetry := attempt < maxAttempts-1 && ctx.Err() == nil && (err != nil || llmhttp.Retryable(status))
+		LogProvider(ctx, "chat", c.model, status, attempt+1, len(body), attemptStarted, usage, callErr, retryAfter, willRetry)
 		if err == nil && !llmhttp.Retryable(status) {
-			return nil, statusError(status, content)
+			noteCall(ctx, c.model, started, request, usage, callErr)
+			return nil, callErr
 		}
 		if err != nil && ctx.Err() != nil {
+			noteCall(ctx, c.model, started, request, Usage{}, err)
 			return nil, err
 		}
-		if err != nil {
-			last = err
-			retryAfter = ""
-		} else {
-			last = statusError(status, content)
-		}
-		if attempt == maxAttempts-1 {
+		last = callErr
+		lastUsage = usage
+		if !willRetry {
 			break
 		}
 		if err := llmhttp.Wait(ctx, llmhttp.RetryDelay(attempt, retryAfter)); err != nil {
+			noteCall(ctx, c.model, started, request, Usage{}, err)
 			return nil, err
 		}
 	}
 	if last == nil {
 		last = fmt.Errorf("model request failed")
 	}
+	noteCall(ctx, c.model, started, request, lastUsage, last)
 	return nil, last
+}
+
+func noteCall(ctx context.Context, model string, started time.Time, request string, usage Usage, err error) {
+	if usage.Model == "" {
+		usage.Model = model
+	}
+	usage.Duration = time.Since(started)
+	usage.Request = request
+	if err != nil {
+		usage.Error = err.Error()
+	}
+	Note(ctx, usage)
 }
 
 func (c *Client) chatRequest(system, user string, schema json.RawMessage) chatRequest {

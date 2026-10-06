@@ -8,6 +8,8 @@ import (
 	"log/slog"
 	"strings"
 	"time"
+
+	"github.com/sid0709/OpenSeat/backend-core/openai"
 )
 
 const (
@@ -91,6 +93,7 @@ func (s *Service) ask(ctx context.Context, purpose Purpose, system, user string,
 		return "", ErrModelUnavailable
 	}
 	started := time.Now()
+	ctx = openai.WithCall(ctx, string(purpose))
 	raw, err := s.model.JSON(ctx, system, user, schema)
 	if s.tracer != nil {
 		s.tracer(ctx, Call{

@@ -132,35 +132,53 @@ func (c *Client) Decide(ctx context.Context, req Request) (Response, error) {
 		return Response{}, fmt.Errorf("encode jev request: %w", err)
 	}
 
+	started := time.Now()
+	request := openai.StoredRequest(body)
 	var last error
 	for attempt := 0; attempt < maxAttempts; attempt++ {
+		attemptStarted := time.Now()
 		res, status, retryAfter, err := c.post(ctx, body)
+		usage := providerUsage(c.model, res.Usage)
 		if err == nil {
-			if res.Usage.InputTokens > 0 || res.Usage.OutputTokens > 0 || res.Usage.Cost > 0 {
-				openai.Note(ctx, openai.Usage{
-					Model:            c.model,
-					PromptTokens:     res.Usage.InputTokens,
-					CompletionTokens: res.Usage.OutputTokens,
-					TotalTokens:      res.Usage.InputTokens + res.Usage.OutputTokens,
-					CostNanos:        openai.NanosFromUSD(res.Usage.Cost),
-					Priced:           res.Usage.Cost > 0,
-				})
-			}
+			openai.LogProvider(ctx, "decision", c.model, status, attempt+1, len(body), attemptStarted, usage, nil, "", false)
+			usage.Duration = time.Since(started)
+			usage.Request = request
+			openai.Note(ctx, usage)
 			return res, nil
 		}
-		// A transport error (status 0) or a 429 / 5xx is worth another attempt.
-		if ctx.Err() != nil || (status != 0 && !llmhttp.Retryable(status)) {
+		willRetry := attempt < maxAttempts-1 && ctx.Err() == nil && (status == 0 || llmhttp.Retryable(status))
+		openai.LogProvider(ctx, "decision", c.model, status, attempt+1, len(body), attemptStarted, usage, err, retryAfter, willRetry)
+		if !willRetry {
+			openai.Note(ctx, openai.Usage{
+				Model: c.model, Duration: time.Since(started), Request: request, Error: err.Error(),
+			})
 			return Response{}, err
 		}
 		last = err
-		if attempt == maxAttempts-1 {
-			break
-		}
 		if err := llmhttp.Wait(ctx, llmhttp.RetryDelay(attempt, retryAfter)); err != nil {
+			openai.Note(ctx, openai.Usage{
+				Model: c.model, Duration: time.Since(started), Request: request, Error: err.Error(),
+			})
 			return Response{}, err
 		}
 	}
+	if last != nil {
+		openai.Note(ctx, openai.Usage{
+			Model: c.model, Duration: time.Since(started), Request: request, Error: last.Error(),
+		})
+	}
 	return Response{}, last
+}
+
+func providerUsage(model string, usage Usage) openai.Usage {
+	return openai.Usage{
+		Model:            model,
+		PromptTokens:     usage.InputTokens,
+		CompletionTokens: usage.OutputTokens,
+		TotalTokens:      usage.InputTokens + usage.OutputTokens,
+		CostNanos:        openai.NanosFromUSD(usage.Cost),
+		Priced:           usage.Cost > 0,
+	}
 }
 
 // post sends one attempt. A non-2xx status comes back with err set to the API's message.

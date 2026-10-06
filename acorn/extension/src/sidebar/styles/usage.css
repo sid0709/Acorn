@@ -1,0 +1,14 @@
+.acorn-usage-request {
+  margin: 0;
+  max-height: 60dvh;
+  overflow: auto;
+  white-space: pre-wrap;
+  word-break: break-word;
+  font-family: var(--font-family-code);
+  font-size: var(--font-size-sm);
+  color: var(--color-text-primary);
+}
+
+.acorn-usage-error {
+  color: var(--color-error);
+}

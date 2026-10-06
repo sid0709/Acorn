@@ -27,6 +27,9 @@ type Entry struct {
 	TotalTokens      int       `bson:"totalTokens"`
 	CostNanos        int64     `bson:"costNanos"`
 	Priced           bool      `bson:"priced"`
+	DurationMs       int64     `bson:"durationMs"`
+	Request          string    `bson:"request,omitempty"`
+	Error            string    `bson:"error,omitempty"`
 	CreatedAt        time.Time `bson:"createdAt"`
 }
 
@@ -62,7 +65,7 @@ func (s *Store) Record(ctx context.Context, accountID, tabKey string, usage open
 	if s == nil || s.coll == nil || accountID == "" || tabKey == "" {
 		return nil
 	}
-	if usage.TotalTokens == 0 && !usage.Priced {
+	if usage.TotalTokens == 0 && !usage.Priced && usage.Request == "" && usage.Error == "" {
 		return nil
 	}
 	entry := Entry{
@@ -75,6 +78,9 @@ func (s *Store) Record(ctx context.Context, accountID, tabKey string, usage open
 		TotalTokens:      usage.TotalTokens,
 		CostNanos:        usage.CostNanos,
 		Priced:           usage.Priced,
+		DurationMs:       usage.Duration.Milliseconds(),
+		Request:          usage.Request,
+		Error:            usage.Error,
 		CreatedAt:        time.Now().UTC(),
 	}
 	_, err := s.coll.InsertOne(ctx, entry)
@@ -89,7 +95,8 @@ func (s *Store) List(ctx context.Context, accountID, tabKey string) ([]Entry, in
 	filter := bson.M{"accountId": accountID, "tabKey": tabKey}
 	cursor, err := s.coll.Find(ctx, filter, options.Find().
 		SetSort(bson.D{{Key: "createdAt", Value: -1}}).
-		SetLimit(listLimit))
+		SetLimit(listLimit).
+		SetProjection(bson.M{"request": 0}))
 	if err != nil {
 		return nil, 0, err
 	}
@@ -124,4 +131,14 @@ func (s *Store) sum(ctx context.Context, filter bson.M) (int64, error) {
 		return 0, nil
 	}
 	return rows[0].Total, nil
+}
+
+// Get is one call, including the provider request, for this account only.
+func (s *Store) Get(ctx context.Context, accountID, id string) (Entry, error) {
+	if s == nil || s.coll == nil || accountID == "" || id == "" {
+		return Entry{}, mongo.ErrNoDocuments
+	}
+	var entry Entry
+	err := s.coll.FindOne(ctx, bson.M{"_id": id, "accountId": accountID}).Decode(&entry)
+	return entry, err
 }
