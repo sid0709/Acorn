@@ -1,6 +1,6 @@
 "use client";
 
-import { useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import {
   Badge,
   Banner,
@@ -18,18 +18,20 @@ import {
   type GlyphName,
 } from "sid-ui";
 import type { AcornAccount } from "@/lib/auth/session";
-import { LIBRARY_LIMIT, type LibraryResume } from "@/lib/workspace/model";
+import { fillProfileFromResume, loadProfile, saveProfile } from "@/lib/profile/api";
+import { readWorkspaceSnapshot, writeWorkspace } from "@/lib/workspace/model";
 import {
   MIN_RESUME_TEXT,
   RESUME_ACCEPT,
   RESUME_MAX_BYTES,
-  profileFromResumeText,
+  bytesToBase64,
   readResumeFile,
 } from "@/lib/workspace/resume-file";
 import {
   experienceMonths,
   formatDuration,
   sampleProfile,
+  withDefaults,
   type ApplicantProfile,
 } from "@/lib/workspace/profile";
 import { AssistantForm } from "./profile/assistant-form";
@@ -51,15 +53,45 @@ const SECTIONS = [
 type Section = (typeof SECTIONS)[number]["value"];
 
 export function ProfilePanel({ account }: { account: AcornAccount }) {
-  const { workspace, update } = useWorkspace();
+  const { workspace } = useWorkspace();
   const base = workspace.profile ?? sampleProfile(account);
   const [draft, setDraft] = useState<ApplicantProfile | null>(null);
   const [saved, setSaved] = useState(false);
+  const [saving, setSaving] = useState(false);
   const [uploadNote, setUploadNote] = useState("");
   const [uploadError, setUploadError] = useState("");
+  const [notice, setNotice] = useState("");
   const [section, setSection] = useState<Section>("identity");
   const seenUpload = useRef("");
   const profile = draft ?? base;
+
+  useEffect(() => {
+    let cancelled = false;
+    void loadProfile().then((result) => {
+      if (cancelled) return;
+      if (!result.ok) {
+        setUploadError(result.message);
+        return;
+      }
+      const current = readWorkspaceSnapshot();
+      if (!result.data.stored && current.profile) {
+        setDraft(withDefaults(current.profile));
+        setNotice("This profile is on this browser. Save it to keep it on your account.");
+        return;
+      }
+      const next = withDefaults(result.data.profile);
+      setDraft(null);
+      writeWorkspace({ ...current, profile: next });
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  const keep = (next: ApplicantProfile) => {
+    setDraft(null);
+    writeWorkspace({ ...readWorkspaceSnapshot(), profile: next });
+  };
 
   const fillFromUpload = async (file: File | undefined) => {
     if (!file) return;
@@ -68,29 +100,29 @@ export function ProfilePanel({ account }: { account: AcornAccount }) {
     seenUpload.current = key;
     setUploadError("");
     setUploadNote("");
-    const text = await readResumeFile(file);
-    if (text.trim().length < MIN_RESUME_TEXT) {
+    const docx = file.name.toLowerCase().endsWith(".docx");
+    const text = docx ? "" : await readResumeFile(file);
+    if (!docx && text.trim().length < MIN_RESUME_TEXT) {
       setUploadError(
-        "Couldn't read text from that file. Use a PDF with selectable text, or a .txt file.",
+        "Couldn't read text from that file. Use a PDF with selectable text, a .docx, or a .txt file.",
       );
       return;
     }
-    const next = profileFromResumeText(text, profile);
-    const item: LibraryResume = {
-      id: crypto.randomUUID(),
-      name: file.name,
-      size: file.size,
-      detail: "Uploaded on Profile",
-      addedAt: new Date().toISOString(),
-    };
-    setDraft(next);
-    update({
-      ...workspace,
-      profile: next,
-      library: [item, ...workspace.library].slice(0, LIBRARY_LIMIT),
+    const result = await fillProfileFromResume({
+      fileName: file.name,
+      text: docx ? undefined : text,
+      contentBase64: docx ? bytesToBase64(new Uint8Array(await file.arrayBuffer())) : undefined,
+      profile,
     });
-    setUploadNote(`Filled the profile from ${file.name}.`);
-    setSaved(false);
+    if (!result.ok) {
+      setUploadError(result.message);
+      return;
+    }
+    const next = withDefaults(result.data.profile);
+    keep(next);
+    setNotice("");
+    setUploadNote(`Filled the profile from ${file.name} and saved it.`);
+    setSaved(true);
   };
 
   const set = <K extends keyof ApplicantProfile>(key: K, value: ApplicantProfile[K]) => {
@@ -98,9 +130,18 @@ export function ProfilePanel({ account }: { account: AcornAccount }) {
     setSaved(false);
   };
 
-  const save = () => {
-    update({ ...workspace, profile });
-    setDraft(null);
+  const save = async () => {
+    setSaving(true);
+    setUploadError("");
+    const result = await saveProfile(profile);
+    setSaving(false);
+    if (!result.ok) {
+      setUploadError(result.message);
+      setSaved(false);
+      return;
+    }
+    keep(withDefaults(result.data.profile));
+    setNotice("");
     setSaved(true);
   };
 
@@ -115,11 +156,19 @@ export function ProfilePanel({ account }: { account: AcornAccount }) {
         action={
           <HStack gap={3} vAlign="center">
             {unsaved ? <Badge label="Unsaved changes" variant="warning" /> : null}
-            <Button label="Save profile" variant="primary" onClick={save} isDisabled={!unsaved} />
+            <Button
+              label="Save profile"
+              variant="primary"
+              onClick={() => {
+                void save();
+              }}
+              isDisabled={!unsaved || saving}
+            />
           </HStack>
         }
       />
-      {saved ? <Banner status="success" title="Profile saved on this browser." /> : null}
+      {saved ? <Banner status="success" title="Profile saved to your account." /> : null}
+      {notice ? <Banner status="warning" title={notice} /> : null}
       {uploadNote ? <Banner status="success" title={uploadNote} /> : null}
       {uploadError ? <Banner status="error" title={uploadError} /> : null}
       <GridSystem gap={4} align="start">
@@ -131,7 +180,7 @@ export function ProfilePanel({ account }: { account: AcornAccount }) {
             />
             <SectionCard
               title="Upload résumé"
-              description="A PDF or text résumé fills your name, contact, links, and timeline."
+              description="A PDF, Word, or text résumé fills your name, contact, links, and timeline, then saves them."
             >
               <FileUploader
                 label="Résumé file"

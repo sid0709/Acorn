@@ -1,7 +1,16 @@
 import type { ApplicantProfile, CareerEntry } from "./profile";
 
-export const RESUME_MAX_BYTES = 5 * 1024 * 1024;
-export const RESUME_ACCEPT = ".pdf,.txt,.md,application/pdf,text/plain";
+export const RESUME_MAX_BYTES = 8 * 1024 * 1024;
+export const RESUME_ACCEPT = ".pdf,.docx,.txt,.md,application/pdf,text/plain";
+
+export function bytesToBase64(bytes: Uint8Array) {
+  const chunk = 0x8000;
+  let binary = "";
+  for (let index = 0; index < bytes.length; index += chunk) {
+    binary += String.fromCharCode(...bytes.subarray(index, index + chunk));
+  }
+  return btoa(binary);
+}
 export const MIN_RESUME_TEXT = 40;
 
 const EMAIL = /[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}/i;

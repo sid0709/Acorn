@@ -14,6 +14,7 @@ import (
 	"github.com/sid0709/OpenSeat/acorn-backend/account"
 	"github.com/sid0709/OpenSeat/acorn-backend/acorn"
 	"github.com/sid0709/OpenSeat/acorn-backend/acornapi/gateway"
+	"github.com/sid0709/OpenSeat/acorn-backend/profile"
 	"github.com/sid0709/OpenSeat/acorn-backend/resume"
 	"github.com/sid0709/OpenSeat/backend-core/google"
 	"github.com/sid0709/OpenSeat/backend-core/httpkit"
@@ -61,6 +62,7 @@ type Server struct {
 	google         *google.Client
 	googleRedirect string
 	resumes        *resume.Service
+	profiles       *profile.Store
 }
 
 // Options are the Acorn API's settings. CORS is the server's: see acorn-backend/cmd/server.
@@ -77,6 +79,8 @@ type Options struct {
 	GoogleRedirectURL string
 	// Resumes is the template, generation, library, and history engine. Nil uses an in-memory store.
 	Resumes *resume.Service
+	// Profiles is the account profile. Nil uses an in-memory store.
+	Profiles *profile.Store
 }
 
 func New(accounts Accounts, listings *jobs.Store, brain *acorn.Service, opts Options) (http.Handler, *gateway.Gateway) {
@@ -84,10 +88,13 @@ func New(accounts Accounts, listings *jobs.Store, brain *acorn.Service, opts Opt
 		accounts: accounts, listings: listings, acorn: brain, files: opts.Runtime,
 		cookie: opts.SessionCookie, switches: opts.KillSwitches,
 		google: opts.Google, googleRedirect: opts.GoogleRedirectURL,
-		resumes: opts.Resumes,
+		resumes: opts.Resumes, profiles: opts.Profiles,
 	}
 	if s.resumes == nil {
 		s.resumes = resume.New(nil, nil)
+	}
+	if s.profiles == nil {
+		s.profiles = profile.NewMemory()
 	}
 	if s.cookie == "" {
 		s.cookie = DefaultSessionCookie
@@ -147,6 +154,9 @@ func New(accounts Accounts, listings *jobs.Store, brain *acorn.Service, opts Opt
 	mux.HandleFunc("POST /acorn/resume/library/{resumeId}/primary", s.primaryLibrary)
 	mux.HandleFunc("GET /acorn/resume/library/{resumeId}/file", s.libraryFile)
 	mux.HandleFunc("GET /acorn/resume/library/{resumeId}/preview", s.libraryPreview)
+	mux.HandleFunc("GET /acorn/profile", s.getProfile)
+	mux.HandleFunc("PUT /acorn/profile", s.putProfile)
+	mux.HandleFunc("POST /acorn/profile/from-resume", s.fillProfile)
 
 	socket := gw.Handler()
 	mux.Handle(gateway.Path, socket)

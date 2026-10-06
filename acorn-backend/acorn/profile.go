@@ -15,12 +15,24 @@ var applicantNotes = strings.Join([]string{
 	"careers[] is work history and education[] is schooling, both most recent first; start/end are YYYY-MM (YYYY when the month is unknown) and current entries have no end. When education[] is empty, answer education questions with a plausible entry consistent with careers and headline.",
 	"Demographic and voluntary self-identification answers (gender, pronouns, sexualOrientation, hispanicOrLatino, race, disability, veteranStatus) are the applicant's own; \"decline\" means choose that question's own decline / prefer-not-to-say option. A null one is unanswered.",
 	"How-did-you-hear / job-source: choose the listed option that matches the professional network already on the profile (settings.linkedin, else github / portfolioUrl); when none is stored, choose the most common professional network option.",
+	"workAuthorized, publicTrust, securityClearance, over18, backgroundCheck, willingToRelocate, and willingToTravel are the applicant's own answers when the question asks for them.",
 	"The applicant is a human. Never describe them as an AI, bot, or automation tool; never answer that they used AI/automation to apply; never consent to AI or automated employment decision / screening tools.",
 }, " ")
 
 // ApplicantProfileText renders the signed-in Acorn account as the JSON context
 // the planner and the writer read.
 func ApplicantProfileText(userID string, profile candidate.Profile) string {
+	return applicantProfileText(userID, profile, nil)
+}
+
+// ApplicantProfileTextWith is ApplicantProfileText plus answers the account form
+// stores that Joined's profile type does not. Empty answers are left out.
+// Secrets (passwords, API keys) never belong in extra.
+func ApplicantProfileTextWith(userID string, profile candidate.Profile, extra map[string]string) string {
+	return applicantProfileText(userID, profile, extra)
+}
+
+func applicantProfileText(userID string, profile candidate.Profile, extra map[string]string) string {
 	first, last := splitName(profile.Name)
 	personal := profile.Personal
 	careers := make([]map[string]any, 0, len(profile.Experience))
@@ -78,6 +90,11 @@ func ApplicantProfileText(userID string, profile candidate.Profile) string {
 		"portfolioUrl":       orNil(profile.Links.Portfolio),
 		"education":          education,
 		"careers":            careers,
+	}
+	for key, value := range extra {
+		if strings.TrimSpace(value) != "" {
+			settings[key] = strings.TrimSpace(value)
+		}
 	}
 	return indentedJSON(map[string]any{
 		"source":   "Joined profile",
