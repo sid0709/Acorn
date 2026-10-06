@@ -11,6 +11,7 @@ import (
 	"github.com/sid0709/OpenSeat/acorn-backend/account"
 	"github.com/sid0709/OpenSeat/acorn-backend/acorn"
 	"github.com/sid0709/OpenSeat/acorn-backend/acornapi"
+	"github.com/sid0709/OpenSeat/acorn-backend/resume"
 	"github.com/sid0709/OpenSeat/backend-core/aisettings"
 	"github.com/sid0709/OpenSeat/backend-core/config"
 	"github.com/sid0709/OpenSeat/backend-core/google"
@@ -73,7 +74,13 @@ func main() {
 		slog.Error("acorn accounts", "error", err)
 		os.Exit(1)
 	}
+	resumes := resume.New(resume.NewStore(p.Mongo(), db.DestDB), model)
+	if err := resumes.EnsureIndexes(context.Background()); err != nil {
+		slog.Error("acorn resumes", "error", err)
+		os.Exit(1)
+	}
 	acornHandler, gateway := acornapi.New(accounts, p.Jobs, acorn.New(model), acornapi.Options{
+		Resumes:       resumes,
 		SessionCookie: config.Env("ACORN_SESSION_COOKIE", acornapi.DefaultSessionCookie),
 		Runtime: acornapi.RuntimeFile{
 			Path: config.Env("ACORN_RUNTIME_FILE_PATH", ""),

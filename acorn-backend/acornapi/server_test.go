@@ -11,6 +11,7 @@ import (
 
 	"github.com/sid0709/OpenSeat/acorn-backend/account"
 	"github.com/sid0709/OpenSeat/acorn-backend/acorn"
+	"github.com/sid0709/OpenSeat/acorn-backend/resume"
 	"github.com/sid0709/OpenSeat/backend-core/killswitch"
 )
 
@@ -87,7 +88,9 @@ func newTestServer(t *testing.T, model fakeModel) (http.Handler, *fakeAccounts) 
 	accounts := &fakeAccounts{users: map[string]account.User{
 		"hunter": {ID: "u1", Name: "Jordan Lee", Email: "j@example.com"},
 	}}
-	handler, gw := New(accounts, nil, acorn.New(model), Options{})
+	engine := resume.New(resume.NewMemory(), model)
+	engine.RunInline()
+	handler, gw := New(accounts, nil, acorn.New(model), Options{Resumes: engine})
 	t.Cleanup(gw.Close)
 	return handler, accounts
 }
@@ -150,31 +153,55 @@ func TestHealthNeedsNoSession(t *testing.T) {
 	}
 }
 
-func TestResumeRoutesReturnEmpty(t *testing.T) {
-	handler, _ := newTestServer(t, fakeModel{})
-	cases := []struct{ method, path, wantKey string }{
-		{"GET", "/acorn/jobs/j1/recommended-resume", "success"},
-		{"GET", "/acorn/jobs/j1/resume-preview", "html"},
-		{"POST", "/acorn/custom/generate", "inputId"},
-		{"POST", "/acorn/custom/recommend", "recommendedResumeId"},
-		{"GET", "/acorn/custom/resumes/g1", "success"},
-		{"GET", "/acorn/custom/library-resumes/r1", "success"},
+func TestResumeGenerateLibraryAndHistory(t *testing.T) {
+	handler, _ := newTestServer(t, fakeModel{reply: `{"summary":"Built hiring tools.","skills":[{"category":"Go","items":["HTTP"]}],"experiences":[{"company":"Acorn","title":"Engineer","bullets":["Shipped the API"]}]}`})
+	rec := call(handler, "POST", "/acorn/custom/generate", `{"jobDescription":"Build hiring tools in Go"}`, bearer("hunter"), "")
+	if rec.Code != http.StatusAccepted {
+		t.Fatalf("generate: %d %s", rec.Code, rec.Body)
 	}
-	for _, c := range cases {
-		rec := call(handler, c.method, c.path, "{}", bearer("hunter"), "")
-		if rec.Code != http.StatusOK && rec.Code != http.StatusAccepted {
-			t.Errorf("%s %s: status %d", c.method, c.path, rec.Code)
-		}
-		var body map[string]any
-		if err := json.Unmarshal(rec.Body.Bytes(), &body); err != nil {
-			t.Fatalf("%s: %v", c.path, err)
-		}
-		if _, ok := body[c.wantKey]; !ok || body["file"] != nil {
-			t.Errorf("%s: body = %v", c.path, body)
-		}
-		if unauth := call(handler, c.method, c.path, "{}", nil, ""); unauth.Code != http.StatusUnauthorized {
-			t.Errorf("%s %s without session: %d", c.method, c.path, unauth.Code)
-		}
+	var started struct {
+		InputID string `json:"inputId"`
+	}
+	if err := json.Unmarshal(rec.Body.Bytes(), &started); err != nil || started.InputID == "" {
+		t.Fatalf("enqueue: %s", rec.Body)
+	}
+	polled := call(handler, "GET", "/acorn/custom/generate/"+started.InputID, "", bearer("hunter"), "")
+	var done struct {
+		Status       string `json:"status"`
+		GenerationID string `json:"generationId"`
+		ResumeID     string `json:"resumeId"`
+	}
+	if err := json.Unmarshal(polled.Body.Bytes(), &done); err != nil {
+		t.Fatal(err)
+	}
+	if done.Status != "completed" || done.GenerationID == "" || done.ResumeID == "" {
+		t.Fatalf("poll = %s", polled.Body)
+	}
+	file := call(handler, "GET", "/acorn/custom/resumes/"+done.GenerationID, "", bearer("hunter"), "")
+	if file.Code != http.StatusOK || !strings.Contains(file.Body.String(), `"base64"`) {
+		t.Fatalf("file = %d %s", file.Code, file.Body)
+	}
+	preview := call(handler, "GET", "/acorn/custom/resumes/"+done.GenerationID+"/preview", "", bearer("hunter"), "")
+	if preview.Code != http.StatusOK || !strings.Contains(preview.Body.String(), "Built hiring tools") {
+		t.Fatalf("preview = %d %s", preview.Code, preview.Body)
+	}
+	history := call(handler, "GET", "/acorn/resume/generations?search=hiring&searchIn=resume&includeFacets=1", "", bearer("hunter"), "")
+	if history.Code != http.StatusOK || !strings.Contains(history.Body.String(), `"total":1`) {
+		t.Fatalf("history = %d %s", history.Code, history.Body)
+	}
+	jdOnly := call(handler, "GET", "/acorn/resume/generations?search=nope&searchIn=jd", "", bearer("hunter"), "")
+	if !strings.Contains(jdOnly.Body.String(), `"total":0`) {
+		t.Fatalf("jd search = %s", jdOnly.Body)
+	}
+	recommend := call(handler, "POST", "/acorn/custom/recommend", `{"jobDescription":"Need a Go HTTP engineer"}`, bearer("hunter"), "")
+	if recommend.Code != http.StatusOK || !strings.Contains(recommend.Body.String(), done.ResumeID) {
+		t.Fatalf("recommend = %d %s", recommend.Code, recommend.Body)
+	}
+	if got := call(handler, "GET", "/acorn/jobs/missing/recommended-resume", "", bearer("hunter"), ""); got.Code != http.StatusOK || !strings.Contains(got.Body.String(), `"resumeId":null`) {
+		t.Fatalf("empty job resume = %d %s", got.Code, got.Body)
+	}
+	if got := call(handler, "POST", "/acorn/custom/generate", `{}`, bearer("hunter"), ""); got.Code != http.StatusBadRequest {
+		t.Fatalf("missing jd = %d", got.Code)
 	}
 }
 

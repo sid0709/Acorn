@@ -3,14 +3,13 @@ import { authHeaders, getAcornApiUrl } from "../../auth/acorn-auth";
 import { extractError, isNestMissingRoute, readId } from "./http";
 
 const CUSTOM_STORED_FILE_UNAVAILABLE =
-  "Could not load the stored editor résumé. Custom preview, download, and Fill use the Firestore file from generate, not the default Word export.";
+  "Could not load the stored résumé. Custom preview, download, and Fill use the file from generate.";
 
 const CUSTOM_PREVIEW_UNAVAILABLE =
-  "Résumé preview needs the stored editor file on this Acorn API. Download and Fill use that same Firestore file.";
+  "Résumé preview needs the stored file on this Acorn API. Download and Fill use that same file.";
 
 /**
- * Stored Custom résumé from Firestore (same template-applied file the
- * editor writes). Never the personal `/docx` renderDocx export.
+ * Stored Custom résumé (the template-applied file generate writes).
  */
 export async function fetchCustomResume(
   generationId: string,
