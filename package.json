@@ -1,0 +1,89 @@
+{
+  "name": "acorn",
+  "private": true,
+  "packageManager": "bun@1.4.2",
+  "workspaces": {
+    "packages": [
+      "acorn/extension",
+      "acorn/packages/*",
+      "acorn/demo",
+      "acorn-frontend",
+      "packages/*"
+    ],
+    "catalog": {
+      "@commitlint/cli": "21.2.3",
+      "@commitlint/config-conventional": "21.2.3",
+      "@crxjs/vite-plugin": "2.7.1",
+      "@tailwindcss/postcss": "4.3.3",
+      "@types/bun": "1.4.2",
+      "@types/chrome": "0.0.287",
+      "@types/node": "20.19.43",
+      "@types/react": "19.3.0",
+      "@types/react-dom": "19.3.0",
+      "@vitejs/plugin-react": "6.1.1",
+      "eslint": "9.39.5",
+      "eslint-config-next": "16.3.6",
+      "eslint-config-prettier": "10.1.8",
+      "eslint-plugin-import": "2.32.0",
+      "eslint-plugin-react-hooks": "7.1.1",
+      "husky": "9.1.7",
+      "lint-staged": "17.6.0",
+      "next": "16.3.6",
+      "prettier": "3.9.9",
+      "puppeteer": "25.12.0",
+      "react": "19.3.0",
+      "react-dom": "19.3.0",
+      "sharp": "0.35.4",
+      "sid-ui": "0.1.0",
+      "socket.io-client": "4.8.3",
+      "tailwindcss": "4.3.3",
+      "turbo": "2.11.4",
+      "typescript": "5.9.3",
+      "typescript-eslint": "8.70.1",
+      "vite": "8.3.1"
+    }
+  },
+  "overrides": {
+    "@types/node": "20.19.43"
+  },
+  "scripts": {
+    "dev:web": "bun --filter acorn-frontend dev",
+    "dev:acorn-api": "go run -C acorn-backend ./cmd/server",
+    "dev:acorn": "bun --filter acorn-extension dev",
+    "dev:acorn-face": "bun --filter @acorn/face dev",
+    "build": "turbo run build",
+    "build:web": "bun --filter acorn-frontend build",
+    "build:acorn": "bun --filter acorn-extension build",
+    "lint": "bun run lint:workspaces && bun run lint:repo",
+    "lint:workspaces": "turbo run lint",
+    "lint:repo": "eslint eslint.config.mjs eslint.shared.mjs commitlint.config.mjs tools tests --max-warnings=0",
+    "lint:fix": "turbo run lint:fix && eslint eslint.config.mjs eslint.shared.mjs commitlint.config.mjs tools tests --fix --max-warnings=0",
+    "format": "prettier --write .",
+    "format:check": "prettier --check .",
+    "typecheck": "turbo run typecheck",
+    "test": "bun test",
+    "test:go": "go test ./acorn-backend/...",
+    "vet:go": "go vet ./acorn-backend/...",
+    "check:deps": "bun tools/check-single-node-modules.mjs",
+    "prepare": "husky",
+    "commitlint": "commitlint"
+  },
+  "devDependencies": {
+    "@commitlint/cli": "catalog:",
+    "@commitlint/config-conventional": "catalog:",
+    "@types/bun": "catalog:",
+    "eslint": "catalog:",
+    "eslint-config-prettier": "catalog:",
+    "eslint-plugin-import": "catalog:",
+    "eslint-plugin-react-hooks": "catalog:",
+    "husky": "catalog:",
+    "lint-staged": "catalog:",
+    "prettier": "catalog:",
+    "turbo": "catalog:",
+    "typescript-eslint": "catalog:"
+  },
+  "lint-staged": {
+    "**/*.{js,jsx,mjs,cjs,ts,tsx,mts,cts}": "prettier --write",
+    "**/*.{json,css,scss,md,mdx,yml,yaml}": "prettier --write"
+  }
+}

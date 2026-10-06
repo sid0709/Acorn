@@ -1,0 +1,58 @@
+---
+description: Acorn monorepo conventions — bun, no hardcoding, shared packages
+alwaysApply: true
+---
+
+# Acorn project conventions
+
+**Never start the main servers. Never CDP. Never mock-up test.** The human runs the API, the website, and the extension. Edit code only. Do not `go run`, `bun run dev`, `next dev`, kill listeners, browser-automate, snapshot, or click through localhost to verify.
+
+This is a **bun workspaces monorepo**. Work from the repo root. Shared UI is the `sid-ui` package (https://github.com/sid0709/sid-ui). Apps consume it from the catalog. Do not copy a component, token, or helper into a workspace, and do not add the source back under `packages/`.
+
+`acorn-backend` compiles against `backend-core` in the sibling Joined checkout. The `replace` in `acorn-backend/go.mod` is `../../Joined/backend-core` (paths in `go.mod` are relative to that module). `@joined/google-signin` re-exports the package in that same checkout. Both repos sit next to each other under `Utils`.
+
+## Package manager
+
+Use **bun only**. Never npm, yarn, or pnpm.
+
+```bash
+bun install
+bun add <pkg>
+bun add -d <pkg>
+bun run <script>
+bunx <cli>
+```
+
+Do not create or commit `package-lock.json`, `yarn.lock`, or `pnpm-lock.yaml`. Prefer `bun.lock`.
+
+## No hardcoding
+
+Never inline a value that belongs in env, a config module, a design token, or a named constant. This applies in every language. The stack rule for the files you are editing says where that value lives.
+
+- Secrets and API hosts come from the environment or that stack's config module. A literal host or key in source is a bug.
+- Colors, spacing, type, radii, and shadows in UI come from `sid-ui` tokens. A hex color or an inline style for those is a bug.
+- Timeouts, limits, ids, and protocol strings are named constants in the module that owns them.
+- A value used by more than one workspace lives in one shared package.
+
+User-facing copy can sit next to the only component that shows it. Copy used in a second place moves to a shared constant.
+
+## Stack rules
+
+Follow the rule that matches the folder you are editing, and use only that folder's stack.
+
+| Folder | Rule file |
+| --- | --- |
+| Next.js: `acorn-frontend` | `.cursor/rules/nextjs.mdc` |
+| UI on `sid-ui`: `acorn-frontend`, `acorn/extension` | `.cursor/rules/design-system.mdc` |
+| Go: `acorn-backend` | `.cursor/rules/go.mdc` |
+| Vite: `acorn/extension`, `acorn/demo`, `acorn/packages` | `.cursor/rules/vite.mdc` |
+
+Claude Code loads the same text from `.claude/rules/`. Acorn's own rules under `acorn/.cursor/rules/` still apply on top of these.
+
+## Best practice
+
+- Match the neighboring files in that workspace before introducing a new pattern.
+- Prefer composition and reuse over duplication.
+- Keep modules small and single-purpose. Split a file when it mixes unrelated concerns or grows past a focused unit of work.
+- Colocate types with the code that owns them; share types from packages when more than one app needs them.
+- Change the source of truth (tokens, shared components, config) instead of patching call sites with one-off values.

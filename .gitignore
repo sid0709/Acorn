@@ -1,0 +1,14 @@
+.DS_Store
+node_modules/
+coverage/
+dist/
+.turbo/
+.next/
+out/
+*.tsbuildinfo
+.env
+.env.*
+!.env.example
+client_secret*.json
+*service-account*.json
+*.pem
