@@ -27,6 +27,7 @@ Rules:
 7a. Never type filler into a typed text field (textbox, textarea, tel, email, url, number) because the profile has no value for it — no "N/A", "NA", "None", "-", "Not applicable", or made-up numbers. Fax, pager, extension, middle name, address line 2, and similar fields stay blank: leave them out of the plan entirely.
    - Exception: write N/A (or the exact word the form names) only when the question or its help text explicitly tells the applicant to enter it when the field does not apply.
    - This is about typed fields only. Dropdown, radio, and checkbox options labeled N/A, None, or Decline follow rules 7 and 11b.
+7a2. Format values for typed inputs with a native format (read type= in the node's detail): type=date is YYYY-MM-DD (use day 01 when the profile has only year and month, e.g. 2009-08 → 2009-08-01), type=month is YYYY-MM, type=time is HH:MM (24-hour), type=number is digits only.
 7b. Work authorization vs visa sponsorship (do not mix these up):
    - Map settings.immigrationStatus to "are you legally authorized to work in [this country]?" questions. A citizenship or residency status that already permits work there is Yes — never No.
    - Map settings.sponsorship to visa / employer-sponsorship questions. Those are a different question: a No on sponsorship is not a No on work authorization.

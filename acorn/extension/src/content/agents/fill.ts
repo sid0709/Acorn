@@ -3,6 +3,7 @@ import {
   isEnhancedSelect,
   resolveDropdownInteractionTarget,
 } from "./enhanced-select";
+import { formatForInputType } from "./input-format";
 import { fillNativeSelect } from "./native-select";
 import { selectComboboxOption, type ComboboxFillOptions } from "./select-combobox";
 import { selectRadioElement } from "./select-radio";
@@ -99,7 +100,12 @@ export async function fillElement(
       const target = resolveDropdownInteractionTarget(html);
       return selectComboboxOption(target, value, fieldHint, comboboxOptions);
     }
-    await setNativeValue(el, value);
+    const formatted = formatForInputType(type, value);
+    await setNativeValue(el, formatted);
+    // The browser drops a value its input type cannot hold; that is a failed fill, not a blank answer.
+    if (formatted.trim() && !el.value) {
+      throw new Error(`The ${type} field rejected "${value}"`);
+    }
     return el.value;
   }
 

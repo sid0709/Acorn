@@ -9,8 +9,10 @@ import { findLiveOption } from "./combobox/options-wait";
 import { dismissOpenOverlays, settlePopupClosed } from "./combobox/typing";
 
 export interface ComboboxFillOptions {
-  /** Type `value` into the search box to narrow a long list (default true). */
+  /** Type into the search box to narrow a long list (default true). */
   allowTypeahead?: boolean;
+  /** `value` is an instruction, not a search: a long list types the writer's estimate instead. */
+  estimateQuery?: boolean;
 }
 
 /** Choose the option for `value` (see chooseOption), click it, and leave the popup closed. */
@@ -18,7 +20,7 @@ export async function selectComboboxOption(
   el: Element,
   value: string,
   fieldHint?: string | null,
-  { allowTypeahead = true }: ComboboxFillOptions = {},
+  { allowTypeahead = true, estimateQuery = false }: ComboboxFillOptions = {},
 ): Promise<string> {
   const requested = el as HTMLElement;
   if (requested instanceof HTMLSelectElement) {
@@ -53,7 +55,10 @@ export async function selectComboboxOption(
       )
       .join(" ") || null;
 
-  const { match, options } = await chooseOption(html, doc, value, fieldLabel, allowTypeahead);
+  const { match, options } = await chooseOption(html, doc, value, fieldLabel, {
+    allowTypeahead,
+    estimateQuery,
+  });
   if (!match) {
     dismissOpenOverlays(doc, html);
     throw new Error(

@@ -19,6 +19,7 @@ import {
   handleStartJobWork,
 } from "./messages/generate";
 import { handleMatchOption } from "./messages/match-option";
+import { handleEstimateOption } from "./messages/estimate-option";
 import { handleFetchDom, handleStartPipeline } from "./messages/pipeline";
 import { handleSelectionQa } from "./messages/selection-qa";
 import type { RuntimeMessage, SendResponse } from "./messages/shared";
@@ -118,6 +119,11 @@ export function routeMessage(
 
   if (message.type === MSG.MATCH_OPTION) {
     handleMatchOption(message, sender, sendResponse);
+    return true;
+  }
+
+  if (message.type === MSG.ESTIMATE_OPTION) {
+    handleEstimateOption(message, sender, sendResponse);
     return true;
   }
 

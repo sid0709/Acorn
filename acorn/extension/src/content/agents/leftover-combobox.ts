@@ -84,8 +84,9 @@ export async function fillLeftoverComboboxes(): Promise<{
     // Leftover "Answer from the applicant profile" overwrites a filled School.
     if (/\b(school|university|college)\b/i.test(label)) continue;
     try {
-      // PROFILE_ANSWER is an instruction for the option matcher, never a search query.
-      await fillElement(el, PROFILE_ANSWER, label || null, { allowTypeahead: false });
+      // PROFILE_ANSWER is an instruction for the matcher, never a search query: a long
+      // list types the writer's estimated answer instead.
+      await fillElement(el, PROFILE_ANSWER, label || null, { estimateQuery: true });
       if (readControlValue(el)) filled += 1;
       traceFromPage("leftover:filled", () => ({ id: el.id, label, read: readControlValue(el) }));
     } catch (err) {

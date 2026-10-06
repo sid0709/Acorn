@@ -24,6 +24,7 @@ Rules:
    - select_radio or fill for dropdowns, radio groups, and checkbox groups: use the exact option label for THAT control from the Pure Tree. If the tree omits the options, still give a concrete answer; the runtime matches it to the live list.
    - Written answers (reason for leaving, why this role, describe…): write a factual draft from the profile. A writer rewrites it later. Respect any length limit the page states.
    - A required field the profile does not answer still gets the single most plausible concrete answer for this applicant. Do not leave a required field blank.
+3b. Format values for typed inputs with a native format (read type= in the node's detail): type=date is YYYY-MM-DD (use day 01 when the profile has only year and month, e.g. 2009-08 → 2009-08-01), type=month is YYYY-MM, type=time is HH:MM (24-hour), type=number is digits only. A date the page rejected was usually in the wrong format.
 4. How did you hear about this job / source / referral: choose the option that names the same site or network as the applicant's saved professional-network URL (settings.linkedin, then github / portfolioUrl).
 5. clear only applies to typed text fields (textbox, textarea, email, tel, url, number, search). Never clear a dropdown, checkbox, radio, or file input.
 6. Targets: use numeric element indexes from the Pure Tree only. Usually that is the flagged elementIndex. For a dropdown or choice group, target the control a person would click: the combobox / select itself, or the visible option for checkbox and radio groups. Never invent an index.

@@ -43,6 +43,8 @@ export const MSG = {
   EXECUTE_ACTIONS: "acorn:execute-actions",
   PLAN_STEP: "acorn:plan-step",
   MATCH_OPTION: "acorn:match-option",
+  /** A long dropdown with no planned answer: ask the writer for one to type as a search. */
+  ESTIMATE_OPTION: "acorn:estimate-option",
   FILL_LEFTOVER_COMBOS: "acorn:fill-leftover-combos",
   /** Re-read field errors on the last serialized tree (Refill's after-check). */
   SCAN_FIELD_ISSUES: "acorn:scan-field-issues",
