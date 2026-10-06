@@ -101,6 +101,11 @@ func LoadEnvFile() {
 	loadEnvFile(envFileName)
 }
 
+// LoadEnvFileAt reads one env file. Variables already set in the environment win.
+func LoadEnvFileAt(path string) {
+	loadEnvFile(path)
+}
+
 func LoadDatabase() (Database, error) {
 	db := Database{
 		MongoURI:                strings.TrimSpace(os.Getenv("MONGO_URI")),

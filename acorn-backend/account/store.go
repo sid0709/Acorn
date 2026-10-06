@@ -7,6 +7,7 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"errors"
+	"fmt"
 	"strings"
 	"time"
 
@@ -44,6 +45,8 @@ var (
 	ErrGoogleMismatch = errors.New("this email is linked to a different Google account")
 	// ErrGoogleUnknown is a Google account with no Acorn account for that email.
 	ErrGoogleUnknown = errors.New("no Acorn account uses this Gmail")
+	// ErrNotFound is a delete for an account id Acorn does not have.
+	ErrNotFound = errors.New("account not found")
 )
 
 // User is one Acorn account.
@@ -213,6 +216,25 @@ func (s *Store) Revoke(ctx context.Context, token string) error {
 	}
 	_, err := s.sessions.DeleteOne(ctx, bson.D{{Key: "tokenHash", Value: hashToken(token)}})
 	return err
+}
+
+// Delete removes the account and every session for it. Saved and applied job ids live on the account.
+func (s *Store) Delete(ctx context.Context, userID string) error {
+	userID = strings.TrimSpace(userID)
+	if userID == "" {
+		return ErrInvalid
+	}
+	if _, err := s.sessions.DeleteMany(ctx, bson.D{{Key: "userId", Value: userID}}); err != nil {
+		return fmt.Errorf("delete sessions: %w", err)
+	}
+	res, err := s.accounts.DeleteOne(ctx, bson.D{{Key: "id", Value: userID}})
+	if err != nil {
+		return fmt.Errorf("delete account: %w", err)
+	}
+	if res.DeletedCount == 0 {
+		return ErrNotFound
+	}
+	return nil
 }
 
 func (s *Store) SavedJobIDs(ctx context.Context, userID string) ([]string, error) {

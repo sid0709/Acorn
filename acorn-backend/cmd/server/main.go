@@ -37,7 +37,14 @@ var defaultOrigins = []string{
 }
 
 func main() {
-	config.LoadEnvFile()
+	if _, exists := os.LookupEnv("MONGO_URI"); exists {
+		slog.Warn("MONGO_URI is already set in the process environment, so acorn-backend/.env will not replace it")
+	}
+	envFile, err := loadAcornEnv()
+	if err != nil {
+		slog.Error("config", "error", err)
+		os.Exit(1)
+	}
 	db, err := config.LoadDatabase()
 	if err != nil {
 		slog.Error("config", "error", err)
@@ -45,6 +52,7 @@ func main() {
 	}
 	// Acorn reads ACORN_DB so a shared environment cannot point this process at another database.
 	db.DestDB = config.Env("ACORN_DB", defaultDatabase)
+	slog.Info("mongo", "envFile", envFile, "host", mongoHost(db.MongoURI), "database", db.DestDB)
 	server, err := config.LoadHTTP(defaultHTTPAddr, defaultOrigins)
 	if err != nil {
 		slog.Error("config", "error", err)

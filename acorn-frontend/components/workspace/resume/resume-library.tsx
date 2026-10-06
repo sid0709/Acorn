@@ -427,7 +427,7 @@ export function ResumeLibrary() {
         width={BULK_DIALOG_WIDTH}
       >
         <Layout
-          height="auto"
+          height="fill"
           header={
             <DialogHeader
               title="Confirm bulk upload"
@@ -438,14 +438,14 @@ export function ResumeLibrary() {
           }
           content={
             <LayoutContent>
-              <Stack gap={2}>
+              <HStack gap={2} wrap="wrap">
                 {bulkSummary.map((item) => (
-                  <HStack key={item.stack} hAlign="between">
-                    <Text weight="semibold">{item.stack}</Text>
-                    <Text color="secondary">{`${item.count} file${item.count === 1 ? "" : "s"}`}</Text>
-                  </HStack>
+                  <Badge
+                    key={item.stack}
+                    label={item.count === 1 ? item.stack : `${item.stack} · ${item.count}`}
+                  />
                 ))}
-              </Stack>
+              </HStack>
             </LayoutContent>
           }
           footer={
@@ -516,7 +516,7 @@ export function ResumeLibrary() {
         width={SKILLS_DIALOG_WIDTH}
       >
         <Layout
-          height="auto"
+          height="fill"
           header={
             <DialogHeader
               title={skillsRow ? `${skillsRow.title} — ${skillsRow.fileName}` : "Skills"}

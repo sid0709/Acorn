@@ -52,6 +52,7 @@ type Accounts interface {
 	TakeGoogleState(ctx context.Context, state string, now time.Time) (string, string, error)
 	GoogleSignIn(ctx context.Context, id account.GoogleIdentity, now time.Time) (string, account.User, error)
 	GoogleMatch(ctx context.Context, id account.GoogleIdentity, now time.Time) (string, account.User, error)
+	Delete(ctx context.Context, userID string) error
 }
 
 type Server struct {
@@ -115,6 +116,7 @@ func New(accounts Accounts, listings *jobs.Store, brain *acorn.Service, opts Opt
 	mux.HandleFunc("POST /acorn/auth/signin", s.signIn)
 	mux.HandleFunc("GET /acorn/auth/me", s.me)
 	mux.HandleFunc("POST /acorn/auth/signout", s.signOut)
+	mux.HandleFunc("DELETE /acorn/account", s.deleteAccount)
 	mux.HandleFunc("POST /v1/auth/google/start", s.startGoogle)
 	mux.HandleFunc("POST /v1/auth/google/callback", s.finishGoogle)
 	mux.HandleFunc("POST /acorn/auth/google/start", s.startExtensionGoogle)

@@ -99,6 +99,7 @@ func (noAccounts) GoogleSignIn(context.Context, account.GoogleIdentity, time.Tim
 func (noAccounts) GoogleMatch(context.Context, account.GoogleIdentity, time.Time) (string, account.User, error) {
 	return "", account.User{}, account.ErrGoogleUnknown
 }
+func (noAccounts) Delete(context.Context, string) error { return nil }
 
 // The real Acorn handler behind the real router: the extension's Engine.IO handshake
 // at gateway.Path and its plain routes both reach Acorn.

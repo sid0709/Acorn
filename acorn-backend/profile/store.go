@@ -4,6 +4,7 @@ package profile
 import (
 	"context"
 	"errors"
+	"fmt"
 	"strings"
 	"sync"
 	"time"
@@ -155,7 +156,20 @@ func (s *Store) EnsureIndexes(ctx context.Context) error {
 	return err
 }
 
-// Load returns the stored profile. The bool is false when this account has not saved one.
+// Delete removes the saved profile for this account.
+func (s *Store) Delete(ctx context.Context, accountID string) error {
+	s.mu.Lock()
+	delete(s.rows, accountID)
+	s.mu.Unlock()
+	if s.coll == nil {
+		return nil
+	}
+	_, err := s.coll.DeleteOne(ctx, bson.D{{Key: "accountId", Value: accountID}})
+	if err != nil {
+		return fmt.Errorf("delete profile: %w", err)
+	}
+	return nil
+}
 func (s *Store) Load(ctx context.Context, accountID string) (Document, bool, error) {
 	s.mu.Lock()
 	doc, ok := s.rows[accountID]
