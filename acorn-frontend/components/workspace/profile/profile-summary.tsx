@@ -32,6 +32,8 @@ export function ProfileSummary({
   experience: string;
 }) {
   const current = profile.timeline.find((entry) => entry.kind === "role" && entry.current);
+  const role = current ? `${current.title} · ${current.org}` : profile.headline;
+  const place = [profile.city, profile.state || profile.country].filter(Boolean).join(", ");
   const checklist = profileChecklist(profile);
   const percent = completeness(checklist);
   const done = checklist.filter((item) => item.done).length;
@@ -49,17 +51,9 @@ export function ProfileSummary({
           <Avatar name={name || profile.fullName} size={AVATAR_SIZE} />
           <Stack gap={1} hAlign="center">
             <Heading level={2}>{name || profile.fullName || "Your name"}</Heading>
-            <Text color="secondary">
-              {current ? `${current.title} · ${current.org}` : "Add your current role"}
-            </Text>
+            <Text color="secondary">{role || "Add your current role"}</Text>
           </Stack>
-          {profile.city ? (
-            <Badge
-              label={`${profile.city}, ${profile.state}`}
-              variant="neutral"
-              icon={<Glyph name="pin" />}
-            />
-          ) : null}
+          {place ? <Badge label={place} variant="neutral" icon={<Glyph name="pin" />} /> : null}
         </Stack>
         <Stack gap={2}>
           <HStack hAlign="between" vAlign="end">

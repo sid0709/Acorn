@@ -33,7 +33,27 @@ export type ResumeTheme = {
   headerAlign: "left" | "center";
   paper: ResumePaperSize;
   margin: number;
+  /** Space between sections, in pt. */
+  sectionGap: number;
+  /** Space between roles and between schools, in pt. */
+  entryGap: number;
+  /** Body line height, unitless. */
+  lineHeight: number;
 };
+
+/**
+ * Editor ranges for the theme's numbers. acorn-backend/resume/design.go clamps to the same
+ * limits and uses the same defaults, so a value the editor allows always renders.
+ */
+export const RESUME_THEME_LIMITS = {
+  baseSize: { min: 7, max: 16, step: 0.5 },
+  nameSize: { min: 14, max: 40, step: 1 },
+  titleSize: { min: 8, max: 20, step: 0.5 },
+  margin: { min: 0.25, max: 1.5, step: 0.05 },
+  sectionGap: { min: 0, max: 36, step: 0.5 },
+  entryGap: { min: 0, max: 24, step: 0.5 },
+  lineHeight: { min: 1, max: 2, step: 0.02 },
+} as const;
 
 export type ResumeLayoutSection = {
   id: string;
@@ -42,6 +62,8 @@ export type ResumeLayoutSection = {
   titleColor: string;
   titleSize: number;
   bodySize: number;
+  /** Left off the page but kept in the layout, so it returns in the same place. */
+  hidden?: boolean;
 };
 
 export type ResumeCoverageSettings = {
@@ -120,6 +142,9 @@ export function defaultResumeTheme(): ResumeTheme {
     headerAlign: "center",
     paper: "letter",
     margin: 0.6,
+    sectionGap: 10.5,
+    entryGap: 7.5,
+    lineHeight: 1.42,
   };
 }
 
@@ -259,6 +284,12 @@ function record(value: unknown): Record<string, unknown> {
     : {};
 }
 
+/** A stored number, where 0 is a real choice (no gap) rather than "unset". */
+function finiteOr(value: unknown, fallback: number): number {
+  const n = typeof value === "number" ? value : Number.NaN;
+  return Number.isFinite(n) ? n : fallback;
+}
+
 function migrateTheme(value: unknown, base: ResumeTheme): ResumeTheme {
   const raw = record(value);
   return {
@@ -272,6 +303,9 @@ function migrateTheme(value: unknown, base: ResumeTheme): ResumeTheme {
     headerAlign: raw.headerAlign === "left" ? "left" : "center",
     paper: raw.paper === "a4" || raw.paperSize === "a4" ? "a4" : "letter",
     margin: Number(raw.margin ?? raw.marginIn) || base.margin,
+    sectionGap: finiteOr(raw.sectionGap, base.sectionGap),
+    entryGap: finiteOr(raw.entryGap, base.entryGap),
+    lineHeight: Number(raw.lineHeight) || base.lineHeight,
   };
 }
 

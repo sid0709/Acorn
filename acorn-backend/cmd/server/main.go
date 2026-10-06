@@ -80,7 +80,7 @@ func main() {
 		slog.Error("acorn resumes", "error", err)
 		os.Exit(1)
 	}
-	profiles := profile.NewStore(p.Mongo(), db.DestDB)
+	profiles := profile.NewStore(p.Mongo(), db.DestDB, model)
 	if err := profiles.EnsureIndexes(context.Background()); err != nil {
 		slog.Error("acorn profiles", "error", err)
 		os.Exit(1)

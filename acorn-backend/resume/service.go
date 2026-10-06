@@ -350,8 +350,9 @@ func (s *Service) JobPreview(accountID, jobID string) (string, error) {
 
 func defaultConfig() map[string]any {
 	theme := map[string]any{
-		"font": "Georgia", "baseSize": 10.5, "nameSize": 24, "titleSize": 12,
-		"accent": "#1f3a5f", "text": "#1a1a1a", "headerAlign": "center", "paper": "letter", "margin": 0.6,
+		"font": defaultFont, "baseSize": baseSizeRange.def, "nameSize": nameSizeRange.def, "titleSize": titleSizeRange.def,
+		"accent": defaultAccent, "text": defaultText, "headerAlign": "center", "paper": "letter",
+		"margin": marginRange.def, "sectionGap": sectionGapRange.def, "entryGap": entryGapRange.def, "lineHeight": lineHeightRange.def,
 	}
 	return map[string]any{
 		"schemaVersion": 4, "provider": "openai", "model": "gpt-5-nano",

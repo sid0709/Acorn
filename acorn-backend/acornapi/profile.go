@@ -57,19 +57,19 @@ func (s *Server) fillProfile(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	var (
-		saved profile.Document
-		err   error
+		filled profile.Filled
+		err    error
 	)
 	switch {
 	case body.Text != "":
-		saved, err = s.profiles.FillText(r.Context(), session.User.ID, session.User.Name, session.User.Email, body.Text, body.Profile)
+		filled, err = s.profiles.FillText(r.Context(), session.User.ID, session.User.Name, session.User.Email, body.Text, body.Profile)
 	case body.ContentBase64 != "":
 		data, decErr := base64.StdEncoding.DecodeString(body.ContentBase64)
 		if decErr != nil {
 			writeError(w, http.StatusBadRequest, "invalid résumé file")
 			return
 		}
-		saved, err = s.profiles.FillFile(r.Context(), session.User.ID, session.User.Name, session.User.Email, body.FileName, data, body.Profile)
+		filled, err = s.profiles.FillFile(r.Context(), session.User.ID, session.User.Name, session.User.Email, body.FileName, data, body.Profile)
 	default:
 		writeError(w, http.StatusBadRequest, "add a résumé file")
 		return
@@ -78,7 +78,7 @@ func (s *Server) fillProfile(w http.ResponseWriter, r *http.Request) {
 		writeProfileError(w, err)
 		return
 	}
-	writeJSON(w, http.StatusOK, map[string]any{"success": true, "stored": true, "profile": saved})
+	writeJSON(w, http.StatusOK, map[string]any{"success": true, "stored": true, "profile": filled.Profile, "reader": filled.Reader})
 }
 
 func writeProfileError(w http.ResponseWriter, err error) {

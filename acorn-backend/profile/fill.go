@@ -2,6 +2,8 @@ package profile
 
 import (
 	"context"
+	"fmt"
+	"log/slog"
 	"strconv"
 	"strings"
 
@@ -9,23 +11,45 @@ import (
 	"github.com/sid0709/OpenSeat/backend-core/candidate"
 )
 
-// FillText merges résumé text onto current (or the stored profile) and saves.
-func (s *Store) FillText(ctx context.Context, accountID, accountName, accountEmail, text string, current *Document) (Document, error) {
+// Filled is a profile after a résumé fill, and which reader read the résumé.
+type Filled struct {
+	Profile Document
+	Reader  string
+}
+
+// FillText reads résumé text onto current (or the stored profile) and saves.
+// The layout parser always runs; a ready model then reads the same text and its
+// answers win. A model failure keeps the parser's answers.
+func (s *Store) FillText(ctx context.Context, accountID, accountName, accountEmail, text string, current *Document) (Filled, error) {
 	base, err := s.base(ctx, accountID, accountName, accountEmail, current)
 	if err != nil {
-		return Document{}, err
+		return Filled{}, err
 	}
 	next, err := MergeResume(base, text)
 	if err != nil {
-		return Document{}, err
+		return Filled{}, err
 	}
-	return s.Save(ctx, accountID, next)
+	reader := ReaderLayout
+	if s.model != nil && s.model.Ready() {
+		found, err := readResume(ctx, s.model, text)
+		if err != nil {
+			slog.Warn("acorn profile: résumé read by layout only", "error", err)
+		} else {
+			next = normalize(found.apply(next, text))
+			reader = ReaderAI
+		}
+	}
+	saved, err := s.Save(ctx, accountID, next)
+	if err != nil {
+		return Filled{}, fmt.Errorf("save filled profile: %w", err)
+	}
+	return Filled{Profile: saved, Reader: reader}, nil
 }
 
 // FillFile reads a résumé file, merges it, and saves.
-func (s *Store) FillFile(ctx context.Context, accountID, accountName, accountEmail, fileName string, data []byte, current *Document) (Document, error) {
+func (s *Store) FillFile(ctx context.Context, accountID, accountName, accountEmail, fileName string, data []byte, current *Document) (Filled, error) {
 	if len(data) == 0 || len(data) > maxResume {
-		return Document{}, ErrInvalid
+		return Filled{}, ErrInvalid
 	}
 	return s.FillText(ctx, accountID, accountName, accountEmail, fileText(fileName, data), current)
 }

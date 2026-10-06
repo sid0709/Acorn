@@ -93,7 +93,8 @@ func headerish(line string) bool {
 	if strings.HasSuffix(trimmed, ".") && !strings.HasSuffix(trimmed, "Inc.") && !strings.HasSuffix(trimmed, "Ltd.") && !strings.HasSuffix(trimmed, "Co.") {
 		return false
 	}
-	return len(strings.Fields(trimmed)) <= maxHeaderWords && len([]rune(trimmed)) <= maxHeaderRunes
+	words := strings.Fields(trimmed)
+	return len(words) <= maxHeaderWords && len([]rune(strings.Join(words, " "))) <= maxHeaderRunes
 }
 
 // headerParts splits an entry header into its pieces. A trailing ", City, ST"

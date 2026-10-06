@@ -62,7 +62,7 @@ var usStates = map[string]string{
 }
 
 var (
-	placePattern = regexp.MustCompile(`(?i)^([A-Za-z][A-Za-z .'-]{0,40}?),\s*([A-Za-z][A-Za-z .'-]{1,24}?)(?:\s+(\d{5}(?:-\d{4})?))?(?:,\s*([A-Za-z][A-Za-z .'-]{1,40}))?$`)
+	placePattern  = regexp.MustCompile(`(?i)^([A-Za-z][A-Za-z .'-]{0,40}?),\s*([A-Za-z][A-Za-z .'-]{1,24}?)(?:\s+(\d{5}(?:-\d{4})?))?(?:,\s*([A-Za-z][A-Za-z .'-]{1,40}))?$`)
 	remotePattern = regexp.MustCompile(`(?i)^(remote|hybrid|on-?site)(\s*[(,-].*)?$`)
 	// contactSplit separates the pieces of a contact line: "City, ST | email | phone".
 	contactSplit = regexp.MustCompile(`[|•·▪◦●\t]|\s{2,}`)
@@ -153,7 +153,7 @@ const (
 var countryNames = map[string]string{
 	"united states": unitedStates, "united states of america": unitedStates, "usa": unitedStates,
 	"us": unitedStates, "u.s": unitedStates, "u.s.a": unitedStates, "america": unitedStates,
-	"canada": canada,
+	"canada":         canada,
 	"united kingdom": unitedKingdom, "uk": unitedKingdom, "u.k": unitedKingdom, "england": unitedKingdom,
 	"scotland": unitedKingdom, "wales": unitedKingdom, "britain": unitedKingdom, "great britain": unitedKingdom,
 }

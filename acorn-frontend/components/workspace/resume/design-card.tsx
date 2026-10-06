@@ -16,15 +16,7 @@ import { paletteName, withPalette } from "@/lib/resume/design";
 import type { ResumeGeneratorConfig, ResumeTheme } from "@acorn/shared/resume-config";
 import { RESUME_FONT_OPTIONS, RESUME_PALETTES } from "@acorn/shared/resume-fonts";
 import { isUploadedTemplateId } from "@acorn/shared/resume-templates";
-
-/** A dot in the palette's accent. The color is document data from the palette list, not app chrome. */
-function Swatch({ color }: { color: string }) {
-  return (
-    <svg viewBox="0 0 16 16" width="1em" height="1em" aria-hidden="true">
-      <circle cx="8" cy="8" r="8" fill={color} />
-    </svg>
-  );
-}
+import { Swatch } from "./swatch";
 
 /** Template, type, color, and page setup. Every change shows up in the live preview. */
 export function DesignCard({

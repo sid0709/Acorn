@@ -6,13 +6,22 @@ export const PATH_MAX = 180;
 export const SECRET_MAX = 200;
 export const LINK_MAX = 200;
 export const ADDRESS_MAX = 120;
-export const ROLE_SUMMARY_ROWS = 3;
+export const ROLE_SUMMARY_ROWS = 6;
+export const MONTHS_PER_YEAR = 12;
+/** How far back the year pickers reach. */
+export const YEAR_SPAN = 50;
+
+export type EntryKind = "role" | "education";
 
 export type CareerEntry = {
   id: string;
-  kind: "role" | "education";
+  kind: EntryKind;
+  /** Job title, or the degree and field for education. */
   title: string;
+  /** Employer, or school. */
   org: string;
+  /** Where the role or school was, as written. */
+  location: string;
   summary: string;
   startMonth: string;
   startYear: string;
@@ -27,6 +36,8 @@ export type ApplicantProfile = {
   firstName: string;
   middleName: string;
   lastName: string;
+  /** The professional title under the name, e.g. "Senior Automation Engineer". */
+  headline: string;
   age: string;
   gender: string;
   pronouns: string;
@@ -128,13 +139,28 @@ export const MODEL_OPTIONS = choice([
   "gpt-4o",
 ]);
 
-export const MONTH_OPTIONS = Array.from({ length: 12 }, (_, index) => {
-  const value = String(index + 1);
-  return { value, label: value };
-});
+const MONTH_NAMES = [
+  "Jan",
+  "Feb",
+  "Mar",
+  "Apr",
+  "May",
+  "Jun",
+  "Jul",
+  "Aug",
+  "Sep",
+  "Oct",
+  "Nov",
+  "Dec",
+];
 
-export const YEAR_OPTIONS = Array.from({ length: 20 }, (_, index) => {
-  const value = String(2026 - index);
+export const MONTH_OPTIONS = MONTH_NAMES.map((label, index) => ({
+  value: String(index + 1),
+  label,
+}));
+
+export const YEAR_OPTIONS = Array.from({ length: YEAR_SPAN }, (_, index) => {
+  const value = String(new Date().getFullYear() - index);
   return { value, label: value };
 });
 
@@ -148,6 +174,7 @@ export function sampleProfile(account: AcornAccount): ApplicantProfile {
     firstName,
     middleName,
     lastName,
+    headline: "Senior Software Engineer",
     age: "32",
     gender: "Male",
     pronouns: "they/them",
@@ -190,6 +217,7 @@ export function sampleProfile(account: AcornAccount): ApplicantProfile {
         kind: "role",
         title: "Senior Software Engineer",
         org: "Northwind",
+        location: "San Francisco, CA",
         summary: "Hiring tools, application flow, and the resume the extension attaches.",
         startMonth: "1",
         startYear: "2022",
@@ -202,6 +230,7 @@ export function sampleProfile(account: AcornAccount): ApplicantProfile {
         kind: "role",
         title: "Software Engineer",
         org: "Lumen",
+        location: "Oakland, CA",
         summary: "Product surfaces for search, profiles, and mail.",
         startMonth: "3",
         startYear: "2018",
@@ -214,6 +243,7 @@ export function sampleProfile(account: AcornAccount): ApplicantProfile {
         kind: "role",
         title: "Software Engineer",
         org: "Harbor Health",
+        location: "Seattle, WA",
         summary: "Patient scheduling and the internal tools around it.",
         startMonth: "6",
         startYear: "2015",
@@ -226,6 +256,7 @@ export function sampleProfile(account: AcornAccount): ApplicantProfile {
         kind: "education",
         title: "B.S. Computer Science",
         org: "State University",
+        location: "",
         summary: "",
         startMonth: "9",
         startYear: "2011",
@@ -240,6 +271,7 @@ export function sampleProfile(account: AcornAccount): ApplicantProfile {
 /** Answers added after a profile may already have been saved; old profiles get these. */
 const LATER_FIELDS = {
   middleName: "",
+  headline: "",
   workAuthorized: "",
   publicTrust: "",
   securityClearance: "",
@@ -254,6 +286,10 @@ const LATER_FIELDS = {
 /** A stored profile with every field present, whichever version saved it. */
 export function withDefaults(profile: ApplicantProfile): ApplicantProfile {
   const next = { ...LATER_FIELDS, ...profile };
+  next.timeline = (next.timeline ?? []).map((entry) => ({
+    ...entry,
+    location: entry.location ?? "",
+  }));
   if (!next.gender?.trim()) next.gender = "Male";
   if (!next.orientation?.trim()) next.orientation = "Heterosexual";
   return next;
@@ -263,19 +299,60 @@ export function isApplicantProfile(value: unknown): value is ApplicantProfile {
   return Boolean(value && typeof value === "object" && "timeline" in value && "firstName" in value);
 }
 
-export function blankEntry(kind: CareerEntry["kind"]): CareerEntry {
+export function blankEntry(kind: EntryKind): CareerEntry {
   return {
     id: crypto.randomUUID(),
     kind,
     title: "",
     org: "",
+    location: "",
     summary: "",
-    startMonth: "1",
-    startYear: "2024",
+    startMonth: "",
+    startYear: String(new Date().getFullYear()),
     endMonth: "",
     endYear: "",
     current: kind === "role",
   };
+}
+
+const monthName = (month: string) => MONTH_NAMES[Number(month) - 1] ?? "";
+const monthYear = (month: string, year: string) =>
+  [monthName(month), year].filter(Boolean).join(" ");
+
+/** "Mar 2025 – Present", "2009 – May 2013", "May 2019". */
+export function entryPeriod(entry: CareerEntry) {
+  const start = monthYear(entry.startMonth, entry.startYear);
+  const end = entry.current ? "Present" : monthYear(entry.endMonth, entry.endYear);
+  return [start, end].filter(Boolean).join(" – ");
+}
+
+const startKey = (entry: CareerEntry) =>
+  Number(entry.startYear || entry.endYear || 0) * MONTHS_PER_YEAR + Number(entry.startMonth || 0);
+
+/** One kind of timeline entry, most recent first; a current role leads. */
+export function entriesOf(profile: ApplicantProfile, kind: EntryKind) {
+  return profile.timeline
+    .filter((entry) => entry.kind === kind)
+    .sort((a, b) => Number(b.current) - Number(a.current) || startKey(b) - startKey(a));
+}
+
+/** The bullets of a role summary, one per line. */
+export const highlightsOf = (entry: CareerEntry) =>
+  entry.summary
+    .split("\n")
+    .map((line) => line.trim())
+    .filter(Boolean);
+
+/** Up to two initials for a company or school mark: "Amazon Web Services" → "AW". */
+export function initialsOf(name: string) {
+  const words = name
+    .replace(/[^\p{L}\p{N}\s]/gu, " ")
+    .split(/\s+/)
+    .filter(Boolean);
+  return words
+    .slice(0, 2)
+    .map((word) => word[0]?.toUpperCase() ?? "")
+    .join("");
 }
 
 export function entryDates(entry: CareerEntry) {
@@ -339,10 +416,9 @@ export function completeness(items: ChecklistItem[]) {
     : 0;
 }
 
-export const MONTHS_PER_YEAR = 12;
-
 /** Months between a role's start and its end, or today for a current role. */
 export function monthsInRole(entry: CareerEntry, today: Date) {
+  if (!entry.startYear) return 0;
   const start = Number(entry.startYear) * MONTHS_PER_YEAR + Number(entry.startMonth || 1);
   const end = entry.current
     ? today.getFullYear() * MONTHS_PER_YEAR + today.getMonth() + 1

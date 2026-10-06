@@ -7,6 +7,7 @@ import (
 	"strings"
 	"sync"
 	"time"
+	"unicode/utf8"
 
 	"go.mongodb.org/mongo-driver/v2/bson"
 	"go.mongodb.org/mongo-driver/v2/mongo"
@@ -16,10 +17,11 @@ import (
 const profilesCollection = "acorn_profiles"
 
 const (
-	maxName        = 120
-	maxContact     = 200
-	maxSecret      = 200
-	maxSummary     = 2000
+	maxName    = 120
+	maxContact = 200
+	maxSecret  = 200
+	// maxSummary fits a role's full set of résumé bullets.
+	maxSummary     = 4000
 	maxTimeline    = 24
 	maxResume      = 8 << 20
 	minResumeRunes = 40
@@ -41,6 +43,7 @@ type Entry struct {
 	Kind       string `json:"kind" bson:"kind"`
 	Title      string `json:"title" bson:"title"`
 	Org        string `json:"org" bson:"org"`
+	Location   string `json:"location" bson:"location"`
 	Summary    string `json:"summary" bson:"summary"`
 	StartMonth string `json:"startMonth" bson:"startMonth"`
 	StartYear  string `json:"startYear" bson:"startYear"`
@@ -56,6 +59,7 @@ type Document struct {
 	FirstName              string  `json:"firstName" bson:"firstName"`
 	MiddleName             string  `json:"middleName" bson:"middleName"`
 	LastName               string  `json:"lastName" bson:"lastName"`
+	Headline               string  `json:"headline" bson:"headline"`
 	Age                    string  `json:"age" bson:"age"`
 	Gender                 string  `json:"gender" bson:"gender"`
 	Pronouns               string  `json:"pronouns" bson:"pronouns"`
@@ -102,19 +106,22 @@ type storedProfile struct {
 }
 
 // Store keeps one profile per account. Memory is the copy this process reads;
-// Mongo is filled when a client is configured.
+// Mongo is filled when a client is configured. A ready model reads uploaded
+// résumés; without one, the layout parser does.
 type Store struct {
-	mu   sync.Mutex
-	rows map[string]Document
-	coll *mongo.Collection
+	mu    sync.Mutex
+	rows  map[string]Document
+	coll  *mongo.Collection
+	model Model
 }
 
 func NewMemory() *Store {
 	return &Store{rows: map[string]Document{}}
 }
 
-func NewStore(client *mongo.Client, database string) *Store {
+func NewStore(client *mongo.Client, database string, model Model) *Store {
 	store := NewMemory()
+	store.model = model
 	if client != nil && database != "" {
 		store.coll = client.Database(database).Collection(profilesCollection)
 	}
@@ -182,6 +189,7 @@ func normalize(doc Document) Document {
 	doc.FirstName = clip(doc.FirstName, maxName)
 	doc.MiddleName = clip(doc.MiddleName, maxName)
 	doc.LastName = clip(doc.LastName, maxName)
+	doc.Headline = clip(doc.Headline, maxName)
 	doc.Age = clip(doc.Age, 3)
 	doc.Gender = clip(doc.Gender, maxContact)
 	if doc.Gender == "" {
@@ -238,6 +246,7 @@ func normalize(doc Document) Document {
 		}
 		item.Title = clip(item.Title, maxName)
 		item.Org = clip(item.Org, maxName)
+		item.Location = clip(item.Location, maxContact)
 		item.Summary = clip(item.Summary, maxSummary)
 		item.StartMonth = clip(item.StartMonth, 2)
 		item.StartYear = clip(item.StartYear, 4)
@@ -251,10 +260,15 @@ func normalize(doc Document) Document {
 	return doc
 }
 
+// clip trims value to at most max bytes without splitting a character.
 func clip(value string, max int) string {
 	value = strings.TrimSpace(value)
 	if len(value) <= max {
 		return value
 	}
-	return value[:max]
+	cut := max
+	for cut > 0 && !utf8.RuneStart(value[cut]) {
+		cut--
+	}
+	return strings.TrimSpace(value[:cut])
 }

@@ -3,10 +3,20 @@
 import { acornApiUrl } from "@/lib/config";
 import { sessionToken } from "@/lib/auth/cookie";
 import type { ApplicantProfile } from "@/lib/workspace/profile";
+import type { ResumeUpload } from "@/lib/workspace/resume-file";
 
 export type ProfileCall<T> = { ok: true; data: T } | { ok: false; message: string };
 
-type ProfileBody = { stored: boolean; profile: ApplicantProfile; message?: string; error?: string };
+/** Who read an uploaded résumé: the AI model, or the layout parser when no model answered. */
+export type ResumeReader = "ai" | "layout";
+
+type ProfileBody = {
+  stored: boolean;
+  profile: ApplicantProfile;
+  reader?: ResumeReader;
+  message?: string;
+  error?: string;
+};
 
 async function authed(path: string, init?: RequestInit): Promise<Response | ProfileCall<never>> {
   const token = await sessionToken();
@@ -40,11 +50,8 @@ export async function saveProfile(profile: ApplicantProfile): Promise<ProfileCal
   return read("", { method: "PUT", body: JSON.stringify(profile) });
 }
 
-export async function fillProfileFromResume(input: {
-  fileName: string;
-  text?: string;
-  contentBase64?: string;
-  profile: ApplicantProfile;
-}): Promise<ProfileCall<ProfileBody>> {
+export async function fillProfileFromResume(
+  input: ResumeUpload & { profile: ApplicantProfile },
+): Promise<ProfileCall<ProfileBody>> {
   return read("/from-resume", { method: "POST", body: JSON.stringify(input) });
 }

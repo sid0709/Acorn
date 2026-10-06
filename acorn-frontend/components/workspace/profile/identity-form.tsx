@@ -29,6 +29,13 @@ export function IdentityForm({
           value={profile.fullName}
           onChange={(value) => onChange("fullName", value)}
         />
+        <TextInput
+          label="Headline"
+          value={profile.headline}
+          onChange={(value) => onChange("headline", value)}
+          placeholder="Senior Software Engineer"
+          isOptional
+        />
         <Grid columns={{ minWidth: PAIR_WIDTH }} gap={3}>
           <TextInput
             label="First name"

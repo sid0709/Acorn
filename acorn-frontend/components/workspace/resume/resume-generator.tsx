@@ -41,7 +41,9 @@ import {
 } from "@acorn/shared/resume-templates";
 import { DesignCard } from "./design-card";
 import { LivePreview, type PreviewStage } from "./live-preview";
+import { SectionsCard } from "./sections-card";
 import { TemplateGallery, type UploadedTemplate } from "./template-gallery";
+import { TypographyCard } from "./typography-card";
 import { GENERATE_STEPS, useResumeGenerate } from "./use-resume-generate";
 import { useResumes } from "./use-resumes";
 import { useTemplateThumbs } from "./use-template-thumbs";
@@ -175,7 +177,7 @@ export function ResumeGenerator({ account }: { account: AcornAccount }) {
       {error ? (
         <Banner status="error" title="Couldn’t update the résumé" description={error} />
       ) : null}
-      <GridSystem gap={4} align="start" responsiveTo="viewport">
+      <GridSystem gap={4} align="stretch" responsiveTo="viewport">
         <GridColumn span="full" lg={7}>
           <div className="resume-preview-column">
             <LivePreview
@@ -189,13 +191,6 @@ export function ResumeGenerator({ account }: { account: AcornAccount }) {
         </GridColumn>
         <GridColumn span="full" lg={5}>
           <Stack gap={4}>
-            <DesignCard
-              config={config}
-              templateName={uploadedTemplate?.name ?? template.name}
-              templateBlurb={uploadedTemplate ? "Your Word template" : template.blurb}
-              onChange={setConfig}
-              onBrowse={() => setGalleryOpen(true)}
-            />
             <SectionCard
               title="Job description"
               description="The model writes summary, skills, and experience for this posting."
@@ -231,6 +226,19 @@ export function ResumeGenerator({ account }: { account: AcornAccount }) {
                 />
               </Stack>
             </SectionCard>
+            <DesignCard
+              config={config}
+              templateName={uploadedTemplate?.name ?? template.name}
+              templateBlurb={uploadedTemplate ? "Your Word template" : template.blurb}
+              onChange={setConfig}
+              onBrowse={() => setGalleryOpen(true)}
+            />
+            {isUploadedTemplateId(config.templateId) ? null : (
+              <>
+                <SectionsCard config={config} onChange={setConfig} />
+                <TypographyCard config={config} onChange={setConfig} />
+              </>
+            )}
           </Stack>
         </GridColumn>
       </GridSystem>
