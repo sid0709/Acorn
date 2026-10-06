@@ -49,17 +49,18 @@ func (s *Server) writeProfileErr(w http.ResponseWriter, err error) {
 	writeError(w, http.StatusInternalServerError, "could not load the profile")
 }
 
-// acornFor runs this request on the bound test model, or on the profile's OpenRouter key.
+// acornFor runs this request on the bound test model, or on the profile's OpenRouter
+// key: the text model writes, and Jev (the SelectorGateway) classifies questions.
 func (s *Server) acornFor(w http.ResponseWriter, r *http.Request, accountID string) (*acorn.Service, bool) {
 	if _, ok := s.acorn.Bound(); ok {
 		return s.acorn, true
 	}
-	client, err := s.openRouter(r.Context(), accountID)
+	key, err := s.openRouterKey(r.Context(), accountID)
 	if err != nil {
 		s.writeProfileErr(w, err)
 		return nil, false
 	}
-	return s.acorn.WithModel(client), true
+	return s.acorn.WithModel(openai.OpenRouter(key)).WithClassifier(selector.New(jev.New(key))), true
 }
 
 // resumeModel is the bound test model, or the profile's OpenRouter client.

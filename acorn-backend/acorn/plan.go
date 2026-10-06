@@ -236,6 +236,23 @@ func typingFields(plan Plan) []typingField {
 	return fields
 }
 
+// proseDraftMinWords marks a one-line field as prose: a planner draft this long is a
+// written answer, not a fact.
+const proseDraftMinWords = 8
+
+// proseFields keeps the fields that need a written answer: a textarea, or a draft
+// long enough to be prose. Short facts (names, dates, phone numbers) stay as the
+// planner wrote them, so the writer only runs when there is prose to write.
+func proseFields(fields []typingField) []typingField {
+	out := fields[:0:0]
+	for _, field := range fields {
+		if field.Role == "textarea" || len(strings.Fields(field.Draft)) >= proseDraftMinWords {
+			out = append(out, field)
+		}
+	}
+	return out
+}
+
 func overlayTypingFills(plan Plan, values map[int]string) Plan {
 	if len(values) == 0 {
 		return plan
@@ -322,12 +339,19 @@ func proseUserPrompt(applicant string, fields []typingField, page map[string]any
 // qaFieldIndex is the single field a Q&A question is written as.
 const qaFieldIndex = 1
 
+// analyzeUserPrompt orders the request for the provider's prompt cache: the
+// applicant (the same on every call for this account) comes right after the
+// fixed system prompt, then the page tree, and the page details that change on
+// every call (URL, capture time) come last.
 func analyzeUserPrompt(applicant, pureTree string, page map[string]any) string {
-	pageBlock := ""
-	if len(page) > 0 {
-		pageBlock = "Page:\n" + indentedJSON(page) + "\n\n"
+	return strings.TrimSpace("Applicant data:\n" + applicant + "\n\nPure Tree:\n" + pureTree + "\n\n" + pageBlock(page) + analyzeUserTail)
+}
+
+func pageBlock(page map[string]any) string {
+	if len(page) == 0 {
+		return ""
 	}
-	return strings.TrimSpace(pageBlock + "Applicant data:\n" + applicant + "\n\nPure Tree:\n" + pureTree + "\n\n" + analyzeUserTail)
+	return "Page:\n" + indentedJSON(page) + "\n\n"
 }
 
 // indentedJSON is JSON.stringify(value, null, 2): readable, with no HTML escaping.

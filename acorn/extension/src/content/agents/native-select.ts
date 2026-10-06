@@ -6,7 +6,7 @@ function normalize(text: string): string {
   return text.replace(/\s+/g, " ").replace(/[–—]/g, "-").trim().toLowerCase();
 }
 
-function optionLabel(option: HTMLOptionElement): string {
+export function optionLabel(option: HTMLOptionElement): string {
   return (option.textContent || option.label || option.value || "").replace(/\s+/g, " ").trim();
 }
 
@@ -18,7 +18,8 @@ function isPlaceholderOption(text: string): boolean {
   return /^(select(\s|$)|choose(\s|$)|pick(\s|$)|make a selection|please select)/i.test(stripped);
 }
 
-function realOptions(select: HTMLSelectElement): HTMLOptionElement[] {
+/** A native select's answer options, without "Select…" placeholders. */
+export function realOptions(select: HTMLSelectElement): HTMLOptionElement[] {
   return Array.from(select.options).filter((option) => !isPlaceholderOption(optionLabel(option)));
 }
 

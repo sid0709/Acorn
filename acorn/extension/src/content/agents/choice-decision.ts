@@ -77,6 +77,16 @@ function singleChoices(root: ParentNode): ChoiceControl[] {
 }
 
 /** True when the field holds a group of checkboxes (an answer that is a set). */
+/** Every checkbox label in the field (an answer that is a set). */
+export function checkboxLabels(root: ParentNode): string[] {
+  return checkboxes(root).map((control) => control.label);
+}
+
+/** Every single-answer option label in the field (radios, else choice buttons). */
+export function singleChoiceLabels(root: ParentNode): string[] {
+  return singleChoices(root).map((control) => control.label);
+}
+
 export function isCheckboxGroup(root: ParentNode): boolean {
   return checkboxes(root).length > 1;
 }
@@ -123,6 +133,12 @@ export async function applyCheckboxSet(
   if (controls.length < 2) return null;
   const decided = recentDecision(root);
   if (decided != null) return decided;
+  // A value that names boxes exactly (a batch decision) is applied without asking again.
+  const named = intended.split(/\s*,\s*/).map((part) => part.toLowerCase());
+  const byLabel = new Set(controls.map((control) => control.label.toLowerCase()));
+  if (named.length && named.every((part) => byLabel.has(part))) {
+    return applyChosen(root, controls, new Set(named));
+  }
   const ai = await askAiMatchOption({
     intendedValue: intended,
     options: controls.map((control) => control.label),
@@ -132,6 +148,11 @@ export async function applyCheckboxSet(
   });
   const chosen = new Set((ai.matched_options ?? []).map((label) => label.toLowerCase()));
   if (!ai.ok || !chosen.size) return null;
+  return applyChosen(root, controls, chosen);
+}
+
+/** Set the group to exactly `chosen` (lower-case labels) and remember the decision. */
+function applyChosen(root: ParentNode, controls: ChoiceControl[], chosen: Set<string>): string {
   for (const control of controls) {
     setChecked(control, chosen.has(control.label.toLowerCase()));
   }

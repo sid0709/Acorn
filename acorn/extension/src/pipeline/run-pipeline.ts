@@ -4,6 +4,7 @@ import { applyApplicantIdentityToActions } from "@acorn/shared/plan-runner/appli
 import { runActionPlan } from "@acorn/shared/plan-runner/orchestrator";
 import type { ActionPlan, PlanStepPayload, RunStepRecord } from "@acorn/shared/plan-runner/types";
 import type { PipelineProgress } from "@acorn/shared/pipeline-types";
+import { formatPlannerTree } from "@acorn/shared/planner-tree";
 import { formatAnalyzeTrees } from "@acorn/shared/tree-export";
 import { sendPlanStepToTab, sendTabMessage } from "../tab-messaging";
 import { getTabJob } from "../tab-job-session";
@@ -19,6 +20,7 @@ import {
   beginPipelineUsageTracking,
   endPipelineUsageTracking,
 } from "./usage-tracker";
+import { decideChoicesInBatch } from "./choice-batch";
 import { fetchDomFromTab } from "./fetch-dom";
 import {
   REFILL_NOTHING_FLAGGED,
@@ -175,7 +177,9 @@ export async function runFabPipeline(args: RunPipelineArgs): Promise<void> {
       resumeUpload: resumeUpload(),
     });
 
-    const { pureTree, metaTree } = formatAnalyzeTrees(treePayload.tree);
+    // The planner reads the compact tree; the full Meta Tree only rides to debug capture.
+    const pureTree = formatPlannerTree(treePayload.tree);
+    const metaTree = ACORN_DEBUG ? formatAnalyzeTrees(treePayload.tree).metaTree : undefined;
 
     const analyze = await requestAiAnalyze(
       {
@@ -286,6 +290,7 @@ export async function runFabPipeline(args: RunPipelineArgs): Promise<void> {
         };
       },
       hooks: {
+        beforeFills: () => decideChoicesInBatch({ tabId, frameId, plan, apiUrl: aiServerUrl }),
         onSteps: (steps) => {
           const running = steps.find((s) => s.status === "running" || s.status === "paused");
           const doneCount = steps.filter((s) =>

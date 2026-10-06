@@ -57,6 +57,7 @@ export async function chooseOption(
   fieldLabel: string | null,
   { allowTypeahead, estimateQuery = false }: ChooseOptions,
 ): Promise<ChooseResult> {
+  const openStarted = Date.now();
   dismissOpenOverlays(doc, control);
   await waitMs(40);
   let initial = await openAndCollectOptions(control, doc);
@@ -65,6 +66,11 @@ export async function chooseOption(
     await waitMs(EMPTY_MENU_RETRY_MS);
     initial = await openAndCollectOptions(control, doc);
   }
+  traceFromPage("combo:open", () => ({
+    value,
+    count: initial.length,
+    ms: Date.now() - openStarted,
+  }));
 
   const exact = estimateQuery ? null : findExactOption(initial, value);
   if (exact) {
@@ -158,9 +164,11 @@ async function decide(
   options: HTMLElement[],
   allowNotListed: boolean,
 ): Promise<OptionDecision> {
+  const started = Date.now();
   const result = await decideAmongOptions(options, value, fieldLabel, typedQuery, allowNotListed);
   traceFromPage("combo:decide", () => ({
     ...decision(value, typedQuery, options, result.match, "jev"),
+    ms: Date.now() - started,
     allowNotListed,
     fallback: result.fallback ? optionText(result.fallback) : null,
   }));

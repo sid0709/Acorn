@@ -59,9 +59,16 @@ type Call struct {
 // Tracer sees every model call. It must not block or fail the request.
 type Tracer func(ctx context.Context, call Call)
 
+// Classifier answers "which of these kinds is each question?" with a decision
+// model. The SelectorGateway (TypeSafe Jev) is the real one.
+type Classifier interface {
+	ClassifyEach(ctx context.Context, instructions string, kinds map[string]string, items map[int]string) (map[int]string, error)
+}
+
 type Service struct {
-	model  Model
-	tracer Tracer
+	model      Model
+	tracer     Tracer
+	classifier Classifier
 }
 
 func New(model Model) *Service { return &Service{model: model} }
@@ -82,6 +89,14 @@ func (s *Service) WithModel(model Model) *Service {
 	}
 	next := *s
 	next.model = model
+	return &next
+}
+
+// WithClassifier returns a copy that classifies identity questions with the
+// decision model instead of the text model, in parallel with the writer.
+func (s *Service) WithClassifier(classifier Classifier) *Service {
+	next := *s
+	next.classifier = classifier
 	return &next
 }
 
@@ -135,11 +150,25 @@ func (s *Service) Analyze(ctx context.Context, applicant, pureTree string, page 
 		return AnalyzeResult{}, err
 	}
 
-	identity := s.classifyIdentity(ctx, plan)
-	plan = applyApplicantIdentity(plan, identity)
-	plan = s.rewriteTyping(ctx, plan, applicant, page, nil)
-	plan = applyApplicantIdentity(plan, identity)
+	plan = s.finishPlan(ctx, plan, applicant, page, nil)
 	return AnalyzeResult{OK: true, Plan: plan, Model: s.model.Model()}, nil
+}
+
+// finishPlan flips answers to "did you use AI to apply" questions to No and has
+// the writer rewrite prose drafts. With a decision-model classifier the two run
+// at the same time; the text-model classifier runs first, as before.
+func (s *Service) finishPlan(ctx context.Context, plan Plan, applicant string, page map[string]any, notes map[int]string) Plan {
+	fields := collectIdentityQuestions(plan)
+	if s.classifier == nil {
+		identity := s.classifyIdentity(ctx, fields)
+		plan = applyApplicantIdentity(plan, identity)
+		plan = s.rewriteTyping(ctx, plan, applicant, page, notes)
+		return applyApplicantIdentity(plan, identity)
+	}
+	identityDone := make(chan map[int]bool, 1)
+	go func() { identityDone <- s.classifyIdentityByDecision(ctx, fields) }()
+	plan = s.rewriteTyping(ctx, plan, applicant, page, notes)
+	return applyApplicantIdentity(plan, <-identityDone)
 }
 
 func withResumeAvailable(page map[string]any) map[string]any {
@@ -152,8 +181,7 @@ func withResumeAvailable(page map[string]any) map[string]any {
 }
 
 // classifyIdentity finds the questions about the applicant being an AI. It fails open.
-func (s *Service) classifyIdentity(ctx context.Context, plan Plan) map[int]bool {
-	fields := collectIdentityQuestions(plan)
+func (s *Service) classifyIdentity(ctx context.Context, fields []identityQuestion) map[int]bool {
 	if len(fields) == 0 {
 		return nil
 	}
@@ -173,7 +201,7 @@ func (s *Service) classifyIdentity(ctx context.Context, plan Plan) map[int]bool 
 // rewriteTyping has the writer replace planner drafts in typed fields. It fails open.
 // notes carries the page's error per element_index, so the rewrite still passes it.
 func (s *Service) rewriteTyping(ctx context.Context, plan Plan, applicant string, page map[string]any, notes map[int]string) Plan {
-	fields := typingFields(plan)
+	fields := proseFields(typingFields(plan))
 	if len(fields) == 0 {
 		return plan
 	}

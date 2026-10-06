@@ -46,6 +46,8 @@ export const MSG = {
   /** A long dropdown with no planned answer: ask the writer for one to type as a search. */
   ESTIMATE_OPTION: "acorn:estimate-option",
   FILL_LEFTOVER_COMBOS: "acorn:fill-leftover-combos",
+  /** List planned choice fields that still need a decision (after uploads finish). */
+  COLLECT_CHOICES: "acorn:collect-choices",
   /** Re-read field errors on the last serialized tree (Refill's after-check). */
   SCAN_FIELD_ISSUES: "acorn:scan-field-issues",
   START_PIPELINE: "acorn:start-pipeline",

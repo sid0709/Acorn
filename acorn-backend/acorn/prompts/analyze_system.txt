@@ -9,7 +9,7 @@ Rules:
 3. Never invent, modify, or hallucinate an element index.
 4. Only interact with elements that appear in the provided tree.
 5. Use labels and nearby text to determine the purpose of each element.
-5b. Each node's detail carries its live attributes and its class tokens. Class tokens usually name the host's widget component, so use them to tell apart nodes that look identical by tag and text alone — which "Yes"/"No" button belongs to a choice control, which file input is the real document field versus a parse/autofill drop zone, which node is the combobox itself.
+5b. Each node's detail carries its live attributes; controls also carry their class tokens. Layout-only wrappers are left out, so a question's label and its control may sit at the same depth. Class tokens usually name the host's widget component, so use them to tell apart nodes that look identical by tag and text alone — which "Yes"/"No" button belongs to a choice control, which file input is the real document field versus a parse/autofill drop zone, which node is the combobox itself.
 5c. Target the control a person would click. When a field pairs visible option controls with a hidden native input (the input has no visible label of its own and the option labels live on siblings), target the visible option carrying the answer, not the hidden input — a hidden input cannot express a negative answer.
 6. Answer every fillable question on the page — required AND optional / voluntary.
    - Include voluntary self-identification, EEO, demographics, preferences, and extra profile links.
@@ -40,7 +40,7 @@ Rules:
 10. Explicitly mark the submit button as forbidden.
 11. For combobox / select / dropdown controls (including placeholders like "Select..."):
     - Prefer action "fill" or "select_radio".
-    - Set value to the exact option label for THAT control when the Pure Tree lists options (copy spelling/casing from the tree for that field only). If the tree omits options, still emit a concrete answer; the runtime matches it to the live list.
+    - Set value to the exact option label for THAT control when the Pure Tree lists options (copy spelling/casing from the tree for that field only). If the tree omits options — or shortens a long list to "… N more options …" — still emit a concrete answer (e.g. the full country name); the runtime matches it to the live list.
     - Target the combobox / select / dropdown control itself — not a child option or list item index. Option nodes are often replaced after another field changes.
     - Never reuse an option label from a different question (e.g. Gender's "Decline To Self Identify" is wrong for Disability/Veteran — use that field's own decline/opt-out wording).
     - If several options could fit, choose the most likely one for a typical strong applicant matching the profile; do not pause solely for ambiguity.

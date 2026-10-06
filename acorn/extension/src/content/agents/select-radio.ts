@@ -47,7 +47,8 @@ function findDisplayedOption(listbox: Element | null, value: string): HTMLElemen
   return nodes.find((node) => labelsMatch(node, value)) || null;
 }
 
-function groupRoot(el: HTMLElement): ParentNode {
+/** The field a choice control belongs to: its nearest grouping container. */
+export function groupRoot(el: HTMLElement): ParentNode {
   return (
     el.closest(
       'fieldset, [role="group"], [role="radiogroup"], [class*="Field"], [class*="field"], td, th, form',

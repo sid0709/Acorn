@@ -10,6 +10,12 @@ import {
 import { focusAndOpenCombobox } from "./typing";
 
 const OPTION_WAIT_MS = 3000;
+/**
+ * How long one opening gesture (click, then ArrowDown) gets to show options before
+ * the next is tried. Menus that render on open show options well within this; only
+ * a menu that is still empty after both gestures gets the full OPTION_WAIT_MS.
+ */
+const OPEN_ATTEMPT_MS = 700;
 
 /** Wait until the visible list is no longer the pre-type snapshot, then settle. */
 export async function waitForFilteredOptions(
@@ -142,12 +148,16 @@ export async function openAndCollectOptions(
   doc: Document,
 ): Promise<HTMLElement[]> {
   await focusAndOpenCombobox(html);
-  let options = await waitForStableOptions(html, doc);
+  let options = await waitForStableOptions(html, doc, OPEN_ATTEMPT_MS);
   if (!options.length) {
     html.dispatchEvent(
       new KeyboardEvent("keydown", { key: "ArrowDown", bubbles: true, cancelable: true }),
     );
-    options = await waitForStableOptions(html, doc);
+    options = await waitForStableOptions(html, doc, OPEN_ATTEMPT_MS);
+  }
+  if (!options.length) {
+    // Remote-search menus fill in slowly: one full wait before giving up.
+    options = await waitForStableOptions(html, doc, OPTION_WAIT_MS);
   }
   const scrolled = await collectOptionsByScrolling(html, doc);
   return scrolled.length >= options.length ? scrolled : options;

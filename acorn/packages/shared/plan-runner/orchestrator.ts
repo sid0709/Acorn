@@ -4,6 +4,7 @@ import { labelLooksLikeOtherDocument } from "./resume-field";
 import {
   executionIndexOrder,
   isExecutableStep,
+  isFileUploadAction,
   missingUploadReason,
   resolveStepFile,
   resumeFileLabel,
@@ -26,6 +27,12 @@ import type {
 export interface OrchestratorHooks {
   onSteps: (steps: RunStepRecord[]) => void;
   onPause: (request: PauseRequest) => Promise<PauseDecision>;
+  /**
+   * Runs once, after every file upload step has finished and before the first
+   * other step: work that must see the form after résumé parsing (and must not
+   * start before the upload completes) goes here.
+   */
+  beforeFills?: () => Promise<void>;
 }
 
 export interface RunPlanOptions {
@@ -103,8 +110,13 @@ export async function runActionPlan(options: RunPlanOptions): Promise<RunReport>
 
   const actions = plan.actions ?? [];
   const order = executionIndexOrder(actions);
+  let fillsStarted = false;
 
   for (const i of order) {
+    if (!fillsStarted && !aborted && !isFileUploadAction(actions[i])) {
+      fillsStarted = true;
+      await hooks.beforeFills?.();
+    }
     if (aborted) {
       steps[i].status = "aborted";
       publish();

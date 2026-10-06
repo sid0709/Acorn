@@ -54,10 +54,7 @@ func (s *Service) Refill(ctx context.Context, applicant, pureTree string, scan F
 		return AnalyzeResult{}, err
 	}
 
-	identity := s.classifyIdentity(ctx, plan)
-	plan = applyApplicantIdentity(plan, identity)
-	plan = s.rewriteTyping(ctx, plan, applicant, page, issueNotes(scan))
-	plan = applyApplicantIdentity(plan, identity)
+	plan = s.finishPlan(ctx, plan, applicant, page, issueNotes(scan))
 	return AnalyzeResult{OK: true, Plan: plan, Model: s.model.Model(), Mode: ModeRefill}, nil
 }
 
@@ -73,16 +70,12 @@ func issueNotes(scan FieldIssueScan) map[int]string {
 	return notes
 }
 
+// refillUserPrompt keeps the cacheable prefix first (see analyzeUserPrompt).
 func refillUserPrompt(applicant, pureTree string, scan FieldIssueScan, page map[string]any) string {
-	pageBlock := ""
-	if len(page) > 0 {
-		pageBlock = "Page:\n" + indentedJSON(page) + "\n\n"
-	}
 	alerts := ""
 	if len(scan.PageMessages) > 0 {
 		alerts = "Page messages:\n" + indentedJSON(scan.PageMessages) + "\n\n"
 	}
-	return strings.TrimSpace(pageBlock + "Applicant data:\n" + applicant + "\n\n" +
-		"Flagged fields:\n" + indentedJSON(scan.Issues) + "\n\n" + alerts +
-		"Pure Tree:\n" + pureTree)
+	return strings.TrimSpace("Applicant data:\n" + applicant + "\n\nPure Tree:\n" + pureTree + "\n\n" +
+		"Flagged fields:\n" + indentedJSON(scan.Issues) + "\n\n" + alerts + pageBlock(page))
 }

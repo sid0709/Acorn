@@ -51,8 +51,9 @@ func TestAnalyzePipeline(t *testing.T) {
 	if values[2] != "No" {
 		t.Errorf("AI-use answer = %q, want No", values[2])
 	}
-	if values[1] != "Because of the Heroku migration." || values[3] != "Jordan Lee" {
-		t.Errorf("typed answers not rewritten: %v", values)
+	// The writer rewrites prose (the textarea); a short fact keeps the planner's value.
+	if values[1] != "Because of the Heroku migration." || values[3] != "Jordan" {
+		t.Errorf("typed answers = %v, want prose rewritten and the name kept", values)
 	}
 	if !strings.Contains(model.calls[0], `"recommendedResumeAvailable": true`) {
 		t.Errorf("planner was not told a résumé can be attached:\n%s", model.calls[0])

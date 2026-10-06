@@ -71,6 +71,7 @@ export async function selectComboboxOption(
 
   const label = optionText(match);
   traceFromPage("combo:click", () => ({ value, label, connected: match.isConnected }));
+  const clickStarted = Date.now();
   const live = match.isConnected ? match : await findLiveOption(html, doc, label);
   const clickTarget = live || match;
   clickTarget.scrollIntoView({ block: "nearest", behavior: "auto" });
@@ -79,6 +80,7 @@ export async function selectComboboxOption(
 
   const displayed = readControlValue(html);
   traceFromPage("combo:after-click", () => ({
+    ms: Date.now() - clickStarted,
     value,
     label,
     closed,

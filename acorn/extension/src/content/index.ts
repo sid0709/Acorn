@@ -10,6 +10,7 @@ import {
 } from "./form-frame";
 import { clearHighlight, highlightElement } from "./highlighter";
 import { fillLeftoverComboboxes } from "./agents/leftover-combobox";
+import { collectChoiceItems, type ChoiceBatchStep } from "./choice-batch";
 import { scanFieldIssues } from "./field-errors";
 import { waitForDomQuiet } from "./agents/wait";
 import { runPlanStep } from "./plan-step-runner";
@@ -187,6 +188,19 @@ if (!contentWindow[CONTENT_BOOT]) {
           }),
         );
       return true;
+    }
+
+    if (message.type === MSG.COLLECT_CHOICES) {
+      if (!isAcornDomFrame()) {
+        sendResponse({ ok: false, skipped: true, error: "Not a form frame" });
+        return false;
+      }
+      try {
+        sendResponse({ ok: true, items: collectChoiceItems(message.steps as ChoiceBatchStep[]) });
+      } catch (err) {
+        sendResponse({ ok: false, error: err instanceof Error ? err.message : String(err) });
+      }
+      return false;
     }
 
     if (message.type === MSG.SCAN_FIELD_ISSUES) {
