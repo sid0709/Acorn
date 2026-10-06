@@ -1,5 +1,5 @@
 {
-  "name": "@joined/google-signin",
+  "name": "@acorn/google-signin",
   "version": "0.1.0",
   "private": true,
   "sideEffects": false,

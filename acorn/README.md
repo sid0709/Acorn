@@ -2,7 +2,7 @@
 
 Chrome extension for capturing page DOM trees, generating structured AI action plans, and running fill automation.
 
-**The backend is `acorn-backend`**, at `https://api.joinedhq.com` in production: every Acorn route is under `/acorn` (`/acorn/*`) and the Socket.IO gateway is at `/acorn/socket.io`. The Go code lives in [`acorn-backend/acorn`](../acorn-backend/acorn) and [`acorn-backend/acornapi`](../acorn-backend/acornapi/README.md). It was ported from the original TypeScript backend.
+**The backend is `acorn-backend`**, at `https://acornapi.remotepairnet.net` in production: every Acorn route is under `/acorn` (`/acorn/*`) and the Socket.IO gateway is at `/acorn/socket.io`. The Go code lives in [`acorn-backend/acorn`](../acorn-backend/acorn) and [`acorn-backend/acornapi`](../acorn-backend/acornapi/README.md). It was ported from the original TypeScript backend.
 
 Engineering policy: [`policy-acorn.md`](policy-acorn.md). Parent rules: [`../rule.md`](../rule.md).
 
@@ -11,7 +11,7 @@ Engineering policy: [`policy-acorn.md`](policy-acorn.md). Parent rules: [`../rul
 ```
 ┌─────────────────────┐  socket.io /acorn/socket.io  ┌─────────────────────────┐
 │  Chrome Extension   │ ◄─────────────────────────► │  acorn-backend (Go)     │
-│  (side panel)       │                             │  api.joinedhq.com       │
+│  (side panel)       │                             │  acornapi.remotepairnet.net       │
 └──────────┬──────────┘       HTTP /acorn/*          │  local: 127.0.0.1:8083  │
            │ fetch DOM                              └─────────────────────────┘
            ▼
@@ -34,7 +34,7 @@ They are workspaces of the root bun monorepo: one `bun install` at the repo root
 
 ### 1. Start the API
 
-acorn-backend needs the same `MONGO_URI` as joined-backend and an `OPENAI_API_KEY` (copy `acorn-backend/.env.example` to `acorn-backend/.env`):
+acorn-backend needs a `MONGO_URI` and an `OPENAI_API_KEY` (copy `acorn-backend/.env.example` to `acorn-backend/.env`):
 
 ```bash
 bun run dev:acorn-api   # http://127.0.0.1:8083, Acorn under /acorn
@@ -50,14 +50,14 @@ bun install
 
 ```bash
 bun run dev:acorn     # development build, rebuilt on change: talks to 127.0.0.1:8083 and localhost:6002
-bun run build:acorn   # production build: talks to https://api.joinedhq.com and https://joinedhq.com
+bun run build:acorn   # production build: talks to https://acornapi.remotepairnet.net
 ```
 
 1. Open `chrome://extensions`
 2. Enable **Developer mode**
 3. **Load unpacked** → select `acorn/extension/dist`
 4. Sign in on acorn-frontend (http://localhost:6005) in the same browser, open the Acorn sidebar, and choose **Continue**. Acorn follows the `acorn_session` cookie after that.
-5. The Acorn API URL is `https://api.joinedhq.com` in a production build and `http://127.0.0.1:8083` in a development build (both from `@acorn/shared/api`; override with `VITE_ACORN_API_URL` at build time, and `VITE_JOINED_URL` for where joined-frontend runs). Keep the side panel open for a green **Socket connected** light — the panel holds a port so Chrome does not park the worker that owns the `/acorn/socket.io` socket. The extension prefers Engine.IO **websocket** with HTTP long-poll fallback (`path: /acorn/socket.io`, `auth.token`). nginx must proxy api.joinedhq.com to acorn-backend and return 101 on the websocket upgrade (see [`deploy/nginx/api.joinedhq.com.conf`](../deploy/nginx/api.joinedhq.com.conf)). Sign-in uses `/acorn/*` and can succeed a moment before the socket turns green. The socket token travels in the handshake `auth` payload only — query-string tokens are rejected, since URLs land in nginx access logs. Every socket joins a room keyed by the signed-in account: `dom:tree`, `pipeline:progress`, `clients:update` and every relayed command (`dom:get-content`, `dom:execute-actions`, `dom:plan-step`) stay inside that room, so a client can only ever see or drive its own account's extension.
+5. The Acorn API URL is `https://acornapi.remotepairnet.net` in a production build and `http://127.0.0.1:8083` in a development build (both from `@acorn/shared/api`; override with `VITE_ACORN_API_URL` at build time). Keep the side panel open for a green **Socket connected** light — the panel holds a port so Chrome does not park the worker that owns the `/acorn/socket.io` socket. The extension prefers Engine.IO **websocket** with HTTP long-poll fallback (`path: /acorn/socket.io`, `auth.token`). nginx must proxy acornapi.remotepairnet.net to acorn-backend and return 101 on the websocket upgrade (see [`deploy/nginx/acornapi.remotepairnet.net.conf`](../deploy/nginx/acornapi.remotepairnet.net.conf)). Sign-in uses `/acorn/*` and can succeed a moment before the socket turns green. The socket token travels in the handshake `auth` payload only — query-string tokens are rejected, since URLs land in nginx access logs. Every socket joins a room keyed by the signed-in account: `dom:tree`, `pipeline:progress`, `clients:update` and every relayed command (`dom:get-content`, `dom:execute-actions`, `dom:plan-step`) stay inside that room, so a client can only ever see or drive its own account's extension.
 
 ### 4. Use it
 
@@ -75,8 +75,8 @@ bun run build:acorn   # production build: talks to https://api.joinedhq.com and 
 
 | Method | Path                                              | Auth                                                                                                                                                                                                                                                                                                                                                                                                                                                             |
 | ------ | ------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| GET    | `/acorn/auth/me`                                  | Joined session (Bearer, or the `joined_session` cookie)                                                                                                                                                                                                                                                                                                                                                                                                          |
-| POST   | `/acorn/auth/signout`                             | Joined session — answers OK but keeps the shared Joined session                                                                                                                                                                                                                                                                                                                                                                                                  |
+| GET    | `/acorn/auth/me`                                  | Acorn session (Bearer, or the `acorn_session` cookie)                                                                                                                                                                                                                                                                                                                                                                                                            |
+| POST   | `/acorn/auth/signout`                             | Acorn session                                                                                                                                                                                                                                                                                                                                                                                                                                                    |
 | GET    | `/acorn/health`                                   | — liveness only (`{ ok: true }`); it does not report connected clients                                                                                                                                                                                                                                                                                                                                                                                           |
 | POST   | `/acorn/ai-analyze`                               | Bearer — `{ pureTree, page }`. The planner reads the **pure tree only**; control attrs (`role`, `aria-*`, `type`, `name`) **and `class` tokens** ride on each node's `detail`. Class tokens are what distinguish nodes identical by tag and text (a yes/no toggle button from a plain button, the résumé field from an autofill drop zone), so they must stay on the pure tree. `metaTree` is still accepted from older extensions but is not sent to the model. |
 | POST   | `/acorn/match-option`                             | Bearer                                                                                                                                                                                                                                                                                                                                                                                                                                                           |

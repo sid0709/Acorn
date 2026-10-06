@@ -1,4 +1,5 @@
-@import "sid-ui/styles/joined.css";
+@import "sid-ui/styles/astryx.css";
+@import "sid-ui/styles/components.css";
 
 html,
 body {

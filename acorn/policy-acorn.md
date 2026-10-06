@@ -1,8 +1,6 @@
 # Acorn Engineering Policy
 
-Read this file before planning, editing, or reviewing Acorn (`acorn/` and its Go backend). Parent product rules in [`../rule.md`](../rule.md) still apply. This file covers **extension session shape, fill, Custom, and reuse of Joined services**.
-
-Acorn is internal. Do not list Acorn, Project Acorn, or acorn-update on the Joined in-app Changelog.
+Read this file before planning, editing, or reviewing Acorn (`acorn/` and its Go backend). Parent product rules in [`../rule.md`](../rule.md) still apply. This file covers **extension session shape, fill, and Custom**.
 
 ---
 
@@ -46,7 +44,7 @@ Analyze → plan → run steps go through the existing pipeline. Custom Generate
 
 ---
 
-## 5. Reuse Joined services
+## 5. Reuse the existing services
 
 Acorn HTTP in `acorn-backend/acornapi` should compose the existing My Resume Editor generate + apply-template services, and Job Search Library recommend. Do not build a parallel résumé stack, Custom-only DOCX renderer, or a second recommend catalog.
 

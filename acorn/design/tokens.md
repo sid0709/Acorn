@@ -1,6 +1,6 @@
 # Acorn design tokens
 
-Acorn has no tokens of its own. It uses the Joined design system's tokens, which `sid-ui/styles/joined.css` defines. Use a design-system component first; reach for a token only in Acorn's own layout CSS (`extension/src/sidebar/styles/`).
+Acorn has no tokens of its own. It uses the sid-ui tokens, which `sid-ui/styles/astryx.css` and `sid-ui/styles/components.css` load. Use a design-system component first; reach for a token only in Acorn's own layout CSS (`extension/src/sidebar/styles/`).
 
 ## What Acorn's CSS uses
 
@@ -19,7 +19,7 @@ Acorn has no tokens of its own. It uses the Joined design system's tokens, which
 
 ## Acorn-local values
 
-A few sizes have no Joined token. They stay as named custom properties next to the rule that uses them, never as bare numbers:
+A few sizes have no design-system token. They stay as named custom properties next to the rule that uses them, never as bare numbers:
 
 - `--acorn-face-brand-px`: header Acorn Face size (set from `ACORN_FACE_BRAND_PX`)
 - `--acorn-mark-size`: row logo mark

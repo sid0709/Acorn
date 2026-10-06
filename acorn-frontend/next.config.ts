@@ -5,9 +5,10 @@ const nextConfig: NextConfig = {
   output: "standalone",
   outputFileTracingRoot: path.join(__dirname, ".."),
   transpilePackages: [
+    "@acorn/app-theme",
     "@acorn/shared",
     "sid-ui",
-    "@joined/google-signin",
+    "@acorn/google-signin",
     "@astryxdesign/core",
     "@astryxdesign/theme-neutral",
     "@stylexjs/stylex",

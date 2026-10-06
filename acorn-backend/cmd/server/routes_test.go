@@ -44,7 +44,7 @@ func TestRoutesSendEachPrefixToItsHandler(t *testing.T) {
 	}
 }
 
-func TestAcornDatabaseIsSeparateFromJoined(t *testing.T) {
+func TestAcornDatabaseName(t *testing.T) {
 	if defaultDatabase != "AcornDB" {
 		t.Fatalf("Acorn database = %q, want AcornDB", defaultDatabase)
 	}

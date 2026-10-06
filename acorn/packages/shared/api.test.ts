@@ -10,7 +10,7 @@ describe("acornHosts", () => {
   });
 
   it("sends production to the Acorn API and the Acorn site, with the socket under /acorn", () => {
-    assert.equal(acornHosts("production").api, "https://acorn.remotepairnet.net");
+    assert.equal(acornHosts("production").api, "https://acornapi.remotepairnet.net");
     assert.equal(acornHosts("production").web, "https://acorn.remotepairnet.net");
     assert.equal(acornHosts("development").web, "http://localhost:6005");
     assert.ok(ACORN_SOCKET_PATH.startsWith("/acorn/"));

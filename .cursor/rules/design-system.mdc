@@ -24,7 +24,7 @@ Acorn-only pieces (Acorn Face, row logo mark, generate progress, plan steps) sta
 
 ## Tokens
 
-`acorn-frontend` global CSS imports `sid-ui/styles/joined.css`. Color, spacing, type, radius, and shadow come from those tokens: `var(--color-*)`, `var(--spacing-*)`, `var(--radius-*)`, `var(--font-*)`.
+`acorn-frontend` global CSS imports `sid-ui/styles/astryx.css` and `sid-ui/styles/components.css`. Color, spacing, type, radius, and shadow come from those tokens: `var(--color-*)`, `var(--spacing-*)`, `var(--radius-*)`, `var(--font-*)`.
 
 No hex, rgb, or hsl in app or extension code. No raw font pixel sizes. No `style` color, padding, or radius. No app-local color palette.
 

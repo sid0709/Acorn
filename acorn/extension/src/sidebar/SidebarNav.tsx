@@ -19,7 +19,7 @@ type SidebarNavProps = {
 };
 
 /**
- * Jobs / Ask / Tabs as a Joined PillNav. The pills are hash links, so the side panel
+ * Jobs / Ask / Tabs as a PillNav. The pills are hash links, so the side panel
  * needs no router: the hash is the selected tab.
  */
 export function SidebarNav({ value, onChange, busyJobs, rememberedTabs }: SidebarNavProps) {

@@ -42,7 +42,7 @@ docker run -d \
   --name "$WEB_CONTAINER" \
   --restart unless-stopped \
   --network "$NETWORK" \
-  -e "ACORN_API_URL=http://${API_CONTAINER}:8083" \
+  -e ACORN_API_URL=https://acornapi.remotepairnet.net \
   -e PORT=3000 \
   -e HOSTNAME=0.0.0.0 \
   -p 127.0.0.1:6005:3000 \

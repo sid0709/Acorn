@@ -4,8 +4,8 @@ import { MSG, type AcornNoticePayload } from "../types";
 import { bindAcornNoticePush, noticeKindDuration, pushAcornNotice } from "./acorn-notice";
 
 /**
- * Shows Acorn notices as Joined toasts: ones pushed in the sidebar and ones the
- * service worker broadcasts. Renders nothing itself; JoinedProvider owns the viewport.
+ * Shows Acorn notices as design-system toasts: ones pushed in the sidebar and ones the
+ * service worker broadcasts. Renders nothing itself; AppTheme owns the viewport.
  */
 export function AcornNoticeHost() {
   const toast = useToast();

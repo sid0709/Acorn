@@ -35,4 +35,4 @@ require (
 	golang.org/x/text v0.42.0 // indirect
 )
 
-replace github.com/sid0709/OpenSeat/backend-core => ../../Joined/backend-core
+replace github.com/sid0709/OpenSeat/backend-core => ../backend-core

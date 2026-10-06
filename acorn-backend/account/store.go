@@ -1,5 +1,5 @@
 // Package account is Acorn's own accounts. acorn-frontend and the extension share
-// these sessions. Joined accounts are a different service and are not accepted here.
+// these sessions. Accounts from another service are not accepted here.
 package account
 
 import (
@@ -223,7 +223,7 @@ func (s *Store) AppliedJobIDs(ctx context.Context, userID string) ([]string, err
 	return s.jobIDs(ctx, userID, "appliedJobIds")
 }
 
-// MarkApplied records a job on this Acorn account. It does not write to Joined.
+// MarkApplied records a job on this Acorn account.
 func (s *Store) MarkApplied(ctx context.Context, userID, jobID string) error {
 	jobID = strings.TrimSpace(jobID)
 	if jobID == "" {

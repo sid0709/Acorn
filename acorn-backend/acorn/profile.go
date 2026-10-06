@@ -8,7 +8,7 @@ import (
 )
 
 // applicantNotes tell the planner how to read settings. They mirror the notes the
-// planner prompt relies on, adapted to what a Joined profile stores.
+// planner prompt relies on, adapted to what an Acorn profile stores.
 var applicantNotes = strings.Join([]string{
 	"settings.* is the authoritative applicant profile from the applicant's Acorn account.",
 	"immigrationStatus and sponsorship both carry the profile's work-authorization statement; read it for work-authorization questions (a status that already permits work is Yes) and for visa-sponsorship questions (answer from whether it says sponsorship is needed).",
@@ -26,7 +26,7 @@ func ApplicantProfileText(userID string, profile candidate.Profile) string {
 }
 
 // ApplicantProfileTextWith is ApplicantProfileText plus answers the account form
-// stores that Joined's profile type does not. Empty answers are left out.
+// stores that the profile type does not. Empty answers are left out.
 // Secrets (passwords, API keys) never belong in extra.
 func ApplicantProfileTextWith(userID string, profile candidate.Profile, extra map[string]string) string {
 	return applicantProfileText(userID, profile, extra)
@@ -97,7 +97,7 @@ func applicantProfileText(userID string, profile candidate.Profile, extra map[st
 		}
 	}
 	return indentedJSON(map[string]any{
-		"source":   "Joined profile",
+		"source":   "Acorn profile",
 		"account":  map[string]any{"id": userID, "name": orNil(profile.Name)},
 		"settings": settings,
 		"note":     applicantNotes,

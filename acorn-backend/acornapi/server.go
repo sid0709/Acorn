@@ -26,7 +26,7 @@ const (
 	// Prefix is the path every Acorn route starts with.
 	Prefix = "/acorn"
 
-	// GooglePrefix is where @joined/google-signin calls this API. The frontend
+	// GooglePrefix is where @acorn/google-signin calls this API. The frontend
 	// owns the browser redirect; these two routes only start and finish it.
 	GooglePrefix = "/v1/auth/google"
 

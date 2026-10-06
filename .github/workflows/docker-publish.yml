@@ -51,14 +51,6 @@ jobs:
           path: src/Acorn
           submodules: false
 
-      - name: Checkout Joined backend-core
-        uses: actions/checkout@v4
-        with:
-          repository: sid0709/Joined
-          path: src/Joined
-          sparse-checkout: backend-core
-          sparse-checkout-cone-mode: true
-
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v3
 

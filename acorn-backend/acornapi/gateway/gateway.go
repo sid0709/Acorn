@@ -1,5 +1,5 @@
 // Package gateway is Acorn's Socket.IO endpoint at /acorn/socket.io: the side panel, the UI
-// board and the extension meet here, one private room per Joined account.
+// board and the extension meet here, one private room per Acorn account.
 package gateway
 
 import (
