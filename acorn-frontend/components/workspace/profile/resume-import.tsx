@@ -28,10 +28,10 @@ const UNREADABLE =
 
 const READER_NOTE: Record<ResumeReader, string> = {
   ai: "Read by AI",
-  layout: "Read from the layout — the AI model isn’t configured",
+  layout: "Read from the layout — AI reading is unavailable right now",
 };
 
-type Filled = { fileName: string; reader: ResumeReader; labels: string[] };
+type Filled = { fileName: string; reader?: ResumeReader; labels: string[] };
 
 /**
  * Drop a résumé and the profile fills itself: name, contact, location, links,
@@ -58,7 +58,7 @@ export function ResumeImport({
     onFilled(next);
     setFilled({
       fileName: file.name,
-      reader: result.data.reader ?? "layout",
+      reader: result.data.reader,
       labels: filledLabels(next),
     });
   };
@@ -90,9 +90,11 @@ export function ResumeImport({
             <HStack gap={2} vAlign="center" wrap="wrap">
               <Glyph name="check" />
               <Text weight="semibold">{`Filled from ${filled.fileName}`}</Text>
-              <Text type="supporting" color="secondary">
-                {READER_NOTE[filled.reader]}
-              </Text>
+              {filled.reader ? (
+                <Text type="supporting" color="secondary">
+                  {READER_NOTE[filled.reader]}
+                </Text>
+              ) : null}
             </HStack>
             <HStack gap={2} wrap="wrap">
               {filled.labels.map((label) => (

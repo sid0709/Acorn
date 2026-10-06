@@ -24,7 +24,8 @@ export async function pdfText(bytes: Uint8Array): Promise<string> {
       { type: "module" },
     );
   }
-  const doc = await pdfjs.getDocument({ data: bytes }).promise;
+  const task = pdfjs.getDocument({ data: bytes });
+  const doc = await task.promise;
   const pages: string[] = [];
   const links = new Set<string>();
   try {
@@ -38,7 +39,7 @@ export async function pdfText(bytes: Uint8Array): Promise<string> {
       }
     }
   } finally {
-    await doc.destroy();
+    await task.destroy();
   }
   return [...pages, ...links].join("\n");
 }
