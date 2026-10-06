@@ -84,7 +84,7 @@ const skillAnalysisSchema = `{
   "required": ["skills"]
 }`
 
-func (s *Service) AnalyzeLibrary(ctx context.Context, accountID, id string, force bool) (LibraryRow, error) {
+func (s *Service) AnalyzeLibrary(ctx context.Context, accountID, id string, force bool, model Model) (LibraryRow, error) {
 	row, ok := s.store.libraryItem(accountID, id)
 	if !ok {
 		return LibraryRow{}, ErrNotFound
@@ -100,7 +100,7 @@ func (s *Service) AnalyzeLibrary(ctx context.Context, accountID, id string, forc
 	if text == "" {
 		return LibraryRow{}, fmt.Errorf("%w: no extracted text available for analysis", ErrInvalid)
 	}
-	if s.model == nil || !s.model.Ready() {
+	if model == nil || !model.Ready() {
 		return LibraryRow{}, ErrUnavailable
 	}
 	payload, err := json.Marshal(map[string]string{
@@ -111,7 +111,7 @@ func (s *Service) AnalyzeLibrary(ctx context.Context, accountID, id string, forc
 	if err != nil {
 		return LibraryRow{}, err
 	}
-	raw, err := s.model.JSON(ctx, skillAnalysisSystem, string(payload), json.RawMessage(skillAnalysisSchema))
+	raw, err := model.JSON(ctx, skillAnalysisSystem, string(payload), json.RawMessage(skillAnalysisSchema))
 	if err != nil {
 		return LibraryRow{}, fmt.Errorf("analyze résumé: %w", err)
 	}

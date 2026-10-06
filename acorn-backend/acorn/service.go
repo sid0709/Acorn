@@ -64,6 +64,25 @@ type Service struct {
 
 func New(model Model) *Service { return &Service{model: model} }
 
+// Bound is the model this service was built with, when that model can answer.
+// Production leaves it unset and resolves a profile key per request.
+func (s *Service) Bound() (Model, bool) {
+	if s == nil || s.model == nil || !s.model.Ready() {
+		return nil, false
+	}
+	return s.model, true
+}
+
+// WithModel returns a copy that calls model and keeps this service's tracer.
+func (s *Service) WithModel(model Model) *Service {
+	if s == nil {
+		return &Service{model: model}
+	}
+	next := *s
+	next.model = model
+	return &next
+}
+
 // SetTracer records every model call (local debug capture). Nil turns it off.
 func (s *Service) SetTracer(tracer Tracer) { s.tracer = tracer }
 

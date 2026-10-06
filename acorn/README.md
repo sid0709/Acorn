@@ -34,7 +34,7 @@ They are workspaces of the root bun monorepo: one `bun install` at the repo root
 
 ### 1. Start the API
 
-acorn-backend needs a `MONGO_URI` and an `OPENAI_API_KEY` (copy `acorn-backend/.env.example` to `acorn-backend/.env`):
+acorn-backend needs a `MONGO_URI` (copy `acorn-backend/.env.example` to `acorn-backend/.env`). AI calls use the OpenRouter key saved on the account profile:
 
 ```bash
 bun run dev:acorn-api   # http://127.0.0.1:8083, Acorn under /acorn

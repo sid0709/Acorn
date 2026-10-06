@@ -69,8 +69,12 @@ func (s *Server) aiAnalyze(w http.ResponseWriter, r *http.Request) {
 	if !ok {
 		return
 	}
+	brain, ok := s.acornFor(w, r, session.User.ID)
+	if !ok {
+		return
+	}
 	ctx := s.startAnalyzeRun(r, session.User.ID, applicant, body.PureTree, body.Page, body.Debug)
-	result, err := s.acorn.Analyze(ctx, applicant, body.PureTree, body.Page)
+	result, err := brain.Analyze(ctx, applicant, body.PureTree, body.Page)
 	finishAnalyzeRun(ctx, result, err)
 	if err != nil {
 		writeAcornError(w, "ai-analyze", err)
@@ -97,7 +101,11 @@ func (s *Server) matchOption(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, "intendedValue and options are required")
 		return
 	}
-	result, err := s.acorn.MatchOption(s.traceContext(r, session.User.ID), body.IntendedValue, body.Options, body.FieldLabel, body.TypedQuery)
+	brain, ok := s.acornFor(w, r, session.User.ID)
+	if !ok {
+		return
+	}
+	result, err := brain.MatchOption(s.traceContext(r, session.User.ID), body.IntendedValue, body.Options, body.FieldLabel, body.TypedQuery)
 	if err != nil {
 		// The extension falls back to its own matching, so a failure is data, not an HTTP error.
 		slog.Warn("acorn match-option failed", "error", err)
@@ -123,7 +131,11 @@ func (s *Server) qa(w http.ResponseWriter, r *http.Request) {
 	if !ok {
 		return
 	}
-	result, err := s.acorn.Answer(s.traceContext(r, session.User.ID), applicant, body.Question, body.Page)
+	brain, ok := s.acornFor(w, r, session.User.ID)
+	if !ok {
+		return
+	}
+	result, err := brain.Answer(s.traceContext(r, session.User.ID), applicant, body.Question, body.Page)
 	if err != nil {
 		writeAcornError(w, "qa", err)
 		return
@@ -132,7 +144,8 @@ func (s *Server) qa(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) extractJD(w http.ResponseWriter, r *http.Request) {
-	if _, ok := s.session(w, r); !ok {
+	session, ok := s.session(w, r)
+	if !ok {
 		return
 	}
 	var body struct {
@@ -142,11 +155,12 @@ func (s *Server) extractJD(w http.ResponseWriter, r *http.Request) {
 	if !decode(w, r, &body) {
 		return
 	}
-	s.writeJD(w, r, body.PageText, body.Meta)
+	s.writeJD(w, r, session.User.ID, body.PageText, body.Meta)
 }
 
 func (s *Server) analyzeMeta(w http.ResponseWriter, r *http.Request) {
-	if _, ok := s.session(w, r); !ok {
+	session, ok := s.session(w, r)
+	if !ok {
 		return
 	}
 	var body struct {
@@ -155,15 +169,19 @@ func (s *Server) analyzeMeta(w http.ResponseWriter, r *http.Request) {
 	if !decode(w, r, &body) {
 		return
 	}
-	s.writeJD(w, r, "", body.Meta)
+	s.writeJD(w, r, session.User.ID, "", body.Meta)
 }
 
-func (s *Server) writeJD(w http.ResponseWriter, r *http.Request, pageText string, meta any) {
+func (s *Server) writeJD(w http.ResponseWriter, r *http.Request, accountID, pageText string, meta any) {
 	if len([]rune(pageText)) > acorn.PageTextMaxChars {
 		writeError(w, http.StatusBadRequest, "pageText is too long")
 		return
 	}
-	result, err := s.acorn.ExtractJD(r.Context(), pageText, meta)
+	brain, ok := s.acornFor(w, r, accountID)
+	if !ok {
+		return
+	}
+	result, err := brain.ExtractJD(r.Context(), pageText, meta)
 	if err != nil {
 		writeAcornError(w, "extract-jd", err)
 		return

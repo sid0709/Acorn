@@ -61,7 +61,7 @@ func TestMergeResumeFillsContactAndTimeline(t *testing.T) {
 	if school.Kind != "education" || school.Org != "State University" || school.EndYear != "2015" {
 		t.Fatalf("school = %+v", school)
 	}
-	if next.VisaSponsorship != defaultVisaSponsorship || next.OpenaiApiKey != "" {
+	if next.VisaSponsorship != defaultVisaSponsorship || next.OpenrouterApiKey != "" {
 		t.Fatal("résumé text must not invent disclosures or secrets")
 	}
 }
@@ -88,7 +88,7 @@ func TestMergeResumeKeepsShortText(t *testing.T) {
 func TestCandidateOmitsSecrets(t *testing.T) {
 	doc := Blank("Jordan Lee", "j@example.com")
 	doc.Phone = "(415) 555-0148"
-	doc.OpenaiApiKey = "sk-secret"
+	doc.OpenrouterApiKey = "sk-or-secret"
 	doc.WorkAuthorized = "Yes"
 	doc.DesiredSalary = "150000"
 	doc.Timeline = []Entry{{ID: "1", Kind: "role", Title: "Engineer", Org: "Northwind", StartMonth: "1", StartYear: "2022", Current: true}}
@@ -96,7 +96,7 @@ func TestCandidateOmitsSecrets(t *testing.T) {
 	if text.Phone != "(415) 555-0148" || text.SalaryFloor != 150000 || text.Authorization != "Yes" {
 		t.Fatalf("candidate = %+v", text)
 	}
-	if strings.Contains(text.Name, "sk-secret") {
+	if strings.Contains(text.Name, "sk-or-secret") {
 		t.Fatal("secret leaked into the candidate name")
 	}
 	extra := doc.PlannerExtra()

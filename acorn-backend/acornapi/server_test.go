@@ -310,7 +310,7 @@ func TestProfileSaveFillAndAnalyze(t *testing.T) {
 	if rec := call(handler, "POST", "/acorn/ai-analyze", `{"pureTree":"input[1]"}`, bearer("hunter"), ""); rec.Code != http.StatusOK {
 		t.Fatalf("analyze = %d %s", rec.Code, rec.Body)
 	}
-	if !strings.Contains(prompt, "jordan@example.com") || strings.Contains(prompt, "openaiApiKey") {
+	if !strings.Contains(prompt, "jordan@example.com") || strings.Contains(prompt, "openrouterApiKey") {
 		t.Fatalf("planner prompt = %s", prompt)
 	}
 }

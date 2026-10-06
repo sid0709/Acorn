@@ -31,6 +31,7 @@ type Client struct {
 	missingKey  error
 	jsonObject  bool
 	noThinking  bool
+	noReasoning bool
 	http        *http.Client
 	searchHTTP  *http.Client
 }
@@ -136,6 +137,9 @@ func (c *Client) chatRequest(system, user string, schema json.RawMessage) chatRe
 	if c.noThinking {
 		request.Thinking = &thinking{Type: "disabled"}
 	}
+	if c.noReasoning {
+		request.Reasoning = &reasoningEffort{Effort: reasoningEffortNone}
+	}
 	return request
 }
 
@@ -179,10 +183,15 @@ func statusError(status int, message string) error {
 }
 
 type chatRequest struct {
-	Model          string         `json:"model"`
-	Messages       []chatMessage  `json:"messages"`
-	ResponseFormat responseFormat `json:"response_format"`
-	Thinking       *thinking      `json:"thinking,omitempty"`
+	Model          string           `json:"model"`
+	Messages       []chatMessage    `json:"messages"`
+	ResponseFormat responseFormat   `json:"response_format"`
+	Thinking       *thinking        `json:"thinking,omitempty"`
+	Reasoning      *reasoningEffort `json:"reasoning,omitempty"`
+}
+
+type reasoningEffort struct {
+	Effort string `json:"effort"`
 }
 
 type thinking struct {

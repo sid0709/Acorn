@@ -27,9 +27,15 @@ const (
 	defaultOpenAIModel         = "gpt-4o-mini"
 	defaultOpenAIBaseURL       = "https://api.openai.com/v1"
 	defaultDeepSeekModel       = "deepseek-flash"
-	defaultDeepSeekBaseURL     = "https://api.deepseek.com"
-	defaultDeepSeekSearchURL   = "https://api.deepseek.com/anthropic"
-	envFileName                = ".env"
+
+	// OpenRouter is the only model Acorn calls. The key lives on the account profile,
+	// not in the environment.
+	OpenRouterProvider       = "openrouter"
+	OpenRouterModel          = "openai/gpt-6-luna"
+	OpenRouterBaseURL        = "https://openrouter.ai/api/v1"
+	defaultDeepSeekBaseURL   = "https://api.deepseek.com"
+	defaultDeepSeekSearchURL = "https://api.deepseek.com/anthropic"
+	envFileName              = ".env"
 )
 
 // Database is the MongoDB every service shares: one set of accounts, jobs, and companies.

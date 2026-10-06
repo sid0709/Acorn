@@ -168,7 +168,11 @@ func (s *Server) startGenerateFor(w http.ResponseWriter, r *http.Request, jobID 
 	if jobID == "" {
 		jobID = body.JobID
 	}
-	task, err := s.resumes.Enqueue(session.User.ID, s.identity(r, session, body.Identity), body.JobDescription, jobID, body.Checkpoint)
+	model, ok := s.resumeModel(w, r, session.User.ID)
+	if !ok {
+		return
+	}
+	task, err := s.resumes.Enqueue(session.User.ID, s.identity(r, session, body.Identity), body.JobDescription, jobID, body.Checkpoint, model)
 	if err != nil {
 		s.writeResumeErr(w, err)
 		return
@@ -190,7 +194,11 @@ func (s *Server) continueGenerate(w http.ResponseWriter, r *http.Request) {
 	if !decode(w, r, &body) {
 		return
 	}
-	task, err := s.resumes.Continue(session.User.ID, r.PathValue("inputId"), s.identity(r, session, body.Identity), body.JobDescription, body.JobID, body.Checkpoint)
+	model, ok := s.resumeModel(w, r, session.User.ID)
+	if !ok {
+		return
+	}
+	task, err := s.resumes.Continue(session.User.ID, r.PathValue("inputId"), s.identity(r, session, body.Identity), body.JobDescription, body.JobID, body.Checkpoint, model)
 	if err != nil {
 		s.writeResumeErr(w, err)
 		return
@@ -364,7 +372,11 @@ func (s *Server) analyzeLibrary(w http.ResponseWriter, r *http.Request) {
 	if !decode(w, r, &body) {
 		return
 	}
-	row, err := s.resumes.AnalyzeLibrary(r.Context(), session.User.ID, r.PathValue("resumeId"), body.Force)
+	model, ok := s.resumeModel(w, r, session.User.ID)
+	if !ok {
+		return
+	}
+	row, err := s.resumes.AnalyzeLibrary(r.Context(), session.User.ID, r.PathValue("resumeId"), body.Force, model)
 	if err != nil {
 		s.writeResumeErr(w, err)
 		return

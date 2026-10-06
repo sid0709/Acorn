@@ -14,7 +14,6 @@ import (
 	"github.com/sid0709/OpenSeat/acorn-backend/debugtrace"
 	"github.com/sid0709/OpenSeat/acorn-backend/profile"
 	"github.com/sid0709/OpenSeat/acorn-backend/resume"
-	"github.com/sid0709/OpenSeat/backend-core/aisettings"
 	"github.com/sid0709/OpenSeat/backend-core/config"
 	"github.com/sid0709/OpenSeat/backend-core/google"
 	"github.com/sid0709/OpenSeat/backend-core/httpkit"
@@ -61,37 +60,31 @@ func main() {
 		slog.Error("config", "error", err)
 		os.Exit(1)
 	}
-	ai := config.LoadOpenAI()
 	googleConfig := config.LoadGoogle()
 	oauth := &google.Client{ClientID: googleConfig.ClientID, ClientSecret: googleConfig.ClientSecret}
 	if !oauth.Configured() || googleConfig.SignInRedirectURL == "" {
 		slog.Warn("Google sign-in is off until GOOGLE_CLIENT_ID, GOOGLE_CLIENT_SECRET, and GOOGLE_SIGNIN_REDIRECT_URL are set")
 	}
 
-	p, err := platform.Open(context.Background(), db, platform.Options{SettingsKey: config.Env("SETTINGS_ENCRYPTION_KEY", "")})
+	p, err := platform.Open(context.Background(), db, platform.Options{})
 	if err != nil {
 		slog.Error("platform", "error", config.Redact(err, db.MongoURI))
 		os.Exit(1)
 	}
 	defer p.Close()
 
-	// Staff save the key in the admin console; OPENAI_API_KEY is the fallback.
-	model := aisettings.NewModel(p.AISettings, ai)
-	if !model.Ready() {
-		slog.Warn("No AI key yet: Acorn's AI routes answer 503 until staff save one in the admin console or OPENAI_API_KEY is set")
-	}
 	reporter := httpkit.NewReporter(config.LoadErrorReporting().SentryDSN)
 	accounts := account.NewStore(p.Mongo(), db.DestDB)
 	if err := accounts.EnsureIndexes(context.Background()); err != nil {
 		slog.Error("acorn accounts", "error", err)
 		os.Exit(1)
 	}
-	resumes := resume.New(resume.NewStore(p.Mongo(), db.DestDB), model)
+	resumes := resume.New(resume.NewStore(p.Mongo(), db.DestDB), nil)
 	if err := resumes.EnsureIndexes(context.Background()); err != nil {
 		slog.Error("acorn resumes", "error", err)
 		os.Exit(1)
 	}
-	profiles := profile.NewStore(p.Mongo(), db.DestDB, model)
+	profiles := profile.NewStore(p.Mongo(), db.DestDB, nil)
 	if err := profiles.EnsureIndexes(context.Background()); err != nil {
 		slog.Error("acorn profiles", "error", err)
 		os.Exit(1)
@@ -101,7 +94,7 @@ func main() {
 	if debug != nil {
 		slog.Warn("Acorn debug capture is on: page HTML, applicant profiles, and AI prompts are written to disk", "dir", debug.Dir())
 	}
-	acornHandler, gateway := acornapi.New(accounts, p.Jobs, acorn.New(model), acornapi.Options{
+	acornHandler, gateway := acornapi.New(accounts, p.Jobs, acorn.New(nil), acornapi.Options{
 		Resumes:       resumes,
 		Profiles:      profiles,
 		SessionCookie: config.Env("ACORN_SESSION_COOKIE", acornapi.DefaultSessionCookie),

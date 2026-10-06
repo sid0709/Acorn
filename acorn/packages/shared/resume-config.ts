@@ -9,7 +9,7 @@ import {
 export const RESUME_GENERATOR_CONFIG_VERSION = 4 as const;
 
 export type ResumeStepKind = "fine-tune" | "final";
-export type ResumeProviderId = "openai" | "deepseek";
+export type ResumeProviderId = "openrouter";
 export type ResumeReasoningEffort =
   "default" | "none" | "minimal" | "low" | "medium" | "high" | "xhigh" | "max";
 export type ResumePaperSize = "letter" | "a4";
@@ -116,7 +116,8 @@ export const JOB_DESC_TOKEN = "{job_description}";
 
 export const DEFAULT_RESUME_SYSTEM_INSTRUCTION = "You are an expert resume writer.";
 
-export const DEFAULT_RESUME_MODEL = "gpt-5-nano";
+export const DEFAULT_RESUME_MODEL = "openai/gpt-6-luna";
+export const DEFAULT_RESUME_PROVIDER: ResumeProviderId = "openrouter";
 
 const SECTION_TITLE: Record<ResumeSectionType, string> = {
   summary: "Professional Summary",
@@ -243,7 +244,7 @@ export function defaultResumeConfig(): ResumeGeneratorConfig {
   const theme = defaultResumeTheme();
   return {
     schemaVersion: RESUME_GENERATOR_CONFIG_VERSION,
-    provider: "openai",
+    provider: DEFAULT_RESUME_PROVIDER,
     model: DEFAULT_RESUME_MODEL,
     reasoningEffort: "low",
     dynamicCareerTitles: false,
@@ -372,8 +373,8 @@ export function mergeStoredResumeConfig(parsed: unknown): ResumeGeneratorConfig 
       : [];
   return ensureResumePurposes({
     schemaVersion: RESUME_GENERATOR_CONFIG_VERSION,
-    provider: raw.provider === "deepseek" ? "deepseek" : "openai",
-    model: typeof raw.model === "string" && raw.model.trim() ? raw.model.trim() : base.model,
+    provider: DEFAULT_RESUME_PROVIDER,
+    model: DEFAULT_RESUME_MODEL,
     reasoningEffort:
       typeof raw.reasoningEffort === "string"
         ? (raw.reasoningEffort as ResumeReasoningEffort)

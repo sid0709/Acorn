@@ -69,14 +69,14 @@ export type ApplicantProfile = {
   disability: string;
   veteranStatus: string;
   desiredSalary: string;
-  openaiApiKey: string;
-  deepseekApiKey: string;
+  openrouterApiKey: string;
   defaultAccountPassword: string;
   resumeFolderPath: string;
-  modelProvider: string;
-  modelName: string;
   timeline: CareerEntry[];
 };
+
+/** The model every Acorn AI call uses. The profile stores the key, not a choice of model. */
+export const AI_MODEL_LABEL = "OpenRouter, GPT-6 Luna";
 
 const choice = (labels: string[]) => labels.map((label) => ({ value: label, label }));
 
@@ -132,13 +132,6 @@ export const WORK_MODE_OPTIONS = choice(["Remote", "Hybrid", "On-site", "Open to
 export const TRAVEL_OPTIONS = choice(["None", "Up to 25%", "Up to 50%", "More than 50%"]);
 export const NOTICE_OPTIONS = choice(["Immediately", "2 weeks", "1 month", "2 months or more"]);
 export const COUNTRY_OPTIONS = choice(["United States", "Canada", "United Kingdom", "Other"]);
-export const PROVIDER_OPTIONS = choice(["DeepSeek", "OpenAI"]);
-export const MODEL_OPTIONS = choice([
-  "deepseek-v4-flash",
-  "deepseek-chat",
-  "gpt-4o-mini",
-  "gpt-4o",
-]);
 
 const MONTH_NAMES = [
   "Jan",
@@ -206,12 +199,9 @@ export function sampleProfile(account: AcornAccount): ApplicantProfile {
     disability: "No — no disability",
     veteranStatus: "I am not a protected veteran",
     desiredSalary: "150000",
-    openaiApiKey: "sk-acorn-sample",
-    deepseekApiKey: "sk-acorn-sample",
+    openrouterApiKey: "",
     defaultAccountPassword: "sample-account-password",
     resumeFolderPath: "~/Documents/Resumes",
-    modelProvider: "DeepSeek",
-    modelName: "deepseek-v4-flash",
     timeline: [
       {
         id: "role-northwind",
@@ -282,6 +272,7 @@ const LATER_FIELDS = {
   workModePreference: "",
   willingToTravel: "",
   noticePeriod: "",
+  openrouterApiKey: "",
 } satisfies Partial<ApplicantProfile>;
 
 /** What an empty answer starts as. Matches the backend's defaults. */
@@ -431,7 +422,7 @@ export function profileChecklist(profile: ApplicantProfile): ChecklistItem[] {
         .filter((entry) => entry.kind === "role")
         .every((entry) => filled(entry.summary)),
     },
-    { label: "AI model key", done: filled(profile.openaiApiKey) || filled(profile.deepseekApiKey) },
+    { label: "AI model key", done: filled(profile.openrouterApiKey) },
   ];
 }
 
