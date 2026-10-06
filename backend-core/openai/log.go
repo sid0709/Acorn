@@ -7,7 +7,7 @@ import (
 	"time"
 	"unicode/utf8"
 
-	"github.com/sid0709/OpenSeat/backend-core/httpkit"
+	"github.com/sid0709/OpenSeat/backend-core/requestid"
 )
 
 const logTextLimit = 500
@@ -49,7 +49,7 @@ func LogProvider(ctx context.Context, kind, model string, status, attempt, reque
 		name = kind
 	}
 	attrs := []any{
-		"request_id", httpkit.RequestID(ctx),
+		"request_id", requestid.From(ctx),
 		"kind", kind,
 		"name", name,
 		"model", model,

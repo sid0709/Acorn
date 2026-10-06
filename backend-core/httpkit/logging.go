@@ -13,6 +13,8 @@ import (
 	"net/http"
 	"strings"
 	"time"
+
+	"github.com/sid0709/OpenSeat/backend-core/requestid"
 )
 
 const (
@@ -75,7 +77,8 @@ func Logging(logger *slog.Logger, next http.Handler) http.Handler {
 			requestID = generateRequestID()
 		}
 		rec := &requestRecord{id: requestID}
-		r = r.WithContext(context.WithValue(r.Context(), requestRecordKey, rec))
+		ctx := requestid.With(context.WithValue(r.Context(), requestRecordKey, rec), requestID)
+		r = r.WithContext(ctx)
 		w.Header().Set(RequestIDHeader, requestID)
 
 		wrapped := &responseWriter{ResponseWriter: w, status: http.StatusOK}

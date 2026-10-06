@@ -38,9 +38,15 @@ function formatDuration(ms: number): string {
 
 function tokenLine(entry: AiUsageEntry): string {
   const total = entry.totalTokens.toLocaleString();
-  const tokens = `${total} tokens · ${entry.promptTokens.toLocaleString()} in · ${entry.completionTokens.toLocaleString()} out`;
+  const cached = entry.cachedTokens ? ` (${entry.cachedTokens.toLocaleString()} cached)` : "";
+  return `${total} tokens · ${entry.promptTokens.toLocaleString()} in${cached} · ${entry.completionTokens.toLocaleString()} out`;
+}
+
+function whenLine(entry: AiUsageEntry): string {
   const duration = formatDuration(entry.durationMs);
-  return duration ? `${tokens} · ${duration}` : tokens;
+  const when = formatWhen(entry.createdAt);
+  if (duration && when) return `${duration} · ${when}`;
+  return duration || when;
 }
 
 /** AI calls made from the active Chrome tab, newest first. */
@@ -127,7 +133,7 @@ export function UsageHistoryList({
               <Text type="supporting" maxLines={1}>
                 {tokenLine(entry)}
               </Text>
-              <Text type="supporting">{formatWhen(entry.createdAt)}</Text>
+              <Text type="supporting">{whenLine(entry)}</Text>
             </HStack>
             {entry.error ? (
               <Text type="supporting" className="acorn-usage-error">
@@ -148,7 +154,11 @@ export function UsageHistoryList({
       >
         <DialogHeader
           title={open?.model || "Request"}
-          subtitle={open ? tokenLine(open) : undefined}
+          subtitle={
+            open
+              ? [tokenLine(open), formatDuration(open.durationMs)].filter(Boolean).join(" · ")
+              : undefined
+          }
           onOpenChange={() => setOpen(null)}
         />
         {requestLoading ? <Spinner label="Loading request" /> : null}

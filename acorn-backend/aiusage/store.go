@@ -1,4 +1,4 @@
-// Package aiusage stores one row per billed model call, scoped to a Chrome tab.
+// Package aiusage stores one row per model call, scoped to a Chrome tab.
 package aiusage
 
 import (
@@ -18,12 +18,16 @@ const (
 
 // Entry is one model call on one tab.
 type Entry struct {
-	ID               string    `bson:"_id"`
-	AccountID        string    `bson:"accountId"`
-	TabKey           string    `bson:"tabKey"`
-	Model            string    `bson:"model"`
-	PromptTokens     int       `bson:"promptTokens"`
-	CompletionTokens int       `bson:"completionTokens"`
+	ID               string `bson:"_id"`
+	AccountID        string `bson:"accountId"`
+	TabKey           string `bson:"tabKey"`
+	Model            string `bson:"model"`
+	PromptTokens     int    `bson:"promptTokens"`
+	CompletionTokens int    `bson:"completionTokens"`
+	// CachedTokens and CacheWriteTokens are the parts of PromptTokens read from
+	// and written to the provider's prompt cache (billed at their own rates).
+	CachedTokens     int       `bson:"cachedTokens,omitempty"`
+	CacheWriteTokens int       `bson:"cacheWriteTokens,omitempty"`
 	TotalTokens      int       `bson:"totalTokens"`
 	CostNanos        int64     `bson:"costNanos"`
 	Priced           bool      `bson:"priced"`
@@ -75,6 +79,8 @@ func (s *Store) Record(ctx context.Context, accountID, tabKey string, usage open
 		Model:            usage.Model,
 		PromptTokens:     usage.PromptTokens,
 		CompletionTokens: usage.CompletionTokens,
+		CachedTokens:     usage.CachedTokens,
+		CacheWriteTokens: usage.CacheWriteTokens,
 		TotalTokens:      usage.TotalTokens,
 		CostNanos:        usage.CostNanos,
 		Priced:           usage.Priced,

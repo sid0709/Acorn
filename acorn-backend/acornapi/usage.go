@@ -108,6 +108,8 @@ func usageRow(entry aiusage.Entry, withRequest bool) map[string]any {
 		"model":            entry.Model,
 		"promptTokens":     entry.PromptTokens,
 		"completionTokens": entry.CompletionTokens,
+		"cachedTokens":     entry.CachedTokens,
+		"cacheWriteTokens": entry.CacheWriteTokens,
 		"totalTokens":      entry.TotalTokens,
 		"price":            price,
 		"priced":           entry.Priced,

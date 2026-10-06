@@ -9,6 +9,10 @@ export type AiUsageEntry = {
   model: string;
   promptTokens: number;
   completionTokens: number;
+  /** Part of promptTokens read from the provider's prompt cache. */
+  cachedTokens?: number;
+  /** Part of promptTokens written to the prompt cache. */
+  cacheWriteTokens?: number;
   totalTokens: number;
   price: string;
   priced: boolean;
