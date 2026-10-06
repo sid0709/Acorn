@@ -58,10 +58,27 @@ function describe({
       run: customTab.generateProgress ?? null,
     };
   }
+  if (
+    customTab &&
+    (customTab.resumeMode === "recommend" || customTab.workKind === "recommend") &&
+    (customTab.generateStatus === "queued" ||
+      customTab.generateStatus === "running" ||
+      customTab.generateStatus === "failed" ||
+      Boolean(customTab.recommendedResumeId))
+  ) {
+    const line = customTabResumeLine(customTab, fillBusy);
+    const running = customTab.generateStatus === "queued" || customTab.generateStatus === "running";
+    return {
+      title: tabJob?.title || customTab.title || "This page",
+      subtitle: tabJob?.company || hostOf(customTab.url),
+      status: line,
+      run: running ? (customTab.generateProgress ?? null) : null,
+    };
+  }
   if (!tabJob) {
     return {
       title: "No job on this tab",
-      subtitle: "Open a job below, or fill this page without a résumé.",
+      subtitle: "Recommend a library résumé from this page, or fill without one.",
       status: null,
       run: null,
     };
@@ -133,15 +150,25 @@ export function NowCard(props: NowCardProps) {
         {run ? <RunProgress run={run} /> : null}
         {fillBusy ? <ProgressBar label={progress.message || "Filling…"} isIndeterminate /> : null}
         {needsRemember ? (
-          <Button
-            variant="primary"
-            icon={<Glyph name="pin" />}
-            label={remember.label}
-            tooltip={remember.title}
-            isDisabled={remember.disabled}
-            width="100%"
-            onClick={remember.onClick}
-          />
+          <VStack gap={2}>
+            <Button
+              variant="primary"
+              icon={<Glyph name="pin" />}
+              label={remember.label}
+              tooltip={remember.title}
+              isDisabled={remember.disabled}
+              width="100%"
+              onClick={remember.onClick}
+            />
+            <Button
+              variant="secondary"
+              label={recommend.label}
+              tooltip={recommend.title}
+              isDisabled={recommend.disabled}
+              width="100%"
+              onClick={recommend.onClick}
+            />
+          </VStack>
         ) : (
           <VStack gap={2}>
             <Button
@@ -170,7 +197,16 @@ export function NowCard(props: NowCardProps) {
                   onClick={recommend.onClick}
                 />
               </HStack>
-            ) : null}
+            ) : (
+              <Button
+                variant="secondary"
+                label={recommend.label}
+                tooltip={recommend.title}
+                isDisabled={recommend.disabled}
+                width="100%"
+                onClick={recommend.onClick}
+              />
+            )}
           </VStack>
         )}
       </VStack>

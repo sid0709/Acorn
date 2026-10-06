@@ -77,39 +77,126 @@ func looksLikeSkill(token string) bool {
 }
 
 func (s *Service) recommend(accountID, jobDescription string) (id, stack, reason string, err error) {
-	jd := strings.ToLower(jobDescription)
-	if strings.TrimSpace(jd) == "" {
+	if strings.TrimSpace(jobDescription) == "" {
 		return "", "", "", fmt.Errorf("%w: job description is required", ErrInvalid)
 	}
+	jdWords := matchWords(jobDescription)
 	bestScore := 0
+	bestSkills := 0
 	var best LibraryRow
 	for _, row := range s.store.listLibrary(accountID) {
-		full, ok := s.store.libraryItem(accountID, row.ID)
-		if !ok {
+		if row.Source != "" && row.Source != "uploaded" {
 			continue
 		}
-		hay := strings.ToLower(strings.Join([]string{full.Title, full.ExtractedText, strings.Join(full.Skills, " ")}, " "))
-		score := 0
-		for _, token := range strings.Fields(jd) {
-			token = strings.Trim(token, ".,;:()")
-			if len(token) < 4 {
-				continue
-			}
-			if strings.Contains(hay, token) {
-				score++
-			}
-		}
-		if full.IsPrimary {
-			score++
-		}
-		if score > bestScore {
+		score, skillHits := scoreLibraryMatch(row, jdWords)
+		if score > bestScore || (score == bestScore && score > 0 && skillHits > bestSkills) {
 			bestScore = score
-			best = full
+			bestSkills = skillHits
+			best = row
 		}
 	}
-	if best.ID == "" {
+	if best.ID == "" || bestScore == 0 {
 		return "", "", "", ErrNoLibrary
 	}
 	reason = "Matched the posting to the " + best.Title + " library résumé."
+	if bestSkills > 0 {
+		reason = fmt.Sprintf("%s %d analyzed skill%s from that résumé appear in the posting.", reason, bestSkills, plural(bestSkills))
+	}
 	return best.ID, best.Title, reason, nil
+}
+
+// scoreLibraryMatch ranks one uploaded library file against a posting.
+// The title is the tech stack from the parent folder. SkillProfile is the
+// library Analyze result (name, category, level). Résumé body text is not scanned.
+func scoreLibraryMatch(row LibraryRow, jdWords []string) (score, skillHits int) {
+	for _, token := range stackTokens(row.Title) {
+		if phraseInWords(jdWords, token) {
+			score += 10
+		}
+	}
+	for _, skill := range row.SkillProfile {
+		name := strings.TrimSpace(skill.Name)
+		if name == "" || !phraseInWords(jdWords, matchWords(name)) {
+			continue
+		}
+		weight := skill.Level
+		if weight < skillLevelMin {
+			weight = skillLevelMin
+		}
+		if skill.Category == "hard" || skill.Category == "devops" {
+			weight *= 2
+		}
+		score += weight
+		skillHits++
+	}
+	if score > 0 && row.IsPrimary {
+		score++
+	}
+	return score, skillHits
+}
+
+func stackTokens(title string) [][]string {
+	title = strings.ReplaceAll(title, " - ", "+")
+	parts := strings.FieldsFunc(title, func(r rune) bool {
+		return r == '+' || r == '/' || r == '|' || r == '&' || r == ',' || r == ';'
+	})
+	var tokens [][]string
+	for _, part := range parts {
+		part = strings.Trim(part, " -\t")
+		words := matchWords(part)
+		if len(words) > 0 {
+			tokens = append(tokens, words)
+		}
+	}
+	return tokens
+}
+
+func matchWords(text string) []string {
+	compact := strings.Builder{}
+	flush := func(out *[]string) {
+		if compact.Len() == 0 {
+			return
+		}
+		*out = append(*out, compact.String())
+		compact.Reset()
+	}
+	var words []string
+	for _, r := range strings.ToLower(text) {
+		if r == '.' || r == '-' || r == '_' {
+			continue
+		}
+		if unicode.IsLetter(r) || unicode.IsDigit(r) || r == '+' || r == '#' {
+			compact.WriteRune(r)
+			continue
+		}
+		flush(&words)
+	}
+	flush(&words)
+	return words
+}
+
+func phraseInWords(hay []string, phrase []string) bool {
+	if len(phrase) == 0 || len(phrase) > len(hay) {
+		return false
+	}
+	for i := 0; i <= len(hay)-len(phrase); i++ {
+		match := true
+		for j, word := range phrase {
+			if hay[i+j] != word {
+				match = false
+				break
+			}
+		}
+		if match {
+			return true
+		}
+	}
+	return false
+}
+
+func plural(n int) string {
+	if n == 1 {
+		return ""
+	}
+	return "s"
 }

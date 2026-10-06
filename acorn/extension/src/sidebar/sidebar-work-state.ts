@@ -92,14 +92,14 @@ export function actionBarState({
           : attachedJobGenerate?.recommendedResumeId ||
               (tabJob && workerJobs.find((job) => job.id === tabJob.jobId)?.recommendedResumeId)
             ? "Recommend again"
-            : "Recommend"
+            : "Recommend Resume"
       : generateBusy && customTab?.workKind === "recommend"
         ? "Recommending…"
         : customCanContinue && customTab?.workKind === "recommend"
           ? "Continue"
           : customTab?.recommendedResumeId
             ? "Recommend again"
-            : "Recommend";
+            : "Recommend Resume";
   const fillLabel = fillBusy
     ? progress.message
     : progress.phase === "done"

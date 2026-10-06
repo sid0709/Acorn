@@ -200,8 +200,8 @@ export default function SidebarApp() {
     },
     recommend: {
       label: recommendLabel,
-      title: customLocked ? rememberFirst : fillLocked ? openJobFirst : recommendLabel,
-      disabled: actionsOff || fillLocked,
+      title: recommendLabel,
+      disabled: tabWorkBusy || !session || activeTabId == null,
       onClick: () =>
         void startCustomWork("recommend", {
           continue:
