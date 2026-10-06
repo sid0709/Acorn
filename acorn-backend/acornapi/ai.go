@@ -60,6 +60,7 @@ func (s *Server) aiAnalyze(w http.ResponseWriter, r *http.Request) {
 		PureTree string         `json:"pureTree"`
 		MetaTree string         `json:"metaTree"` // accepted from older extensions, never sent to the model
 		Page     map[string]any `json:"page"`
+		Debug    *analyzeDebug  `json:"debug"`
 	}
 	if !decode(w, r, &body) {
 		return
@@ -68,7 +69,9 @@ func (s *Server) aiAnalyze(w http.ResponseWriter, r *http.Request) {
 	if !ok {
 		return
 	}
-	result, err := s.acorn.Analyze(r.Context(), applicant, body.PureTree, body.Page)
+	ctx := s.startAnalyzeRun(r, session.User.ID, applicant, body.PureTree, body.Page, body.Debug)
+	result, err := s.acorn.Analyze(ctx, applicant, body.PureTree, body.Page)
+	finishAnalyzeRun(ctx, result, err)
 	if err != nil {
 		writeAcornError(w, "ai-analyze", err)
 		return
@@ -77,7 +80,8 @@ func (s *Server) aiAnalyze(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) matchOption(w http.ResponseWriter, r *http.Request) {
-	if _, ok := s.session(w, r); !ok {
+	session, ok := s.session(w, r)
+	if !ok {
 		return
 	}
 	var body struct {
@@ -93,7 +97,7 @@ func (s *Server) matchOption(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, "intendedValue and options are required")
 		return
 	}
-	result, err := s.acorn.MatchOption(r.Context(), body.IntendedValue, body.Options, body.FieldLabel, body.TypedQuery)
+	result, err := s.acorn.MatchOption(s.traceContext(r, session.User.ID), body.IntendedValue, body.Options, body.FieldLabel, body.TypedQuery)
 	if err != nil {
 		// The extension falls back to its own matching, so a failure is data, not an HTTP error.
 		slog.Warn("acorn match-option failed", "error", err)
@@ -119,7 +123,7 @@ func (s *Server) qa(w http.ResponseWriter, r *http.Request) {
 	if !ok {
 		return
 	}
-	result, err := s.acorn.Answer(r.Context(), applicant, body.Question, body.Page)
+	result, err := s.acorn.Answer(s.traceContext(r, session.User.ID), applicant, body.Question, body.Page)
 	if err != nil {
 		writeAcornError(w, "qa", err)
 		return

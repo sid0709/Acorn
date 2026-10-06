@@ -132,14 +132,27 @@ export function readWidgetTextParts(control: Element): string[] {
     );
   };
 
-  const parts: string[] = [];
+  // Frameworks split one label into sibling text nodes ("+" and "1" from `+{code}`),
+  // so read each element's direct text as one run.
+  const runs: Array<{ host: Element; text: string }> = [];
   const walker = root.ownerDocument.createTreeWalker(root, NodeFilter.SHOW_TEXT);
-  for (let text = walker.nextNode(); text; text = walker.nextNode()) {
-    const value = (text.textContent || "").replace(/\s+/g, " ").trim();
+  for (let node = walker.nextNode(); node; node = walker.nextNode()) {
+    const host = node.parentElement;
+    if (!host) continue;
+    const last = runs[runs.length - 1];
+    if (last && last.host === host && node.previousSibling?.nodeType === Node.TEXT_NODE) {
+      last.text += node.textContent || "";
+    } else {
+      runs.push({ host, text: node.textContent || "" });
+    }
+  }
+
+  const parts: string[] = [];
+  for (const { host, text } of runs) {
+    const value = text.replace(/\s+/g, " ").trim();
     // Icons and glyphs (×, ▾) are chrome; a value has a letter or digit.
     if (!/[\p{L}\p{N}]/u.test(value) || parts.includes(value)) continue;
-    const host = text.parentElement;
-    if (!host || !hostAllows(host) || !onControlRow(host)) continue;
+    if (!hostAllows(host) || !onControlRow(host)) continue;
     if (looksLikePlaceholderInk(host, control)) continue;
     parts.push(value);
   }

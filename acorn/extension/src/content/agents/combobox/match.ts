@@ -1,4 +1,4 @@
-import { askAiMatchOption } from "../match-option-client";
+import { askAiMatchOption, confidentMatchedOption } from "../match-option-client";
 import { stripChoiceMarker } from "../string-similarity";
 import { normalize, optionText } from "./options-dom";
 
@@ -70,13 +70,12 @@ export async function matchFromCandidates(
     typedQuery,
   });
 
-  const aiConfidence = typeof ai.confidence === "number" ? ai.confidence : 0;
-  const el = ai.matched_option ? resolveOptionElement(options, ai.matched_option) : null;
-  // Confidence 0 means the model did not consider this the intended entity.
-  if (el && aiConfidence > 0) {
+  const matched = confidentMatchedOption(ai);
+  const el = matched ? resolveOptionElement(options, matched) : null;
+  if (el) {
     return {
       match: el,
-      score: aiConfidence,
+      score: typeof ai.confidence === "number" ? ai.confidence : null,
       strategy: "ai",
     };
   }

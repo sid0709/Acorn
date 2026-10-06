@@ -143,6 +143,12 @@ export function optionSignature(options: HTMLElement[]): string {
   return options.map((opt) => normalize(optionText(opt))).join("\n");
 }
 
+/** True while the control says it is expanded or one of its own listboxes is on screen. */
+export function ownedPopupOpen(control: HTMLElement, doc: Document): boolean {
+  if (control.getAttribute("aria-expanded") === "true") return true;
+  return listboxRootsForControl(control, doc).some((node) => isDisplayed(node));
+}
+
 export function displayedListboxes(control: HTMLElement, doc: Document): HTMLElement[] {
   const owned = listboxRootsForControl(control, doc).filter(
     (node) => isDisplayed(node) || collectOptionsInRoot(node).length > 0,

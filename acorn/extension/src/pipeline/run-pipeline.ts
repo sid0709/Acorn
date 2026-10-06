@@ -20,6 +20,8 @@ import {
 } from "./usage-tracker";
 import { fetchDomFromTab } from "./fetch-dom";
 import { autoPauseDecision, countDomNodes, shortLabel } from "./run-pipeline-helpers";
+import { traceFromBackground } from "../background/debug-trace-sink";
+import { ACORN_DEBUG } from "../debug-trace";
 
 export type PipelineEmit = (progress: PipelineProgress) => void;
 
@@ -78,7 +80,7 @@ export async function runFabPipeline(args: RunPipelineArgs): Promise<void> {
       source !== "custom" && customTab != null && customTabHasResume(customTab);
     const resumeSource: PipelineSource =
       source === "custom" || usingForcedCustom ? "custom" : "fill";
-    const [treePayload, resumeLoad, runtimeFile] = await Promise.all([
+    const [fetchedDom, resumeLoad, runtimeFile] = await Promise.all([
       fetchDomFromTab(tabId, preferredFrameId),
       loadFillResume({
         source: resumeSource,
@@ -89,6 +91,8 @@ export async function runFabPipeline(args: RunPipelineArgs): Promise<void> {
       }),
       fetchRuntimeFile(aiServerUrl).catch(() => null),
     ]);
+    // The page HTML only rides to Analyze's debug capture, not the socket or sidebar.
+    const { html: pageHtml, ...treePayload } = fetchedDom;
     const boundResume =
       resumeSource === "custom"
         ? { file: resumeLoad.file, skipReason: resumeLoad.skipReason }
@@ -143,7 +147,7 @@ export async function runFabPipeline(args: RunPipelineArgs): Promise<void> {
       resumeUpload: resumeUpload(),
     });
 
-    const { pureTree } = formatAnalyzeTrees(treePayload.tree);
+    const { pureTree, metaTree } = formatAnalyzeTrees(treePayload.tree);
 
     const analyze = await requestAiAnalyze(
       {
@@ -179,6 +183,7 @@ export async function runFabPipeline(args: RunPipelineArgs): Promise<void> {
               : tabJob?.resumeStack) ||
             null,
         },
+        debug: ACORN_DEBUG ? { html: pageHtml, domTree: treePayload.tree, metaTree } : undefined,
       },
       aiServerUrl,
     );
@@ -199,6 +204,17 @@ export async function runFabPipeline(args: RunPipelineArgs): Promise<void> {
     });
 
     const frameId = treePayload.frameId ?? preferredFrameId ?? null;
+    traceFromBackground("plan", () => ({
+      frameId,
+      actions: (plan.actions ?? []).map((a, i) => ({
+        i,
+        action: a.action,
+        element_index: a.element_index,
+        label: a.expected_label,
+        role: a.expected_role,
+        value: a.value,
+      })),
+    }));
 
     const report = await runActionPlan({
       plan,
@@ -207,7 +223,17 @@ export async function runFabPipeline(args: RunPipelineArgs): Promise<void> {
       customResume,
       resumeFileKind,
       executeStep: async (step: PlanStepPayload) => {
+        const sentAt = Date.now();
         const res = await sendPlanStepToTab(tabId, step, frameId);
+        traceFromBackground("step:result", () => ({
+          element_index: step.element_index,
+          label: step.expected_label,
+          ok: res.ok,
+          alreadyFilled: res.alreadyFilled,
+          error: res.error,
+          valueAfter: res.details?.valueAfter,
+          ms: Date.now() - sentAt,
+        }));
         const details = res.details ?? {};
         return {
           ok: Boolean(res.ok),

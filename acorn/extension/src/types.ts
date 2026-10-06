@@ -18,6 +18,8 @@ export interface DomTreePayload {
   frameId?: number;
   /** Fillable control count used to pick the form frame among iframes. */
   formScore?: number;
+  /** Debug builds only: the form frame's HTML, for the backend debug run. */
+  html?: string;
 }
 
 /** Long-lived side-panel port. Keeps the MV3 worker (and `/acorn/socket.io` socket) alive. */
@@ -57,6 +59,8 @@ export const MSG = {
   START_JOB_GENERATE: "acorn:start-job-generate",
   START_JOB_RECOMMEND: "acorn:start-job-recommend",
   SELECTION_QA: "acorn:selection-qa",
+  /** Debug builds only: a page trace event relayed to the backend debug run. */
+  DEBUG_TRACE: "acorn:debug-trace",
 } as const;
 
 export type AcornNoticeKind = "error" | "success" | "info";

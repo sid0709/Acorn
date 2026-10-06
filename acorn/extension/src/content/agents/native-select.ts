@@ -1,4 +1,4 @@
-import { askAiMatchOption } from "./match-option-client";
+import { askAiMatchOption, confidentMatchedOption } from "./match-option-client";
 import { stripChoiceMarker } from "./string-similarity";
 
 function normalize(text: string): string {
@@ -68,14 +68,14 @@ export async function fillNativeSelect(select: HTMLSelectElement, value: string)
       fieldLabel: fieldLabelFor(select),
       typedQuery: null,
     });
-    const picked =
-      typeof ai.matched_option === "string"
-        ? options.find(
-            (option) =>
-              optionLabel(option) === ai.matched_option ||
-              normalize(optionLabel(option)) === normalize(ai.matched_option || ""),
-          )
-        : null;
+    const matched = confidentMatchedOption(ai);
+    const picked = matched
+      ? options.find(
+          (option) =>
+            optionLabel(option) === matched ||
+            normalize(optionLabel(option)) === normalize(matched),
+        )
+      : null;
     if (picked) {
       return applySelectOption(select, picked);
     }

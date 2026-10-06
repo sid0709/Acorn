@@ -30,17 +30,55 @@ type Model interface {
 	Ready() bool
 }
 
+// Purpose names what a model call is for, so a trace can tell the calls apart.
+type Purpose string
+
+const (
+	PurposeAnalyze     Purpose = "analyze"
+	PurposeIdentity    Purpose = "identity"
+	PurposeTyping      Purpose = "typing-rewrite"
+	PurposeMatchOption Purpose = "match-option"
+	PurposeAnswer      Purpose = "qa"
+	PurposeExtractJD   Purpose = "extract-jd"
+)
+
+// Call is one model request and what came back, handed to a Tracer.
+type Call struct {
+	Purpose  Purpose
+	Model    string
+	System   string
+	User     string
+	Schema   json.RawMessage
+	Output   []byte
+	Err      error
+	Duration time.Duration
+}
+
+// Tracer sees every model call. It must not block or fail the request.
+type Tracer func(ctx context.Context, call Call)
+
 type Service struct {
-	model Model
+	model  Model
+	tracer Tracer
 }
 
 func New(model Model) *Service { return &Service{model: model} }
 
-func (s *Service) ask(ctx context.Context, system, user string, schema json.RawMessage) (string, error) {
+// SetTracer records every model call (local debug capture). Nil turns it off.
+func (s *Service) SetTracer(tracer Tracer) { s.tracer = tracer }
+
+func (s *Service) ask(ctx context.Context, purpose Purpose, system, user string, schema json.RawMessage) (string, error) {
 	if s.model == nil || !s.model.Ready() {
 		return "", ErrModelUnavailable
 	}
+	started := time.Now()
 	raw, err := s.model.JSON(ctx, system, user, schema)
+	if s.tracer != nil {
+		s.tracer(ctx, Call{
+			Purpose: purpose, Model: s.model.Model(), System: system, User: user, Schema: schema,
+			Output: raw, Err: err, Duration: time.Since(started),
+		})
+	}
 	return string(raw), err
 }
 
@@ -61,7 +99,7 @@ func (s *Service) Analyze(ctx context.Context, applicant, pureTree string, page 
 	// Generate and Recommend can attach a résumé, so the planner may emit resume_upload.
 	page = withResumeAvailable(page)
 
-	text, err := s.ask(ctx, analyzeSystem, analyzeUserPrompt(applicant, pureTree, page), actionPlanSchema())
+	text, err := s.ask(ctx, PurposeAnalyze, analyzeSystem, analyzeUserPrompt(applicant, pureTree, page), actionPlanSchema())
 	if err != nil {
 		return AnalyzeResult{}, err
 	}
@@ -97,7 +135,7 @@ func (s *Service) classifyIdentity(ctx context.Context, plan Plan) map[int]bool 
 	}
 	ctx, cancel := context.WithTimeout(ctx, identityTimeout)
 	defer cancel()
-	text, err := s.ask(ctx, identitySystem, identityUserPrompt(fields), identitySchema())
+	text, err := s.ask(ctx, PurposeIdentity, identitySystem, identityUserPrompt(fields), identitySchema())
 	if err == nil {
 		var indexes map[int]bool
 		if indexes, err = parseApplicationAI(text, fields); err == nil {
@@ -116,7 +154,7 @@ func (s *Service) rewriteTyping(ctx context.Context, plan Plan, applicant string
 	}
 	ctx, cancel := context.WithTimeout(ctx, proseTimeout)
 	defer cancel()
-	text, err := s.ask(ctx, proseSystem, proseUserPrompt(applicant, fields, page), proseAnswersSchema())
+	text, err := s.ask(ctx, PurposeTyping, proseSystem, proseUserPrompt(applicant, fields, page), proseAnswersSchema())
 	if err == nil {
 		allowed := map[int]bool{}
 		for _, field := range fields {
@@ -165,7 +203,7 @@ func (s *Service) MatchOption(ctx context.Context, intended string, options []st
 	}
 	lines = append(lines, "Pick one Visible options string verbatim. Do not return null.", "Respond with json.")
 
-	text, err := s.ask(ctx, matchOptionSystem, strings.Join(lines, "\n"), matchOptionSchema(list))
+	text, err := s.ask(ctx, PurposeMatchOption, matchOptionSystem, strings.Join(lines, "\n"), matchOptionSchema(list))
 	if err != nil {
 		return MatchResult{}, err
 	}
@@ -209,7 +247,7 @@ func (s *Service) Answer(ctx context.Context, applicant, question string, page m
 	ctx, cancel := context.WithTimeout(ctx, proseTimeout)
 	defer cancel()
 	fields := []typingField{{ElementIndex: qaFieldIndex, Question: question, Role: "textarea"}}
-	text, err := s.ask(ctx, proseSystem, proseUserPrompt(applicant, fields, page), proseAnswersSchema())
+	text, err := s.ask(ctx, PurposeAnswer, proseSystem, proseUserPrompt(applicant, fields, page), proseAnswersSchema())
 	if err != nil {
 		return QAResult{}, err
 	}
@@ -246,7 +284,7 @@ func (s *Service) ExtractJD(ctx context.Context, pageText string, meta any) (JDR
 	}
 	ctx, cancel := context.WithTimeout(ctx, extractTimeout)
 	defer cancel()
-	text, err := s.ask(ctx, extractJDSystem, "Page text:\n\n"+pageText, extractJDSchema())
+	text, err := s.ask(ctx, PurposeExtractJD, extractJDSystem, "Page text:\n\n"+pageText, extractJDSchema())
 	if err != nil {
 		return JDResult{}, err
 	}

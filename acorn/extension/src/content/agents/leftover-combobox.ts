@@ -1,6 +1,7 @@
 import { fillElement } from "./fill";
 import { wasPlanFilled } from "./plan-fill-registry";
 import { readControlValue } from "./read-control-value";
+import { traceFromPage } from "../../debug-trace";
 
 /** Planner-less leftover controls: matcher AI answers from the applicant profile. */
 const PROFILE_ANSWER = "Answer from the applicant profile";
@@ -66,6 +67,14 @@ export async function fillLeftoverComboboxes(): Promise<{
     })
     .slice(0, MAX_LEFTOVER);
 
+  traceFromPage("leftover:candidates", () => ({
+    all: nodes.length,
+    picked: leftovers.map((el) => ({
+      id: el.id,
+      label: fieldLabel(el),
+      read: readControlValue(el),
+    })),
+  }));
   let filled = 0;
   let raceLike = 0;
   for (const el of leftovers) {
@@ -78,8 +87,9 @@ export async function fillLeftoverComboboxes(): Promise<{
       // PROFILE_ANSWER is an instruction for the option matcher, never a search query.
       await fillElement(el, PROFILE_ANSWER, label || null, { allowTypeahead: false });
       if (readControlValue(el)) filled += 1;
-    } catch {
-      /* continue remaining leftovers */
+      traceFromPage("leftover:filled", () => ({ id: el.id, label, read: readControlValue(el) }));
+    } catch (err) {
+      traceFromPage("leftover:error", () => ({ id: el.id, label, error: String(err) }));
     }
   }
 

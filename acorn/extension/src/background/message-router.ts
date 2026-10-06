@@ -1,4 +1,6 @@
 import { MSG } from "../types";
+import type { TraceEntry } from "../debug-trace";
+import { sinkTrace } from "./debug-trace-sink";
 import {
   handleAuthSignIn,
   handleAuthSignOut,
@@ -33,6 +35,12 @@ export function routeMessage(
   sender: chrome.runtime.MessageSender,
   sendResponse: SendResponse,
 ) {
+  if (message.type === MSG.DEBUG_TRACE) {
+    const entry = (message as unknown as { entry: TraceEntry }).entry;
+    sinkTrace({ ...entry, frameId: sender.frameId });
+    return false;
+  }
+
   if (message.type === MSG.SOCKET_STATUS) {
     handleSocketStatus(sendResponse);
     return true;

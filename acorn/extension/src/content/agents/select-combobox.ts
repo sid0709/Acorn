@@ -3,6 +3,7 @@ import { fillNativeSelect } from "./native-select";
 import { pointerActivate } from "./pointer-activate";
 import { readControlValue } from "./read-control-value";
 import { waitMs } from "./wait";
+import { traceFromPage } from "../../debug-trace";
 import { matchFromCandidates } from "./combobox/match";
 import { normalize, optionSignature, optionText } from "./combobox/options-dom";
 import {
@@ -15,6 +16,7 @@ import {
   focusAndOpenCombobox,
   pasteQueryIntoOpenCombobox,
   resolveTypeableInput,
+  settlePopupClosed,
   typeQueryIntoOpenCombobox,
   typeaheadFilterWaitMs,
 } from "./combobox/typing";
@@ -86,6 +88,17 @@ export async function selectComboboxOption(
   const closedList = initialOptions.length > 0 && initialOptions.length <= CLOSED_LIST_MAX;
   const allowInitialAi = closedList || intendedInList(initialOptions);
   let { match } = await matchFromCandidates(options, value, fieldLabel, null, allowInitialAi);
+  traceFromPage("combo:initial", () => ({
+    value,
+    fieldLabel,
+    allowTypeahead,
+    initialCount: initialOptions.length,
+    sample: initialOptions.slice(0, 8).map(optionText),
+    closedList,
+    allowInitialAi,
+    match: match ? optionText(match) : null,
+    typeable: Boolean(resolveTypeableInput(html)),
+  }));
 
   // Typeahead: type the full query and wait for the list to change.
   // Closed menus already show every candidate — typing filters them away.
@@ -106,6 +119,13 @@ export async function selectComboboxOption(
       filtered = await waitForFilteredOptions(html, doc, priorSig, filterWait);
     }
 
+    traceFromPage("combo:typed", () => ({
+      value,
+      typed,
+      filteredCount: filtered.length,
+      sample: filtered.slice(0, 8).map(optionText),
+      sigChanged: optionSignature(filtered) !== priorSig,
+    }));
     if (filtered.length) {
       options = filtered;
       const allowAi = intendedInList(filtered);
@@ -158,14 +178,21 @@ export async function selectComboboxOption(
   }
 
   const label = optionText(match);
+  traceFromPage("combo:click", () => ({ value, label, connected: match.isConnected }));
   const live = match.isConnected ? match : await findLiveOption(html, doc, label);
   const clickTarget = live || match;
   clickTarget.scrollIntoView({ block: "nearest", behavior: "auto" });
   pointerActivate(clickTarget);
-  await waitMs(80);
-  dismissOpenOverlays(doc, html);
+  const closed = await settlePopupClosed(html, doc);
 
   const displayed = readControlValue(html);
+  traceFromPage("combo:after-click", () => ({
+    value,
+    label,
+    closed,
+    displayed,
+    inputValue: html instanceof HTMLInputElement ? html.value : undefined,
+  }));
   const selected =
     displayed ||
     (html instanceof HTMLInputElement && html.value) ||

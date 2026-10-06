@@ -7,6 +7,8 @@ import { clearHighlight, highlightElement } from "./highlighter";
 import { fillLeftoverComboboxes } from "./agents/leftover-combobox";
 import { runPlanStep } from "./plan-step-runner";
 import { initSelectionQa } from "./selection-qa";
+import { ACORN_DEBUG, DEBUG_HTML_MAX_CHARS, traceFromPage } from "../debug-trace";
+import { comboSnapshot } from "./debug-snapshot";
 
 const CONTENT_BOOT = "__acornContentBoot";
 
@@ -56,6 +58,9 @@ if (!contentWindow[CONTENT_BOOT]) {
             formScore: score,
             fetchedAt: new Date().toISOString(),
             frameId: sender.frameId ?? null,
+            html: ACORN_DEBUG
+              ? document.documentElement.outerHTML.slice(0, DEBUG_HTML_MAX_CHARS)
+              : undefined,
           });
         } catch (err) {
           sendResponse({ error: String(err), formScore: score });
@@ -123,14 +128,26 @@ if (!contentWindow[CONTENT_BOOT]) {
         }
       };
 
+      const receivedAt = Date.now();
+      const step = message.step as PlanStepPayload;
       const timer = setTimeout(() => {
+        traceFromPage("page:timeout", () => ({
+          element_index: step.element_index,
+          ms: Date.now() - receivedAt,
+        }));
         respond({
           ok: false,
           error: `Plan step handler timed out inside the page (${PLAN_STEP_PAGE_TIMEOUT_MS / 1000}s)`,
         });
       }, PLAN_STEP_PAGE_TIMEOUT_MS);
 
-      runExclusive(() => runPlanStep(message.step as PlanStepPayload))
+      runExclusive(() => {
+        traceFromPage("queue:start", () => ({
+          element_index: step.element_index,
+          waitedMs: Date.now() - receivedAt,
+        }));
+        return runPlanStep(step);
+      })
         .then((result) => {
           clearTimeout(timer);
           respond(result);
@@ -150,6 +167,7 @@ if (!contentWindow[CONTENT_BOOT]) {
         sendResponse({ ok: false, skipped: true, error: "Not a form frame" });
         return false;
       }
+      traceFromPage("leftover:before", () => ({ combos: comboSnapshot() }));
       void runExclusive(fillLeftoverComboboxes)
         .then((result) => sendResponse({ ok: true, ...result }))
         .catch((err) =>

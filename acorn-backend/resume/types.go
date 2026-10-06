@@ -85,24 +85,32 @@ type UploadedTemplate struct {
 	Docx          []byte         `json:"-" bson:"docx"`
 }
 
+// SkillEntry is one skill from résumé analysis: a name, a radar category, and a level from 2 to 5.
+type SkillEntry struct {
+	Name     string `json:"name" bson:"name"`
+	Category string `json:"category" bson:"category"`
+	Level    int    `json:"level" bson:"level"`
+}
+
 type LibraryRow struct {
-	ID            string     `json:"id" bson:"id"`
-	AccountID     string     `json:"-" bson:"accountId"`
-	Source        string     `json:"source" bson:"source"`
-	FileName      string     `json:"fileName" bson:"fileName"`
-	Title         string     `json:"title" bson:"title"`
-	Size          int        `json:"size" bson:"size"`
-	IsPrimary     bool       `json:"isPrimary" bson:"isPrimary"`
-	Analyzed      bool       `json:"analyzed" bson:"analyzed"`
-	AnalyzedAt    *time.Time `json:"analyzedAt" bson:"analyzedAt,omitempty"`
-	GenerationID  string     `json:"generationId,omitempty" bson:"generationId,omitempty"`
-	TemplateID    string     `json:"templateId,omitempty" bson:"templateId,omitempty"`
-	JobID         string     `json:"jobId,omitempty" bson:"jobId,omitempty"`
-	UploadedAt    time.Time  `json:"uploadedAt" bson:"uploadedAt"`
-	ExtractedText string     `json:"extractedText,omitempty" bson:"extractedText,omitempty"`
-	Skills        []string   `json:"skills,omitempty" bson:"skills,omitempty"`
-	MimeType      string     `json:"mimeType" bson:"mimeType"`
-	Bytes         []byte     `json:"-" bson:"bytes"`
+	ID            string       `json:"id" bson:"id"`
+	AccountID     string       `json:"-" bson:"accountId"`
+	Source        string       `json:"source" bson:"source"`
+	FileName      string       `json:"fileName" bson:"fileName"`
+	Title         string       `json:"title" bson:"title"`
+	Size          int          `json:"size" bson:"size"`
+	IsPrimary     bool         `json:"isPrimary" bson:"isPrimary"`
+	Analyzed      bool         `json:"analyzed" bson:"analyzed"`
+	AnalyzedAt    *time.Time   `json:"analyzedAt" bson:"analyzedAt,omitempty"`
+	GenerationID  string       `json:"generationId,omitempty" bson:"generationId,omitempty"`
+	TemplateID    string       `json:"templateId,omitempty" bson:"templateId,omitempty"`
+	JobID         string       `json:"jobId,omitempty" bson:"jobId,omitempty"`
+	UploadedAt    time.Time    `json:"uploadedAt" bson:"uploadedAt"`
+	ExtractedText string       `json:"extractedText,omitempty" bson:"extractedText,omitempty"`
+	Skills        []string     `json:"skills,omitempty" bson:"skills,omitempty"`
+	SkillProfile  []SkillEntry `json:"skillProfile,omitempty" bson:"skillProfile,omitempty"`
+	MimeType      string       `json:"mimeType" bson:"mimeType"`
+	Bytes         []byte       `json:"-" bson:"bytes"`
 }
 
 type Generation struct {

@@ -5,4 +5,6 @@ interface ImportMetaEnv {
   readonly VITE_ACORN_VERSION: string;
   readonly VITE_ACORN_API_URL?: string;
   readonly VITE_ACORN_WEB_URL?: string;
+  /** "true" turns on local debug capture (see acorn/.env.example). */
+  readonly VITE_ACORN_DEBUG?: string;
 }

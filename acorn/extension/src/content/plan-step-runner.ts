@@ -13,6 +13,8 @@ import { waitMs } from "./agents/wait";
 import { highlightElement } from "./highlighter";
 import { verifyElementByPlan } from "./verify-element";
 import { relocateElementByPlan } from "./verify/relocate";
+import { traceFromPage } from "../debug-trace";
+import { comboSnapshot, describeEl, describeWidget } from "./debug-snapshot";
 
 function nearbyQuestionText(el: Element, expectedLabel: string | null): string {
   const bits = [expectedLabel || ""];
@@ -142,6 +144,18 @@ export async function runPlanStep(step: PlanStepPayload): Promise<PlanStepResult
     intended = identityValue ?? null;
   }
 
+  const startedAt = Date.now();
+  traceFromPage("step:start", () => ({
+    action: step.action,
+    element_index: step.element_index,
+    expected_label: step.expected_label,
+    planValue: step.value,
+    intended,
+    el: describeEl(el),
+    widget: describeWidget(el),
+    combos: comboSnapshot(),
+  }));
+
   if (step.action === "verify_only") {
     return {
       ok: true,
@@ -166,6 +180,12 @@ export async function runPlanStep(step: PlanStepPayload): Promise<PlanStepResult
     const prior = controlAlreadyMatches(el, intended, {
       fileName: step.file?.name ?? null,
     });
+    traceFromPage("step:already-check", () => ({
+      element_index: step.element_index,
+      intended,
+      matched: prior.matched,
+      current: prior.current,
+    }));
     if (prior.matched) {
       rememberPlanFilled(el);
       return {
@@ -222,6 +242,13 @@ export async function runPlanStep(step: PlanStepPayload): Promise<PlanStepResult
 
     const after = valueAfter ?? readControlValue(el);
     rememberPlanFilled(el);
+    traceFromPage("step:acted", () => ({
+      element_index: step.element_index,
+      intended,
+      valueAfter,
+      readAfter: readControlValue(el),
+      ms: Date.now() - startedAt,
+    }));
     return {
       ok: true,
       verified: true,
@@ -235,6 +262,13 @@ export async function runPlanStep(step: PlanStepPayload): Promise<PlanStepResult
     };
   } catch (err) {
     const error = err instanceof Error ? err.message : String(err);
+    traceFromPage("step:error", () => ({
+      element_index: step.element_index,
+      intended,
+      error,
+      readAfter: readControlValue(el),
+      ms: Date.now() - startedAt,
+    }));
     return {
       ok: false,
       verified: true,
