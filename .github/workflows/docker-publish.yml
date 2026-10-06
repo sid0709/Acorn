@@ -1,5 +1,8 @@
 # Build Acorn's API and website images and push them to Docker Hub.
-# A push to main, including a merge, also deploys those images on the VPS.
+# A push to main, including a merge, deploys only the images whose inputs changed.
+# The extension is not an image. An extension-only push does not build or restart containers.
+# API inputs: acorn-backend, backend-core.
+# Website inputs: acorn-frontend, packages, acorn/packages/shared, the root package manifest, and the Bun lockfile.
 #
 # GitHub Environment (Settings → Environments → Production), branch: main.
 #
@@ -41,8 +44,10 @@ jobs:
     permissions:
       contents: read
     outputs:
-      sha_short: ${{ steps.meta.outputs.sha_short }}
-      image_tag: ${{ steps.meta.outputs.image_tag }}
+      image_tag: ${{ steps.plan.outputs.image_tag }}
+      deploy: ${{ steps.plan.outputs.deploy }}
+      deploy_api: ${{ steps.plan.outputs.api }}
+      deploy_web: ${{ steps.plan.outputs.web }}
 
     steps:
       - name: Checkout Acorn
@@ -51,43 +56,77 @@ jobs:
           path: src/Acorn
           submodules: false
 
+      - name: Choose images
+        id: plan
+        working-directory: src/Acorn
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+          BEFORE: ${{ github.event.before }}
+        run: |
+          set -euo pipefail
+          tag="sha-$(git rev-parse --short=12 HEAD)"
+          echo "image_tag=${tag}" >> "$GITHUB_OUTPUT"
+
+          publish_both() {
+            echo "api=true" >> "$GITHUB_OUTPUT"
+            echo "web=true" >> "$GITHUB_OUTPUT"
+            echo "deploy=true" >> "$GITHUB_OUTPUT"
+          }
+
+          if [[ "$EVENT_NAME" == "workflow_dispatch" || -z "$BEFORE" || "$BEFORE" == 0000000000000000000000000000000000000000 ]]; then
+            echo "No previous commit to compare. Building the API and the website."
+            publish_both
+            exit 0
+          fi
+
+          if ! git fetch --depth=1 origin "$BEFORE"; then
+            echo "Could not fetch ${BEFORE}. Building the API and the website."
+            publish_both
+            exit 0
+          fi
+
+          echo "Changed paths:"
+          git diff --name-only "$BEFORE" HEAD
+          images="$(git diff --name-only "$BEFORE" HEAD | bash docker/changed-images.sh)"
+          api=false
+          web=false
+          while IFS= read -r image; do
+            case "$image" in
+              api) api=true ;;
+              web) web=true ;;
+            esac
+          done <<< "$images"
+          echo "api=${api}" >> "$GITHUB_OUTPUT"
+          echo "web=${web}" >> "$GITHUB_OUTPUT"
+          if [[ "$api" == true || "$web" == true ]]; then
+            echo "deploy=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "deploy=false" >> "$GITHUB_OUTPUT"
+            echo "No API or website inputs changed. Skipping image builds."
+          fi
+
       - name: Set up Docker Buildx
+        if: steps.plan.outputs.deploy == 'true'
         uses: docker/setup-buildx-action@v3
 
       - name: Log in to Docker Hub
+        if: steps.plan.outputs.deploy == 'true'
         uses: docker/login-action@v3
         with:
           username: ${{ secrets.DOCKERHUB_USERNAME }}
           password: ${{ secrets.DOCKERHUB_TOKEN }}
 
-      - name: Compute tags
-        id: meta
-        shell: bash
-        run: |
-          set -euo pipefail
-          SHA_SHORT="$(git -C src/Acorn rev-parse --short HEAD)"
-          TAG="sha-${SHA_SHORT}"
-          {
-            echo "sha_short=${SHA_SHORT}"
-            echo "image_tag=${TAG}"
-            echo "api_tags<<EOF"
-            echo "${API_IMAGE}:${TAG}"
-            echo "${API_IMAGE}:latest"
-            echo "EOF"
-            echo "web_tags<<EOF"
-            echo "${WEB_IMAGE}:${TAG}"
-            echo "${WEB_IMAGE}:latest"
-            echo "EOF"
-          } >> "$GITHUB_OUTPUT"
-
       - name: Build and push API
+        if: steps.plan.outputs.api == 'true'
         uses: docker/build-push-action@v6
         with:
           context: src/Acorn
           file: src/Acorn/acorn-backend/Dockerfile
           push: true
           platforms: linux/amd64
-          tags: ${{ steps.meta.outputs.api_tags }}
+          tags: |
+            ${{ env.API_IMAGE }}:${{ steps.plan.outputs.image_tag }}
+            ${{ env.API_IMAGE }}:latest
           cache-from: type=gha,scope=acorn-api
           cache-to: type=gha,scope=acorn-api,mode=max
           labels: |
@@ -96,13 +135,16 @@ jobs:
             org.opencontainers.image.title=acorn-api
 
       - name: Build and push website
+        if: steps.plan.outputs.web == 'true'
         uses: docker/build-push-action@v6
         with:
           context: src/Acorn
           file: src/Acorn/acorn-frontend/Dockerfile
           push: true
           platforms: linux/amd64
-          tags: ${{ steps.meta.outputs.web_tags }}
+          tags: |
+            ${{ env.WEB_IMAGE }}:${{ steps.plan.outputs.image_tag }}
+            ${{ env.WEB_IMAGE }}:latest
           cache-from: type=gha,scope=acorn-web
           cache-to: type=gha,scope=acorn-web,mode=max
           labels: |
@@ -113,6 +155,7 @@ jobs:
   deploy:
     name: Deploy to VPS
     needs: build-and-push
+    if: needs.build-and-push.outputs.deploy == 'true'
     runs-on: ubuntu-latest
     timeout-minutes: 30
     environment: Production
@@ -154,15 +197,29 @@ jobs:
           ACORN_WEB_IMAGE: ${{ env.WEB_IMAGE }}
           DOCKERHUB_USERNAME: ${{ secrets.DOCKERHUB_USERNAME }}
           DOCKERHUB_TOKEN: ${{ secrets.DOCKERHUB_TOKEN }}
+          IMAGE_TAG: ${{ needs.build-and-push.outputs.image_tag }}
+          DEPLOY_API: ${{ needs.build-and-push.outputs.deploy_api }}
+          DEPLOY_WEB: ${{ needs.build-and-push.outputs.deploy_web }}
         with:
           host: ${{ secrets.VPS_HOST }}
           username: ${{ secrets.VPS_USER }}
           key: ${{ secrets.VPS_SSH_KEY }}
           port: ${{ secrets.VPS_SSH_PORT || 22 }}
-          envs: ACORN_API_IMAGE,ACORN_WEB_IMAGE,DOCKERHUB_USERNAME,DOCKERHUB_TOKEN
+          envs: ACORN_API_IMAGE,ACORN_WEB_IMAGE,DOCKERHUB_USERNAME,DOCKERHUB_TOKEN,IMAGE_TAG,DEPLOY_API,DEPLOY_WEB
           command_timeout: 20m
           script: |
             set -eu
             printf '%s' "$DOCKERHUB_TOKEN" | docker login -u "$DOCKERHUB_USERNAME" --password-stdin
             chmod 755 /opt/acorn/deploy-remote.sh
-            /opt/acorn/deploy-remote.sh "${{ needs.build-and-push.outputs.image_tag }}"
+            services=""
+            if [ "$DEPLOY_API" = true ]; then
+              services=api
+            fi
+            if [ "$DEPLOY_WEB" = true ]; then
+              if [ -n "$services" ]; then
+                services="$services,web"
+              else
+                services=web
+              fi
+            fi
+            /opt/acorn/deploy-remote.sh "$IMAGE_TAG" "$services"
