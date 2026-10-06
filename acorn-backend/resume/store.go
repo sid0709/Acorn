@@ -118,6 +118,12 @@ func (s *Store) template(accountID, id string) (UploadedTemplate, bool) {
 }
 
 func (s *Store) listTemplates(accountID string) []UploadedTemplate {
+	if rows, ok := loadAccount[UploadedTemplate](s, templatesCollection, accountID, "docx"); ok {
+		for i := range rows {
+			rows[i].Docx = nil
+		}
+		return rows
+	}
 	s.mu.Lock()
 	out := make([]UploadedTemplate, 0)
 	for _, row := range s.templates {
@@ -212,6 +218,12 @@ func (s *Store) deleteGeneration(accountID, id string) bool {
 }
 
 func (s *Store) listGenerations(accountID string) []Generation {
+	if rows, ok := loadAccount[Generation](s, generationsCollection, accountID, "docx"); ok {
+		for i := range rows {
+			rows[i].Docx = nil
+		}
+		return rows
+	}
 	s.mu.Lock()
 	out := make([]Generation, 0)
 	for _, row := range s.generations {
@@ -253,6 +265,12 @@ func (s *Store) libraryItem(accountID, id string) (LibraryRow, bool) {
 }
 
 func (s *Store) listLibrary(accountID string) []LibraryRow {
+	if rows, ok := loadAccount[LibraryRow](s, libraryCollection, accountID, "bytes"); ok {
+		for i := range rows {
+			rows[i].Bytes = nil
+		}
+		return rows
+	}
 	s.mu.Lock()
 	out := make([]LibraryRow, 0)
 	for _, row := range s.library {
@@ -264,6 +282,30 @@ func (s *Store) listLibrary(accountID string) []LibraryRow {
 	}
 	s.mu.Unlock()
 	return out
+}
+
+// loadAccount reads one account's rows from Mongo. The omitted field is a stored file body.
+func loadAccount[T any](s *Store, collection, accountID, omit string) ([]T, bool) {
+	if s.db == nil {
+		return nil, false
+	}
+	opts := options.Find()
+	if omit != "" {
+		opts.SetProjection(bson.D{{Key: omit, Value: 0}})
+	}
+	cur, err := s.db.Collection(collection).Find(context.Background(), bson.D{{Key: "accountId", Value: accountID}}, opts)
+	if err != nil {
+		return nil, false
+	}
+	defer cur.Close(context.Background())
+	var rows []T
+	if err := cur.All(context.Background(), &rows); err != nil {
+		return nil, false
+	}
+	if rows == nil {
+		rows = []T{}
+	}
+	return rows, true
 }
 
 func (s *Store) deleteLibrary(accountID, id string) bool {
