@@ -10,12 +10,12 @@ import {
   type CustomResumeMode,
   type AcornCustomTabBinding,
 } from "../tab-custom-session";
+import { fetchStoredJobDescription } from "../pipeline/api/job-files";
 import { MSG, type PipelineSource } from "../types";
 import { pushAcornNotice } from "./acorn-notice";
 import { sendMessage } from "./runtime";
 import type { AcornMainTab } from "./SidebarNav";
 import type { useTabSession } from "./use-tab-session";
-import type { AcornWorkerJob } from "./WorkerPoolList";
 
 type TabSession = ReturnType<typeof useTabSession>;
 
@@ -30,7 +30,6 @@ export function useTabWork({
   customTab,
   setPipelines,
   tabWorkBusy,
-  workerJobs,
 }: {
   activeTabId: number | null;
   mainTab: AcornMainTab;
@@ -38,7 +37,6 @@ export function useTabWork({
   customTab: TabSession["customTab"];
   setPipelines: TabSession["setPipelines"];
   tabWorkBusy: boolean;
-  workerJobs: AcornWorkerJob[];
 }) {
   const [remembering, setRemembering] = useState(false);
   const [customResumeMode, setCustomResumeMode] = useState<CustomResumeMode>("generate");
@@ -190,13 +188,24 @@ export function useTabWork({
   }, []);
 
   const startJobWork = useCallback(
-    async (mode: CustomResumeMode, opts: { continue?: boolean; job?: AcornWorkerJob } = {}) => {
-      const job = opts.job ?? workerJobs.find((row) => row.id === tabJob?.jobId) ?? null;
-      if (!job) {
+    async (mode: CustomResumeMode, opts: { continue?: boolean } = {}) => {
+      const jobId = tabJob?.jobId ?? "";
+      if (!jobId) {
         pushAcornNotice({
           kind: "info",
-          title: "Open a Worker pool job first",
-          detail: "Fill Generate uses the stored JD on that list item.",
+          title: "No job on this tab",
+          detail: "Generate uses the job description saved for this tab.",
+        });
+        return;
+      }
+      let jobDescription = "";
+      try {
+        jobDescription = await fetchStoredJobDescription(jobId);
+      } catch (err) {
+        pushAcornNotice({
+          kind: "error",
+          title: mode === "recommend" ? "Couldn’t recommend" : "Couldn’t generate",
+          detail: err instanceof Error ? err.message : String(err),
         });
         return;
       }
@@ -204,10 +213,10 @@ export function useTabWork({
       try {
         const res = await sendMessage<{ ok?: boolean; error?: string }>({
           type: mode === "recommend" ? MSG.START_JOB_RECOMMEND : MSG.START_JOB_GENERATE,
-          jobId: job.id,
+          jobId,
           tabId: activeTabId,
           continue: Boolean(opts.continue),
-          jobDescription: job.jobDescription,
+          jobDescription,
         });
         if (!res?.ok) {
           pushAcornNotice({
@@ -224,7 +233,7 @@ export function useTabWork({
         });
       }
     },
-    [activeTabId, tabJob?.jobId, workerJobs],
+    [activeTabId, tabJob?.jobId],
   );
 
   const startCustomWork = useCallback(

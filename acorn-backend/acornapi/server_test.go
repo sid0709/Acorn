@@ -236,8 +236,18 @@ func TestResumeGenerateLibraryAndHistory(t *testing.T) {
 	if !strings.Contains(jdOnly.Body.String(), `"total":0`) {
 		t.Fatalf("jd search = %s", jdOnly.Body)
 	}
+	// Recommend ranks uploaded Library résumés only, never generated ones.
+	upload := call(handler, "POST", "/acorn/resume/library", `{"fileName":"go.txt","title":"Go","contentBase64":"R28gSFRUUCBzZXJ2aWNlcw=="}`, bearer("hunter"), "")
+	var uploaded struct {
+		Resume struct {
+			ID string `json:"id"`
+		} `json:"resume"`
+	}
+	if err := json.Unmarshal(upload.Body.Bytes(), &uploaded); err != nil || upload.Code != http.StatusCreated {
+		t.Fatalf("upload = %d %s", upload.Code, upload.Body)
+	}
 	recommend := call(handler, "POST", "/acorn/custom/recommend", `{"jobDescription":"Need a Go HTTP engineer"}`, bearer("hunter"), "")
-	if recommend.Code != http.StatusOK || !strings.Contains(recommend.Body.String(), done.ResumeID) {
+	if recommend.Code != http.StatusOK || !strings.Contains(recommend.Body.String(), uploaded.Resume.ID) || !strings.Contains(recommend.Body.String(), `"recommendedTop"`) {
 		t.Fatalf("recommend = %d %s", recommend.Code, recommend.Body)
 	}
 	if got := call(handler, "GET", "/acorn/jobs/missing/recommended-resume", "", bearer("hunter"), ""); got.Code != http.StatusOK || !strings.Contains(got.Body.String(), `"resumeId":null`) {

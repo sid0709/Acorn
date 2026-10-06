@@ -83,23 +83,25 @@ function describe({
   }
   const generating =
     jobGenerate?.generateStatus === "queued" || jobGenerate?.generateStatus === "running";
+  const recommended = Boolean(jobGenerate?.recommendedResumeId);
+  const generated = Boolean(jobGenerate?.generationId);
   const text = generating
     ? jobGenerate?.generateProgress?.label || "Generating…"
-    : jobGenerate?.generationId
+    : generated
       ? "Generated"
-      : job
-        ? resumeMetaText(job)
-        : "Résumé status loading…";
+      : recommended
+        ? "Recommended"
+        : "";
   return {
     title: tabJob.title,
     subtitle: tabJob.company,
-    status: {
-      text,
-      ready:
-        !generating &&
-        (Boolean(jobGenerate?.generationId) || (job ? hasAssignedResume(job) : false)),
-      failed: false,
-    },
+    status: text
+      ? {
+          text,
+          ready: !generating && (generated || recommended),
+          failed: false,
+        }
+      : null,
     run: generating ? (jobGenerate?.generateProgress ?? null) : null,
   };
 }

@@ -1,4 +1,5 @@
 import { inferElementRole } from "../verify-element";
+import { applyCheckboxSet, isCheckboxGroup, pickSingleChoice } from "./choice-decision";
 import {
   choiceOptionLabel,
   findVisibleChoiceOption,
@@ -86,11 +87,48 @@ function ensureChecked(el: HTMLInputElement, intended?: string): string {
   return inputOptionLabel(el) || el.value || "checked";
 }
 
+/** The field has options, but none carries the intended label. */
+class NoChoiceMatch extends Error {}
+
 /**
- * Select a radio/checkbox option by boolean intent or visible option label.
- * Supports native inputs and ARIA role=checkbox/radio widgets.
+ * Select a choice field's answer. A checkbox group is decided as a set by the
+ * SelectorGateway (Jev). Otherwise the option whose label is the value wins; when
+ * no label matches, Jev picks the field's most probable option and that is selected.
  */
-export async function selectRadioElement(el: Element, value: string | null): Promise<string> {
+export async function selectRadioElement(
+  el: Element,
+  value: string | null,
+  fieldHint: string | null = null,
+): Promise<string> {
+  const intended = value?.trim() || "";
+  const root = groupRoot(el as HTMLElement);
+  if (intended && !isBooleanIntent(intended) && !isDropdownTarget(el) && isCheckboxGroup(root)) {
+    const checked = await applyCheckboxSet(root, intended, fieldHint);
+    if (checked != null) return checked;
+  }
+  try {
+    return await selectChoiceLocally(el, value);
+  } catch (err) {
+    if (!(err instanceof NoChoiceMatch)) throw err;
+    const label = await pickSingleChoice(root, intended, fieldHint);
+    if (!label || normalize(label) === normalize(intended)) throw err;
+    return selectChoiceLocally(el, label);
+  }
+}
+
+function isDropdownTarget(el: Element): boolean {
+  const role = inferElementRole(el);
+  return (
+    el instanceof HTMLSelectElement ||
+    el instanceof HTMLOptionElement ||
+    role === "combobox" ||
+    role === "option" ||
+    (el as HTMLElement).getAttribute("aria-haspopup") === "listbox"
+  );
+}
+
+/** Local selection by boolean intent or visible option label (native and ARIA widgets). */
+async function selectChoiceLocally(el: Element, value: string | null): Promise<string> {
   const html = el as HTMLElement;
   html.scrollIntoView({ block: "center", behavior: "auto" });
 
@@ -158,7 +196,7 @@ export async function selectRadioElement(el: Element, value: string | null): Pro
     if (intended && !isBooleanIntent(intended) && !labelsMatch(el, intended)) {
       const grouped = findChoiceInGroup(groupRoot(html), intended, "radio");
       if (grouped) return ensureChecked(grouped, intended);
-      throw new Error(`No radio option matching "${intended}"`);
+      throw new NoChoiceMatch(`No radio option matching "${intended}"`);
     }
     return ensureChecked(el, intended);
   }
@@ -168,7 +206,7 @@ export async function selectRadioElement(el: Element, value: string | null): Pro
       if (labelsMatch(el, intended)) return ensureChecked(el, intended);
       const grouped = findChoiceInGroup(groupRoot(html), intended, "checkbox");
       if (grouped) return ensureChecked(grouped, intended);
-      throw new Error(`No checkbox option matching "${intended}"`);
+      throw new NoChoiceMatch(`No checkbox option matching "${intended}"`);
     }
     const check = !intended || wantChecked(intended);
     if (el.checked !== check) pointerActivate(el);
@@ -214,8 +252,13 @@ export async function selectRadioElement(el: Element, value: string | null): Pro
   const radios = Array.from(root.querySelectorAll('input[type="radio"]'));
   if (radios.length && intended) {
     const target = findChoiceInGroup(root, intended, "radio");
-    if (!target) throw new Error(`No radio option matching "${intended}"`);
+    if (!target) throw new NoChoiceMatch(`No radio option matching "${intended}"`);
     return ensureChecked(target, intended);
+  }
+
+  // A field of option buttons with no label match: let the gateway pick among them.
+  if (intended && root.querySelector('button, [role="button"], [role="radio"], [aria-pressed]')) {
+    throw new NoChoiceMatch(`No option matching "${intended}"`);
   }
 
   if (intended) {

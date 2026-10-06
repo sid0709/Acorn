@@ -5,11 +5,9 @@ import type { useSidebarAuth } from "./use-sidebar-auth";
 import type { useTabSession } from "./use-tab-session";
 import type { useTabUi } from "./use-tab-ui";
 import type { useTabWork } from "./use-tab-work";
-import type { useWorkerJobs } from "./use-worker-jobs";
 
 /** What the sidebar hooks return, so panels take exactly the values SidebarApp holds. */
 export type TabSession = ReturnType<typeof useTabSession>;
-export type WorkerJobs = ReturnType<typeof useWorkerJobs>;
 export type TabWork = ReturnType<typeof useTabWork>;
 export type ResumePreview = ReturnType<typeof useResumePreview>;
 export type PlanInspect = ReturnType<typeof usePlanInspect>;

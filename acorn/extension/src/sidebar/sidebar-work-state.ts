@@ -3,7 +3,6 @@ import { canContinueGenerate } from "@acorn/shared/generate-checkpoint";
 import { isFillPhaseBusy, type PipelineProgress } from "@acorn/shared/pipeline-types";
 import type { AcornMainTab } from "./SidebarNav";
 import type { useTabSession } from "./use-tab-session";
-import type { AcornWorkerJob } from "./WorkerPoolList";
 
 type TabSession = ReturnType<typeof useTabSession>;
 
@@ -45,7 +44,6 @@ export function actionBarState({
   tabJob,
   customTab,
   jobGenerates,
-  workerJobs,
   progress,
   fillBusy,
   generateBusy,
@@ -54,7 +52,6 @@ export function actionBarState({
   tabJob: TabSession["tabJob"];
   customTab: TabSession["customTab"];
   jobGenerates: TabSession["jobGenerates"];
-  workerJobs: AcornWorkerJob[];
   progress: PipelineProgress;
   fillBusy: boolean;
   generateBusy: boolean;
@@ -74,9 +71,7 @@ export function actionBarState({
         ? "Generating…"
         : fillCanContinue && attachedJobGenerate?.workKind !== "recommend"
           ? "Continue"
-          : attachedJobGenerate?.generationId ||
-              (tabJob != null &&
-                Boolean(workerJobs.find((job) => job.id === tabJob.jobId)?.generatedResume))
+          : attachedJobGenerate?.generationId
             ? "Generate again"
             : "Generate"
       : generateBusy && customTab?.workKind !== "recommend"
@@ -92,8 +87,7 @@ export function actionBarState({
         ? "Recommending…"
         : fillCanContinue && attachedJobGenerate?.workKind === "recommend"
           ? "Continue"
-          : attachedJobGenerate?.recommendedResumeId ||
-              (tabJob && workerJobs.find((job) => job.id === tabJob.jobId)?.recommendedResumeId)
+          : attachedJobGenerate?.recommendedResumeId
             ? "Recommend again"
             : "Recommend Resume"
       : generateBusy && customTab?.workKind === "recommend"

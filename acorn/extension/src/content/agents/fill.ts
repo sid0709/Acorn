@@ -89,7 +89,7 @@ export async function fillElement(
     if (type === "checkbox" || type === "radio") {
       // Option labels ("None/Not applicable") must resolve via group matching —
       // boolean-only toggling left required checkbox groups unchecked.
-      return selectRadioElement(el, value);
+      return selectRadioElement(el, value, fieldHint);
     }
     if (type === "password" || type === "hidden" || type === "file") {
       await setNativeValue(el, value);
@@ -124,7 +124,7 @@ export async function fillElement(
     role === "group" ||
     role === "switch"
   ) {
-    return selectRadioElement(el, value);
+    return selectRadioElement(el, value, fieldHint);
   }
 
   if (looksLikeCombobox(html)) {

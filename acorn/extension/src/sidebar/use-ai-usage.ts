@@ -64,6 +64,9 @@ export function useAiUsage(tabId: number | null, active: boolean, signedIn: bool
 
   useEffect(() => {
     if (!active || !signedIn || tabId == null) return;
+    setEntries([]);
+    setTotalPrice("0.000000000");
+    setError(null);
     setLoading(true);
     void load().finally(() => setLoading(false));
     const timer = window.setInterval(() => {

@@ -255,7 +255,7 @@ export async function runPlanStep(step: PlanStepPayload): Promise<PlanStepResult
         break;
       }
       case "select_radio": {
-        valueAfter = await selectRadioElement(el, intended);
+        valueAfter = await selectRadioElement(el, intended, step.expected_label);
         break;
       }
       default:

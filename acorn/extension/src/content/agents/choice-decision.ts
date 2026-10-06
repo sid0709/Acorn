@@ -17,6 +17,21 @@ import { pointerActivate } from "./pointer-activate";
 
 /** Button labels longer than this are prose, not an option a person picks. */
 const MAX_BUTTON_LABEL_CHARS = 60;
+/**
+ * The planner often emits one step per box of the same checkbox group. The first
+ * step decides the whole set; steps on that group within this window reuse it.
+ */
+const CHECKBOX_DECISION_REUSE_MS = 30_000;
+
+const checkboxDecisions = new Map<ParentNode, { at: number; labels: string }>();
+
+function recentDecision(root: ParentNode): string | null {
+  for (const [group, decision] of checkboxDecisions) {
+    const stale = Date.now() - decision.at > CHECKBOX_DECISION_REUSE_MS;
+    if (stale || !(group as Node).isConnected) checkboxDecisions.delete(group);
+  }
+  return checkboxDecisions.get(root)?.labels ?? null;
+}
 
 type ChoiceControl = { el: HTMLElement; label: string };
 
@@ -106,6 +121,8 @@ export async function applyCheckboxSet(
 ): Promise<string | null> {
   const controls = checkboxes(root);
   if (controls.length < 2) return null;
+  const decided = recentDecision(root);
+  if (decided != null) return decided;
   const ai = await askAiMatchOption({
     intendedValue: intended,
     options: controls.map((control) => control.label),
@@ -118,8 +135,10 @@ export async function applyCheckboxSet(
   for (const control of controls) {
     setChecked(control, chosen.has(control.label.toLowerCase()));
   }
-  return controls
+  const labels = controls
     .filter((control) => chosen.has(control.label.toLowerCase()))
     .map((control) => control.label)
     .join(", ");
+  checkboxDecisions.set(root, { at: Date.now(), labels });
+  return labels;
 }

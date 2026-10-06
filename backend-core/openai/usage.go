@@ -13,23 +13,23 @@ const (
 	// Published OpenRouter rates for openai/gpt-6-luna, in nanodollars per token.
 	// Used only when a response omits usage.cost. A present cost is the amount
 	// OpenRouter charged and replaces these rates.
-	lunaInputNanosPerToken      int64 = 100  // $0.10 / 1,000,000
-	lunaOutputNanosPerToken     int64 = 500  // $0.50 / 1,000,000
-	lunaCacheReadNanosPerToken  int64 = 10   // $0.01 / 1,000,000
-	lunaCacheWriteNanosPerToken int64 = 125  // $0.125 / 1,000,000
+	lunaInputNanosPerToken      int64 = 100 // $0.10 / 1,000,000
+	lunaOutputNanosPerToken     int64 = 500 // $0.50 / 1,000,000
+	lunaCacheReadNanosPerToken  int64 = 10  // $0.01 / 1,000,000
+	lunaCacheWriteNanosPerToken int64 = 125 // $0.125 / 1,000,000
 	nanosPerDollar                    = 1_000_000_000
 )
 
 // Usage is one billed model call. CostNanos is USD × 1e9.
 type Usage struct {
-	Model             string
-	PromptTokens      int
-	CompletionTokens  int
-	CachedTokens      int
-	CacheWriteTokens  int
-	TotalTokens       int
-	CostNanos         int64
-	Priced            bool
+	Model            string
+	PromptTokens     int
+	CompletionTokens int
+	CachedTokens     int
+	CacheWriteTokens int
+	TotalTokens      int
+	CostNanos        int64
+	Priced           bool
 }
 
 type recorderKey struct{}

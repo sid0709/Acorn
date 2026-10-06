@@ -107,6 +107,8 @@ func (s *Server) matchOption(w http.ResponseWriter, r *http.Request) {
 		FieldLabel     string   `json:"fieldLabel"`
 		TypedQuery     string   `json:"typedQuery"`
 		AllowNotListed bool     `json:"allowNotListed"`
+		// Multiple is a checkbox group: the answer is the set of options to check.
+		Multiple bool `json:"multiple"`
 	}
 	if !decode(w, r, &body) {
 		return
@@ -123,10 +125,24 @@ func (s *Server) matchOption(w http.ResponseWriter, r *http.Request) {
 	if !ok {
 		return
 	}
-	pick, err := gateway.PickOption(s.withUsage(r, session.User.ID), selector.OptionQuery{
+	ctx := s.withUsage(r, session.User.ID)
+	query := selector.OptionQuery{
 		Field: body.FieldLabel, Intended: body.IntendedValue, Typed: body.TypedQuery,
 		Options: body.Options, AllowNotListed: body.AllowNotListed, Applicant: applicant,
-	})
+	}
+	if body.Multiple {
+		many, err := gateway.PickMany(ctx, query)
+		if err != nil {
+			slog.Warn("acorn match-option failed", "error", err)
+			writeJSON(w, http.StatusOK, map[string]any{"ok": false, "matched_options": []string{}, "error": err.Error()})
+			return
+		}
+		writeJSON(w, http.StatusOK, map[string]any{
+			"ok": true, "matched_options": many.Options, "model": gateway.Model(), "usage": decisionUsage(gateway.Model(), many.Usage),
+		})
+		return
+	}
+	pick, err := gateway.PickOption(ctx, query)
 	if err != nil {
 		slog.Warn("acorn match-option failed", "error", err)
 		writeJSON(w, http.StatusOK, map[string]any{"ok": false, "matched_option": nil, "fallback_option": nil, "confidence": 0, "error": err.Error()})
