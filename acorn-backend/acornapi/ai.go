@@ -10,7 +10,9 @@ import (
 
 	"github.com/sid0709/OpenSeat/acorn-backend/account"
 	"github.com/sid0709/OpenSeat/acorn-backend/acorn"
+	"github.com/sid0709/OpenSeat/acorn-backend/selector"
 	"github.com/sid0709/OpenSeat/backend-core/candidate"
+	"github.com/sid0709/OpenSeat/backend-core/jev"
 )
 
 func decode(w http.ResponseWriter, r *http.Request, dest any) bool {
@@ -92,16 +94,19 @@ func (s *Server) aiAnalyze(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, result)
 }
 
+// matchOption picks a dropdown option through the SelectorGateway (TypeSafe Jev).
+// A failed decision is data, not an HTTP error: the extension falls back to its own matching.
 func (s *Server) matchOption(w http.ResponseWriter, r *http.Request) {
 	session, ok := s.session(w, r)
 	if !ok {
 		return
 	}
 	var body struct {
-		IntendedValue string   `json:"intendedValue"`
-		Options       []string `json:"options"`
-		FieldLabel    string   `json:"fieldLabel"`
-		TypedQuery    string   `json:"typedQuery"`
+		IntendedValue  string   `json:"intendedValue"`
+		Options        []string `json:"options"`
+		FieldLabel     string   `json:"fieldLabel"`
+		TypedQuery     string   `json:"typedQuery"`
+		AllowNotListed bool     `json:"allowNotListed"`
 	}
 	if !decode(w, r, &body) {
 		return
@@ -110,18 +115,36 @@ func (s *Server) matchOption(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, "intendedValue and options are required")
 		return
 	}
-	brain, ok := s.acornFor(w, r, session.User.ID)
+	applicant, ok := s.applicant(w, r, session)
 	if !ok {
 		return
 	}
-	result, err := brain.MatchOption(s.traceContext(r, session.User.ID), body.IntendedValue, body.Options, body.FieldLabel, body.TypedQuery)
-	if err != nil {
-		// The extension falls back to its own matching, so a failure is data, not an HTTP error.
-		slog.Warn("acorn match-option failed", "error", err)
-		writeJSON(w, http.StatusOK, map[string]any{"ok": false, "matched_option": nil, "confidence": 0, "error": err.Error()})
+	gateway, ok := s.selectorFor(w, r, session.User.ID)
+	if !ok {
 		return
 	}
-	writeJSON(w, http.StatusOK, result)
+	pick, err := gateway.PickOption(r.Context(), selector.OptionQuery{
+		Field: body.FieldLabel, Intended: body.IntendedValue, Typed: body.TypedQuery,
+		Options: body.Options, AllowNotListed: body.AllowNotListed, Applicant: applicant,
+	})
+	if err != nil {
+		slog.Warn("acorn match-option failed", "error", err)
+		writeJSON(w, http.StatusOK, map[string]any{"ok": false, "matched_option": nil, "fallback_option": nil, "confidence": 0, "error": err.Error()})
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{
+		"ok": true, "matched_option": emptyNil(pick.Option), "fallback_option": emptyNil(pick.Fallback),
+		"confidence": pick.Confidence, "model": gateway.Model(), "usage": decisionUsage(gateway.Model(), pick.Usage),
+	})
+}
+
+// decisionUsage is a Jev call in the extension's AiUsageSummary shape.
+func decisionUsage(model string, usage jev.Usage) map[string]any {
+	return map[string]any{
+		"model": model, "inputTokens": usage.InputTokens, "outputTokens": usage.OutputTokens,
+		"cachedInputTokens": 0, "totalTokens": usage.InputTokens + usage.OutputTokens,
+		"costUsd": usage.Cost, "priced": true, "calls": 1,
+	}
 }
 
 func (s *Server) qa(w http.ResponseWriter, r *http.Request) {

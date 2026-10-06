@@ -30,9 +30,13 @@ const (
 
 	// OpenRouter is the only model Acorn calls. The key lives on the account profile,
 	// not in the environment.
-	OpenRouterProvider       = "openrouter"
-	OpenRouterModel          = "openai/gpt-6-luna"
-	OpenRouterBaseURL        = "https://openrouter.ai/api/v1"
+	OpenRouterProvider = "openrouter"
+	OpenRouterModel    = "openai/gpt-6-luna"
+	OpenRouterBaseURL  = "https://openrouter.ai/api/v1"
+	// JevModel is TypeSafe's decision model. Acorn's SelectorGateway sends it every
+	// pick-one decision (dropdown option, Library résumé) on the same OpenRouter key.
+	JevModel                 = "typesafe/jev-1.13"
+	OpenRouterDecisionsURL   = "https://openrouter.ai/api/alpha/decisions"
 	defaultDeepSeekBaseURL   = "https://api.deepseek.com"
 	defaultDeepSeekSearchURL = "https://api.deepseek.com/anthropic"
 	envFileName              = ".env"

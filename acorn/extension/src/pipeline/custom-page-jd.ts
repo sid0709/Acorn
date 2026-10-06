@@ -1,4 +1,4 @@
-import { PAGE_TEXT_MAX_CHARS } from "@acorn/shared/page-text";
+import { PAGE_TEXT_MAX_CHARS, extractVisiblePageText } from "@acorn/shared/page-text";
 import { formatAnalyzeTrees, type DomTreeNode } from "@acorn/shared/tree-export";
 import { extractCustomJd } from "./api/custom-generate";
 import { fetchDomFromTab } from "./fetch-dom";
@@ -16,7 +16,24 @@ function capText(text: string): string {
 }
 
 /**
- * Custom mode: same DOM snapshot and formatted trees as Fill AI Analyze,
+ * Custom Recommend: the tab's visible copy, as-is. The SelectorGateway (Jev) decides
+ * whether it is a posting and which Library résumé fits it, so no text model
+ * rewrites it first.
+ */
+export async function readRememberedTabPosting(tabId: number): Promise<RememberedTabJd> {
+  const treePayload = await fetchDomFromTab(tabId);
+  const { pure } = formatAnalyzeTrees(treePayload.tree as unknown as DomTreeNode);
+  const title = treePayload.title || "Untitled";
+  const url = treePayload.url || "";
+  const jobDescription = extractVisiblePageText(pure, { title, url });
+  if (!jobDescription.trim()) {
+    throw new Error("No readable text on this tab");
+  }
+  return { jobDescription, title, url };
+}
+
+/**
+ * Custom Generate: same DOM snapshot and formatted trees as Fill AI Analyze,
  * then extract-jd turns the pure tree (visible copy) into posting prose.
  */
 export async function extractRememberedTabJd(

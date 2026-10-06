@@ -62,14 +62,15 @@ export async function fillNativeSelect(select: HTMLSelectElement, value: string)
 
   if (options.length) {
     const labels = options.map(optionLabel);
+    // A native list is complete, so the SelectorGateway always picks one: the option
+    // that means the value, or the closest one an applicant would choose.
     const ai = await askAiMatchOption({
       intendedValue: intended,
       options: labels,
       fieldLabel: fieldLabelFor(select),
       typedQuery: null,
     });
-    // null: the intended answer is not among these options.
-    const matched = ai.matched_option;
+    const matched = ai.matched_option ?? ai.fallback_option;
     const picked = matched
       ? options.find(
           (option) =>

@@ -7,20 +7,41 @@ import (
 
 	"github.com/sid0709/OpenSeat/acorn-backend/acorn"
 	"github.com/sid0709/OpenSeat/acorn-backend/resume"
+	"github.com/sid0709/OpenSeat/acorn-backend/selector"
+	"github.com/sid0709/OpenSeat/backend-core/jev"
 	"github.com/sid0709/OpenSeat/backend-core/openai"
 )
 
+// openRouterKey is the signed-in account's OpenRouter key; "" when the profile has none.
+func (s *Server) openRouterKey(ctx context.Context, accountID string) (string, error) {
+	doc, stored, err := s.profiles.Load(ctx, accountID)
+	if err != nil || !stored {
+		return "", err
+	}
+	return doc.OpenrouterApiKey, nil
+}
+
 // openRouter is the signed-in account's model. An empty profile key is not ready.
 func (s *Server) openRouter(ctx context.Context, accountID string) (*openai.Client, error) {
-	doc, stored, err := s.profiles.Load(ctx, accountID)
+	key, err := s.openRouterKey(ctx, accountID)
 	if err != nil {
 		return nil, err
 	}
-	key := ""
-	if stored {
-		key = doc.OpenrouterApiKey
-	}
 	return openai.OpenRouter(key), nil
+}
+
+// selectorFor is the SelectorGateway for this request: the bound test gateway, or
+// Jev on the account's OpenRouter key.
+func (s *Server) selectorFor(w http.ResponseWriter, r *http.Request, accountID string) (*selector.Gateway, bool) {
+	if s.selector != nil {
+		return s.selector, true
+	}
+	key, err := s.openRouterKey(r.Context(), accountID)
+	if err != nil {
+		s.writeProfileErr(w, err)
+		return nil, false
+	}
+	return selector.New(jev.New(key)), true
 }
 
 func (s *Server) writeProfileErr(w http.ResponseWriter, err error) {

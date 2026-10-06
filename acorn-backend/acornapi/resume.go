@@ -10,6 +10,7 @@ import (
 
 	"github.com/sid0709/OpenSeat/acorn-backend/account"
 	"github.com/sid0709/OpenSeat/acorn-backend/resume"
+	"github.com/sid0709/OpenSeat/backend-core/openai"
 )
 
 func (s *Server) identity(r *http.Request, session account.Session, extra *resume.Identity) resume.Identity {
@@ -462,7 +463,11 @@ func (s *Server) recommendLibrary(w http.ResponseWriter, r *http.Request) {
 	if !decode(w, r, &body) {
 		return
 	}
-	id, stack, reason, err := s.resumes.Recommend(session.User.ID, body.JobDescription, body.JobID)
+	gateway, ok := s.selectorFor(w, r, session.User.ID)
+	if !ok {
+		return
+	}
+	id, stack, reason, err := s.resumes.Recommend(r.Context(), session.User.ID, body.JobDescription, body.JobID, gateway)
 	if err != nil {
 		s.writeResumeErr(w, err)
 		return
@@ -512,6 +517,10 @@ func (s *Server) writeResumeErr(w http.ResponseWriter, err error) {
 		writeError(w, http.StatusBadRequest, err.Error())
 	case errors.Is(err, resume.ErrNotFound), errors.Is(err, resume.ErrNoLibrary):
 		writeError(w, http.StatusNotFound, err.Error())
+	case errors.Is(err, resume.ErrNoPosting):
+		writeError(w, http.StatusUnprocessableEntity, resume.ErrNoPosting.Error())
+	case errors.Is(err, openai.ErrMissingOpenRouterKey):
+		writeError(w, http.StatusServiceUnavailable, openai.ErrMissingOpenRouterKey.Error())
 	case errors.Is(err, resume.ErrUnavailable):
 		writeError(w, http.StatusServiceUnavailable, err.Error())
 	default:

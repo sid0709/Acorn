@@ -17,6 +17,7 @@ import (
 	"github.com/sid0709/OpenSeat/acorn-backend/debugtrace"
 	"github.com/sid0709/OpenSeat/acorn-backend/profile"
 	"github.com/sid0709/OpenSeat/acorn-backend/resume"
+	"github.com/sid0709/OpenSeat/acorn-backend/selector"
 	"github.com/sid0709/OpenSeat/backend-core/google"
 	"github.com/sid0709/OpenSeat/backend-core/httpkit"
 	"github.com/sid0709/OpenSeat/backend-core/jobs"
@@ -67,6 +68,7 @@ type Server struct {
 	resumes        *resume.Service
 	profiles       *profile.Store
 	debug          *debugtrace.Recorder
+	selector       *selector.Gateway
 }
 
 // Options are the Acorn API's settings. CORS is the server's: see acorn-backend/cmd/server.
@@ -87,6 +89,9 @@ type Options struct {
 	Profiles *profile.Store
 	// Debug is local debug capture (pages, prompts, plans, step traces). Nil is off.
 	Debug *debugtrace.Recorder
+	// Selector binds the SelectorGateway to one decision model (tests). Nil builds
+	// a Jev gateway per request on the account's OpenRouter key.
+	Selector *selector.Gateway
 }
 
 func New(accounts Accounts, listings *jobs.Store, brain *acorn.Service, opts Options) (http.Handler, *gateway.Gateway) {
@@ -95,6 +100,7 @@ func New(accounts Accounts, listings *jobs.Store, brain *acorn.Service, opts Opt
 		cookie: opts.SessionCookie, switches: opts.KillSwitches,
 		google: opts.Google, googleRedirect: opts.GoogleRedirectURL,
 		resumes: opts.Resumes, profiles: opts.Profiles, debug: opts.Debug,
+		selector: opts.Selector,
 	}
 	if s.debug != nil {
 		brain.SetTracer(debugtrace.Tracer())
@@ -142,7 +148,7 @@ func New(accounts Accounts, listings *jobs.Store, brain *acorn.Service, opts Opt
 	mux.HandleFunc("POST /acorn/custom/generate", s.requireAI(s.startGenerate))
 	mux.HandleFunc("POST /acorn/custom/generate/{inputId}/continue", s.requireAI(s.continueGenerate))
 	mux.HandleFunc("GET /acorn/custom/generate/{inputId}", s.pollGenerate)
-	mux.HandleFunc("POST /acorn/custom/recommend", s.recommendLibrary)
+	mux.HandleFunc("POST /acorn/custom/recommend", s.requireAI(s.recommendLibrary))
 	mux.HandleFunc("GET /acorn/custom/library-resumes/{resumeId}/preview", s.customLibraryPreview)
 	mux.HandleFunc("GET /acorn/custom/library-resumes/{resumeId}", s.customLibraryResume)
 	mux.HandleFunc("GET /acorn/custom/resumes/{generationId}/preview", s.customGeneratedPreview)

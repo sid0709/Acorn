@@ -20,11 +20,10 @@ func prompt(name string) string {
 }
 
 var (
-	analyzeSystem     = prompt("analyze_system")
-	refillSystem      = prompt("refill_system")
-	analyzeUserTail   = strings.TrimSpace(prompt("analyze_user_tail"))
-	matchOptionSystem = prompt("match_option_system")
-	proseSystem       = prompt("prose_system")
-	identitySystem    = prompt("identity_system")
-	extractJDSystem   = prompt("extract_jd_system")
+	analyzeSystem   = prompt("analyze_system")
+	refillSystem    = prompt("refill_system")
+	analyzeUserTail = strings.TrimSpace(prompt("analyze_user_tail"))
+	proseSystem     = prompt("prose_system")
+	identitySystem  = prompt("identity_system")
+	extractJDSystem = prompt("extract_jd_system")
 )

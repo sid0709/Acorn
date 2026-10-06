@@ -2,12 +2,7 @@ package acorn
 
 import (
 	"encoding/json"
-	"slices"
-	"strings"
 )
-
-// matchOptionEnumMax keeps the JSON-schema enum bounded so large country lists still validate.
-const matchOptionEnumMax = 64
 
 var actionTypes = []string{"fill", "upload", "resume_upload", "select_radio", "wait", "validate", "pause_for_review", "forbidden"}
 
@@ -70,30 +65,6 @@ func planSchemaFor(actions []string) json.RawMessage {
 	})
 }
 
-// matchOptionSchema constrains matched_option to the live listed strings.
-func matchOptionSchema(options []string) json.RawMessage {
-	listed := uniqueTrimmed(options)
-	// null means the intended answer is not among these options.
-	matched := map[string]any{"type": []string{"string", "null"}}
-	if len(listed) > 0 && len(listed) <= matchOptionEnumMax {
-		enum := make([]any, 0, len(listed)+1)
-		for _, option := range listed {
-			enum = append(enum, option)
-		}
-		matched["enum"] = append(enum, nil)
-	}
-	return mustSchema(map[string]any{
-		"type":                 "object",
-		"additionalProperties": false,
-		"properties": map[string]any{
-			"matched_option": matched,
-			"confidence":     map[string]any{"type": "number"},
-			"reason":         map[string]any{"type": "string"},
-		},
-		"required": []string{"matched_option", "confidence", "reason"},
-	})
-}
-
 func proseAnswersSchema() json.RawMessage {
 	return mustSchema(map[string]any{
 		"type":                 "object",
@@ -149,15 +120,4 @@ func extractJDSchema() json.RawMessage {
 			"reason":            map[string]any{"type": "string"},
 		},
 	})
-}
-
-func uniqueTrimmed(items []string) []string {
-	out := make([]string, 0, len(items))
-	for _, item := range items {
-		item = strings.TrimSpace(item)
-		if item != "" && !slices.Contains(out, item) {
-			out = append(out, item)
-		}
-	}
-	return out
 }

@@ -1,6 +1,6 @@
 import { traceFromPage } from "../../../debug-trace";
 import { waitMs } from "../wait";
-import { decideAmongOptions, findExactOption } from "./match";
+import { decideAmongOptions, findExactOption, type OptionDecision } from "./match";
 import { optionSignature, optionText } from "./options-dom";
 import { openAndCollectOptions, waitForFilteredOptions } from "./options-wait";
 import {
@@ -11,8 +11,8 @@ import {
   typeaheadFilterWaitMs,
 } from "./typing";
 
-/** Few enough candidates for one AI decision; typing stops narrowing at this size. */
-export const AI_CANDIDATE_MAX = 10;
+/** How many option labels a trace event carries. */
+const TRACE_SAMPLE = 10;
 /** Some menus render their options a beat after opening. */
 const EMPTY_MENU_RETRY_MS = 450;
 
@@ -23,12 +23,15 @@ export type ChooseResult = {
 };
 
 /**
- * Pick the option for `value` the way a person would:
+ * Pick the option for `value`:
  * 1) an option whose text is exactly the value wins;
- * 2) a short list (or one with no search box) goes to the AI once, whole;
- * 3) otherwise type the value word by word until the list is short, then ask the
- *    AI once. "Not here" with words left types the next word. A word that empties
- *    the list is backed out and the last non-empty list decides.
+ * 2) otherwise the SelectorGateway (Jev) reads the whole open list at once — no
+ *    typing. Without a search box the list is complete, so it always picks one:
+ *    the option that means the value, or the closest one an applicant would
+ *    choose (a broader category, or "Other");
+ * 3) with a search box the open list may be a partial window, so Jev may answer
+ *    "not listed". Only then type the value word by word to reveal more, deciding
+ *    on each new list. When typing runs out, the best option of the last list wins.
  */
 export async function chooseOption(
   control: HTMLElement,
@@ -54,14 +57,10 @@ export async function chooseOption(
 
   const canType =
     allowTypeahead && Boolean(resolveTypeableInput(control)) && value.trim().length >= 2;
-  const short = initial.length > 0 && initial.length <= AI_CANDIDATE_MAX;
-  if (!canType || short) {
-    const match = await decide(value, fieldLabel, null, initial);
-    // A short list may be a virtualized or paged window: "not here" means search on.
-    if (match || !canType) return { match, options: initial };
-  }
+  const first = await decide(value, fieldLabel, null, initial, canType);
+  if (first.match || !canType) return { match: first.match ?? first.fallback, options: initial };
 
-  return narrowAndDecide(control, doc, value, fieldLabel, initial, short);
+  return narrowAndDecide(control, doc, value, fieldLabel, initial, first);
 }
 
 async function narrowAndDecide(
@@ -70,13 +69,13 @@ async function narrowAndDecide(
   value: string,
   fieldLabel: string | null,
   initial: HTMLElement[],
-  initialDecided: boolean,
+  initialDecision: OptionDecision,
 ): Promise<ChooseResult> {
   const words = value.trim().split(/\s+/).filter(Boolean);
   const filterWait = typeaheadFilterWaitMs(doc);
   let shown = initial;
   let shownQuery: string | null = null;
-  let decidedSig: string | null = initialDecided ? optionSignature(initial) : null;
+  let shownDecision: OptionDecision | null = initialDecision;
   let emptied = false;
 
   for (let i = 0; i < words.length; i += 1) {
@@ -88,40 +87,40 @@ async function narrowAndDecide(
       value,
       query,
       count: filtered.length,
-      sample: filtered.slice(0, AI_CANDIDATE_MAX).map(optionText),
+      sample: filtered.slice(0, TRACE_SAMPLE).map(optionText),
     }));
     if (!filtered.length) {
       emptied = true;
       break;
     }
-    const unchanged = optionSignature(filtered) === optionSignature(shown);
+    // Typing that no longer changes the list will not narrow it further.
+    if (optionSignature(filtered) === optionSignature(shown)) break;
     shown = filtered;
     shownQuery = query;
-    if (filtered.length <= AI_CANDIDATE_MAX) {
-      const exact = findExactOption(filtered, value);
-      const match = exact ?? (await decide(value, fieldLabel, query, filtered));
-      if (exact) {
-        traceFromPage("combo:decide", () => decision(value, query, filtered, exact, "exact"));
-      }
-      decidedSig = optionSignature(filtered);
-      if (match) return { match, options: filtered };
+    const exact = findExactOption(filtered, value);
+    if (exact) {
+      traceFromPage("combo:decide", () => decision(value, query, filtered, exact, "exact"));
+      return { match: exact, options: filtered };
     }
-    // Typing that no longer changes the list will not narrow it further.
-    if (unchanged) break;
+    shownDecision = await decide(value, fieldLabel, query, filtered, true);
+    if (shownDecision.match) return { match: shownDecision.match, options: filtered };
   }
-
-  if (decidedSig === optionSignature(shown)) return { match: null, options: shown };
 
   // The last word emptied the list: put back the query that still showed candidates.
   if (emptied) {
     await focusAndOpenCombobox(control);
     if (shownQuery) await typeQueryIntoOpenCombobox(control, shownQuery);
     const restored = await waitForFilteredOptions(control, doc, "", filterWait);
-    if (restored.length) shown = restored;
+    if (restored.length) {
+      if (optionSignature(restored) !== optionSignature(shown)) shownDecision = null;
+      shown = restored;
+    }
   }
-  const match =
-    findExactOption(shown, value) ?? (await decide(value, fieldLabel, shownQuery, shown));
-  return { match, options: shown };
+  const exact = findExactOption(shown, value);
+  if (exact) return { match: exact, options: shown };
+  // Nothing left to search: select the best listed option rather than leave it blank.
+  const final = shownDecision ?? (await decide(value, fieldLabel, shownQuery, shown, false));
+  return { match: final.match ?? final.fallback, options: shown };
 }
 
 async function decide(
@@ -129,10 +128,15 @@ async function decide(
   fieldLabel: string | null,
   typedQuery: string | null,
   options: HTMLElement[],
-): Promise<HTMLElement | null> {
-  const match = await decideAmongOptions(options, value, fieldLabel, typedQuery);
-  traceFromPage("combo:decide", () => decision(value, typedQuery, options, match, "ai"));
-  return match;
+  allowNotListed: boolean,
+): Promise<OptionDecision> {
+  const result = await decideAmongOptions(options, value, fieldLabel, typedQuery, allowNotListed);
+  traceFromPage("combo:decide", () => ({
+    ...decision(value, typedQuery, options, result.match, "jev"),
+    allowNotListed,
+    fallback: result.fallback ? optionText(result.fallback) : null,
+  }));
+  return result;
 }
 
 function decision(
@@ -140,14 +144,14 @@ function decision(
   typed: string | null,
   options: HTMLElement[],
   match: HTMLElement | null,
-  by: "exact" | "ai",
+  by: "exact" | "jev",
 ) {
   return {
     value,
     typed,
     by,
     count: options.length,
-    sample: options.slice(0, AI_CANDIDATE_MAX).map(optionText),
+    sample: options.slice(0, TRACE_SAMPLE).map(optionText),
     match: match ? optionText(match) : null,
   };
 }

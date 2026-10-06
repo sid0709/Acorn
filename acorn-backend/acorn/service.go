@@ -34,13 +34,12 @@ type Model interface {
 type Purpose string
 
 const (
-	PurposeAnalyze     Purpose = "analyze"
-	PurposeIdentity    Purpose = "identity"
-	PurposeTyping      Purpose = "typing-rewrite"
-	PurposeMatchOption Purpose = "match-option"
-	PurposeAnswer      Purpose = "qa"
-	PurposeExtractJD   Purpose = "extract-jd"
-	PurposeRefill      Purpose = "refill"
+	PurposeAnalyze   Purpose = "analyze"
+	PurposeIdentity  Purpose = "identity"
+	PurposeTyping    Purpose = "typing-rewrite"
+	PurposeAnswer    Purpose = "qa"
+	PurposeExtractJD Purpose = "extract-jd"
+	PurposeRefill    Purpose = "refill"
 )
 
 // Call is one model request and what came back, handed to a Tracer.
@@ -193,69 +192,6 @@ func (s *Service) rewriteTyping(ctx context.Context, plan Plan, applicant string
 	}
 	slog.Warn("acorn typing-field rewrite skipped", "error", err)
 	return plan
-}
-
-// MatchResult is the dropdown option that best fits an intended answer.
-type MatchResult struct {
-	OK            bool    `json:"ok"`
-	MatchedOption *string `json:"matched_option"`
-	Confidence    float64 `json:"confidence"`
-	Reason        string  `json:"reason"`
-	Model         string  `json:"model"`
-}
-
-// MatchOption picks the listed option that means the intended value, or none when
-// the intended answer is not among these options.
-func (s *Service) MatchOption(ctx context.Context, intended string, options []string, fieldLabel, typedQuery string) (MatchResult, error) {
-	var list []string
-	for _, option := range options {
-		if strings.TrimSpace(option) != "" {
-			list = append(list, option)
-		}
-	}
-	if strings.TrimSpace(intended) == "" || len(list) == 0 {
-		return MatchResult{OK: true, Reason: "Missing value or options", Model: s.model.Model()}, nil
-	}
-
-	lines := []string{}
-	if fieldLabel != "" {
-		lines = append(lines, "Field label: "+fieldLabel)
-	}
-	if typedQuery != "" {
-		lines = append(lines, "Current typed filter: "+typedQuery)
-	}
-	lines = append(lines, "Intended answer: "+intended, "Visible options:")
-	for i, option := range list {
-		lines = append(lines, fmt.Sprintf("%d. %s", i+1, option))
-	}
-	lines = append(lines, "Return one Visible options string verbatim, or null if none of them is the intended answer.", "Respond with json.")
-
-	text, err := s.ask(ctx, PurposeMatchOption, matchOptionSystem, strings.Join(lines, "\n"), matchOptionSchema(list))
-	if err != nil {
-		return MatchResult{}, err
-	}
-	var parsed struct {
-		MatchedOption *string  `json:"matched_option"`
-		Confidence    *float64 `json:"confidence"`
-		Reason        string   `json:"reason"`
-	}
-	if err := json.Unmarshal([]byte(text), &parsed); err != nil {
-		return MatchResult{}, errors.New("LLM returned non-JSON option match")
-	}
-	result := MatchResult{OK: true, Reason: parsed.Reason, Model: s.model.Model()}
-	if parsed.Confidence != nil {
-		result.Confidence = *parsed.Confidence
-	}
-	if parsed.MatchedOption != nil {
-		matched := *parsed.MatchedOption
-		if !contains(list, matched) {
-			matched = recoverListedOption(matched, list)
-		}
-		if matched != "" {
-			result.MatchedOption = &matched
-		}
-	}
-	return result, nil
 }
 
 // QAResult is a written answer to one free-text question.

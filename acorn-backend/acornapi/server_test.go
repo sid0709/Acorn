@@ -3,6 +3,7 @@ package acornapi
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -12,6 +13,8 @@ import (
 	"github.com/sid0709/OpenSeat/acorn-backend/account"
 	"github.com/sid0709/OpenSeat/acorn-backend/acorn"
 	"github.com/sid0709/OpenSeat/acorn-backend/resume"
+	"github.com/sid0709/OpenSeat/acorn-backend/selector"
+	"github.com/sid0709/OpenSeat/backend-core/jev"
 	"github.com/sid0709/OpenSeat/backend-core/killswitch"
 )
 
@@ -93,14 +96,44 @@ func (f fakeModel) JSON(context.Context, string, string, json.RawMessage) ([]byt
 func (fakeModel) Model() string { return "fake" }
 func (fakeModel) Ready() bool   { return true }
 
+// fakeDecider stands in for Jev: it picks the first listed key and calls every text a posting.
+type fakeDecider struct{ err error }
+
+func (f fakeDecider) Decide(_ context.Context, req jev.Request) (jev.Response, error) {
+	if f.err != nil {
+		return jev.Response{}, f.err
+	}
+	answers := map[string]jev.Answer{}
+	for key, q := range req.Questions {
+		if q.Type == jev.TypeNoul {
+			yes := 0.9
+			answers[key] = jev.Answer{Type: q.Type, Noul: &yes}
+			continue
+		}
+		first := ""
+		for option := range q.Criteria {
+			if strings.HasSuffix(option, "_0") {
+				first = option
+			}
+		}
+		answers[key] = jev.Answer{Type: q.Type, Choice: first, Confidence: 0.9, Probabilities: map[string]float64{first: 0.9}}
+	}
+	return jev.Response{Answers: answers}, nil
+}
+func (fakeDecider) Model() string { return "fake-jev" }
+
 func newTestServer(t *testing.T, model fakeModel) (http.Handler, *fakeAccounts) {
+	return newTestServerWith(t, model, fakeDecider{})
+}
+
+func newTestServerWith(t *testing.T, model fakeModel, decider fakeDecider) (http.Handler, *fakeAccounts) {
 	t.Helper()
 	accounts := &fakeAccounts{users: map[string]account.User{
 		"hunter": {ID: "u1", Name: "Jordan Lee", Email: "j@example.com"},
 	}}
 	engine := resume.New(resume.NewMemory(), model)
 	engine.RunInline()
-	handler, gw := New(accounts, nil, acorn.New(model), Options{Resumes: engine})
+	handler, gw := New(accounts, nil, acorn.New(model), Options{Resumes: engine, Selector: selector.New(decider)})
 	t.Cleanup(gw.Close)
 	return handler, accounts
 }
@@ -231,7 +264,7 @@ func TestAnalyzeUsesProfileAndNeverReturnsResumeGate(t *testing.T) {
 }
 
 func TestMatchOptionFailureIsData(t *testing.T) {
-	handler, _ := newTestServer(t, fakeModel{reply: "not json"})
+	handler, _ := newTestServerWith(t, fakeModel{}, fakeDecider{err: errors.New("jev down")})
 	rec := call(handler, "POST", "/acorn/match-option", `{"intendedValue":"No","options":["Yes","No"]}`, bearer("hunter"), "")
 	if rec.Code != http.StatusOK || !strings.Contains(rec.Body.String(), `"ok":false`) {
 		t.Fatalf("got %d %s", rec.Code, rec.Body)

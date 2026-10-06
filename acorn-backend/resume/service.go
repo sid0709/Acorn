@@ -315,14 +315,6 @@ func (s *Service) DeleteAccount(ctx context.Context, accountID string) error {
 	return s.store.DeleteAccount(ctx, accountID)
 }
 
-func (s *Service) Recommend(accountID, jobDescription, jobID string) (id, stack, reason string, err error) {
-	id, stack, reason, err = s.recommend(accountID, jobDescription)
-	if err == nil && jobID != "" {
-		s.store.rememberJob(accountID, jobID, id)
-	}
-	return id, stack, reason, err
-}
-
 func (s *Service) JobResume(accountID, jobID string) (FilePayload, string, string, error) {
 	ref := s.store.jobFile(accountID, jobID)
 	if ref == "" {

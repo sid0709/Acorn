@@ -38,8 +38,8 @@ func TestRunCapturesFilesCallsAndSteps(t *testing.T) {
 	run.WriteFile("page.html", []byte("<html></html>"))
 	ctx := WithRun(context.Background(), run)
 	Tracer()(ctx, acorn.Call{
-		Purpose: acorn.PurposeMatchOption, Model: "m", System: "sys", User: "usr",
-		Schema: json.RawMessage(`{"type":"object"}`), Output: []byte(`{"matched_option":"+1"}`),
+		Purpose: acorn.PurposeAnswer, Model: "m", System: "sys", User: "usr",
+		Schema: json.RawMessage(`{"type":"object"}`), Output: []byte(`{"answers":"+1"}`),
 		Err: errors.New("boom"), Duration: 1500 * time.Millisecond,
 	})
 	Tracer()(context.Background(), acorn.Call{Purpose: acorn.PurposeAnalyze}) // no run: ignored
@@ -54,13 +54,13 @@ func TestRunCapturesFilesCallsAndSteps(t *testing.T) {
 		names = append(names, e.Name())
 	}
 	sort.Strings(names)
-	want := []string{"01-page.html", "02-ai-match-option.md", "steps.ndjson"}
+	want := []string{"01-page.html", "02-ai-qa.md", "steps.ndjson"}
 	if strings.Join(names, ",") != strings.Join(want, ",") {
 		t.Fatalf("files = %v, want %v", names, want)
 	}
 
-	call, _ := os.ReadFile(filepath.Join(run.Dir(), "02-ai-match-option.md"))
-	for _, part := range []string{"- error: boom", `"matched_option": "+1"`, "sys", "usr"} {
+	call, _ := os.ReadFile(filepath.Join(run.Dir(), "02-ai-qa.md"))
+	for _, part := range []string{"- error: boom", `"answers": "+1"`, "sys", "usr"} {
 		if !strings.Contains(string(call), part) {
 			t.Fatalf("call file missing %q:\n%s", part, call)
 		}
