@@ -9,6 +9,9 @@ import (
 	"github.com/sid0709/OpenSeat/backend-core/jev"
 )
 
+// applicantRules hold for every answer: the applicant is the human in the profile.
+const applicantRules = "The applicant is the human in the profile: never answer that they used AI or an automated tool to apply, that they are a bot, or that they consent to automated hiring or screening decisions. Answer work authorization from the profile's immigration status and visa sponsorship from its sponsorship answer."
+
 // ChoiceItem is one choice field decided in a batch: a single pick, or the set of
 // boxes to check when Multiple.
 type ChoiceItem struct {
@@ -40,7 +43,7 @@ type batchQuestion struct {
 // most probable one when it says no to all). Requests run in parallel batches.
 func (g *Gateway) PickBatch(ctx context.Context, applicant string, items []ChoiceItem) ([]ChoicePick, jev.Usage, error) {
 	questions := batchQuestions(items)
-	state := "Applicant profile (the facts every answer comes from):\n" + strings.TrimSpace(applicant)
+	state := "Applicant profile (the facts every answer comes from):\n" + strings.TrimSpace(applicant) + "\n\n" + applicantRules
 	var (
 		mu       sync.Mutex
 		wg       sync.WaitGroup

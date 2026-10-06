@@ -69,6 +69,7 @@ type Service struct {
 	model      Model
 	tracer     Tracer
 	classifier Classifier
+	picker     ChoicePicker
 }
 
 func New(model Model) *Service { return &Service{model: model} }
@@ -208,21 +209,27 @@ func (s *Service) rewriteTyping(ctx context.Context, plan Plan, applicant string
 	for i := range fields {
 		fields[i].Note = notes[fields[i].ElementIndex]
 	}
+	answers, err := s.writeAnswers(ctx, applicant, page, fields)
+	if err != nil {
+		slog.Warn("acorn typing-field rewrite skipped", "error", err)
+		return plan
+	}
+	return overlayTypingFills(plan, answers)
+}
+
+// writeAnswers has the writer answer typed fields, keyed by element index.
+func (s *Service) writeAnswers(ctx context.Context, applicant string, page map[string]any, fields []typingField) (map[int]string, error) {
 	ctx, cancel := context.WithTimeout(ctx, proseTimeout)
 	defer cancel()
 	text, err := s.ask(ctx, PurposeTyping, proseSystem, proseUserPrompt(applicant, fields, page), proseAnswersSchema())
-	if err == nil {
-		allowed := map[int]bool{}
-		for _, field := range fields {
-			allowed[field.ElementIndex] = true
-		}
-		var answers map[int]string
-		if answers, err = parseProseAnswers(text, allowed); err == nil {
-			return overlayTypingFills(plan, answers)
-		}
+	if err != nil {
+		return nil, err
 	}
-	slog.Warn("acorn typing-field rewrite skipped", "error", err)
-	return plan
+	allowed := map[int]bool{}
+	for _, field := range fields {
+		allowed[field.ElementIndex] = true
+	}
+	return parseProseAnswers(text, allowed)
 }
 
 // QAResult is a written answer to one free-text question.

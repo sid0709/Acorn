@@ -63,6 +63,7 @@ func (s *Server) aiAnalyze(w http.ResponseWriter, r *http.Request) {
 		MetaTree    string               `json:"metaTree"` // accepted from older extensions, never sent to the model
 		Mode        string               `json:"mode"`
 		FieldIssues acorn.FieldIssueScan `json:"fieldIssues"`
+		FormFields  []acorn.FormField    `json:"formFields"`
 		Page        map[string]any       `json:"page"`
 		Debug       *analyzeDebug        `json:"debug"`
 	}
@@ -80,10 +81,14 @@ func (s *Server) aiAnalyze(w http.ResponseWriter, r *http.Request) {
 	ctx := s.startAnalyzeRun(r, session.User.ID, applicant, body.PureTree, body.Page, body.Debug)
 	var result acorn.AnalyzeResult
 	var err error
-	if body.Mode == acorn.ModeRefill {
+	switch body.Mode {
+	case acorn.ModeRefill:
 		recordFieldIssues(ctx, body.FieldIssues)
 		result, err = brain.Refill(ctx, applicant, body.PureTree, body.FieldIssues, body.Page)
-	} else {
+	case acorn.ModeFast:
+		recordFormFields(ctx, body.FormFields)
+		result, err = brain.FastPlan(ctx, applicant, body.FormFields, body.Page)
+	default:
 		result, err = brain.Analyze(ctx, applicant, body.PureTree, body.Page)
 	}
 	finishAnalyzeRun(ctx, result, err)

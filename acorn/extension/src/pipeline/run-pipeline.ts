@@ -2,26 +2,22 @@ import { formatDuration, formatUsd } from "@acorn/shared/ai-usage";
 import { FILL_MODE, type FillMode } from "@acorn/shared/field-issues";
 import { applyApplicantIdentityToActions } from "@acorn/shared/plan-runner/applicant-identity";
 import { runActionPlan } from "@acorn/shared/plan-runner/orchestrator";
-import type { ActionPlan, PlanStepPayload, RunStepRecord } from "@acorn/shared/plan-runner/types";
-import type { PipelineProgress } from "@acorn/shared/pipeline-types";
 import { formatPlannerTree } from "@acorn/shared/planner-tree";
 import { formatAnalyzeTrees } from "@acorn/shared/tree-export";
-import { sendPlanStepToTab, sendTabMessage } from "../tab-messaging";
-import { getTabJob } from "../tab-job-session";
-import { customTabHasResume, getCustomTab } from "../tab-custom-session";
+
 import { DEFAULT_ACORN_API_URL } from "../auth/acorn-auth";
+import { traceFromBackground } from "../background/debug-trace-sink";
+import { ACORN_DEBUG } from "../debug-trace";
+import { customTabHasResume, getCustomTab } from "../tab-custom-session";
+import { getTabJob } from "../tab-job-session";
+import { sendPlanStepToTab, sendTabMessage } from "../tab-messaging";
 import { MSG, type DomTreePayload, type PipelineSource } from "../types";
-import { requestAiAnalyze } from "./api/analyze";
+
 import { fetchRuntimeFile } from "./api/job-files";
-import { keepResumeIfSameSite, loadFillResume } from "./fill-resume";
-import { buildResumeUploadProgress } from "./resume-upload-status";
-import {
-  addPipelineUsage,
-  beginPipelineUsageTracking,
-  endPipelineUsageTracking,
-} from "./usage-tracker";
 import { decideChoicesInBatch } from "./choice-batch";
 import { fetchDomFromTab } from "./fetch-dom";
+import { keepResumeIfSameSite, loadFillResume } from "./fill-resume";
+import { requestPlan, wantsFastPlan } from "./plan-request";
 import {
   REFILL_NOTHING_FLAGGED,
   REFILL_UNSUPPORTED,
@@ -29,9 +25,16 @@ import {
   refillResultSuffix,
   rescanFieldIssues,
 } from "./refill";
+import { buildResumeUploadProgress } from "./resume-upload-status";
 import { autoPauseDecision, countDomNodes, shortLabel } from "./run-pipeline-helpers";
-import { traceFromBackground } from "../background/debug-trace-sink";
-import { ACORN_DEBUG } from "../debug-trace";
+import {
+  addPipelineUsage,
+  beginPipelineUsageTracking,
+  endPipelineUsageTracking,
+} from "./usage-tracker";
+
+import type { PipelineProgress } from "@acorn/shared/pipeline-types";
+import type { ActionPlan, PlanStepPayload, RunStepRecord } from "@acorn/shared/plan-runner/types";
 
 export type PipelineEmit = (progress: PipelineProgress) => void;
 
@@ -95,7 +98,10 @@ export async function runFabPipeline(args: RunPipelineArgs): Promise<void> {
     const resumeSource: PipelineSource =
       source === "custom" || usingForcedCustom ? "custom" : "fill";
     const [fetchedDom, resumeLoad, runtimeFile] = await Promise.all([
-      fetchDomFromTab(tabId, preferredFrameId, { fieldIssues: refill }),
+      fetchDomFromTab(tabId, preferredFrameId, {
+        fieldIssues: refill,
+        formFields: wantsFastPlan(mode),
+      }),
       loadFillResume({
         source: resumeSource,
         tabJob,
@@ -106,7 +112,7 @@ export async function runFabPipeline(args: RunPipelineArgs): Promise<void> {
       fetchRuntimeFile(aiServerUrl).catch(() => null),
     ]);
     // The page HTML only rides to Analyze's debug capture, not the socket or sidebar.
-    const { html: pageHtml, fieldIssues, ...treePayload } = fetchedDom;
+    const { html: pageHtml, fieldIssues, formFields, ...treePayload } = fetchedDom;
     const boundResume =
       resumeSource === "custom"
         ? { file: resumeLoad.file, skipReason: resumeLoad.skipReason }
@@ -181,7 +187,7 @@ export async function runFabPipeline(args: RunPipelineArgs): Promise<void> {
     const pureTree = formatPlannerTree(treePayload.tree);
     const metaTree = ACORN_DEBUG ? formatAnalyzeTrees(treePayload.tree).metaTree : undefined;
 
-    const analyze = await requestAiAnalyze(
+    const analyze = await requestPlan(
       {
         pureTree,
         mode,
@@ -219,6 +225,7 @@ export async function runFabPipeline(args: RunPipelineArgs): Promise<void> {
         },
         debug: ACORN_DEBUG ? { html: pageHtml, domTree: treePayload.tree, metaTree } : undefined,
       },
+      formFields,
       aiServerUrl,
       tabId,
     );
@@ -336,7 +343,6 @@ export async function runFabPipeline(args: RunPipelineArgs): Promise<void> {
         ok?: boolean;
         found?: number;
         filled?: number;
-        raceLike?: number;
         error?: string;
         skipped?: boolean;
       }>(tabId, { type: MSG.FILL_LEFTOVER_COMBOS }, frameId ?? undefined, 120000);

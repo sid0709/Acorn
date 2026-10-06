@@ -60,7 +60,8 @@ func (s *Server) acornFor(w http.ResponseWriter, r *http.Request, accountID stri
 		s.writeProfileErr(w, err)
 		return nil, false
 	}
-	return s.acorn.WithModel(openai.OpenRouter(key)).WithClassifier(selector.New(jev.New(key))), true
+	gateway := selector.New(jev.New(key))
+	return s.acorn.WithModel(openai.OpenRouter(key)).WithClassifier(gateway).WithPicker(gatewayPicker{gateway}), true
 }
 
 // resumeModel is the bound test model, or the profile's OpenRouter client.

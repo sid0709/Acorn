@@ -49,6 +49,11 @@ func (s *Server) startAnalyzeRun(r *http.Request, userID, applicant, pureTree st
 }
 
 // finishAnalyzeRun saves the plan the extension receives, or why there is none.
+// recordFormFields saves the field list the fast planner read next to its plan.
+func recordFormFields(ctx context.Context, fields any) {
+	debugtrace.RunFrom(ctx).WriteJSON("form-fields.json", fields)
+}
+
 // recordFieldIssues saves what Refill read from the page next to its plan.
 func recordFieldIssues(ctx context.Context, scan any) {
 	debugtrace.RunFrom(ctx).WriteJSON("field-issues.json", scan)

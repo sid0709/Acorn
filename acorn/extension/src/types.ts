@@ -1,4 +1,5 @@
 import type { FieldIssueScan } from "@acorn/shared/field-issues";
+import type { FormField } from "@acorn/shared/form-fields";
 
 export interface DomNode {
   nodeId: number;
@@ -24,6 +25,8 @@ export interface DomTreePayload {
   html?: string;
   /** Refill only: fields the page flags, keyed by this tree's node ids. */
   fieldIssues?: FieldIssueScan;
+  /** Fast fill only: the page's fields, keyed by this tree's node ids. */
+  formFields?: FormField[];
 }
 
 /** Long-lived side-panel port. Keeps the MV3 worker (and `/acorn/socket.io` socket) alive. */

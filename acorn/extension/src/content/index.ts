@@ -1,7 +1,15 @@
+import { ACORN_DEBUG, DEBUG_HTML_MAX_CHARS, traceFromPage } from "../debug-trace";
 import { MSG, PLAN_STEP_PAGE_TIMEOUT_MS, type PlanStepPayload } from "../types";
+
+import { executeActions, getElementContent } from "./action-runner";
+import { fillLeftoverComboboxes } from "./agents/leftover-combobox";
+import { waitForDomQuiet } from "./agents/wait";
+import { collectChoiceItems, type ChoiceBatchStep } from "./choice-batch";
+import { comboSnapshot } from "./debug-snapshot";
 import { serializeDom } from "./dom-serializer";
 import { resolveElementByNodeId } from "./element-resolver";
-import { executeActions, getElementContent } from "./action-runner";
+import { scanFieldIssues } from "./field-errors";
+import { scanFormFields } from "./form-fields";
 import {
   MIN_CHILD_FORM_CONTROLS,
   formControlScore,
@@ -9,14 +17,8 @@ import {
   waitForFormSurface,
 } from "./form-frame";
 import { clearHighlight, highlightElement } from "./highlighter";
-import { fillLeftoverComboboxes } from "./agents/leftover-combobox";
-import { collectChoiceItems, type ChoiceBatchStep } from "./choice-batch";
-import { scanFieldIssues } from "./field-errors";
-import { waitForDomQuiet } from "./agents/wait";
 import { runPlanStep } from "./plan-step-runner";
 import { initSelectionQa } from "./selection-qa";
-import { ACORN_DEBUG, DEBUG_HTML_MAX_CHARS, traceFromPage } from "../debug-trace";
-import { comboSnapshot } from "./debug-snapshot";
 
 const CONTENT_BOOT = "__acornContentBoot";
 
@@ -66,6 +68,7 @@ if (!contentWindow[CONTENT_BOOT]) {
             title: document.title,
             tree,
             fieldIssues: message.fieldIssues === true ? scanFieldIssues() : undefined,
+            formFields: message.formFields === true ? scanFormFields() : undefined,
             formScore: score,
             fetchedAt: new Date().toISOString(),
             frameId: sender.frameId ?? null,

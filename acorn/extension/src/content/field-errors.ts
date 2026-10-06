@@ -8,17 +8,27 @@
  * planner reads the collected text and decides what is actually an error.
  */
 
-import type { FieldIssue, FieldIssueScan } from "@acorn/shared/field-issues";
 import { choiceOptionLabel } from "./agents/choice-group";
 import { readControlValue } from "./agents/read-control-value";
-import { getDirectText } from "./dom-serializer";
+import {
+  ACORN_ID_ATTR,
+  choiceGroupKey,
+  clip,
+  fieldLabel,
+  fieldWrapper,
+  groupMembers,
+  isRequired,
+  isVisible,
+  matchesSafe,
+  normalize,
+  queryDeep,
+  wrapperTexts,
+} from "./form-dom";
 import { FILLABLE_SELECTOR } from "./form-frame";
-import { labelCandidates } from "./verify/element-labels";
 import { inferRole } from "./verify/element-role";
 
-const ACORN_ID_ATTR = "data-acorn-id";
-/** How far up from a control to look for its own field wrapper. */
-const MAX_WRAPPER_DEPTH = 6;
+import type { FieldIssue, FieldIssueScan } from "@acorn/shared/field-issues";
+
 const MAX_MESSAGES_PER_FIELD = 4;
 const MAX_MESSAGE_CHARS = 200;
 const MAX_VALUE_CHARS = 120;
@@ -27,81 +37,6 @@ const MAX_PAGE_MESSAGES = 5;
 
 /** Page-level announcements: standard ARIA only. */
 const PAGE_MESSAGE_SELECTOR = '[role="alert"], [aria-live="assertive"]';
-/** Option lists and choice labels belong to the control, not to its error text. */
-const CONTROL_PART_SELECTOR =
-  'label, option, select, [role="option"], [role="listbox"], [role="radio"], [role="checkbox"], [role="menu"], [role="menuitem"]';
-const CHOICE_TYPES = new Set(["radio", "checkbox"]);
-
-function clip(text: string, max: number): string {
-  const flat = text.replace(/\s+/g, " ").trim();
-  return flat.length > max ? `${flat.slice(0, max - 1)}…` : flat;
-}
-
-function normalize(text: string): string {
-  return text.replace(/\s+/g, " ").trim().toLowerCase();
-}
-
-function isVisible(el: Element): boolean {
-  if (el.getClientRects().length === 0) return false;
-  const style = el.ownerDocument?.defaultView?.getComputedStyle(el);
-  return !style || (style.display !== "none" && style.visibility !== "hidden");
-}
-
-function matchesSafe(el: Element, selector: string): boolean {
-  try {
-    return el.matches(selector);
-  } catch {
-    return false; // Selector unsupported by this browser.
-  }
-}
-
-/** Document, open shadow roots, and same-origin iframes — the same reach as the serializer. */
-function queryDeep(root: ParentNode, selector: string, out: Element[] = []): Element[] {
-  out.push(...Array.from(root.querySelectorAll(selector)));
-  for (const el of Array.from(root.querySelectorAll("*"))) {
-    if (el.shadowRoot) queryDeep(el.shadowRoot, selector, out);
-    if (el instanceof HTMLIFrameElement) {
-      try {
-        if (el.contentDocument) queryDeep(el.contentDocument, selector, out);
-      } catch {
-        /* cross-origin frame */
-      }
-    }
-  }
-  return out;
-}
-
-function choiceGroupKey(el: Element): string | null {
-  if (!(el instanceof HTMLInputElement) || !CHOICE_TYPES.has(el.type)) return null;
-  return el.name ? `${el.type}:${el.form?.id ?? ""}:${el.name}` : null;
-}
-
-/** Distinct questions inside `root`: a radio/checkbox group or a combobox+listbox pair counts once. */
-function distinctFieldCount(root: Element): number {
-  const controls = Array.from(root.querySelectorAll(FILLABLE_SELECTOR));
-  const outer = controls.filter(
-    (el) => !controls.some((other) => other !== el && other.contains(el)),
-  );
-  const hasCombobox = outer.some((el) => inferRole(el) === "combobox");
-  const keys = new Set<unknown>();
-  for (const el of outer) {
-    if (hasCombobox && el.getAttribute("role") === "listbox") continue;
-    keys.add(choiceGroupKey(el) ?? el);
-  }
-  return keys.size;
-}
-
-/** The highest ancestor that still holds only this one question. */
-function fieldWrapper(control: Element): Element {
-  let wrapper: Element = control;
-  let node = control.parentElement;
-  for (let depth = 0; node && depth < MAX_WRAPPER_DEPTH; depth += 1) {
-    if (node === node.ownerDocument.body || distinctFieldCount(node) > 1) break;
-    wrapper = node;
-    node = node.parentElement;
-  }
-  return wrapper;
-}
 
 function textOfIds(control: Element, attr: string): string[] {
   const ids = (control.getAttribute(attr) || "").split(/\s+/).filter(Boolean);
@@ -130,55 +65,11 @@ function linkedMessages(control: Element): string[] {
   return messages;
 }
 
-/** Visible wrapper text before or after the control, outside any control part. */
-function wrapperTexts(
-  control: Element,
-  wrapper: Element,
-  position: number,
-  skip: Set<string>,
-): string[] {
-  if (wrapper === control) return [];
-  const texts: string[] = [];
-  for (const el of Array.from(wrapper.querySelectorAll("*"))) {
-    if (el === control || control.contains(el) || el.contains(control)) continue;
-    if (!(control.compareDocumentPosition(el) & position)) continue;
-    if (matchesSafe(el, FILLABLE_SELECTOR) || el.closest(CONTROL_PART_SELECTOR)) continue;
-    const text = getDirectText(el);
-    if (!text || skip.has(normalize(text)) || !isVisible(el)) continue;
-    skip.add(normalize(text));
-    texts.push(clip(text, MAX_MESSAGE_CHARS));
-  }
-  return texts;
-}
-
 /** Text after the control inside its own field wrapper — where field errors render. */
 function nearbyMessages(control: Element, wrapper: Element, skip: Set<string>): string[] {
   return wrapperTexts(control, wrapper, Node.DOCUMENT_POSITION_FOLLOWING, skip).slice(
     0,
     MAX_MESSAGES_PER_FIELD,
-  );
-}
-
-/**
- * A radio/checkbox group's question: its own label names one option ("Yes"),
- * so read the nearest text before the group inside the group's wrapper.
- */
-function fieldLabel(control: Element, members: Element[], wrapper: Element): string {
-  if (members.length > 1) {
-    const before = wrapperTexts(control, wrapper, Node.DOCUMENT_POSITION_PRECEDING, new Set());
-    const question = before.at(-1);
-    if (question) return question;
-  }
-  return clip(labelCandidates(control)[0] ?? "", MAX_MESSAGE_CHARS);
-}
-
-function groupMembers(control: Element): Element[] {
-  const key = choiceGroupKey(control);
-  if (!key) return [control];
-  const input = control as HTMLInputElement;
-  const scope = input.form ?? (control.getRootNode() as Document | ShadowRoot);
-  return Array.from(
-    scope.querySelectorAll(`input[type="${input.type}"][name="${CSS.escape(input.name)}"]`),
   );
 }
 
@@ -190,13 +81,6 @@ function currentValue(control: Element, members: Element[]): string {
       .join(", ");
   }
   return readControlValue(control);
-}
-
-function isRequired(members: Element[]): boolean {
-  return members.some(
-    (el) =>
-      (el as HTMLInputElement).required === true || el.getAttribute("aria-required") === "true",
-  );
 }
 
 function describeControl(control: Element): FieldIssue | null {

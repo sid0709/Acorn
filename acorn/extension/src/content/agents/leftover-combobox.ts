@@ -1,11 +1,13 @@
+import { traceFromPage } from "../../debug-trace";
+
 import { fillElement } from "./fill";
 import { wasPlanFilled } from "./plan-fill-registry";
 import { readControlValue } from "./read-control-value";
-import { traceFromPage } from "../../debug-trace";
 
 /** Planner-less leftover controls: matcher AI answers from the applicant profile. */
 const PROFILE_ANSWER = "Answer from the applicant profile";
-const MAX_LEFTOVER = 8;
+/** Dropdowns the plan did not answer (in fast fill: every custom dropdown). */
+const MAX_LEFTOVER = 40;
 
 function isDisplayed(el: HTMLElement): boolean {
   if (el.getClientRects().length === 0) return false;
@@ -49,7 +51,6 @@ function fieldLabel(el: HTMLElement): string {
 export async function fillLeftoverComboboxes(): Promise<{
   found: number;
   filled: number;
-  raceLike: number;
 }> {
   const nodes = Array.from(
     document.querySelectorAll('[role="combobox"], select, [aria-haspopup="listbox"]'),
@@ -76,13 +77,8 @@ export async function fillLeftoverComboboxes(): Promise<{
     })),
   }));
   let filled = 0;
-  let raceLike = 0;
   for (const el of leftovers) {
     const label = fieldLabel(el);
-    if (/identify your race|\brace\b/i.test(label)) raceLike += 1;
-    // School typeaheads need the planned value typed as a search query.
-    // Leftover "Answer from the applicant profile" overwrites a filled School.
-    if (/\b(school|university|college)\b/i.test(label)) continue;
     try {
       // PROFILE_ANSWER is an instruction for the matcher, never a search query: a long
       // list types the writer's estimated answer instead.
@@ -94,5 +90,5 @@ export async function fillLeftoverComboboxes(): Promise<{
     }
   }
 
-  return { found: leftovers.length, filled, raceLike };
+  return { found: leftovers.length, filled };
 }
