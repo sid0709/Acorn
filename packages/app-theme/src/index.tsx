@@ -1,5 +1,6 @@
-import type { ElementType, ReactNode } from "react";
 import * as theme from "sid-ui/theme";
+
+import type { ElementType, ReactNode } from "react";
 
 type AppThemeProps = {
   children: ReactNode;
@@ -12,6 +13,6 @@ type AppThemeProps = {
 const themeRoot = ["J", "oinedProvider"].join("");
 
 export function AppTheme(props: AppThemeProps) {
-  const Root = (theme as Record<string, (props: AppThemeProps) => ReactNode>)[themeRoot];
+  const Root = (theme as unknown as Record<string, (props: AppThemeProps) => ReactNode>)[themeRoot];
   return <Root {...props} />;
 }

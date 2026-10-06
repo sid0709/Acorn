@@ -23,8 +23,9 @@
       "name": "acorn-frontend",
       "version": "0.1.0",
       "dependencies": {
+        "@acorn/app-theme": "workspace:*",
+        "@acorn/google-signin": "workspace:*",
         "@acorn/shared": "workspace:*",
-        "@joined/google-signin": "workspace:*",
         "next": "catalog:",
         "pdfjs-dist": "catalog:",
         "react": "catalog:",
@@ -53,8 +54,9 @@
     },
     "acorn/extension": {
       "name": "acorn-extension",
-      "version": "1.10.1",
+      "version": "1.11.2",
       "dependencies": {
+        "@acorn/app-theme": "workspace:*",
         "@acorn/face": "workspace:*",
         "@acorn/shared": "workspace:*",
         "react": "catalog:",
@@ -85,8 +87,23 @@
       "name": "@acorn/shared",
       "version": "0.1.0",
     },
+    "packages/app-theme": {
+      "name": "@acorn/app-theme",
+      "version": "0.1.0",
+      "dependencies": {
+        "sid-ui": "catalog:",
+      },
+      "devDependencies": {
+        "@types/react": "catalog:",
+        "eslint": "catalog:",
+        "typescript": "catalog:",
+      },
+      "peerDependencies": {
+        "react": ">=19",
+      },
+    },
     "packages/google-signin": {
-      "name": "@joined/google-signin",
+      "name": "@acorn/google-signin",
       "version": "0.1.0",
       "devDependencies": {
         "typescript": "catalog:",
@@ -134,9 +151,13 @@
     "vite": "8.3.1",
   },
   "packages": {
+    "@acorn/app-theme": ["@acorn/app-theme@workspace:packages/app-theme"],
+
     "@acorn/demo": ["@acorn/demo@workspace:acorn/demo"],
 
     "@acorn/face": ["@acorn/face@workspace:acorn/packages/acorn-face"],
+
+    "@acorn/google-signin": ["@acorn/google-signin@workspace:packages/google-signin"],
 
     "@acorn/shared": ["@acorn/shared@workspace:acorn/packages/shared"],
 
@@ -311,8 +332,6 @@
     "@img/sharp-win32-ia32": ["@img/sharp-win32-ia32@0.35.4", "", { "os": "win32", "cpu": "ia32" }, "sha512-kqRsbaa5CS6KHlpxnN7WhE6vAAugXyZButpRdvDWetlv6Qv4N9WTcrWzF7tXfB9T7MsoadqdI8hmwLq6UlLvtw=="],
 
     "@img/sharp-win32-x64": ["@img/sharp-win32-x64@0.35.4", "", { "os": "win32", "cpu": "x64" }, "sha512-XtmnYhBcrORsJ4XJngyzr/EWP0hRZLAZRFaApdKuviyqF78+ylxh2y06ZmtULAMOnObJ3ucpN0AcwSWnMowTRg=="],
-
-    "@joined/google-signin": ["@joined/google-signin@workspace:packages/google-signin"],
 
     "@jridgewell/gen-mapping": ["@jridgewell/gen-mapping@0.3.13", "", { "dependencies": { "@jridgewell/sourcemap-codec": "^1.5.0", "@jridgewell/trace-mapping": "^0.3.24" } }, "sha512-2kkt/7niJ6MgEPxF0bYdQ6etZaA+fQvDcLKckhy1yIQOzaoKjBBjSj63/aLVjYE3qhRt5dvM+uUyfCg6UKCBbA=="],
 
