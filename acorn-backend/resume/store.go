@@ -289,6 +289,26 @@ func (s *Store) libraryItem(accountID, id string) (LibraryRow, bool) {
 	return found, true
 }
 
+func (s *Store) hasLibrary(accountID string) bool {
+	s.mu.Lock()
+	for _, row := range s.library {
+		if row.AccountID == accountID {
+			s.mu.Unlock()
+			return true
+		}
+	}
+	s.mu.Unlock()
+	if s.db == nil {
+		return false
+	}
+	err := s.db.Collection(libraryCollection).FindOne(
+		context.Background(),
+		bson.D{{Key: "accountId", Value: accountID}},
+		options.FindOne().SetProjection(bson.D{{Key: "_id", Value: 1}}),
+	).Err()
+	return err == nil
+}
+
 func (s *Store) listLibrary(accountID string) []LibraryRow {
 	if rows, ok := loadAccount[LibraryRow](s, libraryCollection, accountID, "bytes"); ok {
 		for i := range rows {

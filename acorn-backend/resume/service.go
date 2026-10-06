@@ -207,8 +207,8 @@ func (s *Service) UploadLibrary(accountID, name, title string, data []byte) (Lib
 		Size: len(data), UploadedAt: time.Now().UTC(), ExtractedText: text,
 		MimeType: mimeFromName(name), Bytes: data, Skills: analyzeText(text),
 	}
-	existing := s.store.listLibrary(accountID)
-	if len(existing) == 0 {
+	existing := s.store.hasLibrary(accountID)
+	if !existing {
 		row.IsPrimary = true
 	}
 	if err := s.store.putLibrary(row); err != nil {

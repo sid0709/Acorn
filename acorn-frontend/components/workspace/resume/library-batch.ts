@@ -55,14 +55,16 @@ export function stackCounts(items: FolderResume[]): { stack: string; count: numb
     .map(([stack, count]) => ({ stack, count }));
 }
 
+const base64Chunk = 8192;
+
 export function fileBase64(file: File): Promise<string> {
   return file.arrayBuffer().then((buffer) => {
     const bytes = new Uint8Array(buffer);
-    let binary = "";
-    bytes.forEach((byte) => {
-      binary += String.fromCharCode(byte);
-    });
-    return btoa(binary);
+    const parts: string[] = [];
+    for (let i = 0; i < bytes.length; i += base64Chunk) {
+      parts.push(String.fromCharCode(...bytes.subarray(i, i + base64Chunk)));
+    }
+    return btoa(parts.join(""));
   });
 }
 
