@@ -3,7 +3,7 @@ import { authHeaders, getAcornApiUrl } from "../../auth/acorn-auth";
 import { extractError, isNestMissingRoute, readId, readInputId } from "./http";
 
 const CUSTOM_EDITOR_UNAVAILABLE =
-  "Custom generate needs the My Resume Editor pipeline on this Acorn API (stored config, template, and variables → Firestore file).";
+  "Custom generate needs the résumé pipeline on this Acorn API (stored config, template, and file).";
 
 const CUSTOM_EXTRACT_JD_UNAVAILABLE = "Custom generate needs JD extract on this Acorn API.";
 
@@ -55,9 +55,8 @@ export async function extractCustomJd(
 }
 
 /**
- * Enqueue My Resume Editor generate with extracted JD prose.
- * The Joined API must apply the signed-in stored template and persist the file
- * to Firestore — same pipeline as the editor, not renderDocx.
+ * Enqueue generate with extracted JD prose. The API applies the saved template
+ * and stores the DOCX.
  *
  * Optional `jobId` associates the file with a Worker pool job (Fill).
  * Optional `checkpoint` asks the Joined API to skip completed section steps.

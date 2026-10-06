@@ -58,8 +58,8 @@ func (s *Service) Analyze(ctx context.Context, applicant, pureTree string, page 
 	if strings.TrimSpace(pureTree) == "" {
 		return AnalyzeResult{}, fmt.Errorf("%w: pureTree is required", ErrInvalid)
 	}
-	// Résumés are not generated or recommended here, so the planner is told none is available.
-	page = withResumeUnavailable(page)
+	// Generate and Recommend can attach a résumé, so the planner may emit resume_upload.
+	page = withResumeAvailable(page)
 
 	text, err := s.ask(ctx, analyzeSystem, analyzeUserPrompt(applicant, pureTree, page), actionPlanSchema())
 	if err != nil {
@@ -80,12 +80,12 @@ func (s *Service) Analyze(ctx context.Context, applicant, pureTree string, page 
 	return AnalyzeResult{OK: true, Plan: plan, Model: s.model.Model()}, nil
 }
 
-func withResumeUnavailable(page map[string]any) map[string]any {
+func withResumeAvailable(page map[string]any) map[string]any {
 	next := make(map[string]any, len(page)+1)
 	for key, value := range page {
 		next[key] = value
 	}
-	next["recommendedResumeAvailable"] = false
+	next["recommendedResumeAvailable"] = true
 	return next
 }
 

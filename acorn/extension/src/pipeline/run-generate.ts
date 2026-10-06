@@ -241,10 +241,7 @@ export async function runResumeGenerate(args: {
       }
       const file = await fetchCustomResume(generationId, apiUrl);
       if (!file?.base64) {
-        await fail(
-          "finalize",
-          new Error("Generate finished without a stored editor résumé in Firestore"),
-        );
+        await fail("finalize", new Error("Generate finished without a stored résumé file"));
         return;
       }
       checkpoint = {

@@ -24,8 +24,8 @@ const (
 	notSpecified  = "Not specified"
 )
 
-// workerJob is one Worker pool row for the extension's side panel. The résumé
-// fields are present and empty: Acorn does not generate or recommend résumés.
+// workerJob is one Worker pool row for the extension's side panel. Résumé fields
+// stay empty until Generate or Recommend stores a file for that job.
 type workerJob struct {
 	ID                      string  `json:"id"`
 	Title                   string  `json:"title"`

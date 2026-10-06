@@ -54,8 +54,8 @@ func TestAnalyzePipeline(t *testing.T) {
 	if values[1] != "Because of the Heroku migration." || values[3] != "Jordan Lee" {
 		t.Errorf("typed answers not rewritten: %v", values)
 	}
-	if !strings.Contains(model.calls[0], `"recommendedResumeAvailable": false`) {
-		t.Errorf("planner was not told no résumé is available:\n%s", model.calls[0])
+	if !strings.Contains(model.calls[0], `"recommendedResumeAvailable": true`) {
+		t.Errorf("planner was not told a résumé can be attached:\n%s", model.calls[0])
 	}
 	if len(model.calls) != 3 {
 		t.Errorf("model calls = %d, want 3", len(model.calls))
