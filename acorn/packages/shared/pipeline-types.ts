@@ -1,6 +1,7 @@
 /** One-click fill pipeline progress contract (extension ↔ Chrome side panel). */
 
 import type { AiUsageSummary } from "./ai-usage";
+import type { FillMode } from "./field-issues";
 import type { ActionPlan, RunStepRecord } from "./plan-runner/types";
 import type { DomTreeNode } from "./tree-export";
 
@@ -16,6 +17,8 @@ export interface PipelineTreeSnapshot {
 export interface PipelineProgress {
   phase: PipelinePhase;
   message: string;
+  /** Fill or Refill; set when the run starts and kept through its updates. */
+  mode?: FillMode;
   stepIndex?: number;
   stepTotal?: number;
   stepLabel?: string;

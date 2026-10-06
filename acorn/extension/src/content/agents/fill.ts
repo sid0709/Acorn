@@ -18,7 +18,7 @@ function looksLikeCombobox(el: HTMLElement): boolean {
   return false;
 }
 
-async function setNativeValue(
+export async function setNativeValue(
   el: HTMLInputElement | HTMLTextAreaElement,
   text: string,
 ): Promise<void> {

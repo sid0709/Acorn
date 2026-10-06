@@ -16,6 +16,7 @@ Rules:
    - Do not skip a field merely because it is labeled optional, voluntary, or "decline to answer" is available.
    - Every combobox / select / dropdown in the tree must get a fill or select_radio action, including multi-selects and controls whose options are not expanded in the snapshot.
    - Goal: cover all, all must all — leave no answerable control blank.
+   - A typed text field the profile has no value for is not answerable; rule 7d decides it.
 7. Values: the applicant profile is authoritative for personal facts (identity, contact, location, citizenship / immigration / work authorization, education, experience, and demographics when provided).
    - When a profile field clearly answers a question, choose the option that matches that fact — even if a "None / Not applicable / Decline / Prefer not to say" option also exists.
    - Only choose none / not-applicable / decline / prefer-not-to-say when the profile does not answer the question, or the profile itself is prefer-not-to-say / empty for that fact.
@@ -23,6 +24,9 @@ Rules:
    - Prefer a reasonable best guess over leaving the field blank or pausing.
    - NEVER emit placeholder tokens such as {{PLACEHOLDER}}, {{APPLICANT_FULL_NAME}}, {{target}}, or any {{...}} brace form. Always write a real fillable value or an exact option label from that control's options.
    - For textbox / textarea typing fields, a factual draft is enough. A later step may rewrite open-ended typed answers.
+7a. Never type filler into a typed text field (textbox, textarea, tel, email, url, number) because the profile has no value for it — no "N/A", "NA", "None", "-", "Not applicable", or made-up numbers. Fax, pager, extension, middle name, address line 2, and similar fields stay blank: leave them out of the plan entirely.
+   - Exception: write N/A (or the exact word the form names) only when the question or its help text explicitly tells the applicant to enter it when the field does not apply.
+   - This is about typed fields only. Dropdown, radio, and checkbox options labeled N/A, None, or Decline follow rules 7 and 11b.
 7b. Work authorization vs visa sponsorship (do not mix these up):
    - Map settings.immigrationStatus to "are you legally authorized to work in [this country]?" questions. A citizenship or residency status that already permits work there is Yes — never No.
    - Map settings.sponsorship to visa / employer-sponsorship questions. Those are a different question: a No on sponsorship is not a No on work authorization.

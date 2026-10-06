@@ -40,6 +40,7 @@ const (
 	PurposeMatchOption Purpose = "match-option"
 	PurposeAnswer      Purpose = "qa"
 	PurposeExtractJD   Purpose = "extract-jd"
+	PurposeRefill      Purpose = "refill"
 )
 
 // Call is one model request and what came back, handed to a Tracer.
@@ -107,6 +108,8 @@ type AnalyzeResult struct {
 	Plan       Plan    `json:"plan"`
 	Model      string  `json:"model"`
 	ResponseID *string `json:"responseId"`
+	// Mode echoes ModeRefill on a Refill plan, so the extension knows the backend honored it.
+	Mode string `json:"mode,omitempty"`
 }
 
 // Analyze plans a fill of every answerable control in the pure tree from the
@@ -132,7 +135,7 @@ func (s *Service) Analyze(ctx context.Context, applicant, pureTree string, page 
 
 	identity := s.classifyIdentity(ctx, plan)
 	plan = applyApplicantIdentity(plan, identity)
-	plan = s.rewriteTyping(ctx, plan, applicant, page)
+	plan = s.rewriteTyping(ctx, plan, applicant, page, nil)
 	plan = applyApplicantIdentity(plan, identity)
 	return AnalyzeResult{OK: true, Plan: plan, Model: s.model.Model()}, nil
 }
@@ -166,10 +169,14 @@ func (s *Service) classifyIdentity(ctx context.Context, plan Plan) map[int]bool 
 }
 
 // rewriteTyping has the writer replace planner drafts in typed fields. It fails open.
-func (s *Service) rewriteTyping(ctx context.Context, plan Plan, applicant string, page map[string]any) Plan {
+// notes carries the page's error per element_index, so the rewrite still passes it.
+func (s *Service) rewriteTyping(ctx context.Context, plan Plan, applicant string, page map[string]any, notes map[int]string) Plan {
 	fields := typingFields(plan)
 	if len(fields) == 0 {
 		return plan
+	}
+	for i := range fields {
+		fields[i].Note = notes[fields[i].ElementIndex]
 	}
 	ctx, cancel := context.WithTimeout(ctx, proseTimeout)
 	defer cancel()

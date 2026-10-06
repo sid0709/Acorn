@@ -27,6 +27,8 @@ type NowCardProps = {
   progress: PipelineProgress;
   fillBusy: boolean;
   fill: NowAction;
+  /** Fixes only the fields the page flagged after Submit / Next. */
+  refill: NowAction;
   generate: NowAction;
   recommend: NowAction;
   remember: NowAction;
@@ -120,7 +122,8 @@ function RunProgress({ run }: { run: CustomUiProgress }) {
  * its résumé, any run in flight, and the actions that work on it.
  */
 export function NowCard(props: NowCardProps) {
-  const { mainTab, customTab, progress, fillBusy, fill, generate, recommend, remember } = props;
+  const { mainTab, customTab, progress, fillBusy, fill, refill, generate, recommend, remember } =
+    props;
   const { title, subtitle, status, run } = describe(props);
   const needsRemember = mainTab === "custom" && !customTab;
   const hasTarget = mainTab === "custom" ? Boolean(customTab) : Boolean(props.tabJob);
@@ -179,6 +182,15 @@ export function NowCard(props: NowCardProps) {
               isDisabled={fill.disabled}
               width="100%"
               onClick={fill.onClick}
+            />
+            <Button
+              variant="secondary"
+              icon={<Glyph name="refresh" />}
+              label={refill.label}
+              tooltip={refill.title}
+              isDisabled={refill.disabled}
+              width="100%"
+              onClick={refill.onClick}
             />
             {hasTarget ? (
               <HStack gap={2} className="acorn-now-row">

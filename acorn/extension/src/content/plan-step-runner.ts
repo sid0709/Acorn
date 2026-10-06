@@ -2,6 +2,7 @@ import type { PlanStepPayload, PlanStepResult } from "../types";
 import { rewriteApplicantIdentityValue } from "@acorn/shared/plan-runner/applicant-identity";
 import { isCustomResumeFile } from "@acorn/shared/plan-runner/step-file";
 import { controlAlreadyMatches } from "./agents/already-filled";
+import { clearElement } from "./agents/clear";
 import { fillElement } from "./agents/fill";
 import { rememberPlanFilled } from "./agents/plan-fill-registry";
 import { readControlValue } from "./agents/read-control-value";
@@ -169,13 +170,30 @@ export async function runPlanStep(step: PlanStepPayload): Promise<PlanStepResult
     };
   }
 
+  if (step.action === "clear" && !readControlValue(el)) {
+    return {
+      ok: true,
+      verified: true,
+      acted: false,
+      alreadyFilled: true,
+      details: {
+        nodeId: step.element_index,
+        matchedLabel: verified.matchedLabel,
+        matchedRole: verified.matchedRole,
+        valueAfter: "",
+      },
+    };
+  }
+
   // Resume / browser autofill may already populate the control — don't overwrite
-  // when the live value already matches the planned answer.
+  // when the live value already matches the planned answer. Refill forces the
+  // write: the page rejected what the control shows.
   if (
-    step.action === "fill" ||
-    step.action === "select_radio" ||
-    step.action === "upload" ||
-    step.action === "resume_upload"
+    !step.force &&
+    (step.action === "fill" ||
+      step.action === "select_radio" ||
+      step.action === "upload" ||
+      step.action === "resume_upload")
   ) {
     const prior = controlAlreadyMatches(el, intended, {
       fileName: step.file?.name ?? null,
@@ -212,6 +230,10 @@ export async function runPlanStep(step: PlanStepPayload): Promise<PlanStepResult
           throw new Error("fill requires value");
         }
         valueAfter = await fillElement(el, intended, step.expected_label);
+        break;
+      }
+      case "clear": {
+        valueAfter = await clearElement(el);
         break;
       }
       case "upload": {

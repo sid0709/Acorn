@@ -1,3 +1,4 @@
+import { FILL_MODE } from "@acorn/shared/field-issues";
 import { canContinueGenerate } from "@acorn/shared/generate-checkpoint";
 import { isFillPhaseBusy, type PipelineProgress } from "@acorn/shared/pipeline-types";
 import type { AcornMainTab } from "./SidebarNav";
@@ -5,6 +6,8 @@ import type { useTabSession } from "./use-tab-session";
 import type { AcornWorkerJob } from "./WorkerPoolList";
 
 type TabSession = ReturnType<typeof useTabSession>;
+
+export const REFILL_HINT = "Fix the fields this page flagged. Click Submit or Next first.";
 
 /** Whether the active tab's Custom tab or attached Fill job has Generate / Recommend in flight. */
 export function isGenerateBusy(
@@ -100,11 +103,14 @@ export function actionBarState({
           : customTab?.recommendedResumeId
             ? "Recommend again"
             : "Recommend Resume";
-  const fillLabel = fillBusy
-    ? progress.message
-    : progress.phase === "done"
-      ? "Fill again"
-      : "Fill page";
+  const refilling = progress.mode === FILL_MODE.refill;
+  const fillLabel =
+    fillBusy && !refilling
+      ? progress.message
+      : progress.phase === "done"
+        ? "Fill again"
+        : "Fill page";
+  const refillLabel = fillBusy && refilling ? progress.message : "Refill flagged fields";
 
   return {
     attachedJobGenerate,
@@ -113,5 +119,6 @@ export function actionBarState({
     generateLabel,
     recommendLabel,
     fillLabel,
+    refillLabel,
   };
 }

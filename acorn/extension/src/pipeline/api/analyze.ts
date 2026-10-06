@@ -1,4 +1,5 @@
 import type { AiUsageSummary } from "@acorn/shared/ai-usage";
+import type { FieldIssueScan, FillMode } from "@acorn/shared/field-issues";
 import type { ActionPlan } from "@acorn/shared/plan-runner/types";
 import { authHeaders, getAcornApiUrl } from "../../auth/acorn-auth";
 import { extractError } from "./http";
@@ -22,6 +23,9 @@ export interface AiAnalyzePage {
 export interface AiAnalyzeRequest {
   /** Sole tree the planner reads; control attrs ride on each node's `detail`. */
   pureTree: string;
+  /** Refill plans fixes for `fieldIssues` only; Fill (default) plans every field. */
+  mode?: FillMode;
+  fieldIssues?: FieldIssueScan;
   page?: AiAnalyzePage | null;
   /** Debug builds only: saved by a backend running with ACORN_DEBUG_DIR, never sent to the model. */
   debug?: { html?: string; domTree?: unknown; metaTree?: string };
@@ -34,6 +38,8 @@ export interface AiAnalyzeResponse {
   responseId?: string | null;
   error?: string;
   usage?: AiUsageSummary;
+  /** Echoed by a backend that planned a Refill; absent on a full Fill plan. */
+  mode?: FillMode;
 }
 
 export async function requestAiAnalyze(

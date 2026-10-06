@@ -5,6 +5,8 @@ import { executeActions, getElementContent } from "./action-runner";
 import { MIN_CHILD_FORM_CONTROLS, isAcornDomFrame, waitForFormSurface } from "./form-frame";
 import { clearHighlight, highlightElement } from "./highlighter";
 import { fillLeftoverComboboxes } from "./agents/leftover-combobox";
+import { scanFieldIssues } from "./field-errors";
+import { waitForDomQuiet } from "./agents/wait";
 import { runPlanStep } from "./plan-step-runner";
 import { initSelectionQa } from "./selection-qa";
 import { ACORN_DEBUG, DEBUG_HTML_MAX_CHARS, traceFromPage } from "../debug-trace";
@@ -55,6 +57,7 @@ if (!contentWindow[CONTENT_BOOT]) {
             url: window.location.href,
             title: document.title,
             tree,
+            fieldIssues: message.fieldIssues === true ? scanFieldIssues() : undefined,
             formScore: score,
             fetchedAt: new Date().toISOString(),
             frameId: sender.frameId ?? null,
@@ -170,6 +173,26 @@ if (!contentWindow[CONTENT_BOOT]) {
       traceFromPage("leftover:before", () => ({ combos: comboSnapshot() }));
       void runExclusive(fillLeftoverComboboxes)
         .then((result) => sendResponse({ ok: true, ...result }))
+        .catch((err) =>
+          sendResponse({
+            ok: false,
+            error: err instanceof Error ? err.message : String(err),
+          }),
+        );
+      return true;
+    }
+
+    if (message.type === MSG.SCAN_FIELD_ISSUES) {
+      if (!isAcornDomFrame()) {
+        sendResponse({ ok: false, skipped: true, error: "Not a form frame" });
+        return false;
+      }
+      // Let the page re-validate the fields Refill just changed before reading errors again.
+      void runExclusive(async () => {
+        await waitForDomQuiet();
+        return scanFieldIssues();
+      })
+        .then((scan) => sendResponse({ ok: true, scan }))
         .catch((err) =>
           sendResponse({
             ok: false,

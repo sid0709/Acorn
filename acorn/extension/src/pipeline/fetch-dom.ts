@@ -52,6 +52,7 @@ function formatDomFetchFailure(tabId: number, attempts: DomFrameAttempt[]): stri
 export async function fetchDomFromTab(
   tabId: number,
   preferredFrameId?: number | null,
+  opts: { fieldIssues?: boolean } = {},
 ): Promise<DomTreePayload> {
   const tried = new Set<number>();
 
@@ -62,7 +63,7 @@ export async function fetchDomFromTab(
     }
     return sendTabMessage<
       DomTreePayload & { error?: string; skipped?: boolean; formScore?: number }
-    >(tabId, { type: MSG.FETCH_DOM }, frameId);
+    >(tabId, { type: MSG.FETCH_DOM, fieldIssues: Boolean(opts.fieldIssues) }, frameId);
   };
 
   type Candidate = DomTreePayload & { formScore: number };

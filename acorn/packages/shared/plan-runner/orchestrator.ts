@@ -38,10 +38,12 @@ export interface RunPlanOptions {
   /** Custom-tab editor-generated résumé. */
   customResume?: RuntimeAttachedFile | null;
   resumeFileKind?: "library" | "custom";
+  /** Refill: re-apply a planned value even when the control already shows it. */
+  force?: boolean;
   hooks: OrchestratorHooks;
 }
 
-function toStepPayload(action: PlanAction, files: PlanStepFiles): PlanStepPayload {
+function toStepPayload(action: PlanAction, files: PlanStepFiles, force: boolean): PlanStepPayload {
   return {
     action: action.action as PlanStepActionType,
     element_index: action.element_index,
@@ -51,6 +53,7 @@ function toStepPayload(action: PlanAction, files: PlanStepFiles): PlanStepPayloa
     value: action.value,
     file: resolveStepFile(action, files),
     ms: action.ms,
+    ...(force ? { force } : {}),
   };
 }
 
@@ -72,6 +75,7 @@ export async function runActionPlan(options: RunPlanOptions): Promise<RunReport>
     recommendedResume = null,
     customResume = null,
     resumeFileKind,
+    force = false,
     hooks,
   } = options;
   const files: PlanStepFiles = {
@@ -251,7 +255,7 @@ export async function runActionPlan(options: RunPlanOptions): Promise<RunReport>
           throw new Error(missingFile);
         }
 
-        const result = await executeStep(toStepPayload(action, files));
+        const result = await executeStep(toStepPayload(action, files, force));
 
         if (result.ok) {
           if (result.alreadyFilled) {

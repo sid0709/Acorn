@@ -191,6 +191,8 @@ type typingField struct {
 	Question     string
 	Role         string
 	Draft        string
+	// Note is the page's validation message for the previous answer (Refill only).
+	Note string
 }
 
 func roleToken(role string) string {
@@ -302,7 +304,11 @@ func proseUserPrompt(applicant string, fields []typingField, page map[string]any
 		if draft == "" {
 			draft = "(none)"
 		}
-		blocks = append(blocks, fmt.Sprintf("element_index: %d\nrole: %s\nquestion: %s\ndraft: %s", field.ElementIndex, field.Role, field.Question, draft))
+		block := fmt.Sprintf("element_index: %d\nrole: %s\nquestion: %s\ndraft: %s", field.ElementIndex, field.Role, field.Question, draft)
+		if note := strings.TrimSpace(field.Note); note != "" {
+			block += "\npage error: " + note
+		}
+		blocks = append(blocks, block)
 	}
 	job := ""
 	if context := jobContext(page); context != "" {

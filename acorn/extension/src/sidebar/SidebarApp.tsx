@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
+import { FILL_MODE } from "@acorn/shared/field-issues";
 import { isFillPhaseBusy } from "@acorn/shared/pipeline-types";
 import { customTabHasResume } from "../tab-custom-session";
 import { countBusyWorkers, tabInputFromProgress } from "../acorn-face/director";
@@ -8,7 +9,7 @@ import { hostOf } from "./custom-tab-resume";
 import { NowCard } from "./NowCard";
 import { SidebarHeader } from "./SidebarHeader";
 import { SidebarNav, type AcornMainTab } from "./SidebarNav";
-import { actionBarState, isAnyTabWorking, isGenerateBusy } from "./sidebar-work-state";
+import { REFILL_HINT, actionBarState, isAnyTabWorking, isGenerateBusy } from "./sidebar-work-state";
 import { useActiveTabId } from "./use-active-tab";
 import { usePlanInspect } from "./use-plan-inspect";
 import { useResumePreview } from "./use-resume-preview";
@@ -87,6 +88,13 @@ export default function SidebarApp() {
     });
   }, [fillErrorText]);
 
+  const refillDoneText =
+    progress.phase === "done" && progress.mode === FILL_MODE.refill ? progress.message : null;
+  useEffect(() => {
+    if (!refillDoneText) return;
+    pushAcornNotice({ kind: "info", title: "Refill finished", detail: refillDoneText });
+  }, [refillDoneText]);
+
   const {
     remembering,
     startPipeline,
@@ -161,6 +169,7 @@ export default function SidebarApp() {
     generateLabel,
     recommendLabel,
     fillLabel,
+    refillLabel,
   } = actionBarState({
     mainTab,
     tabJob,
@@ -185,6 +194,12 @@ export default function SidebarApp() {
       title: customLocked ? rememberFirst : fillLabel,
       disabled: actionsOff,
       onClick: () => void startPipeline(mainTab === "custom" ? "custom" : "fill"),
+    },
+    refill: {
+      label: refillLabel,
+      title: customLocked ? rememberFirst : REFILL_HINT,
+      disabled: actionsOff,
+      onClick: () => void startPipeline(mainTab === "custom" ? "custom" : "fill", FILL_MODE.refill),
     },
     generate: {
       label: generateLabel,

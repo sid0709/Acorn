@@ -1,4 +1,5 @@
 import { formatDuration, formatUsd } from "@acorn/shared/ai-usage";
+import { FILL_MODE, type FillMode } from "@acorn/shared/field-issues";
 import { applyApplicantIdentityToActions } from "@acorn/shared/plan-runner/applicant-identity";
 import { runActionPlan } from "@acorn/shared/plan-runner/orchestrator";
 import type { ActionPlan, PlanStepPayload, RunStepRecord } from "@acorn/shared/plan-runner/types";
@@ -19,6 +20,13 @@ import {
   endPipelineUsageTracking,
 } from "./usage-tracker";
 import { fetchDomFromTab } from "./fetch-dom";
+import {
+  REFILL_NOTHING_FLAGGED,
+  REFILL_UNSUPPORTED,
+  refillAnalyzingMessage,
+  refillResultSuffix,
+  rescanFieldIssues,
+} from "./refill";
 import { autoPauseDecision, countDomNodes, shortLabel } from "./run-pipeline-helpers";
 import { traceFromBackground } from "../background/debug-trace-sink";
 import { ACORN_DEBUG } from "../debug-trace";
@@ -32,6 +40,8 @@ export interface RunPipelineArgs {
   aiServerUrl?: string;
   /** Worker Pool Fill (default) or Custom remembered-tab Fill. */
   source?: PipelineSource;
+  /** Fill every field (default), or Refill only the fields the page flagged. */
+  mode?: FillMode;
   /** Emit DOM tree to the backend (optional socket emit callback). */
   emitDomTree?: (payload: DomTreePayload) => void;
   /** Broadcast progress to the Chrome side panel + backend. */
@@ -44,11 +54,13 @@ export async function runFabPipeline(args: RunPipelineArgs): Promise<void> {
     preferredFrameId = null,
     aiServerUrl = DEFAULT_ACORN_API_URL,
     source = "fill",
+    mode = FILL_MODE.fill,
     emitDomTree,
     onProgress,
   } = args;
 
   const startedAt = Date.now();
+  const refill = mode === FILL_MODE.refill;
   beginPipelineUsageTracking(tabId);
 
   let treeSnapshot: PipelineProgress["tree"];
@@ -69,7 +81,7 @@ export async function runFabPipeline(args: RunPipelineArgs): Promise<void> {
   };
 
   try {
-    emit({ phase: "fetching", message: "Fetching DOM…" });
+    emit({ phase: "fetching", message: "Fetching DOM…", mode });
 
     const customTab = await getCustomTab(tabId);
     if (source === "custom" && !customTab) {
@@ -81,7 +93,7 @@ export async function runFabPipeline(args: RunPipelineArgs): Promise<void> {
     const resumeSource: PipelineSource =
       source === "custom" || usingForcedCustom ? "custom" : "fill";
     const [fetchedDom, resumeLoad, runtimeFile] = await Promise.all([
-      fetchDomFromTab(tabId, preferredFrameId),
+      fetchDomFromTab(tabId, preferredFrameId, { fieldIssues: refill }),
       loadFillResume({
         source: resumeSource,
         tabJob,
@@ -92,7 +104,7 @@ export async function runFabPipeline(args: RunPipelineArgs): Promise<void> {
       fetchRuntimeFile(aiServerUrl).catch(() => null),
     ]);
     // The page HTML only rides to Analyze's debug capture, not the socket or sidebar.
-    const { html: pageHtml, ...treePayload } = fetchedDom;
+    const { html: pageHtml, fieldIssues, ...treePayload } = fetchedDom;
     const boundResume =
       resumeSource === "custom"
         ? { file: resumeLoad.file, skipReason: resumeLoad.skipReason }
@@ -129,20 +141,36 @@ export async function runFabPipeline(args: RunPipelineArgs): Promise<void> {
         steps: stepsSnapshot,
       });
 
+    if (refill && !fieldIssues?.issues.length) {
+      const { durationMs, usage } = finishMeta();
+      emit({
+        phase: "done",
+        message: REFILL_NOTHING_FLAGGED,
+        durationMs,
+        usage,
+        tree: treeSnapshot,
+        resumeUpload: resumeUpload(),
+      });
+      return;
+    }
+
     const nodeCount = countDomNodes(treePayload.tree);
     emit({
       phase: "analyzing",
-      message: resumeFile
-        ? `Analyzing ${nodeCount} nodes · resume ${resumeFile.label || resumeFile.name}`
-        : source === "custom"
-          ? usingLibrary && customTab?.recommendedResumeId
-            ? `Analyzing ${nodeCount} nodes · Library file unavailable`
-            : customTab?.generationId
-              ? `Analyzing ${nodeCount} nodes · generated file unavailable`
-              : `Analyzing ${nodeCount} nodes…`
-          : tabJob?.resumeStack
-            ? `Analyzing ${nodeCount} nodes · ${tabJob.resumeStack} file unavailable`
-            : `Analyzing ${nodeCount} nodes…`,
+      message:
+        refill && fieldIssues
+          ? refillAnalyzingMessage(fieldIssues)
+          : resumeFile
+            ? `Analyzing ${nodeCount} nodes · resume ${resumeFile.label || resumeFile.name}`
+            : source === "custom"
+              ? usingLibrary && customTab?.recommendedResumeId
+                ? `Analyzing ${nodeCount} nodes · Library file unavailable`
+                : customTab?.generationId
+                  ? `Analyzing ${nodeCount} nodes · generated file unavailable`
+                  : `Analyzing ${nodeCount} nodes…`
+              : tabJob?.resumeStack
+                ? `Analyzing ${nodeCount} nodes · ${tabJob.resumeStack} file unavailable`
+                : `Analyzing ${nodeCount} nodes…`,
       tree: treeSnapshot,
       resumeUpload: resumeUpload(),
     });
@@ -152,6 +180,8 @@ export async function runFabPipeline(args: RunPipelineArgs): Promise<void> {
     const analyze = await requestAiAnalyze(
       {
         pureTree,
+        mode,
+        fieldIssues: refill ? fieldIssues : undefined,
         page: {
           title: treePayload.title || "Untitled",
           url: treePayload.url,
@@ -188,6 +218,9 @@ export async function runFabPipeline(args: RunPipelineArgs): Promise<void> {
       aiServerUrl,
     );
     addPipelineUsage(tabId, analyze.usage);
+    if (refill && analyze.mode !== FILL_MODE.refill) {
+      throw new Error(REFILL_UNSUPPORTED);
+    }
 
     const plan = analyze.plan as ActionPlan;
     applyApplicantIdentityToActions(plan.actions);
@@ -222,6 +255,7 @@ export async function runFabPipeline(args: RunPipelineArgs): Promise<void> {
       recommendedResume,
       customResume,
       resumeFileKind,
+      force: refill,
       executeStep: async (step: PlanStepPayload) => {
         const sentAt = Date.now();
         const res = await sendPlanStepToTab(tabId, step, frameId);
@@ -290,7 +324,8 @@ export async function runFabPipeline(args: RunPipelineArgs): Promise<void> {
       },
     });
 
-    if (!report.aborted) {
+    // Refill only touches the fields the page flagged.
+    if (!report.aborted && !refill) {
       await sendTabMessage<{
         ok?: boolean;
         found?: number;
@@ -329,9 +364,10 @@ export async function runFabPipeline(args: RunPipelineArgs): Promise<void> {
     }
 
     const { summary } = report;
-    const resultLabel = report.ok
-      ? `${summary.ok} ok`
-      : `${summary.ok} ok, ${summary.skipped} skipped`;
+    const okLabel = report.ok ? `${summary.ok} ok` : `${summary.ok} ok, ${summary.skipped} skipped`;
+    const resultLabel = refill
+      ? `Refilled ${okLabel}${refillResultSuffix(await rescanFieldIssues(tabId, frameId))}`
+      : okLabel;
 
     emit({
       phase: "done",

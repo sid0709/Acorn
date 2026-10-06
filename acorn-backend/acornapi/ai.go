@@ -57,10 +57,12 @@ func (s *Server) aiAnalyze(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	var body struct {
-		PureTree string         `json:"pureTree"`
-		MetaTree string         `json:"metaTree"` // accepted from older extensions, never sent to the model
-		Page     map[string]any `json:"page"`
-		Debug    *analyzeDebug  `json:"debug"`
+		PureTree    string               `json:"pureTree"`
+		MetaTree    string               `json:"metaTree"` // accepted from older extensions, never sent to the model
+		Mode        string               `json:"mode"`
+		FieldIssues acorn.FieldIssueScan `json:"fieldIssues"`
+		Page        map[string]any       `json:"page"`
+		Debug       *analyzeDebug        `json:"debug"`
 	}
 	if !decode(w, r, &body) {
 		return
@@ -74,7 +76,14 @@ func (s *Server) aiAnalyze(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	ctx := s.startAnalyzeRun(r, session.User.ID, applicant, body.PureTree, body.Page, body.Debug)
-	result, err := brain.Analyze(ctx, applicant, body.PureTree, body.Page)
+	var result acorn.AnalyzeResult
+	var err error
+	if body.Mode == acorn.ModeRefill {
+		recordFieldIssues(ctx, body.FieldIssues)
+		result, err = brain.Refill(ctx, applicant, body.PureTree, body.FieldIssues, body.Page)
+	} else {
+		result, err = brain.Analyze(ctx, applicant, body.PureTree, body.Page)
+	}
 	finishAnalyzeRun(ctx, result, err)
 	if err != nil {
 		writeAcornError(w, "ai-analyze", err)

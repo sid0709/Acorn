@@ -47,6 +47,11 @@ func (s *Server) startAnalyzeRun(r *http.Request, userID, applicant, pureTree st
 }
 
 // finishAnalyzeRun saves the plan the extension receives, or why there is none.
+// recordFieldIssues saves what Refill read from the page next to its plan.
+func recordFieldIssues(ctx context.Context, scan any) {
+	debugtrace.RunFrom(ctx).WriteJSON("field-issues.json", scan)
+}
+
 func finishAnalyzeRun(ctx context.Context, result any, err error) {
 	run := debugtrace.RunFrom(ctx)
 	if err != nil {

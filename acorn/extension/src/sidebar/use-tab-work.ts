@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useState } from "react";
+import { FILL_MODE, type FillMode } from "@acorn/shared/field-issues";
 import {
   IDLE_PIPELINE_PROGRESS,
   mergePipelineProgress,
@@ -61,7 +62,7 @@ export function useTabWork({
   );
 
   const startPipeline = useCallback(
-    async (source: PipelineSource = "fill") => {
+    async (source: PipelineSource = "fill", mode: FillMode = FILL_MODE.fill) => {
       const tabId = activeTabId;
       if (tabWorkBusy || tabId == null) return;
       if (source === "custom" && !customTab) {
@@ -72,12 +73,13 @@ export function useTabWork({
         });
         return;
       }
-      setTabProgress(tabId, { phase: "fetching", message: "Starting…" });
+      setTabProgress(tabId, { phase: "fetching", message: "Starting…", mode });
       try {
         const res = await sendMessage<{ ok?: boolean; error?: string }>({
           type: MSG.START_PIPELINE,
           tabId,
           source,
+          mode,
         });
         if (res?.error) {
           const err = String(res.error);

@@ -12,7 +12,7 @@ export const FORM_SURFACE_POLL_MS = 200;
 /** Cap waiting for fillable controls before serializing anyway. */
 export const FORM_SURFACE_MAX_MS = 5000;
 
-const FILLABLE_SELECTOR = [
+export const FILLABLE_SELECTOR = [
   'input:not([type="hidden"]):not([type="submit"]):not([type="button"]):not([type="image"]):not([type="reset"])',
   "select",
   "textarea",

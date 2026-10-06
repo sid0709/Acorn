@@ -1,3 +1,5 @@
+import type { FieldIssueScan } from "@acorn/shared/field-issues";
+
 export interface DomNode {
   nodeId: number;
   tag: string;
@@ -20,6 +22,8 @@ export interface DomTreePayload {
   formScore?: number;
   /** Debug builds only: the form frame's HTML, for the backend debug run. */
   html?: string;
+  /** Refill only: fields the page flags, keyed by this tree's node ids. */
+  fieldIssues?: FieldIssueScan;
 }
 
 /** Long-lived side-panel port. Keeps the MV3 worker (and `/acorn/socket.io` socket) alive. */
@@ -40,6 +44,8 @@ export const MSG = {
   PLAN_STEP: "acorn:plan-step",
   MATCH_OPTION: "acorn:match-option",
   FILL_LEFTOVER_COMBOS: "acorn:fill-leftover-combos",
+  /** Re-read field errors on the last serialized tree (Refill's after-check). */
+  SCAN_FIELD_ISSUES: "acorn:scan-field-issues",
   START_PIPELINE: "acorn:start-pipeline",
   PIPELINE_PROGRESS: "acorn:pipeline-progress",
   SOCKET_STATUS: "acorn:socket-status",
@@ -91,7 +97,14 @@ export interface MatchOptionResponse {
 }
 
 export type PlanStepActionType =
-  "fill" | "upload" | "resume_upload" | "select_radio" | "wait" | "validate" | "verify_only";
+  | "fill"
+  | "clear"
+  | "upload"
+  | "resume_upload"
+  | "select_radio"
+  | "wait"
+  | "validate"
+  | "verify_only";
 
 export interface RuntimeAttachedFile {
   key: string;
@@ -112,6 +125,8 @@ export interface PlanStepPayload {
   value: string | null;
   file?: RuntimeAttachedFile | null;
   ms: number | null;
+  /** Refill: act even when the control already shows the value, since the page rejected it. */
+  force?: boolean;
 }
 
 export interface PlanStepSocketPayload {
