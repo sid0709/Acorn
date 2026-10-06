@@ -4,7 +4,7 @@ import {
   resolveDropdownInteractionTarget,
 } from "./enhanced-select";
 import { fillNativeSelect } from "./native-select";
-import { selectComboboxOption } from "./select-combobox";
+import { selectComboboxOption, type ComboboxFillOptions } from "./select-combobox";
 import { selectRadioElement } from "./select-radio";
 import { waitMs } from "./wait";
 
@@ -69,6 +69,7 @@ export async function fillElement(
   el: Element,
   value: string,
   fieldHint?: string | null,
+  comboboxOptions?: ComboboxFillOptions,
 ): Promise<string> {
   const html = el as HTMLElement;
   html.scrollIntoView({ block: "center", behavior: "auto" });
@@ -78,7 +79,7 @@ export async function fillElement(
     const enhanced = isEnhancedSelect(el);
     const combo = findAssociatedCombobox(el);
     if (enhanced && combo && combo !== el) {
-      return selectComboboxOption(combo, value, fieldHint);
+      return selectComboboxOption(combo, value, fieldHint, comboboxOptions);
     }
     return fillSelect(el, value);
   }
@@ -96,7 +97,7 @@ export async function fillElement(
     }
     if (looksLikeCombobox(html)) {
       const target = resolveDropdownInteractionTarget(html);
-      return selectComboboxOption(target, value, fieldHint);
+      return selectComboboxOption(target, value, fieldHint, comboboxOptions);
     }
     await setNativeValue(el, value);
     return el.value;
@@ -128,7 +129,7 @@ export async function fillElement(
 
   if (looksLikeCombobox(html)) {
     const target = resolveDropdownInteractionTarget(html);
-    return selectComboboxOption(target, value, fieldHint);
+    return selectComboboxOption(target, value, fieldHint, comboboxOptions);
   }
 
   throw new Error(`Unsupported fill target <${el.tagName.toLowerCase()}>`);

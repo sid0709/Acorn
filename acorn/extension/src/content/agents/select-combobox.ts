@@ -22,6 +22,11 @@ import {
 /** Typeahead lists are large; closed menus already show every choice. */
 const CLOSED_LIST_MAX = 48;
 
+export interface ComboboxFillOptions {
+  /** Type `value` as a search query when the open list has no match (default true). */
+  allowTypeahead?: boolean;
+}
+
 /**
  * 1) Focus → collect initial candidates → local match → AI match on closed lists
  * 2) Typeahead: paste the full query, wait for the filtered list, then match
@@ -30,6 +35,7 @@ export async function selectComboboxOption(
   el: Element,
   value: string,
   fieldHint?: string | null,
+  { allowTypeahead = true }: ComboboxFillOptions = {},
 ): Promise<string> {
   const requested = el as HTMLElement;
   if (requested instanceof HTMLSelectElement) {
@@ -84,7 +90,7 @@ export async function selectComboboxOption(
   // Typeahead: type the full query and wait for the list to change.
   // Closed menus already show every candidate — typing filters them away.
   const typeable = resolveTypeableInput(html);
-  if (!match && !closedList && typeable && value.trim().length >= 2) {
+  if (!match && allowTypeahead && !closedList && typeable && value.trim().length >= 2) {
     const query = value.trim();
     const priorSig = optionSignature(initialOptions);
     const filterWait = typeaheadFilterWaitMs(doc);

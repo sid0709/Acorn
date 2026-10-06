@@ -1,4 +1,4 @@
-import { MSG, type PlanStepPayload } from "../types";
+import { MSG, PLAN_STEP_PAGE_TIMEOUT_MS, type PlanStepPayload } from "../types";
 import { serializeDom } from "./dom-serializer";
 import { resolveElementByNodeId } from "./element-resolver";
 import { executeActions, getElementContent } from "./action-runner";
@@ -12,6 +12,17 @@ const CONTENT_BOOT = "__acornContentBoot";
 
 type AcornContentWindow = Window & { [CONTENT_BOOT]?: boolean };
 const contentWindow = window as AcornContentWindow;
+
+/**
+ * Page work that touches form controls runs one at a time. A step that outlives its
+ * reply must not keep clicking while the next step (or the leftover pass) starts.
+ */
+let fillQueue: Promise<unknown> = Promise.resolve();
+function runExclusive<T>(work: () => Promise<T>): Promise<T> {
+  const run = fillQueue.then(work);
+  fillQueue = run.catch(() => undefined);
+  return run;
+}
 
 if (!contentWindow[CONTENT_BOOT]) {
   contentWindow[CONTENT_BOOT] = true;
@@ -115,11 +126,11 @@ if (!contentWindow[CONTENT_BOOT]) {
       const timer = setTimeout(() => {
         respond({
           ok: false,
-          error: "Plan step handler timed out inside the page (20s)",
+          error: `Plan step handler timed out inside the page (${PLAN_STEP_PAGE_TIMEOUT_MS / 1000}s)`,
         });
-      }, 20000);
+      }, PLAN_STEP_PAGE_TIMEOUT_MS);
 
-      runPlanStep(message.step as PlanStepPayload)
+      runExclusive(() => runPlanStep(message.step as PlanStepPayload))
         .then((result) => {
           clearTimeout(timer);
           respond(result);
@@ -139,7 +150,7 @@ if (!contentWindow[CONTENT_BOOT]) {
         sendResponse({ ok: false, skipped: true, error: "Not a form frame" });
         return false;
       }
-      void fillLeftoverComboboxes()
+      void runExclusive(fillLeftoverComboboxes)
         .then((result) => sendResponse({ ok: true, ...result }))
         .catch((err) =>
           sendResponse({

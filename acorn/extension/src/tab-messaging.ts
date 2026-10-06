@@ -1,8 +1,6 @@
-import { MSG } from "./types";
+import { MSG, PLAN_STEP_TIMEOUT_MS } from "./types";
 
 const SEND_TIMEOUT_MS = 20000;
-/** Plan steps may wait on option matching; 20s aborted those clicks mid-run. */
-const PLAN_STEP_TIMEOUT_MS = 120000;
 
 export function sendTabMessage<T = unknown>(
   tabId: number,

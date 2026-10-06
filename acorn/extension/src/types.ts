@@ -23,6 +23,11 @@ export interface DomTreePayload {
 /** Long-lived side-panel port. Keeps the MV3 worker (and `/acorn/socket.io` socket) alive. */
 export const ACORN_SIDEBAR_PORT = "acorn-sidebar";
 
+/** Background waits this long for a plan-step reply; option matching can be slow. */
+export const PLAN_STEP_TIMEOUT_MS = 120_000;
+/** The page gives up first so its error, not a channel timeout, reaches the background. */
+export const PLAN_STEP_PAGE_TIMEOUT_MS = PLAN_STEP_TIMEOUT_MS - 5_000;
+
 export const MSG = {
   FETCH_DOM: "acorn:fetch-dom",
   FETCH_AND_EMIT_DOM: "acorn:fetch-and-emit-dom",

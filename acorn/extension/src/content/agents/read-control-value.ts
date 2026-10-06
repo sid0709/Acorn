@@ -1,4 +1,5 @@
 import { isChoiceSelected, isChoiceWidget } from "./choice-state";
+import { readWidgetTextParts } from "./combobox/widget-value";
 
 const PLACEHOLDER_VALUES = new Set(["", "select...", "select", "choose...", "choose"]);
 
@@ -18,44 +19,18 @@ function isPlaceholder(text: string): boolean {
 }
 
 /**
- * React-select and similar widgets keep the chosen label in a sibling node;
- * the combobox <input> value is often empty after selection.
+ * Enhanced dropdowns often keep the chosen label in a sibling node while the
+ * combobox <input> stays empty. Read the widget box structurally (no vendor classes).
  */
 function readComboboxDisplayValue(el: Element): string {
   const html = el as HTMLElement;
-  const roots: Element[] = [];
-  const closestControl = html.closest(
-    '[class*="control"], [class*="Control"], [class*="select"], [class*="Select"], [role="group"]',
+  const hint = normalize(
+    html.getAttribute("placeholder") || html.getAttribute("aria-placeholder") || "",
   );
-  if (closestControl) roots.push(closestControl);
-  if (html.parentElement) roots.push(html.parentElement);
-  if (html.parentElement?.parentElement) roots.push(html.parentElement.parentElement);
-  roots.push(html);
-
-  const valueSelectors = [
-    '[class*="single-value"]',
-    '[class*="singleValue"]',
-    '[class*="multi-value__label"]',
-    '[class*="multiValue"]',
-    "[data-value]",
-    '[aria-selected="true"]',
-  ];
-
-  for (const root of roots) {
-    const parts: string[] = [];
-    for (const selector of valueSelectors) {
-      for (const node of Array.from(root.querySelectorAll(selector))) {
-        if (node.contains(el) && node !== el) continue;
-        const text = ((node as HTMLElement).innerText || node.textContent || "").trim();
-        if (!text || isPlaceholder(text)) continue;
-        if (!parts.includes(text)) parts.push(text);
-      }
-    }
-    if (parts.length) return parts.join(", ");
-  }
-
-  const own = (html.innerText || html.textContent || "").replace(/\s+/g, " ").trim();
-  if (own && !isPlaceholder(own)) return own;
+  const parts = readWidgetTextParts(el).filter(
+    (text) => !isPlaceholder(text) && normalize(text) !== hint,
+  );
+  if (parts.length) return parts.join(", ");
 
   const aria = html.getAttribute("aria-valuetext") || html.getAttribute("data-value");
   if (aria && !isPlaceholder(aria)) return aria.trim();

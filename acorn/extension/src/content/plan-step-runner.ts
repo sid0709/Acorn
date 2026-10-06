@@ -3,6 +3,7 @@ import { rewriteApplicantIdentityValue } from "@acorn/shared/plan-runner/applica
 import { isCustomResumeFile } from "@acorn/shared/plan-runner/step-file";
 import { controlAlreadyMatches } from "./agents/already-filled";
 import { fillElement } from "./agents/fill";
+import { rememberPlanFilled } from "./agents/plan-fill-registry";
 import { readControlValue } from "./agents/read-control-value";
 import { resumeUpload } from "./agents/resume-upload";
 import { selectRadioElement } from "./agents/select-radio";
@@ -166,6 +167,7 @@ export async function runPlanStep(step: PlanStepPayload): Promise<PlanStepResult
       fileName: step.file?.name ?? null,
     });
     if (prior.matched) {
+      rememberPlanFilled(el);
       return {
         ok: true,
         verified: true,
@@ -219,6 +221,7 @@ export async function runPlanStep(step: PlanStepPayload): Promise<PlanStepResult
     }
 
     const after = valueAfter ?? readControlValue(el);
+    rememberPlanFilled(el);
     return {
       ok: true,
       verified: true,
