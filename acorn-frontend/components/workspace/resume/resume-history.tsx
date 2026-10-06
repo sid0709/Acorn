@@ -22,6 +22,7 @@ import {
   listGenerations,
   previewGeneration,
 } from "@/lib/resume/api";
+import { saveBase64File } from "@/lib/workspace/resume-file";
 import { RESUME_TEMPLATES } from "@acorn/shared/resume-templates";
 import {
   RESUME_HISTORY_PER_PAGE,
@@ -117,13 +118,7 @@ export function ResumeHistory({ account }: { account: AcornAccount }) {
       setError(result.message);
       return;
     }
-    const bytes = Uint8Array.from(atob(result.data.base64), (char) => char.charCodeAt(0));
-    const url = URL.createObjectURL(new Blob([bytes]));
-    const link = document.createElement("a");
-    link.href = url;
-    link.download = result.data.name;
-    link.click();
-    URL.revokeObjectURL(url);
+    saveBase64File(result.data.name, result.data.base64);
   };
 
   const remove = async (id: string) => {

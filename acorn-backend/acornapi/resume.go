@@ -12,8 +12,22 @@ import (
 	"github.com/sid0709/OpenSeat/acorn-backend/resume"
 )
 
-func (s *Server) identity(session account.Session, extra *resume.Identity) resume.Identity {
+func (s *Server) identity(r *http.Request, session account.Session, extra *resume.Identity) resume.Identity {
 	out := resume.Identity{FullName: session.User.Name, Email: session.User.Email}
+	if doc, ok := s.storedIdentity(r, session); ok {
+		stored := doc.ResumeIdentity()
+		if stored.FullName != "" {
+			out.FullName = stored.FullName
+		}
+		if stored.Email != "" {
+			out.Email = stored.Email
+		}
+		out.Location = stored.Location
+		out.Phone = stored.Phone
+		out.Linkedin = stored.Linkedin
+		out.Careers = stored.Careers
+		out.Education = stored.Education
+	}
 	if extra == nil {
 		return out
 	}
@@ -23,11 +37,21 @@ func (s *Server) identity(session account.Session, extra *resume.Identity) resum
 	if extra.Email != "" {
 		out.Email = extra.Email
 	}
-	out.Location = extra.Location
-	out.Phone = extra.Phone
-	out.Linkedin = extra.Linkedin
-	out.Careers = extra.Careers
-	out.Education = extra.Education
+	if extra.Location != "" {
+		out.Location = extra.Location
+	}
+	if extra.Phone != "" {
+		out.Phone = extra.Phone
+	}
+	if extra.Linkedin != "" {
+		out.Linkedin = extra.Linkedin
+	}
+	if len(extra.Careers) > 0 {
+		out.Careers = extra.Careers
+	}
+	if len(extra.Education) > 0 {
+		out.Education = extra.Education
+	}
 	return out
 }
 
@@ -64,7 +88,7 @@ func (s *Server) previewResume(w http.ResponseWriter, r *http.Request) {
 	if !decode(w, r, &body) {
 		return
 	}
-	html := s.resumes.Preview(session.User.ID, s.identity(session, body.Identity), body.Sections, body.Config)
+	html := s.resumes.Preview(session.User.ID, s.identity(r, session, body.Identity), body.Sections, body.Config)
 	writeJSON(w, http.StatusOK, map[string]any{"success": true, "html": html})
 }
 
@@ -144,7 +168,7 @@ func (s *Server) startGenerateFor(w http.ResponseWriter, r *http.Request, jobID 
 	if jobID == "" {
 		jobID = body.JobID
 	}
-	task, err := s.resumes.Enqueue(session.User.ID, s.identity(session, body.Identity), body.JobDescription, jobID, body.Checkpoint)
+	task, err := s.resumes.Enqueue(session.User.ID, s.identity(r, session, body.Identity), body.JobDescription, jobID, body.Checkpoint)
 	if err != nil {
 		s.writeResumeErr(w, err)
 		return
@@ -166,7 +190,7 @@ func (s *Server) continueGenerate(w http.ResponseWriter, r *http.Request) {
 	if !decode(w, r, &body) {
 		return
 	}
-	task, err := s.resumes.Continue(session.User.ID, r.PathValue("inputId"), s.identity(session, body.Identity), body.JobDescription, body.JobID, body.Checkpoint)
+	task, err := s.resumes.Continue(session.User.ID, r.PathValue("inputId"), s.identity(r, session, body.Identity), body.JobDescription, body.JobID, body.Checkpoint)
 	if err != nil {
 		s.writeResumeErr(w, err)
 		return

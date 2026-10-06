@@ -272,6 +272,51 @@ func TestAcornAIKillSwitch(t *testing.T) {
 	}
 }
 
+func TestProfileSaveFillAndAnalyze(t *testing.T) {
+	var prompt string
+	model := captureModel{fakeModel: fakeModel{reply: `{"goal":"g","actions":[],"forbidden_actions":[],"validation":{"required_element_indexes":[],"stop_before_submit":true},"unresolved_items":[]}`}, prompt: &prompt}
+	accounts := &fakeAccounts{users: map[string]account.User{
+		"hunter": {ID: "u1", Name: "Jordan Lee", Email: "j@example.com"},
+	}}
+	handler, gw := New(accounts, nil, acorn.New(model), Options{})
+	t.Cleanup(gw.Close)
+
+	if rec := call(handler, "GET", "/acorn/profile", "", bearer("hunter"), ""); rec.Code != http.StatusOK || !strings.Contains(rec.Body.String(), `"stored":false`) {
+		t.Fatalf("empty profile = %d %s", rec.Code, rec.Body)
+	}
+	saved := call(handler, "PUT", "/acorn/profile", `{"fullName":"Jordan Lee","email":"j@example.com","phone":"(415) 555-0148","visaSponsorship":"No","timeline":[]}`, bearer("hunter"), "")
+	if saved.Code != http.StatusOK || !strings.Contains(saved.Body.String(), "(415) 555-0148") {
+		t.Fatalf("save = %d %s", saved.Code, saved.Body)
+	}
+	resumeText := "Jordan Avery Lee\njordan@example.com\n(415) 555-0199\nhttps://www.linkedin.com/in/jordan\n\nExperience\nNorthwind\nSenior Software Engineer\nJan 2022 - Present\nBuilt hiring tools for applicants.\n"
+	body, err := json.Marshal(map[string]any{"text": resumeText, "profile": map[string]string{"visaSponsorship": "No", "email": "j@example.com"}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	filled := call(handler, "POST", "/acorn/profile/from-resume", string(body), bearer("hunter"), "")
+	if filled.Code != http.StatusOK || !strings.Contains(filled.Body.String(), "jordan@example.com") || !strings.Contains(filled.Body.String(), `"visaSponsorship":"No"`) {
+		t.Fatalf("fill = %d %s", filled.Code, filled.Body)
+	}
+	if rec := call(handler, "POST", "/acorn/ai-analyze", `{"pureTree":"input[1]"}`, bearer("hunter"), ""); rec.Code != http.StatusOK {
+		t.Fatalf("analyze = %d %s", rec.Code, rec.Body)
+	}
+	if !strings.Contains(prompt, "jordan@example.com") || strings.Contains(prompt, "openaiApiKey") {
+		t.Fatalf("planner prompt = %s", prompt)
+	}
+}
+
+type captureModel struct {
+	fakeModel
+	prompt *string
+}
+
+func (c captureModel) JSON(_ context.Context, _, user string, _ json.RawMessage) ([]byte, error) {
+	if c.prompt != nil {
+		*c.prompt = user
+	}
+	return []byte(c.reply), nil
+}
+
 func TestSignOutRevokesTheAcornSession(t *testing.T) {
 	handler, _ := newTestServer(t, fakeModel{})
 	if rec := call(handler, "POST", "/acorn/auth/signout", "", bearer("hunter"), ""); rec.Code != http.StatusOK {

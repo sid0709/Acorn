@@ -8,7 +8,7 @@ function period(entry: ApplicantProfile["timeline"][number]): string {
   return [start, end].filter(Boolean).join(" – ");
 }
 
-/** The signed-in account, plus careers stored on this browser's profile. */
+/** The signed-in account, plus careers stored on the profile. */
 export function identityFrom(
   account: AcornAccount,
   profile: ApplicantProfile | null,

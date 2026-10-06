@@ -6,177 +6,184 @@ import (
 	"strings"
 )
 
-const googleFontsHref = "https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700&family=JetBrains+Mono:wght@400;600&family=Lato:wght@400;700&family=Lora:wght@400;700&family=Merriweather:wght@400;700&family=Open+Sans:wght@400;600;700&family=PT+Serif:wght@400;700&family=Roboto+Mono:wght@400;600&family=Roboto:wght@400;500;700&family=Source+Sans+3:wght@400;600;700&family=Source+Serif+4:wght@400;600;700&display=swap"
+// The résumé page as HTML, a Go port of Athens' live preview (resume-preview.tsx and friends).
+// Theme sizes, margin, spacing, colors, and the section layout all come from the config.
+
+// Sheet sizes for the preview page, so a short draft still reads as a full page.
+const (
+	letterWidth  = "8.5in"
+	letterHeight = "11in"
+	a4Width      = "210mm"
+	a4Height     = "297mm"
+)
+
+// Fixed document chrome from Athens: gray for muted headings, a light rule between dev entries.
+const (
+	mutedHeadingColor = "#6b7280"
+	devDividerColor   = "#e5e7eb"
+	deskColor         = "#f4f4f5"
+)
 
 func renderHTML(identity Identity, sections map[string]any, cfg map[string]any) string {
-	theme := asRecord(cfg["theme"])
-	font := asString(theme["font"])
-	if font == "" {
-		font = "Georgia"
+	d := designFrom(cfg)
+	if d.Uploaded {
+		// The Word file holds its own layout; preview its content on the classic page.
+		d.Template = templateByID(fallbackTemplateID)
 	}
-	accent := asString(theme["accent"])
-	if accent == "" {
-		accent = "#1f3a5f"
-	}
-	text := asString(theme["text"])
-	if text == "" {
-		text = "#1a1a1a"
-	}
-	align := asString(theme["headerAlign"])
-	if align == "" {
-		align = "center"
-	}
-	templateID := asString(cfg["templateId"])
 	content := normalizeSections(sections)
-	var body strings.Builder
-	if strings.HasPrefix(templateID, "upload:") {
-		body.WriteString(uploadedHTML(identity, content))
-	} else {
-		body.WriteString(builtinHTML(identity, content, templateID, accent, text, align))
-	}
-	width := "8.5in"
-	if asString(theme["paper"]) == "a4" {
-		width = "210mm"
+	width, height := letterWidth, letterHeight
+	if d.Paper == "a4" {
+		width, height = a4Width, a4Height
 	}
 	return fmt.Sprintf(`<!doctype html><html><head><meta charset="utf-8"><link rel="stylesheet" href="%s"><style>
-body{margin:0;background:#f4f4f5;color:%s;font-family:%s,serif;}
-.page{width:%s;max-width:100%%;margin:24px auto;background:#fff;padding:0.6in;box-sizing:border-box;}
-h1{font-size:24pt;margin:0 0 4px;font-weight:700;}
-.contact{font-size:10.5pt;margin-bottom:16px;}
-h2{font-size:12pt;letter-spacing:.08em;margin:18px 0 8px;}
-p,li{font-size:10.5pt;line-height:1.35;}
-ul{margin:4px 0 0 18px;padding:0;}
-.two{display:flex;gap:24px;}
-.side{width:34%%;}
-.main{flex:1;}
+body{margin:0;background:%s;}
+.page{position:relative;overflow:hidden;width:%s;min-height:%s;max-width:100%%;margin:24px auto;background:#fff;box-sizing:border-box;padding:%gin;font-family:%s;color:%s;font-size:%s;line-height:%g;-webkit-print-color-adjust:exact;print-color-adjust:exact;}
+p{margin:0;}
+ul{list-style:disc;margin:2px 0 0;padding-left:18px;}
+li{margin-bottom:1px;break-inside:avoid;}
+.row{display:flex;justify-content:space-between;gap:12px;align-items:baseline;}
+.meta{opacity:.72;white-space:nowrap;}
+.head{break-after:avoid;}
+.section{margin-bottom:%s;}
+.entry{margin-bottom:%s;break-inside:avoid-page;}
+.section>.entry:last-child,.section .entry:last-child{margin-bottom:0;}
 </style></head><body><div class="page">%s</div></body></html>`,
-		googleFontsHref, html.EscapeString(text), html.EscapeString(fontStack(font)), width, body.String())
+		googleFontsHref, deskColor, width, height, d.Margin, cssValue(fontStack(d.Font)), cssValue(d.Text),
+		pt(d.BaseSize), d.LineHeight, pt(d.SectionGap), pt(d.EntryGap), pageBody(identity, content, d))
 }
 
-func fontStack(name string) string {
-	if strings.Contains(name, ",") {
-		return name
-	}
-	if strings.Contains(name, " ") {
-		return `"` + name + `"`
-	}
-	return name
-}
-
-func builtinHTML(identity Identity, content generatedContent, templateID, accent, text, align string) string {
-	heading := headingRule(templateID, accent)
-	nameColor := accent
-	if templateID == "harvard" || templateID == "jakes" || templateID == "bold" || templateID == "dev" || templateID == "dev-compact" || templateID == "alternative" {
-		nameColor = text
-	}
-	header := fmt.Sprintf(`<div style="text-align:%s">`, html.EscapeString(align))
-	if templateID == "bold" {
-		header = `<div style="border-top:8px solid ` + html.EscapeString(accent) + `;padding-top:12px;text-align:left">`
-	}
-	name := html.EscapeString(identity.FullName)
-	if templateID == "alternative" {
-		name = strings.ToUpper(name)
-	}
-	header += fmt.Sprintf(`<h1 style="color:%s">%s</h1>`, html.EscapeString(nameColor), name)
-	if templateID == "bold" {
-		header += `<div style="border-bottom:1px solid ` + html.EscapeString(accent) + `;margin:4px 0 8px"></div>`
-	}
-	header += `<div class="contact">` + html.EscapeString(strings.Join(nonempty(identity.Email, identity.Phone, identity.Location, identity.Linkedin), " · ")) + `</div></div>`
-
-	summary := sectionHTML("SUMMARY", content.Summary, heading, templateID)
-	skills := skillsHTML(content.Skills, heading, templateID)
-	experience := experienceHTML(content.Experience, heading, templateID, accent)
-	education := educationHTML(identity.Education, heading, templateID)
-
-	if templateID == "sidebar" {
-		return header + `<div class="two"><div class="side">` + skills + education + `</div><div class="main">` + summary + experience + `</div></div>`
-	}
-	return header + summary + skills + experience + education
-}
-
-func headingRule(templateID, accent string) string {
-	switch templateID {
-	case "accent-bar":
-		return fmt.Sprintf("border-left:4px solid %s;padding-left:8px;", html.EscapeString(accent))
-	case "harvard":
-		return "text-align:center;border-top:1px solid currentColor;border-bottom:1px solid currentColor;padding:4px 0;"
-	case "minimal", "modern", "bold", "alternative", "dev", "dev-compact":
-		return "border:none;letter-spacing:.12em;"
-	default:
-		return fmt.Sprintf("border-bottom:1px solid %s;", html.EscapeString(accent))
-	}
-}
-
-func sectionHTML(title, body, heading, templateID string) string {
-	if strings.TrimSpace(body) == "" {
-		return ""
-	}
-	label := title
-	if templateID == "bold" || templateID == "dev" || templateID == "dev-compact" {
-		label = strings.ToLower(strings.TrimSpace(title))
-		label = strings.ToUpper(label[:1]) + label[1:]
-	}
-	return fmt.Sprintf(`<h2 style="%s">%s</h2><p>%s</p>`, heading, html.EscapeString(label), html.EscapeString(body))
-}
-
-func skillsHTML(groups []skillGroup, heading, templateID string) string {
-	if len(groups) == 0 {
-		return ""
-	}
+func pageBody(identity Identity, content generatedContent, d pageDesign) string {
+	t := d.Template
 	var b strings.Builder
-	b.WriteString(fmt.Sprintf(`<h2 style="%s">Skills</h2>`, heading))
-	for _, group := range groups {
-		b.WriteString("<p><strong>" + html.EscapeString(group.Category) + ":</strong> " + html.EscapeString(strings.Join(group.Items, ", ")) + "</p>")
+	if t.TopBar {
+		b.WriteString(`<div style="height:10px;background:` + cssAttr(d.Accent) + `;border-radius:2px;margin-bottom:16px"></div>`)
 	}
-	_ = templateID
-	return b.String()
-}
-
-func experienceHTML(roles []previewCareer, heading, templateID, accent string) string {
-	if len(roles) == 0 {
-		return ""
+	if t.CornerAccent {
+		b.WriteString(`<div style="position:absolute;top:0;right:0;width:55%;height:150px;background:` + tint(d.Accent, 8) +
+			`;clip-path:polygon(100% 0,100% 100%,0 0)"></div>`)
 	}
-	var b strings.Builder
-	b.WriteString(fmt.Sprintf(`<h2 style="%s">Experience</h2>`, heading))
-	for _, role := range roles {
-		switch templateID {
-		case "harvard", "jakes", "dev", "dev-compact":
-			b.WriteString("<p><strong>" + html.EscapeString(role.Company) + "</strong>")
-			if role.Location != "" {
-				b.WriteString(" · " + html.EscapeString(role.Location))
+	b.WriteString(`<div style="position:relative">` + headerHTML(identity, d) + `</div><div style="position:relative">`)
+	if t.Columns == 2 {
+		var side, main strings.Builder
+		for _, s := range d.Sections {
+			if t.inSidebar(s.Type) {
+				side.WriteString(sectionHTML(s, identity, content, d))
+			} else {
+				main.WriteString(sectionHTML(s, identity, content, d))
 			}
-			b.WriteString("<br><em>" + html.EscapeString(role.Title) + "</em> " + html.EscapeString(role.Period) + "</p>")
-		case "modern":
-			b.WriteString("<p><span style=\"color:" + html.EscapeString(accent) + "\">" + html.EscapeString(role.Title) + "</span> · " + html.EscapeString(role.Company) + "<br>" + html.EscapeString(role.Period) + "</p>")
-		default:
-			b.WriteString("<p><strong>" + html.EscapeString(role.Title) + "</strong> · " + html.EscapeString(role.Company) + " · " + html.EscapeString(role.Period) + "</p>")
 		}
-		if len(role.Bullets) > 0 {
-			b.WriteString("<ul>")
-			for _, bullet := range role.Bullets {
-				b.WriteString("<li>" + html.EscapeString(bullet) + "</li>")
+		direction := "row-reverse"
+		if t.SidebarLeft {
+			direction = "row"
+		}
+		sideStyle := fmt.Sprintf("width:%d%%;flex-shrink:0;", t.SidebarWidthPct)
+		if t.SidebarTint {
+			sideStyle += "background:" + tint(d.Accent, 6) + ";padding:14px;border-radius:4px;"
+			if t.SidebarLeft {
+				sideStyle += "margin-left:-6px;"
 			}
-			b.WriteString("</ul>")
+		}
+		b.WriteString(`<div style="display:flex;gap:24px;flex-direction:` + direction + `"><div style="` + sideStyle + `">` +
+			side.String() + `</div><div style="flex:1;min-width:0">` + main.String() + `</div></div>`)
+	} else {
+		for _, s := range d.Sections {
+			b.WriteString(sectionHTML(s, identity, content, d))
 		}
 	}
+	b.WriteString(`</div>`)
 	return b.String()
 }
 
-func educationHTML(rows []EducationEntry, heading, templateID string) string {
-	if len(rows) == 0 {
-		return ""
+func headerHTML(identity Identity, d pageDesign) string {
+	t := d.Template
+	nameColor := d.Text
+	if t.NameAccent {
+		nameColor = d.Accent
+	}
+	spacing, transform := "0.01em", "none"
+	if t.NameUppercase {
+		spacing, transform = "0.04em", "uppercase"
+	}
+	name := orDefault(strings.TrimSpace(identity.FullName), "Your Name")
+	nameEl := fmt.Sprintf(`<div style="font-size:%s;font-weight:700;letter-spacing:%s;color:%s;line-height:1.1;text-transform:%s">%s</div>`,
+		pt(d.NameSize), spacing, cssAttr(nameColor), transform, html.EscapeString(name))
+
+	contact := contactHTML(identity, d)
+	if t.LabelGutter {
+		return `<div style="display:flex;align-items:baseline;gap:24px;margin-bottom:18px">` + nameEl +
+			`<div style="flex:1;min-width:0">` + contact + `</div></div>`
 	}
 	var b strings.Builder
-	b.WriteString(fmt.Sprintf(`<h2 style="%s">Education</h2>`, heading))
-	for _, row := range rows {
-		b.WriteString("<p><strong>" + html.EscapeString(row.School) + "</strong> · " + html.EscapeString(row.Degree) + " · " + html.EscapeString(row.Period) + "</p>")
+	b.WriteString(`<div style="text-align:` + d.HeaderAlign + `;margin-bottom:18px">` + nameEl)
+	if t.NameRule {
+		b.WriteString(`<div style="border-bottom:1px solid ` + cssAttr(d.Accent) + `;opacity:.5;margin:8px 0"></div>`)
 	}
-	_ = templateID
+	if contact != "" {
+		top := "6px"
+		if t.NameRule {
+			top = "0"
+		}
+		b.WriteString(`<div style="margin-top:` + top + `">` + contact + `</div>`)
+	}
+	b.WriteString(`</div>`)
 	return b.String()
 }
 
-func uploadedHTML(identity Identity, content generatedContent) string {
-	return builtinHTML(identity, content, "classic", "#1f3a5f", "#1a1a1a", "center")
+type contactItem struct{ icon, text string }
+
+func contactHTML(identity Identity, d pageDesign) string {
+	t := d.Template
+	items := []contactItem{}
+	for _, item := range []contactItem{
+		{iconMapPin, identity.Location}, {iconMail, identity.Email}, {iconPhone, identity.Phone}, {iconLinkedin, identity.Linkedin},
+	} {
+		if text := strings.TrimSpace(item.text); text != "" {
+			items = append(items, contactItem{item.icon, text})
+		}
+	}
+	if len(items) == 0 {
+		return ""
+	}
+	justify := "flex-start"
+	if d.HeaderAlign == "center" && !t.LabelGutter {
+		justify = "center"
+	}
+	gap := "0"
+	if t.ContactIcons {
+		gap = "4px 16px"
+	}
+	var b strings.Builder
+	b.WriteString(fmt.Sprintf(`<div style="font-size:%s;opacity:.85;display:flex;flex-wrap:wrap;gap:%s;justify-content:%s">`,
+		pt(max(8, d.BaseSize-1.5)), gap, justify))
+	iconPx := int(d.BaseSize*1.25 + 0.5)
+	for i, item := range items {
+		if t.ContactIcons {
+			b.WriteString(fmt.Sprintf(`<span style="display:inline-flex;align-items:center;gap:4px">%s%s</span>`,
+				contactIcon(item.icon, iconPx), html.EscapeString(item.text)))
+			continue
+		}
+		if i > 0 {
+			b.WriteString("&nbsp;&nbsp;·&nbsp;&nbsp;")
+		}
+		b.WriteString(html.EscapeString(item.text))
+	}
+	b.WriteString(`</div>`)
+	return b.String()
+}
+
+// pt formats a point size for CSS.
+func pt(n float64) string {
+	return fmt.Sprintf("%gpt", n)
+}
+
+// cssAttr is a theme value placed inside a style attribute.
+func cssAttr(value string) string {
+	return html.EscapeString(cssValue(value))
+}
+
+// tint is the color at a low strength over white, for sidebar and corner washes.
+func tint(color string, percent int) string {
+	return fmt.Sprintf("color-mix(in srgb, %s %d%%, transparent)", cssAttr(color), percent)
 }
 
 func nonempty(values ...string) []string {
