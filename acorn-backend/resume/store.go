@@ -235,20 +235,45 @@ func (s *Store) listGenerations(accountID string) []Generation {
 	return out
 }
 
-func (s *Store) putLibrary(row LibraryRow) {
+func (s *Store) putLibrary(row LibraryRow) error {
+	if len(row.Bytes) == 0 {
+		s.mu.Lock()
+		prev, ok := s.library[row.ID]
+		s.mu.Unlock()
+		if ok && prev.AccountID == row.AccountID && len(prev.Bytes) > 0 {
+			row.Bytes = prev.Bytes
+		} else if s.db != nil {
+			var existing struct {
+				Bytes []byte `bson:"bytes"`
+			}
+			err := s.db.Collection(libraryCollection).FindOne(
+				context.Background(),
+				bson.D{{Key: "id", Value: row.ID}},
+				options.FindOne().SetProjection(bson.D{{Key: "bytes", Value: 1}}),
+			).Decode(&existing)
+			if err == nil && len(existing.Bytes) > 0 {
+				row.Bytes = existing.Bytes
+			}
+		}
+	}
 	s.mu.Lock()
 	s.library[row.ID] = row
 	s.mu.Unlock()
-	if s.db != nil {
-		_, _ = s.db.Collection(libraryCollection).ReplaceOne(context.Background(), bson.D{{Key: "id", Value: row.ID}}, row, options.Replace().SetUpsert(true))
+	if s.db == nil {
+		return nil
 	}
+	_, err := s.db.Collection(libraryCollection).ReplaceOne(context.Background(), bson.D{{Key: "id", Value: row.ID}}, row, options.Replace().SetUpsert(true))
+	if err != nil {
+		return fmt.Errorf("save library file: %w", err)
+	}
+	return nil
 }
 
 func (s *Store) libraryItem(accountID, id string) (LibraryRow, bool) {
 	s.mu.Lock()
 	row, ok := s.library[id]
 	s.mu.Unlock()
-	if ok && row.AccountID == accountID {
+	if ok && row.AccountID == accountID && (s.db == nil || len(row.Bytes) > 0) {
 		return row, true
 	}
 	if s.db == nil {
@@ -262,6 +287,26 @@ func (s *Store) libraryItem(accountID, id string) (LibraryRow, bool) {
 	s.library[found.ID] = found
 	s.mu.Unlock()
 	return found, true
+}
+
+func (s *Store) hasLibrary(accountID string) bool {
+	s.mu.Lock()
+	for _, row := range s.library {
+		if row.AccountID == accountID {
+			s.mu.Unlock()
+			return true
+		}
+	}
+	s.mu.Unlock()
+	if s.db == nil {
+		return false
+	}
+	err := s.db.Collection(libraryCollection).FindOne(
+		context.Background(),
+		bson.D{{Key: "accountId", Value: accountID}},
+		options.FindOne().SetProjection(bson.D{{Key: "_id", Value: 1}}),
+	).Err()
+	return err == nil
 }
 
 func (s *Store) listLibrary(accountID string) []LibraryRow {

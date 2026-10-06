@@ -22,6 +22,7 @@ import {
   Text,
   TextInput,
   formatBytes,
+  useToast,
   type TableColumn,
 } from "sid-ui";
 import {
@@ -79,13 +80,35 @@ export function ResumeLibrary() {
   const [bulkPending, setBulkPending] = useState<FolderResume[] | null>(null);
   const [uploadProgress, setUploadProgress] = useState<BatchProgress | null>(null);
   const [analyzeProgress, setAnalyzeProgress] = useState<BatchProgress | null>(null);
+  const [deleteProgress, setDeleteProgress] = useState<BatchProgress | null>(null);
   const [stoppingAnalysis, setStoppingAnalysis] = useState(false);
   const [reanalyzeIds, setReanalyzeIds] = useState<string[] | null>(null);
   const [skillsRow, setSkillsRow] = useState<ResumeLibraryRow | null>(null);
   const bulkRef = useRef<HTMLInputElement>(null);
   const stopAnalyze = useRef(false);
+  const toast = useToast();
 
-  const busy = uploadProgress !== null || analyzeProgress !== null;
+  const busy = uploadProgress !== null || analyzeProgress !== null || deleteProgress !== null;
+
+  const notify = (title: string, detail?: string, error = false) => {
+    toast({
+      type: error ? "error" : "info",
+      isAutoHide: true,
+      autoHideDuration: error ? 8000 : 3500,
+      body: (
+        <Stack gap={1}>
+          <Text weight="semibold" color="inherit">
+            {title}
+          </Text>
+          {detail ? (
+            <Text type="supporting" color="inherit">
+              {detail}
+            </Text>
+          ) : null}
+        </Stack>
+      ),
+    });
+  };
 
   const reload = async () => {
     const result = await listLibrary();
@@ -135,7 +158,13 @@ export function ResumeLibrary() {
         },
         (current, total) => setUploadProgress({ current, total }),
       );
-      if (failed.length) setError(failureSummary("file(s) failed to upload", items.length, failed));
+      if (failed.length) {
+        const summary = failureSummary("file(s) failed to upload", items.length, failed);
+        setError(summary);
+        notify("Upload finished with errors", summary, true);
+      } else {
+        notify(items.length === 1 ? "Uploaded 1 résumé" : `Uploaded ${items.length} résumés`);
+      }
       await reload();
     } finally {
       setUploadProgress(null);
@@ -160,27 +189,80 @@ export function ResumeLibrary() {
     setError("");
     setReanalyzeIds(null);
     setAnalyzeProgress({ current: 0, total: targets.length });
+    let finished = 0;
     try {
       const failed = await runPool(
         targets,
         RESUME_ANALYZE_CONCURRENCY,
         async (row) => {
           const result = await analyzeLibraryFile(row.id, force);
-          return result.ok ? null : { fileName: row.fileName, error: result.message };
+          if (!result.ok) return { fileName: row.fileName, error: result.message };
+          finished += 1;
+          setRows((current) =>
+            current.map((item) => (item.id === row.id ? result.data.resume : item)),
+          );
+          return null;
         },
         (current, total) => setAnalyzeProgress({ current, total }),
         () => stopAnalyze.current,
       );
       const stopped = stopAnalyze.current;
       setSelected([]);
-      if (failed.length)
-        setError(failureSummary("résumé(s) failed to analyze", targets.length, failed));
-      else if (stopped) setError("Analysis was stopped.");
+      if (failed.length) {
+        const summary = failureSummary("résumé(s) failed to analyze", targets.length, failed);
+        setError(summary);
+        notify("Analysis finished with errors", summary, true);
+      } else if (stopped) {
+        notify(
+          finished === 0
+            ? "Analysis stopped"
+            : finished === 1
+              ? "Analyzed 1 résumé, then stopped"
+              : `Analyzed ${finished} résumés, then stopped`,
+        );
+      } else {
+        notify(finished === 1 ? "Analyzed 1 résumé" : `Analyzed ${finished} résumés`);
+      }
       await reload();
     } finally {
       stopAnalyze.current = false;
       setStoppingAnalysis(false);
       setAnalyzeProgress(null);
+    }
+  };
+
+  const removeSelected = async () => {
+    const ids = [...selected];
+    if (!ids.length || busy) return;
+    const names = new Map(
+      rows.filter((row) => ids.includes(row.id)).map((row) => [row.id, row.fileName]),
+    );
+    setError("");
+    setSelected([]);
+    setDeleteProgress({ current: 0, total: ids.length });
+    try {
+      const failed = await runPool(
+        ids,
+        RESUME_BULK_UPLOAD_CONCURRENCY,
+        async (id) => {
+          const result = await deleteLibraryFile(id);
+          if (!result.ok) return { fileName: names.get(id) || id, error: result.message };
+          setRows((current) => current.filter((row) => row.id !== id));
+          return null;
+        },
+        (current, total) => setDeleteProgress({ current, total }),
+      );
+      const done = ids.length - failed.length;
+      if (failed.length) {
+        const summary = failureSummary("file(s) failed to delete", ids.length, failed);
+        setError(summary);
+        notify("Delete finished with errors", summary, true);
+        await reload();
+      } else {
+        notify(done === 1 ? "Deleted 1 résumé" : `Deleted ${done} résumés`);
+      }
+    } finally {
+      setDeleteProgress(null);
     }
   };
 
@@ -198,10 +280,11 @@ export function ResumeLibrary() {
     void analyzeIds(ids, false);
   };
 
-  const act = async (run: () => Promise<{ ok: boolean; message?: string }>) => {
+  const act = async (run: () => Promise<{ ok: boolean; message?: string }>, done?: string) => {
     setError("");
     const result = await run();
     if (!result.ok) setError(result.message || "Couldn’t update the library.");
+    else if (done) notify(done);
     await reload();
   };
 
@@ -290,7 +373,7 @@ export function ResumeLibrary() {
             isDisabled={busy}
             onClick={(event) => {
               event.stopPropagation();
-              void act(async () => deleteLibraryFile(item.id));
+              void act(async () => deleteLibraryFile(item.id), `Removed ${item.fileName}`);
             }}
           />
         </HStack>
@@ -341,7 +424,10 @@ export function ResumeLibrary() {
           ) : null}
         </Stack>
       </SectionCard>
-      <SectionCard title="Files" description="Select uploaded résumés and analyze them for skills.">
+      <SectionCard
+        title="Files"
+        description="Select uploaded résumés to analyze their skills or delete them before uploading again."
+      >
         <Stack gap={3}>
           <HStack gap={3} wrap="wrap" vAlign="end">
             <Selector
@@ -363,7 +449,7 @@ export function ResumeLibrary() {
               }))}
               onChange={setStack}
             />
-            {view === "uploaded" ? (
+            {view === "uploaded" && !deleteProgress ? (
               analyzeProgress ? (
                 <Button
                   label={stoppingAnalysis ? "Stopping…" : "Stop analysis"}
@@ -375,13 +461,21 @@ export function ResumeLibrary() {
                   }}
                 />
               ) : (
-                <Button
-                  label={`Analyze (${selected.length})`}
-                  variant="primary"
-                  icon={<Glyph name="sparkle" />}
-                  isDisabled={busy || selected.length === 0}
-                  onClick={startAnalyze}
-                />
+                <>
+                  <Button
+                    label={`Analyze (${selected.length})`}
+                    variant="primary"
+                    icon={<Glyph name="sparkle" />}
+                    isDisabled={busy || selected.length === 0}
+                    onClick={startAnalyze}
+                  />
+                  <Button
+                    label={`Delete (${selected.length})`}
+                    variant="destructive"
+                    isDisabled={busy || selected.length === 0}
+                    onClick={() => void removeSelected()}
+                  />
+                </>
               )
             ) : null}
           </HStack>
@@ -390,6 +484,15 @@ export function ResumeLibrary() {
               label="Analyzing résumés"
               value={analyzeProgress.current}
               max={Math.max(analyzeProgress.total, 1)}
+              hasValueLabel
+              formatValueLabel={(value, max) => `${value} of ${max}`}
+            />
+          ) : null}
+          {deleteProgress ? (
+            <ProgressBar
+              label="Deleting résumés"
+              value={deleteProgress.current}
+              max={Math.max(deleteProgress.total, 1)}
               hasValueLabel
               formatValueLabel={(value, max) => `${value} of ${max}`}
             />

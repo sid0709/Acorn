@@ -124,7 +124,9 @@ func (s *Service) AnalyzeLibrary(ctx context.Context, accountID, id string, forc
 	row.Skills = skillNames(skills)
 	row.Analyzed = true
 	row.AnalyzedAt = &now
-	s.store.putLibrary(row)
+	if err := s.store.putLibrary(row); err != nil {
+		return LibraryRow{}, err
+	}
 	row.Bytes = nil
 	return row, nil
 }

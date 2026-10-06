@@ -207,11 +207,13 @@ func (s *Service) UploadLibrary(accountID, name, title string, data []byte) (Lib
 		Size: len(data), UploadedAt: time.Now().UTC(), ExtractedText: text,
 		MimeType: mimeFromName(name), Bytes: data, Skills: analyzeText(text),
 	}
-	existing := s.store.listLibrary(accountID)
-	if len(existing) == 0 {
+	existing := s.store.hasLibrary(accountID)
+	if !existing {
 		row.IsPrimary = true
 	}
-	s.store.putLibrary(row)
+	if err := s.store.putLibrary(row); err != nil {
+		return LibraryRow{}, err
+	}
 	row.Bytes = nil
 	return row, nil
 }
@@ -246,7 +248,9 @@ func (s *Service) SetPrimary(accountID, id string) (LibraryRow, error) {
 			continue
 		}
 		full.IsPrimary = full.ID == id
-		s.store.putLibrary(full)
+		if err := s.store.putLibrary(full); err != nil {
+			return LibraryRow{}, err
+		}
 	}
 	target.IsPrimary = true
 	target.Bytes = nil

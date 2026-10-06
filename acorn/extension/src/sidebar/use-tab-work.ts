@@ -233,11 +233,11 @@ export function useTabWork({
       const tabId = opts.tab?.tabId ?? activeTabId;
       if (tabId == null) return;
       if (!opts.tab && tabWorkBusy) return;
-      if (mainTab === "fill") {
+      if (mainTab === "fill" && mode !== "recommend") {
         await startJobWork(mode, { continue: opts.continue });
         return;
       }
-      if (!customTab && !opts.tab) return;
+      if (mode !== "recommend" && !customTab && !opts.tab) return;
       setCustomResumeMode(mode);
       try {
         if (!customTab && !opts.tab) {

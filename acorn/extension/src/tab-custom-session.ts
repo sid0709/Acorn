@@ -110,6 +110,9 @@ export async function rememberCustomTab(input: {
         url: input.url || existing.url,
         title: input.title || existing.title,
         favIconUrl,
+        ...(input.resumeMode === "recommend" || input.resumeMode === "generate"
+          ? { resumeMode: input.resumeMode }
+          : {}),
       }
     : {
         tabId: input.tabId,

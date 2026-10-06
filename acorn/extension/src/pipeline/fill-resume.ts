@@ -28,19 +28,9 @@ export async function loadFillResume(input: {
 
   const jobGen = await getJobGenerate(tabJob.jobId);
   const generationId = String(jobGen?.generationId || "").trim();
-  if (generationId && jobGen?.generateStatus === "completed") {
-    try {
-      const file = await fetchCustomResume(generationId, input.apiUrl);
-      if (file) return { file, skipReason: null };
-    } catch (err) {
-      return {
-        file: null,
-        skipReason: err instanceof Error ? err.message : String(err),
-      };
-    }
-  }
   const libraryId = String(jobGen?.recommendedResumeId || "").trim();
-  if (libraryId && jobGen?.generateStatus === "completed" && jobGen.workKind === "recommend") {
+  const completed = jobGen?.generateStatus === "completed";
+  if (completed && jobGen?.workKind === "recommend" && libraryId) {
     try {
       const file = await fetchCustomLibraryResume(libraryId, input.apiUrl);
       if (file) return { file, skipReason: null };
@@ -51,7 +41,17 @@ export async function loadFillResume(input: {
       };
     }
   }
-
+  if (generationId && completed) {
+    try {
+      const file = await fetchCustomResume(generationId, input.apiUrl);
+      if (file) return { file, skipReason: null };
+    } catch (err) {
+      return {
+        file: null,
+        skipReason: err instanceof Error ? err.message : String(err),
+      };
+    }
+  }
   try {
     const file = await fetchRecommendedResume(tabJob.jobId, input.apiUrl);
     if (!file) {
