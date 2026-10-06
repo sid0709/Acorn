@@ -81,6 +81,7 @@ export function ResumeLibrary() {
   const [analyzeProgress, setAnalyzeProgress] = useState<BatchProgress | null>(null);
   const [stoppingAnalysis, setStoppingAnalysis] = useState(false);
   const [reanalyzeIds, setReanalyzeIds] = useState<string[] | null>(null);
+  const [deleteIds, setDeleteIds] = useState<string[] | null>(null);
   const [skillsRow, setSkillsRow] = useState<ResumeLibraryRow | null>(null);
   const bulkRef = useRef<HTMLInputElement>(null);
   const stopAnalyze = useRef(false);
@@ -182,6 +183,24 @@ export function ResumeLibrary() {
       setStoppingAnalysis(false);
       setAnalyzeProgress(null);
     }
+  };
+
+  const removeSelected = async () => {
+    const ids = deleteIds ?? [];
+    setDeleteIds(null);
+    if (!ids.length) return;
+    setError("");
+    const failed: { fileName: string; error: string }[] = [];
+    for (const id of ids) {
+      const result = await deleteLibraryFile(id);
+      if (!result.ok) {
+        const row = rows.find((item) => item.id === id);
+        failed.push({ fileName: row?.fileName || id, error: result.message });
+      }
+    }
+    setSelected([]);
+    if (failed.length) setError(failureSummary("file(s) failed to delete", ids.length, failed));
+    await reload();
   };
 
   const startAnalyze = () => {
@@ -341,7 +360,10 @@ export function ResumeLibrary() {
           ) : null}
         </Stack>
       </SectionCard>
-      <SectionCard title="Files" description="Select uploaded résumés and analyze them for skills.">
+      <SectionCard
+        title="Files"
+        description="Select uploaded résumés to analyze their skills or delete them before uploading again."
+      >
         <Stack gap={3}>
           <HStack gap={3} wrap="wrap" vAlign="end">
             <Selector
@@ -375,13 +397,21 @@ export function ResumeLibrary() {
                   }}
                 />
               ) : (
-                <Button
-                  label={`Analyze (${selected.length})`}
-                  variant="primary"
-                  icon={<Glyph name="sparkle" />}
-                  isDisabled={busy || selected.length === 0}
-                  onClick={startAnalyze}
-                />
+                <>
+                  <Button
+                    label={`Analyze (${selected.length})`}
+                    variant="primary"
+                    icon={<Glyph name="sparkle" />}
+                    isDisabled={busy || selected.length === 0}
+                    onClick={startAnalyze}
+                  />
+                  <Button
+                    label={`Delete (${selected.length})`}
+                    variant="destructive"
+                    isDisabled={busy || selected.length === 0}
+                    onClick={() => setDeleteIds(selected)}
+                  />
+                </>
               )
             ) : null}
           </HStack>
@@ -501,6 +531,43 @@ export function ResumeLibrary() {
                   onClick={() => {
                     if (reanalyzeIds) void analyzeIds(reanalyzeIds, true);
                   }}
+                />
+              </HStack>
+            </LayoutFooter>
+          }
+        />
+      </Dialog>
+      <Dialog
+        isOpen={deleteIds !== null}
+        onOpenChange={(open) => {
+          if (!open) setDeleteIds(null);
+        }}
+        purpose="form"
+        width={BULK_DIALOG_WIDTH}
+      >
+        <Layout
+          height="auto"
+          header={
+            <DialogHeader
+              title="Delete selected résumés?"
+              subtitle={`${deleteIds?.length ?? 0} file${deleteIds?.length === 1 ? "" : "s"} will be removed from the library, including the stored file.`}
+              onOpenChange={() => setDeleteIds(null)}
+              hasDivider
+            />
+          }
+          content={
+            <LayoutContent>
+              <Text color="secondary">You can upload the same folder again after this.</Text>
+            </LayoutContent>
+          }
+          footer={
+            <LayoutFooter hasDivider>
+              <HStack gap={2} hAlign="end">
+                <Button label="Cancel" variant="ghost" onClick={() => setDeleteIds(null)} />
+                <Button
+                  label="Delete"
+                  variant="destructive"
+                  onClick={() => void removeSelected()}
                 />
               </HStack>
             </LayoutFooter>

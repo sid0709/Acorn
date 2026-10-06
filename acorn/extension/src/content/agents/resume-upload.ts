@@ -94,7 +94,40 @@ function resolveResumeFileInput(
     return ranked[0].input;
   }
 
+  const pageResume = resumeFileInputOnPage(el, expectedLabel);
+  if (pageResume) return pageResume;
+
   throw new Error("No Resume/CV file input found near this control");
+}
+
+/** A Resume/CV button such as Import Resume often sits apart from its hidden file input. */
+function resumeFileInputOnPage(
+  el: Element,
+  expectedLabel: string | null | undefined,
+): HTMLInputElement | null {
+  const expected = documentFieldKind(expectedLabel || "");
+  const section = documentFieldKind(sectionHaystack(el));
+  if (expected !== "resume" && section !== "resume" && !isFileInput(el)) {
+    return null;
+  }
+  const doc = el.ownerDocument || document;
+  const candidates = listPageFileInputs(doc).filter(
+    (input) => combinedKind(input, el, expectedLabel) !== "other",
+  );
+  const labeled = candidates.find(
+    (input) => combinedKind(input, input, expectedLabel) === "resume",
+  );
+  if (labeled) return labeled;
+  if (expected === "resume" || section === "resume") {
+    return candidates.length === 1 ? candidates[0] : null;
+  }
+  return null;
+}
+
+function listPageFileInputs(doc: Document): HTMLInputElement[] {
+  return Array.from(doc.querySelectorAll('input[type="file"]')).filter(
+    (node): node is HTMLInputElement => node instanceof HTMLInputElement,
+  );
 }
 
 function otherDocumentError(file: RuntimeAttachedFile): string {

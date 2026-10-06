@@ -244,7 +244,9 @@ func (s *Service) saveGeneratedLibrary(accountID string, gen Generation, docx []
 	if row.Title == "" {
 		row.Title = "Generated"
 	}
-	s.store.putLibrary(row)
+	if err := s.store.putLibrary(row); err != nil {
+		return LibraryRow{}, err
+	}
 	return row, nil
 }
 
