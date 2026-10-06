@@ -11,6 +11,7 @@ export async function runCustomGenerate(args: {
   await runResumeGenerate({
     source: "custom",
     apiUrl,
+    tabId,
     continue: Boolean(args.continue),
     loadJd: () => extractRememberedTabJd(tabId, apiUrl),
     store: {

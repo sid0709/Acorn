@@ -7,7 +7,8 @@ import {
   type GenerateCheckpoint,
 } from "@acorn/shared/generate-checkpoint";
 import { broadcastOperatorNotice } from "../operator-notice";
-import { fetchCustomLibraryResume, recommendCustomLibrary } from "./api/custom-library";
+import type { RecommendedResumeRank } from "@acorn/shared/resume-library";
+import { recommendCustomLibrary } from "./api/custom-library";
 import { customRecommendProgress } from "./custom-recommend-progress";
 import type { ResumeGenerateSource, ResumeGenerateStore } from "./run-generate";
 
@@ -15,18 +16,20 @@ export async function runResumeRecommend(args: {
   source: ResumeGenerateSource;
   apiUrl: string;
   continue?: boolean;
+  tabId?: number | null;
   loadJd: () => Promise<{ jobDescription: string; title?: string; url?: string }>;
   store: ResumeGenerateStore & {
     complete: (result: {
       recommendedResumeId: string;
       recommendedResumeStack: string;
       recommendedResumeReason: string | null;
+      recommendedTop: RecommendedResumeRank[];
       checkpoint: GenerateCheckpoint;
       jobDescription: string;
     }) => Promise<void>;
   };
 }): Promise<void> {
-  const { source, apiUrl, loadJd, store } = args;
+  const { source, apiUrl, tabId, loadJd, store } = args;
   const existing = args.continue ? await store.readCheckpoint() : null;
   let checkpoint = args.continue && existing ? existing : emptyGenerateCheckpoint();
   checkpoint = { ...checkpoint, failedStep: null, error: null };
@@ -123,12 +126,8 @@ export async function runResumeRecommend(args: {
         url: checkpoint.outputs.url || undefined,
       },
       apiUrl,
+      tabId,
     );
-    const file = await fetchCustomLibraryResume(result.recommendedResumeId, apiUrl);
-    if (!file?.base64) {
-      await fail("summary", new Error("Recommend finished without a Library résumé file"));
-      return;
-    }
     checkpoint = markStepDone(
       markStepDone(markStepDone(markStepDone(checkpoint, "summary"), "skills"), "experience"),
       "finalize",
@@ -137,6 +136,7 @@ export async function runResumeRecommend(args: {
       recommendedResumeId: result.recommendedResumeId,
       recommendedResumeStack: result.recommendedResumeStack,
       recommendedResumeReason: result.recommendedResumeReason,
+      recommendedTop: result.recommendedTop,
       checkpoint,
       jobDescription,
     });

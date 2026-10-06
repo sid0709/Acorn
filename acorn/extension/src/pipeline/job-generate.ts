@@ -34,6 +34,7 @@ export async function runJobGenerate(args: {
     apiUrl,
     continue: Boolean(args.continue),
     jobId,
+    tabId: args.tabId,
     loadJd: () =>
       loadFillJobJd({
         jobId,

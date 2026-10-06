@@ -32,10 +32,10 @@ func libraryService() *Service {
 
 func TestRecommendSendsUploadsAndReturnsThePick(t *testing.T) {
 	svc := libraryService()
-	matcher := &fakeMatcher{match: selector.PostingMatch{IsPosting: true, ID: "java", Confidence: 0.9}}
-	id, stack, _, err := svc.Recommend(context.Background(), "a", "Java engineer with Spring", "job-1", matcher)
-	if err != nil || id != "java" || stack != "Java + NodeJS" {
-		t.Fatalf("recommend = %q %q %v", id, stack, err)
+	matcher := &fakeMatcher{match: selector.PostingMatch{IsPosting: true, Ranked: []selector.Ranked{{ID: "java", Probability: 0.4}}}}
+	rec, err := svc.Recommend(context.Background(), "a", "Java engineer with Spring", "job-1", matcher)
+	if err != nil || rec.ResumeID != "java" || rec.Stack != "Java + NodeJS" || len(rec.Top) != 1 {
+		t.Fatalf("recommend = %+v %v", rec, err)
 	}
 	if len(matcher.seen) != 1 || !strings.Contains(matcher.seen[0].Description, "Skills: Spring") {
 		t.Fatalf("candidates = %+v", matcher.seen)
@@ -45,13 +45,9 @@ func TestRecommendSendsUploadsAndReturnsThePick(t *testing.T) {
 	}
 }
 
-func TestRecommendRefusesNonPostingAndNoFit(t *testing.T) {
+func TestRecommendRefusesNonPosting(t *testing.T) {
 	svc := libraryService()
-	if _, _, _, err := svc.Recommend(context.Background(), "a", "Sign in", "", &fakeMatcher{}); !errors.Is(err, ErrNoPosting) {
+	if _, err := svc.Recommend(context.Background(), "a", "Sign in", "", &fakeMatcher{}); !errors.Is(err, ErrNoPosting) {
 		t.Fatalf("non-posting err = %v", err)
-	}
-	noFit := &fakeMatcher{match: selector.PostingMatch{IsPosting: true}}
-	if _, _, _, err := svc.Recommend(context.Background(), "a", "Nurse role", "", noFit); !errors.Is(err, ErrNoLibrary) {
-		t.Fatalf("no-fit err = %v", err)
 	}
 }

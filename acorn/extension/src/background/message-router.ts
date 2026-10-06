@@ -22,12 +22,7 @@ import { handleMatchOption } from "./messages/match-option";
 import { handleFetchDom, handleStartPipeline } from "./messages/pipeline";
 import { handleSelectionQa } from "./messages/selection-qa";
 import type { RuntimeMessage, SendResponse } from "./messages/shared";
-import {
-  handleGetTabJob,
-  handleListWorkerJobs,
-  handleMarkJobApplied,
-  handleOpenWorkerJob,
-} from "./messages/worker-jobs";
+import { handleGetTabJob, handleMarkJobApplied, handleOpenWorkerJob } from "./messages/worker-jobs";
 
 /** Sends each sidebar/content message to its handler. Returns true to keep `sendResponse` open. */
 export function routeMessage(
@@ -58,11 +53,6 @@ export function routeMessage(
 
   if (message.type === MSG.AUTH_SIGNOUT) {
     handleAuthSignOut(sendResponse);
-    return true;
-  }
-
-  if (message.type === MSG.LIST_WORKER_JOBS) {
-    handleListWorkerJobs(sendResponse);
     return true;
   }
 

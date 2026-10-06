@@ -123,7 +123,7 @@ func (s *Server) matchOption(w http.ResponseWriter, r *http.Request) {
 	if !ok {
 		return
 	}
-	pick, err := gateway.PickOption(r.Context(), selector.OptionQuery{
+	pick, err := gateway.PickOption(s.withUsage(r, session.User.ID), selector.OptionQuery{
 		Field: body.FieldLabel, Intended: body.IntendedValue, Typed: body.TypedQuery,
 		Options: body.Options, AllowNotListed: body.AllowNotListed, Applicant: applicant,
 	})
@@ -213,7 +213,7 @@ func (s *Server) writeJD(w http.ResponseWriter, r *http.Request, accountID, page
 	if !ok {
 		return
 	}
-	result, err := brain.ExtractJD(r.Context(), pageText, meta)
+	result, err := brain.ExtractJD(s.withUsage(r, accountID), pageText, meta)
 	if err != nil {
 		writeAcornError(w, "extract-jd", err)
 		return

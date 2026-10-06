@@ -21,6 +21,7 @@ type Store struct {
 	tasks       map[string]Task
 	jobs        map[string]string // accountID+"\x00"+jobID -> resumeID or generationID
 	db          *mongo.Database
+	candidates  candidateCache
 }
 
 func NewMemory() *Store {
@@ -259,6 +260,7 @@ func (s *Store) putLibrary(row LibraryRow) error {
 	s.mu.Lock()
 	s.library[row.ID] = row
 	s.mu.Unlock()
+	s.forgetCandidates(row.AccountID)
 	if s.db == nil {
 		return nil
 	}
@@ -354,6 +356,7 @@ func loadAccount[T any](s *Store, collection, accountID, omit string) ([]T, bool
 }
 
 func (s *Store) deleteLibrary(accountID, id string) bool {
+	s.forgetCandidates(accountID)
 	s.mu.Lock()
 	row, ok := s.library[id]
 	if ok && row.AccountID == accountID {
@@ -407,6 +410,7 @@ func (s *Store) jobFile(accountID, jobID string) string {
 
 // DeleteAccount removes every résumé record this account owns.
 func (s *Store) DeleteAccount(ctx context.Context, accountID string) error {
+	s.forgetCandidates(accountID)
 	s.mu.Lock()
 	delete(s.configs, accountID)
 	for id, row := range s.templates {

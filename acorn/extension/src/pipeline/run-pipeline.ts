@@ -216,6 +216,7 @@ export async function runFabPipeline(args: RunPipelineArgs): Promise<void> {
         debug: ACORN_DEBUG ? { html: pageHtml, domTree: treePayload.tree, metaTree } : undefined,
       },
       aiServerUrl,
+      tabId,
     );
     addPipelineUsage(tabId, analyze.usage);
     if (refill && analyze.mode !== FILL_MODE.refill) {

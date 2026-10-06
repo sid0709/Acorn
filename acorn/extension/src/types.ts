@@ -86,6 +86,8 @@ export interface MatchOptionRequest {
   typedQuery?: string | null;
   /** The list may be partial (a search box can show more), so "not listed" is a valid answer. */
   allowNotListed?: boolean;
+  /** A checkbox group: the answer is every option to check. */
+  multiple?: boolean;
 }
 
 /** SelectorGateway (TypeSafe Jev) pick for one dropdown. */
@@ -95,6 +97,8 @@ export interface MatchOptionResponse {
   matched_option?: string | null;
   /** The best listed option even when matched_option is null. */
   fallback_option?: string | null;
+  /** `multiple` requests: every option to check. */
+  matched_options?: string[];
   confidence?: number;
   reason?: string;
   error?: string;

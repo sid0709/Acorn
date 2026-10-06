@@ -45,11 +45,12 @@ export interface AiAnalyzeResponse {
 export async function requestAiAnalyze(
   payload: AiAnalyzeRequest,
   _apiUrl?: string,
+  tabId?: number | null,
 ): Promise<AiAnalyzeResponse> {
   const base = (_apiUrl || (await getAcornApiUrl())).replace(/\/$/, "");
   const res = await fetch(`${base}/acorn/ai-analyze`, {
     method: "POST",
-    headers: await authHeaders(),
+    headers: await authHeaders(tabId),
     body: JSON.stringify(payload),
   });
 

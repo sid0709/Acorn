@@ -99,14 +99,14 @@ func (s *Service) DeleteTemplate(accountID, id string) error {
 	return nil
 }
 
-func (s *Service) Enqueue(accountID string, identity Identity, jobDescription, jobID string, checkpoint map[string]any, model Model) (Task, error) {
+func (s *Service) Enqueue(ctx context.Context, accountID string, identity Identity, jobDescription, jobID string, checkpoint map[string]any, model Model) (Task, error) {
 	if identity.FullName == "" {
 		return Task{}, fmt.Errorf("%w: identity is required", ErrInvalid)
 	}
-	return s.enqueue(accountID, identity, jobDescription, jobID, checkpoint, model)
+	return s.enqueue(ctx, accountID, identity, jobDescription, jobID, checkpoint, model)
 }
 
-func (s *Service) Continue(accountID, inputID string, identity Identity, jobDescription, jobID string, checkpoint map[string]any, model Model) (Task, error) {
+func (s *Service) Continue(ctx context.Context, accountID, inputID string, identity Identity, jobDescription, jobID string, checkpoint map[string]any, model Model) (Task, error) {
 	existing, ok := s.store.task(accountID, inputID)
 	if ok {
 		if identity.FullName == "" {
@@ -117,7 +117,7 @@ func (s *Service) Continue(accountID, inputID string, identity Identity, jobDesc
 		}
 		jobID = firstNonEmpty(jobID, existing.JobID)
 	}
-	return s.Enqueue(accountID, identity, jobDescription, jobID, checkpoint, model)
+	return s.Enqueue(ctx, accountID, identity, jobDescription, jobID, checkpoint, model)
 }
 
 func (s *Service) Poll(accountID, inputID string) (Task, error) {

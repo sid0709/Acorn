@@ -29,9 +29,12 @@ export function handleMatchOption(
       if (incoming.allowNotListed) {
         payload.allowNotListed = true;
       }
+      if (incoming.multiple) {
+        payload.multiple = true;
+      }
       const res = await fetch(`${base}/acorn/match-option`, {
         method: "POST",
-        headers: await authHeaders(),
+        headers: await authHeaders(usageTabId),
         body: JSON.stringify(payload),
       });
       const data = (await res.json().catch(() => ({}))) as MatchOptionResponse;

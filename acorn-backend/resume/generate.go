@@ -10,7 +10,7 @@ import (
 
 var generateSteps = []string{"load-jd", "summary", "skills", "experience", "finalize"}
 
-func (s *Service) enqueue(accountID string, identity Identity, jobDescription, jobID string, checkpoint map[string]any, model Model) (Task, error) {
+func (s *Service) enqueue(ctx context.Context, accountID string, identity Identity, jobDescription, jobID string, checkpoint map[string]any, model Model) (Task, error) {
 	jobDescription = strings.TrimSpace(jobDescription)
 	if jobDescription == "" {
 		return Task{}, fmt.Errorf("%w: job description is required", ErrInvalid)
@@ -50,15 +50,19 @@ func (s *Service) enqueue(accountID string, identity Identity, jobDescription, j
 		StartedAt:      now,
 	}
 	s.store.putTask(task)
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	parent := context.WithoutCancel(ctx)
 	if s.syncRun {
-		s.runTask(task, model)
+		s.runTask(parent, task, model)
 		done, ok := s.store.task(accountID, task.ID)
 		if ok {
 			return done, nil
 		}
 		return task, nil
 	}
-	go s.runTask(task, model)
+	go s.runTask(parent, task, model)
 	return task, nil
 }
 
@@ -70,8 +74,11 @@ func newProgress() Progress {
 	return Progress{Steps: steps}
 }
 
-func (s *Service) runTask(task Task, model Model) {
-	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
+func (s *Service) runTask(parent context.Context, task Task, model Model) {
+	if parent == nil {
+		parent = context.Background()
+	}
+	ctx, cancel := context.WithTimeout(parent, 2*time.Minute)
 	defer cancel()
 	mark := func(name, status string) {
 		for i := range task.Progress.Steps {

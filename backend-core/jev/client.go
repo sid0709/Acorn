@@ -22,6 +22,9 @@ const (
 	requestTimeout = 30 * time.Second
 	maxAttempts    = 3
 	maxResponse    = 1 << 20
+	// idleConnTimeout keeps the TLS connection to OpenRouter open between decisions.
+	// A new connection costs ~1s; a decision on a warm one is a few hundred ms.
+	idleConnTimeout = 15 * time.Minute
 
 	// TypeChoice picks one of the criteria keys; TypeNoul answers yes/no as P(yes).
 	TypeChoice = "choice"
@@ -69,6 +72,18 @@ type Response struct {
 	Usage   Usage             `json:"usage"`
 }
 
+// sharedHTTP is one connection pool for every Jev client: a client is built per
+// request (per account key), and a fresh pool would pay the TLS handshake each time.
+var sharedHTTP = newHTTPClient()
+
+func newHTTPClient() *http.Client {
+	client := llmhttp.NewClient(requestTimeout)
+	if transport, ok := client.Transport.(*http.Transport); ok {
+		transport.IdleConnTimeout = idleConnTimeout
+	}
+	return client
+}
+
 type Client struct {
 	apiKey string
 	model  string
@@ -82,7 +97,20 @@ func New(apiKey string) *Client {
 		apiKey: strings.TrimSpace(apiKey),
 		model:  config.JevModel,
 		url:    config.OpenRouterDecisionsURL,
-		http:   llmhttp.NewClient(requestTimeout),
+		http:   sharedHTTP,
+	}
+}
+
+// Warm opens the shared connection to the Decisions API so the first real decision
+// does not pay the TLS handshake. It needs no key and ignores the answer.
+func Warm(ctx context.Context) {
+	request, err := http.NewRequestWithContext(ctx, http.MethodHead, config.OpenRouterDecisionsURL, nil)
+	if err != nil {
+		return
+	}
+	if response, err := sharedHTTP.Do(request); err == nil {
+		_, _ = io.Copy(io.Discard, response.Body)
+		response.Body.Close()
 	}
 }
 
@@ -108,6 +136,16 @@ func (c *Client) Decide(ctx context.Context, req Request) (Response, error) {
 	for attempt := 0; attempt < maxAttempts; attempt++ {
 		res, status, retryAfter, err := c.post(ctx, body)
 		if err == nil {
+			if res.Usage.InputTokens > 0 || res.Usage.OutputTokens > 0 || res.Usage.Cost > 0 {
+				openai.Note(ctx, openai.Usage{
+					Model:            c.model,
+					PromptTokens:     res.Usage.InputTokens,
+					CompletionTokens: res.Usage.OutputTokens,
+					TotalTokens:      res.Usage.InputTokens + res.Usage.OutputTokens,
+					CostNanos:        openai.NanosFromUSD(res.Usage.Cost),
+					Priced:           res.Usage.Cost > 0,
+				})
+			}
 			return res, nil
 		}
 		// A transport error (status 0) or a 429 / 5xx is worth another attempt.

@@ -1,4 +1,5 @@
 import { ACORN_SOCKET_PATH, acornHosts } from "@acorn/shared/api";
+import { ACORN_TAB_HEADER, usageTabKey } from "../tab-usage-key";
 
 const hosts = acornHosts(import.meta.env.MODE);
 
@@ -182,11 +183,15 @@ export async function acornSignOut(): Promise<void> {
   await clearAcornSession();
 }
 
-export async function authHeaders(): Promise<Record<string, string>> {
+export async function authHeaders(tabId?: number | null): Promise<Record<string, string>> {
   const token = await getAccessToken();
   if (!token) throw new Error("Sign in to Acorn required");
-  return {
+  const headers: Record<string, string> = {
     "Content-Type": "application/json",
     Authorization: `Bearer ${token}`,
   };
+  if (typeof tabId === "number") {
+    headers[ACORN_TAB_HEADER] = await usageTabKey(tabId);
+  }
+  return headers;
 }

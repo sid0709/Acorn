@@ -6,26 +6,16 @@ import (
 	"log/slog"
 	"net/http"
 	"net/url"
-	"slices"
 	"strings"
-	"sync"
 	"time"
 
 	"github.com/sid0709/OpenSeat/acorn-backend/account"
 	"github.com/sid0709/OpenSeat/backend-core/jobs"
 )
 
-const (
-	// workerPoolLimit caps the Worker pool list; the extension shows these in its side panel.
-	workerPoolLimit = 100
-	// lookupWorkers bounds the parallel catalog lookups behind the list.
-	lookupWorkers = 8
-	lookupTimeout = 20 * time.Second
-	notSpecified  = "Not specified"
-)
+const notSpecified = "Not specified"
 
-// workerJob is one Worker pool row for the extension's side panel. Résumé fields
-// stay empty until Generate or Recommend stores a file for that job.
+// workerJob is the catalog row Fill loads for a tab's job.
 type workerJob struct {
 	ID                      string  `json:"id"`
 	Title                   string  `json:"title"`
@@ -43,25 +33,6 @@ type workerJob struct {
 	RecommendedResumeReason *string `json:"recommendedResumeReason"`
 	RecommendWarning        *string `json:"recommendWarning"`
 	RecommendedAt           *string `json:"recommendedAt"`
-}
-
-// workerPoolIDs are the jobs the job hunter saved and has not applied to yet.
-func (s *Server) workerPoolIDs(ctx context.Context, userID string) ([]string, error) {
-	saved, err := s.accounts.SavedJobIDs(ctx, userID)
-	if err != nil {
-		return nil, err
-	}
-	applied, err := s.accounts.AppliedJobIDs(ctx, userID)
-	if err != nil {
-		return nil, err
-	}
-	ids := make([]string, 0, len(saved))
-	for _, id := range saved {
-		if !slices.Contains(applied, id) {
-			ids = append(ids, id)
-		}
-	}
-	return ids, nil
 }
 
 func (s *Server) workerJob(ctx context.Context, id string) (workerJob, error) {
@@ -83,76 +54,18 @@ func (s *Server) workerJob(ctx context.Context, id string) (workerJob, error) {
 	}, nil
 }
 
-func (s *Server) listJobs(w http.ResponseWriter, r *http.Request) {
-	session, ok := s.session(w, r)
-	if !ok {
-		return
-	}
-	ctx, cancel := context.WithTimeout(r.Context(), lookupTimeout)
-	defer cancel()
-	ids, err := s.workerPoolIDs(ctx, session.User.ID)
-	if err != nil {
-		slog.Error("acorn worker pool", "user", session.User.ID, "error", err)
-		writeError(w, http.StatusInternalServerError, "could not load jobs")
-		return
-	}
-	if len(ids) > workerPoolLimit {
-		ids = ids[:workerPoolLimit]
-	}
-
-	rows := make([]*workerJob, len(ids))
-	var wg sync.WaitGroup
-	slots := make(chan struct{}, lookupWorkers)
-	for i, id := range ids {
-		wg.Add(1)
-		slots <- struct{}{}
-		go func() {
-			defer wg.Done()
-			defer func() { <-slots }()
-			row, err := s.workerJob(ctx, id)
-			if err != nil {
-				if !errors.Is(err, jobs.ErrNotFound) {
-					slog.Warn("acorn worker pool job", "job", id, "error", err)
-				}
-				return
-			}
-			rows[i] = &row
-		}()
-	}
-	wg.Wait()
-
-	list := make([]workerJob, 0, len(rows))
-	for _, row := range rows {
-		if row != nil {
-			list = append(list, *row)
-		}
-	}
-	writeJSON(w, http.StatusOK, map[string]any{"success": true, "jobs": list, "total": len(list)})
-}
-
 func (s *Server) getJob(w http.ResponseWriter, r *http.Request) {
-	session, ok := s.session(w, r)
-	if !ok {
+	if _, ok := s.session(w, r); !ok {
 		return
 	}
 	id := r.PathValue("jobId")
-	ids, err := s.workerPoolIDs(r.Context(), session.User.ID)
-	if err != nil {
-		slog.Error("acorn worker pool", "user", session.User.ID, "error", err)
-		writeError(w, http.StatusInternalServerError, "could not load the job")
-		return
-	}
-	if !slices.Contains(ids, id) {
-		writeError(w, http.StatusNotFound, "Worker-pool job not found")
-		return
-	}
 	row, err := s.workerJob(r.Context(), id)
 	if errors.Is(err, jobs.ErrNotFound) {
-		writeError(w, http.StatusNotFound, "Worker-pool job not found")
+		writeError(w, http.StatusNotFound, "job not found")
 		return
 	}
 	if err != nil {
-		slog.Error("acorn worker pool job", "job", id, "error", err)
+		slog.Error("acorn job", "job", id, "error", err)
 		writeError(w, http.StatusInternalServerError, "could not load the job")
 		return
 	}

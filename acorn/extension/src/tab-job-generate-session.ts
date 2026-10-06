@@ -1,5 +1,6 @@
 import type { GenerateCheckpoint } from "@acorn/shared/generate-checkpoint";
 import { normalizeGenerateCheckpoint } from "@acorn/shared/generate-checkpoint";
+import type { RecommendedResumeRank } from "@acorn/shared/resume-library";
 import type { CustomUiProgress } from "./pipeline/custom-generate-progress";
 import type { CustomGenerateStatus, CustomWorkKind } from "./tab-custom-session";
 
@@ -12,6 +13,8 @@ export type AcornJobGenerateBinding = {
   resumeId: string | null;
   recommendedResumeId: string | null;
   recommendedResumeStack: string | null;
+  /** Recommend's best-ranked Library résumés, most probable first. */
+  recommendedTop: RecommendedResumeRank[];
   generateStatus: CustomGenerateStatus;
   generateError: string | null;
   generateProgress: CustomUiProgress | null;
@@ -44,6 +47,7 @@ function normalizeBinding(row: AcornJobGenerateBinding): AcornJobGenerateBinding
     resumeId: row.resumeId ?? null,
     recommendedResumeId: row.recommendedResumeId ?? null,
     recommendedResumeStack: row.recommendedResumeStack ?? null,
+    recommendedTop: row.recommendedTop ?? [],
     generateStatus: asStatus(row.generateStatus),
     generateError: row.generateError ?? null,
     generateProgress: row.generateProgress ?? null,
@@ -62,6 +66,7 @@ function emptyBinding(jobId: string): AcornJobGenerateBinding {
     resumeId: null,
     recommendedResumeId: null,
     recommendedResumeStack: null,
+    recommendedTop: [],
     generateStatus: "idle",
     generateError: null,
     generateProgress: null,

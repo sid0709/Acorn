@@ -2,6 +2,7 @@ import { PAGE_TEXT_MAX_CHARS, extractVisiblePageText } from "@acorn/shared/page-
 import { formatAnalyzeTrees, type DomTreeNode } from "@acorn/shared/tree-export";
 import { extractCustomJd } from "./api/custom-generate";
 import { fetchDomFromTab } from "./fetch-dom";
+import { fetchPostingDomFromTab } from "./fetch-posting";
 
 export const NO_JD = "No job description on this page";
 
@@ -21,7 +22,7 @@ function capText(text: string): string {
  * rewrites it first.
  */
 export async function readRememberedTabPosting(tabId: number): Promise<RememberedTabJd> {
-  const treePayload = await fetchDomFromTab(tabId);
+  const treePayload = await fetchPostingDomFromTab(tabId);
   const { pure } = formatAnalyzeTrees(treePayload.tree as unknown as DomTreeNode);
   const title = treePayload.title || "Untitled";
   const url = treePayload.url || "";
@@ -46,7 +47,7 @@ export async function extractRememberedTabJd(
   if (!pageText.trim()) {
     throw new Error("No readable text on this tab");
   }
-  const extracted = await extractCustomJd({ pageText }, apiUrl);
+  const extracted = await extractCustomJd({ pageText }, apiUrl, tabId);
   if (!extracted.hasJobDescription || !extracted.jobDescription) {
     throw new Error(extracted.reason || NO_JD);
   }

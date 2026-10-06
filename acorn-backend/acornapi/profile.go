@@ -62,14 +62,14 @@ func (s *Server) fillProfile(w http.ResponseWriter, r *http.Request) {
 	)
 	switch {
 	case body.Text != "":
-		filled, err = s.profiles.FillText(r.Context(), session.User.ID, session.User.Name, session.User.Email, body.Text, body.Profile)
+		filled, err = s.profiles.FillText(s.withUsage(r, session.User.ID), session.User.ID, session.User.Name, session.User.Email, body.Text, body.Profile)
 	case body.ContentBase64 != "":
 		data, decErr := base64.StdEncoding.DecodeString(body.ContentBase64)
 		if decErr != nil {
 			writeError(w, http.StatusBadRequest, "invalid résumé file")
 			return
 		}
-		filled, err = s.profiles.FillFile(r.Context(), session.User.ID, session.User.Name, session.User.Email, body.FileName, data, body.Profile)
+		filled, err = s.profiles.FillFile(s.withUsage(r, session.User.ID), session.User.ID, session.User.Name, session.User.Email, body.FileName, data, body.Profile)
 	default:
 		writeError(w, http.StatusBadRequest, "add a résumé file")
 		return

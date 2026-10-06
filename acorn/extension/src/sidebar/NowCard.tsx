@@ -1,12 +1,11 @@
 import { Badge, Button, Card, Glyph, HStack, ProgressBar, Text, VStack } from "sid-ui";
 import type { PipelineProgress } from "@acorn/shared/pipeline-types";
+import type { RecommendedResumeRank } from "@acorn/shared/resume-library";
 import type { CustomUiProgress } from "../pipeline/custom-generate-progress";
 import { customTabResumeLine, hostOf } from "./custom-tab-resume";
 import { GenerateProgressBar } from "./GenerateProgressBar";
-import { hasAssignedResume, resumeMetaText } from "./JobResumeActions";
 import type { AcornMainTab } from "./SidebarNav";
 import type { useTabSession } from "./use-tab-session";
-import type { AcornWorkerJob } from "./WorkerPoolList";
 
 type TabSession = ReturnType<typeof useTabSession>;
 
@@ -20,8 +19,6 @@ export type NowAction = {
 type NowCardProps = {
   mainTab: Exclude<AcornMainTab, "qa">;
   tabJob: TabSession["tabJob"];
-  /** The Worker pool row for tabJob, when the list has loaded it. */
-  job: AcornWorkerJob | null;
   jobGenerate: TabSession["jobGenerates"][string] | null;
   customTab: TabSession["customTab"];
   progress: PipelineProgress;
@@ -38,11 +35,10 @@ type NowCardProps = {
 function describe({
   mainTab,
   tabJob,
-  job,
   jobGenerate,
   customTab,
   fillBusy,
-}: Pick<NowCardProps, "mainTab" | "tabJob" | "job" | "jobGenerate" | "customTab" | "fillBusy">) {
+}: Pick<NowCardProps, "mainTab" | "tabJob" | "jobGenerate" | "customTab" | "fillBusy">) {
   if (mainTab === "custom") {
     if (!customTab) {
       return {
@@ -108,6 +104,38 @@ function describe({
   };
 }
 
+/** Recommend's ranked Library résumés for the active tab (Custom, or the attached Fill job). */
+function recommendedTop({
+  mainTab,
+  customTab,
+  jobGenerate,
+}: Pick<NowCardProps, "mainTab" | "customTab" | "jobGenerate">): RecommendedResumeRank[] {
+  if (mainTab === "custom") return customTab?.recommendedTop ?? [];
+  if (jobGenerate?.recommendedTop?.length) return jobGenerate.recommendedTop;
+  return customTab?.recommendedTop ?? [];
+}
+
+function RecommendTop({ top }: { top: RecommendedResumeRank[] }) {
+  return (
+    <VStack gap={1}>
+      <Text type="supporting" weight="semibold">
+        Top matches
+      </Text>
+      {top.map((row, i) => (
+        <HStack key={row.resumeId} gap={2} align="center" justify="between">
+          <Text type="supporting" maxLines={1}>
+            {`${i + 1}. ${row.stack}`}
+          </Text>
+          <Badge
+            variant={i === 0 ? "green" : "neutral"}
+            label={`${Math.round(row.probability * 100)}%`}
+          />
+        </HStack>
+      ))}
+    </VStack>
+  );
+}
+
 function RunProgress({ run }: { run: CustomUiProgress }) {
   return (
     <VStack gap={1}>
@@ -125,6 +153,7 @@ export function NowCard(props: NowCardProps) {
   const { mainTab, customTab, progress, fillBusy, fill, refill, generate, recommend, remember } =
     props;
   const { title, subtitle, status, run } = describe(props);
+  const top = run ? [] : recommendedTop(props);
   const needsRemember = mainTab === "custom" && !customTab;
   const hasTarget = mainTab === "custom" ? Boolean(customTab) : Boolean(props.tabJob);
 
@@ -151,6 +180,7 @@ export function NowCard(props: NowCardProps) {
           </Text>
         </VStack>
         {run ? <RunProgress run={run} /> : null}
+        {top.length ? <RecommendTop top={top} /> : null}
         {fillBusy ? <ProgressBar label={progress.message || "Filling…"} isIndeterminate /> : null}
         {needsRemember ? (
           <VStack gap={2}>

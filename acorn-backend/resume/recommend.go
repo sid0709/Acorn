@@ -10,8 +10,12 @@ import (
 	"github.com/sid0709/OpenSeat/acorn-backend/selector"
 )
 
-// maxCandidateSkills is how many analyzed skills describe one Library résumé to the selector.
-const maxCandidateSkills = 20
+const (
+	// maxCandidateSkills is how many analyzed skills describe one Library résumé to the selector.
+	maxCandidateSkills = 20
+	// RecommendTopCount is how many ranked résumés Recommend returns.
+	RecommendTopCount = 3
+)
 
 // ErrNoPosting means the text Recommend was given is not a job posting.
 var ErrNoPosting = errors.New("No job description on this page")
@@ -22,42 +26,68 @@ type PostingMatcher interface {
 	MatchPosting(ctx context.Context, posting string, candidates []selector.Candidate) (selector.PostingMatch, error)
 }
 
+// Recommendation is the Library résumé to send and the closest alternatives.
+type Recommendation struct {
+	ResumeID string
+	Stack    string
+	Reason   string
+	// Top is the best-ranked résumés, most probable first; Top[0] is the pick.
+	Top []RankedResume
+}
+
+// RankedResume is one Library résumé and the selector's probability that it fits.
+type RankedResume struct {
+	ResumeID    string  `json:"resumeId"`
+	Stack       string  `json:"stack"`
+	Probability float64 `json:"probability"`
+}
+
 // Recommend picks the uploaded Library résumé for a posting and remembers it for
-// jobID. The matcher first confirms the text is a posting, then chooses among the
-// account's uploads by stack title and analyzed skills.
-func (s *Service) Recommend(ctx context.Context, accountID, posting, jobID string, matcher PostingMatcher) (id, stack, reason string, err error) {
+// jobID. The matcher confirms the text is a posting, then ranks every upload by
+// stack title and analyzed skills; the most probable one is recommended.
+func (s *Service) Recommend(ctx context.Context, accountID, posting, jobID string, matcher PostingMatcher) (Recommendation, error) {
 	if strings.TrimSpace(posting) == "" {
-		return "", "", "", fmt.Errorf("%w: job description is required", ErrInvalid)
+		return Recommendation{}, fmt.Errorf("%w: job description is required", ErrInvalid)
 	}
-	rows := uploadedLibrary(s.store.listLibrary(accountID))
+	rows := s.store.libraryCandidates(accountID)
 	if len(rows) == 0 {
-		return "", "", "", ErrNoLibrary
+		return Recommendation{}, ErrNoLibrary
 	}
+	byID := make(map[string]LibraryRow, len(rows))
 	candidates := make([]selector.Candidate, len(rows))
 	for i, row := range rows {
+		byID[row.ID] = row
 		candidates[i] = selector.Candidate{ID: row.ID, Description: describeLibraryRow(row)}
 	}
 	match, err := matcher.MatchPosting(ctx, posting, candidates)
 	if err != nil {
-		return "", "", "", fmt.Errorf("recommend: %w", err)
+		return Recommendation{}, fmt.Errorf("recommend: %w", err)
 	}
 	if !match.IsPosting {
-		return "", "", "", ErrNoPosting
+		return Recommendation{}, ErrNoPosting
 	}
-	if match.ID == "" {
-		return "", "", "", ErrNoLibrary
-	}
-	for _, row := range rows {
-		if row.ID != match.ID {
-			continue
+	top := make([]RankedResume, 0, RecommendTopCount)
+	for _, ranked := range match.Ranked {
+		if row, ok := byID[ranked.ID]; ok {
+			top = append(top, RankedResume{ResumeID: row.ID, Stack: row.Title, Probability: ranked.Probability})
 		}
-		reason = fmt.Sprintf("Matched the posting to the %s library résumé (%.0f%% sure).", row.Title, match.Confidence*100)
-		if jobID != "" {
-			s.store.rememberJob(accountID, jobID, row.ID)
+		if len(top) == RecommendTopCount {
+			break
 		}
-		return row.ID, row.Title, reason, nil
 	}
-	return "", "", "", ErrNoLibrary
+	if len(top) == 0 {
+		return Recommendation{}, ErrNoLibrary
+	}
+	best := top[0]
+	if jobID != "" {
+		s.store.rememberJob(accountID, jobID, best.ResumeID)
+	}
+	return Recommendation{
+		ResumeID: best.ResumeID,
+		Stack:    best.Stack,
+		Reason:   fmt.Sprintf("Best match of %d Library résumés: %s (%.0f%%).", len(rows), best.Stack, best.Probability*100),
+		Top:      top,
+	}, nil
 }
 
 func uploadedLibrary(rows []LibraryRow) []LibraryRow {

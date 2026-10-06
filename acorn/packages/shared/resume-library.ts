@@ -60,3 +60,24 @@ export type ResumePreviewPayload = {
   success: true;
   html: string;
 };
+
+/** One Library résumé Recommend ranked, with the SelectorGateway's probability it fits. */
+export type RecommendedResumeRank = {
+  resumeId: string;
+  stack: string;
+  probability: number;
+};
+
+/** Top ranks from a Recommend response; anything malformed is dropped. */
+export function readRecommendedTop(raw: unknown): RecommendedResumeRank[] {
+  if (!Array.isArray(raw)) return [];
+  return raw
+    .map((row) => {
+      const item = (row ?? {}) as Record<string, unknown>;
+      const resumeId = String(item.resumeId ?? "").trim();
+      const stack = String(item.stack ?? "").trim();
+      const probability = Number(item.probability);
+      return { resumeId, stack, probability: Number.isFinite(probability) ? probability : 0 };
+    })
+    .filter((row) => row.resumeId && row.stack);
+}

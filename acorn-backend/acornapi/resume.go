@@ -173,7 +173,7 @@ func (s *Server) startGenerateFor(w http.ResponseWriter, r *http.Request, jobID 
 	if !ok {
 		return
 	}
-	task, err := s.resumes.Enqueue(session.User.ID, s.identity(r, session, body.Identity), body.JobDescription, jobID, body.Checkpoint, model)
+	task, err := s.resumes.Enqueue(s.withUsage(r, session.User.ID), session.User.ID, s.identity(r, session, body.Identity), body.JobDescription, jobID, body.Checkpoint, model)
 	if err != nil {
 		s.writeResumeErr(w, err)
 		return
@@ -199,7 +199,7 @@ func (s *Server) continueGenerate(w http.ResponseWriter, r *http.Request) {
 	if !ok {
 		return
 	}
-	task, err := s.resumes.Continue(session.User.ID, r.PathValue("inputId"), s.identity(r, session, body.Identity), body.JobDescription, body.JobID, body.Checkpoint, model)
+	task, err := s.resumes.Continue(s.withUsage(r, session.User.ID), session.User.ID, r.PathValue("inputId"), s.identity(r, session, body.Identity), body.JobDescription, body.JobID, body.Checkpoint, model)
 	if err != nil {
 		s.writeResumeErr(w, err)
 		return
@@ -377,7 +377,7 @@ func (s *Server) analyzeLibrary(w http.ResponseWriter, r *http.Request) {
 	if !ok {
 		return
 	}
-	row, err := s.resumes.AnalyzeLibrary(r.Context(), session.User.ID, r.PathValue("resumeId"), body.Force, model)
+	row, err := s.resumes.AnalyzeLibrary(s.withUsage(r, session.User.ID), session.User.ID, r.PathValue("resumeId"), body.Force, model)
 	if err != nil {
 		s.writeResumeErr(w, err)
 		return
@@ -467,13 +467,14 @@ func (s *Server) recommendLibrary(w http.ResponseWriter, r *http.Request) {
 	if !ok {
 		return
 	}
-	id, stack, reason, err := s.resumes.Recommend(r.Context(), session.User.ID, body.JobDescription, body.JobID, gateway)
+	rec, err := s.resumes.Recommend(s.withUsage(r, session.User.ID), session.User.ID, body.JobDescription, body.JobID, gateway)
 	if err != nil {
 		s.writeResumeErr(w, err)
 		return
 	}
 	writeJSON(w, http.StatusOK, map[string]any{
-		"recommendedResumeId": id, "recommendedResumeStack": stack, "recommendedResumeReason": reason, "warning": nil,
+		"recommendedResumeId": rec.ResumeID, "recommendedResumeStack": rec.Stack, "recommendedResumeReason": rec.Reason,
+		"recommendedTop": rec.Top, "warning": nil,
 	})
 }
 

@@ -82,10 +82,13 @@ func (c *Client) JSON(ctx context.Context, system, user string, schema json.RawM
 
 	var last error
 	for attempt := 0; attempt < maxAttempts; attempt++ {
-		content, status, retryAfter, err := c.complete(ctx, body)
+		content, usage, status, retryAfter, err := c.complete(ctx, body)
 		if err == nil && status >= 200 && status < 300 {
 			if strings.TrimSpace(content) == "" {
 				return nil, fmt.Errorf("model returned an empty job")
+			}
+			if usage.Priced || usage.TotalTokens > 0 {
+				Note(ctx, usage)
 			}
 			return []byte(content), nil
 		}
@@ -143,36 +146,41 @@ func (c *Client) chatRequest(system, user string, schema json.RawMessage) chatRe
 	return request
 }
 
-func (c *Client) complete(ctx context.Context, body []byte) (string, int, string, error) {
+func (c *Client) complete(ctx context.Context, body []byte) (string, Usage, int, string, error) {
 	request, err := http.NewRequestWithContext(ctx, http.MethodPost, c.baseURL+"/chat/completions", bytes.NewReader(body))
 	if err != nil {
-		return "", 0, "", err
+		return "", Usage{}, 0, "", err
 	}
 	request.Header.Set("Authorization", "Bearer "+c.apiKey)
 	request.Header.Set("Content-Type", "application/json")
 
 	response, err := c.http.Do(request)
 	if err != nil {
-		return "", 0, "", err
+		return "", Usage{}, 0, "", err
 	}
 	defer response.Body.Close()
 
 	payload, err := io.ReadAll(io.LimitReader(response.Body, 1<<20))
 	if err != nil {
-		return "", response.StatusCode, "", err
+		return "", Usage{}, response.StatusCode, "", err
 	}
 	var decoded chatResponse
 	if err := json.Unmarshal(payload, &decoded); err != nil {
-		return "", response.StatusCode, response.Header.Get("Retry-After"), fmt.Errorf("read model response: %w", err)
+		return "", Usage{}, response.StatusCode, response.Header.Get("Retry-After"), fmt.Errorf("read model response: %w", err)
 	}
 	content := ""
 	if len(decoded.Choices) > 0 {
 		content = decoded.Choices[0].Message.Content
 	}
-	if decoded.Error != nil && decoded.Error.Message != "" && (response.StatusCode < 200 || response.StatusCode >= 300) {
-		return decoded.Error.Message, response.StatusCode, response.Header.Get("Retry-After"), nil
+	model := decoded.Model
+	if model == "" {
+		model = c.model
 	}
-	return content, response.StatusCode, response.Header.Get("Retry-After"), nil
+	usage, _ := ParseChatUsage(model, decoded.Usage)
+	if decoded.Error != nil && decoded.Error.Message != "" && (response.StatusCode < 200 || response.StatusCode >= 300) {
+		return decoded.Error.Message, Usage{}, response.StatusCode, response.Header.Get("Retry-After"), nil
+	}
+	return content, usage, response.StatusCode, response.Header.Get("Retry-After"), nil
 }
 
 func statusError(status int, message string) error {
@@ -215,6 +223,8 @@ type jsonSchemaBody struct {
 }
 
 type chatResponse struct {
+	Model   string          `json:"model"`
+	Usage   json.RawMessage `json:"usage"`
 	Choices []struct {
 		Message struct {
 			Content string `json:"content"`

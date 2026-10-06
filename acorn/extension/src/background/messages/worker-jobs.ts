@@ -1,46 +1,8 @@
 import { authHeaders, getAccessToken, getAcornApiUrl } from "../../auth/acorn-auth";
 import { openWorkerJobInTab } from "../../open-worker-job";
 import { findTabIdsForJob, getTabJob, unbindJobFromAllTabs } from "../../tab-job-session";
-import { mapAcornWorkerJobs } from "../../worker-job";
 import { closeTabsQuietly, resolvePreferredTabId } from "../tab-target";
 import type { RuntimeMessage, SendResponse } from "./shared";
-
-export function handleListWorkerJobs(sendResponse: SendResponse): void {
-  void (async () => {
-    try {
-      const token = await getAccessToken();
-      if (!token) {
-        sendResponse({ ok: false, error: "Sign in required", jobs: [] });
-        return;
-      }
-      const base = await getAcornApiUrl();
-      const res = await fetch(`${base}/acorn/jobs`, {
-        headers: await authHeaders(),
-      });
-      const data = (await res.json().catch(() => ({}))) as {
-        success?: boolean;
-        jobs?: unknown[];
-        message?: string;
-        error?: string;
-      };
-      if (!res.ok) {
-        sendResponse({
-          ok: false,
-          error: data.message || data.error || `Jobs failed (${res.status})`,
-          jobs: [],
-        });
-        return;
-      }
-      sendResponse({ ok: true, jobs: mapAcornWorkerJobs(data.jobs) });
-    } catch (err) {
-      sendResponse({
-        ok: false,
-        error: err instanceof Error ? err.message : String(err),
-        jobs: [],
-      });
-    }
-  })();
-}
 
 export function handleOpenWorkerJob(
   message: RuntimeMessage,

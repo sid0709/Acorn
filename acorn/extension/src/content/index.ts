@@ -2,7 +2,12 @@ import { MSG, PLAN_STEP_PAGE_TIMEOUT_MS, type PlanStepPayload } from "../types";
 import { serializeDom } from "./dom-serializer";
 import { resolveElementByNodeId } from "./element-resolver";
 import { executeActions, getElementContent } from "./action-runner";
-import { MIN_CHILD_FORM_CONTROLS, isAcornDomFrame, waitForFormSurface } from "./form-frame";
+import {
+  MIN_CHILD_FORM_CONTROLS,
+  formControlScore,
+  isAcornDomFrame,
+  waitForFormSurface,
+} from "./form-frame";
 import { clearHighlight, highlightElement } from "./highlighter";
 import { fillLeftoverComboboxes } from "./agents/leftover-combobox";
 import { scanFieldIssues } from "./field-errors";
@@ -36,9 +41,11 @@ if (!contentWindow[CONTENT_BOOT]) {
     if (message.type === MSG.FETCH_DOM) {
       void (async () => {
         const isTop = window === window.top;
+        // A posting read wants the page's text now, not a form that may still hydrate.
+        const posting = message.posting === true;
         const minScore = isTop ? 1 : MIN_CHILD_FORM_CONTROLS;
-        const score = await waitForFormSurface(minScore);
-        const acornFrame = isTop || score >= MIN_CHILD_FORM_CONTROLS;
+        const score = posting ? formControlScore() : await waitForFormSurface(minScore);
+        const acornFrame = posting || isTop || score >= MIN_CHILD_FORM_CONTROLS;
         if (!acornFrame) {
           sendResponse({
             skipped: true,

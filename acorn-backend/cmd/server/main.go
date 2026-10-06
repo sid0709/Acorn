@@ -11,12 +11,14 @@ import (
 	"github.com/sid0709/OpenSeat/acorn-backend/account"
 	"github.com/sid0709/OpenSeat/acorn-backend/acorn"
 	"github.com/sid0709/OpenSeat/acorn-backend/acornapi"
+	"github.com/sid0709/OpenSeat/acorn-backend/aiusage"
 	"github.com/sid0709/OpenSeat/acorn-backend/debugtrace"
 	"github.com/sid0709/OpenSeat/acorn-backend/profile"
 	"github.com/sid0709/OpenSeat/acorn-backend/resume"
 	"github.com/sid0709/OpenSeat/backend-core/config"
 	"github.com/sid0709/OpenSeat/backend-core/google"
 	"github.com/sid0709/OpenSeat/backend-core/httpkit"
+	"github.com/sid0709/OpenSeat/backend-core/jev"
 	"github.com/sid0709/OpenSeat/backend-core/platform"
 )
 
@@ -89,6 +91,11 @@ func main() {
 		slog.Error("acorn profiles", "error", err)
 		os.Exit(1)
 	}
+	usage := aiusage.NewStore(p.Mongo(), db.DestDB)
+	if err := usage.EnsureIndexes(context.Background()); err != nil {
+		slog.Error("acorn ai usage", "error", err)
+		os.Exit(1)
+	}
 	// Local debug capture: pages, profiles, prompts, and plans land on disk. Never set in production.
 	debug := debugtrace.New(config.Env("ACORN_DEBUG_DIR", ""))
 	if debug != nil {
@@ -106,8 +113,12 @@ func main() {
 		Google:            oauth,
 		GoogleRedirectURL: googleConfig.SignInRedirectURL,
 		Debug:             debug,
+		Usage:             usage,
 	})
 	defer gateway.Close()
+
+	// The SelectorGateway's first Jev decision would otherwise open the TLS connection.
+	go jev.Warm(context.Background())
 
 	handler := routes(server.Origins, httpkit.Health(p.Jobs), acornHandler, slog.Default(), reporter)
 	if err := httpkit.Serve("acorn api", server.Addr, handler); err != nil {

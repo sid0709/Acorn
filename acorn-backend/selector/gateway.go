@@ -8,6 +8,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"sort"
 	"strings"
 
 	"github.com/sid0709/OpenSeat/backend-core/jev"
@@ -19,9 +20,8 @@ const (
 	resumeQuestion  = "resume"
 
 	// notListedKey lets Jev say the intended answer is missing from a list that may be partial.
-	notListedKey = "not_listed"
-	// noResumeKey lets Jev say no Library résumé fits the posting.
-	noResumeKey = "none"
+	notListedKey    = "not_listed"
+	resumeKeyPrefix = "resume"
 
 	// postingThreshold is the P(yes) at or above which the page counts as a job posting.
 	postingThreshold = 0.5
@@ -121,6 +121,68 @@ func (g *Gateway) PickOption(ctx context.Context, q OptionQuery) (OptionPick, er
 	return pick, nil
 }
 
+// MaxCheckboxOptions bounds one checkbox decision: each box is its own yes/no question.
+const MaxCheckboxOptions = 64
+
+// checkThreshold is a yes/no answer's own midpoint: P(check) above it means "check".
+const checkThreshold = 0.5
+
+// ManyPick is the set of boxes to check in a checkbox group, in list order.
+type ManyPick struct {
+	Options []string
+	Usage   jev.Usage
+}
+
+// PickMany decides a checkbox group: one yes/no question per box, all in one Jev
+// call. Every box Jev answers yes is checked; when it answers no to all of them,
+// the most probable box is checked so the group is never left empty.
+func (g *Gateway) PickMany(ctx context.Context, q OptionQuery) (ManyPick, error) {
+	options := uniqueTrimmed(q.Options)
+	if strings.TrimSpace(q.Intended) == "" || len(options) == 0 {
+		return ManyPick{}, fmt.Errorf("%w: intended value and options are required", ErrInvalid)
+	}
+	if len(options) > MaxCheckboxOptions {
+		options = options[:MaxCheckboxOptions]
+	}
+	keys, _ := keyed(options, "option")
+	questions := make(map[string]jev.Question, len(options))
+	for key, label := range keys {
+		questions[key] = jev.Question{
+			Type:         jev.TypeNoul,
+			Instructions: "Should the applicant check the box \"" + clip(label, maxDescription) + "\" in this checkbox group? Check every box that matches the intended answer or the applicant profile.",
+			Criteria: map[string]string{
+				"true":  "Check it: it is part of the applicant's answer.",
+				"false": "Leave it unchecked: it is not part of the applicant's answer.",
+			},
+		}
+	}
+	res, err := g.decider.Decide(ctx, jev.Request{State: optionState(q), Questions: questions})
+	if err != nil {
+		return ManyPick{}, err
+	}
+	pick := ManyPick{Usage: res.Usage}
+	best, bestP := "", -1.0
+	for i, label := range options {
+		answer, ok := res.Answers[fmt.Sprintf("option_%d", i)]
+		if !ok || answer.Noul == nil {
+			continue
+		}
+		if *answer.Noul > checkThreshold {
+			pick.Options = append(pick.Options, label)
+		}
+		if *answer.Noul > bestP {
+			best, bestP = label, *answer.Noul
+		}
+	}
+	if len(pick.Options) == 0 && best != "" {
+		pick.Options = []string{best}
+	}
+	if len(pick.Options) == 0 {
+		return ManyPick{}, errors.New("jev returned no checkbox answers")
+	}
+	return pick, nil
+}
+
 func optionState(q OptionQuery) string {
 	lines := []string{
 		"Form field: " + firstNonEmpty(q.Field, "(unlabeled)"),
@@ -153,32 +215,37 @@ type Candidate struct {
 	Description string
 }
 
-// PostingMatch says whether the text is a job posting and which candidate fits it.
-// ID is "" when the text is not a posting or nothing fits.
+// Ranked is one candidate and Jev's probability that it is the best fit.
+type Ranked struct {
+	ID          string
+	Probability float64
+}
+
+// PostingMatch says whether the text is a job posting and ranks every candidate,
+// most probable first. Ranked[0] is the pick; there is no threshold and no "none".
 type PostingMatch struct {
 	IsPosting  bool
 	PostingP   float64
-	ID         string
+	Ranked     []Ranked
 	Confidence float64
 	Usage      jev.Usage
 }
 
-// MatchPosting asks Jev, in one call, whether the text is a job posting and which
-// candidate résumé fits it best.
+// MatchPosting asks Jev, in one call, whether the text is a job posting and how
+// well each candidate résumé fits it.
 func (g *Gateway) MatchPosting(ctx context.Context, posting string, candidates []Candidate) (PostingMatch, error) {
 	posting = strings.TrimSpace(posting)
 	if posting == "" || len(candidates) == 0 {
 		return PostingMatch{}, fmt.Errorf("%w: posting text and candidates are required", ErrInvalid)
 	}
-	if len(candidates) > jev.MaxChoiceOptions-1 {
-		candidates = candidates[:jev.MaxChoiceOptions-1]
+	if len(candidates) > jev.MaxChoiceOptions {
+		candidates = candidates[:jev.MaxChoiceOptions]
 	}
 	descriptions := make([]string, len(candidates))
 	for i, candidate := range candidates {
 		descriptions[i] = candidate.Description
 	}
-	_, criteria := keyed(descriptions, "resume")
-	criteria[noResumeKey] = "None of these résumés fits the role in this posting."
+	_, criteria := keyed(descriptions, resumeKeyPrefix)
 
 	res, err := g.decider.Decide(ctx, jev.Request{
 		State: posting,
@@ -211,12 +278,28 @@ func (g *Gateway) MatchPosting(ctx context.Context, posting string, candidates [
 		return PostingMatch{}, errors.New("jev returned no résumé answer")
 	}
 	match.Confidence = answer.Confidence
-	if match.IsPosting && answer.Choice != noResumeKey {
-		if index, ok := keyIndex(answer.Choice, "resume"); ok && index < len(candidates) {
-			match.ID = candidates[index].ID
+	match.Ranked = rank(candidates, answer)
+	return match, nil
+}
+
+// rank orders every candidate by Jev's probability; Jev's own choice wins a tie.
+func rank(candidates []Candidate, answer jev.Answer) []Ranked {
+	ranked := make([]Ranked, len(candidates))
+	chosen := -1
+	for i, candidate := range candidates {
+		key := fmt.Sprintf("%s_%d", resumeKeyPrefix, i)
+		ranked[i] = Ranked{ID: candidate.ID, Probability: answer.Probabilities[key]}
+		if key == answer.Choice {
+			chosen = i
 		}
 	}
-	return match, nil
+	sort.SliceStable(ranked, func(i, j int) bool {
+		if ranked[i].Probability != ranked[j].Probability {
+			return ranked[i].Probability > ranked[j].Probability
+		}
+		return chosen >= 0 && ranked[i].ID == candidates[chosen].ID
+	})
+	return ranked
 }
 
 // keyed gives each value a short stable key ("option_0", …). Jev answers with the
@@ -230,14 +313,6 @@ func keyed(values []string, prefix string) (map[string]string, map[string]string
 		criteria[key] = clip(value, maxDescription)
 	}
 	return keys, criteria
-}
-
-func keyIndex(key, prefix string) (int, bool) {
-	var index int
-	if _, err := fmt.Sscanf(key, prefix+"_%d", &index); err != nil {
-		return 0, false
-	}
-	return index, true
 }
 
 // bestKey is the most probable key that names a listed value.

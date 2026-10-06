@@ -13,6 +13,7 @@ import (
 
 	"github.com/sid0709/OpenSeat/acorn-backend/account"
 	"github.com/sid0709/OpenSeat/acorn-backend/acorn"
+	"github.com/sid0709/OpenSeat/acorn-backend/aiusage"
 	"github.com/sid0709/OpenSeat/acorn-backend/acornapi/gateway"
 	"github.com/sid0709/OpenSeat/acorn-backend/debugtrace"
 	"github.com/sid0709/OpenSeat/acorn-backend/profile"
@@ -69,6 +70,7 @@ type Server struct {
 	profiles       *profile.Store
 	debug          *debugtrace.Recorder
 	selector       *selector.Gateway
+	usage          *aiusage.Store
 }
 
 // Options are the Acorn API's settings. CORS is the server's: see acorn-backend/cmd/server.
@@ -92,6 +94,8 @@ type Options struct {
 	// Selector binds the SelectorGateway to one decision model (tests). Nil builds
 	// a Jev gateway per request on the account's OpenRouter key.
 	Selector *selector.Gateway
+	// Usage stores per-tab AI call history. Nil answers an empty list.
+	Usage *aiusage.Store
 }
 
 func New(accounts Accounts, listings *jobs.Store, brain *acorn.Service, opts Options) (http.Handler, *gateway.Gateway) {
@@ -100,7 +104,7 @@ func New(accounts Accounts, listings *jobs.Store, brain *acorn.Service, opts Opt
 		cookie: opts.SessionCookie, switches: opts.KillSwitches,
 		google: opts.Google, googleRedirect: opts.GoogleRedirectURL,
 		resumes: opts.Resumes, profiles: opts.Profiles, debug: opts.Debug,
-		selector: opts.Selector,
+		selector: opts.Selector, usage: opts.Usage,
 	}
 	if s.debug != nil {
 		brain.SetTracer(debugtrace.Tracer())
@@ -136,7 +140,7 @@ func New(accounts Accounts, listings *jobs.Store, brain *acorn.Service, opts Opt
 		mux.HandleFunc("POST /acorn/debug/log", s.debugLog)
 	}
 
-	mux.HandleFunc("GET /acorn/jobs", s.listJobs)
+	mux.HandleFunc("GET /acorn/ai-usage", s.listAIUsage)
 	mux.HandleFunc("GET /acorn/jobs/{jobId}", s.getJob)
 	mux.HandleFunc("POST /acorn/jobs/{jobId}/generate", s.requireAI(s.generateForJob))
 	mux.HandleFunc("POST /acorn/jobs/{jobId}/mark-applied", s.markApplied)

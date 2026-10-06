@@ -81,10 +81,11 @@ export async function runResumeGenerate(args: {
   apiUrl: string;
   continue?: boolean;
   jobId?: string | null;
+  tabId?: number | null;
   loadJd: () => Promise<{ jobDescription: string; title?: string; url?: string }>;
   store: ResumeGenerateStore;
 }): Promise<void> {
-  const { source, apiUrl, jobId, loadJd, store } = args;
+  const { source, apiUrl, jobId, tabId, loadJd, store } = args;
   const existing = args.continue ? await store.readCheckpoint() : null;
   const resumable = args.continue && existing && canContinueGenerate("failed", existing);
 
@@ -172,6 +173,7 @@ export async function runResumeGenerate(args: {
                 checkpoint: enqueueCheckpoint,
               },
               apiUrl,
+              tabId,
             )
           : enqueueCustomGenerate(
               {
@@ -180,6 +182,7 @@ export async function runResumeGenerate(args: {
                 checkpoint: resumable ? enqueueCheckpoint : null,
               },
               apiUrl,
+              tabId,
             );
       const { inputId } = await enqueue;
       checkpoint = {

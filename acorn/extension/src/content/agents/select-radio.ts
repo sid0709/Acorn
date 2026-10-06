@@ -1,5 +1,10 @@
 import { inferElementRole } from "../verify-element";
-import { choiceOptionLabel, findVisibleChoiceOption, isProxyControl } from "./choice-group";
+import {
+  choiceOptionLabel,
+  findVisibleChoiceOption,
+  inputOptionLabel,
+  isProxyControl,
+} from "./choice-group";
 import { isChoiceSelected } from "./choice-state";
 import { findAssociatedCombobox, findComboboxForOption } from "./enhanced-select";
 import { fillNativeSelect } from "./native-select";
@@ -10,32 +15,10 @@ function normalize(text: string): string {
   return text.replace(/\s+/g, " ").trim().toLowerCase();
 }
 
-function optionLabel(el: Element): string {
-  const html = el as HTMLElement;
-  const id = html.id;
-  const byFor =
-    id && html.ownerDocument
-      ? html.ownerDocument.querySelector(`label[for="${CSS.escape(id)}"]`)?.textContent
-      : null;
-  const wrapping = html.closest("label")?.textContent;
-  return (
-    html.getAttribute("aria-label") ||
-    byFor ||
-    wrapping ||
-    html.getAttribute("value") ||
-    (html instanceof HTMLInputElement ? html.value : "") ||
-    html.innerText ||
-    html.textContent ||
-    ""
-  )
-    .replace(/\s+/g, " ")
-    .trim();
-}
-
 function labelsMatch(option: Element, value: string): boolean {
   const n = normalize(value);
   if (!n) return false;
-  const label = normalize(optionLabel(option));
+  const label = normalize(inputOptionLabel(option));
   const rawValue = option instanceof HTMLInputElement ? normalize(option.value) : "";
   return label === n || rawValue === n || label.includes(n) || n.includes(label);
 }
@@ -100,7 +83,7 @@ function findButtonChoice(root: ParentNode, value: string): HTMLElement | null {
 
 function ensureChecked(el: HTMLInputElement, intended?: string): string {
   if (!el.checked) pointerActivate(el, intended);
-  return optionLabel(el) || el.value || "checked";
+  return inputOptionLabel(el) || el.value || "checked";
 }
 
 /**
@@ -126,7 +109,7 @@ export async function selectRadioElement(el: Element, value: string | null): Pro
   // Planner often targets role=option nodes for custom dropdowns — drive the parent combobox.
   const explicitAriaRole = (html.getAttribute("role") || "").toLowerCase();
   if (explicitAriaRole === "option" || el instanceof HTMLOptionElement) {
-    const label = intended || optionLabel(html);
+    const label = intended || inputOptionLabel(html);
 
     if (el instanceof HTMLOptionElement) {
       const select = el.closest("select");
@@ -136,7 +119,7 @@ export async function selectRadioElement(el: Element, value: string | null): Pro
         select.value = el.value;
         select.dispatchEvent(new Event("input", { bubbles: true }));
         select.dispatchEvent(new Event("change", { bubbles: true }));
-        return optionLabel(el) || label;
+        return inputOptionLabel(el) || label;
       }
     }
 
@@ -146,11 +129,11 @@ export async function selectRadioElement(el: Element, value: string | null): Pro
     const visible = findDisplayedOption(html.closest('[role="listbox"]'), label);
     if (visible) {
       pointerActivate(visible);
-      return optionLabel(visible) || label;
+      return inputOptionLabel(visible) || label;
     }
     if (isDisplayed(html)) {
       pointerActivate(html);
-      return optionLabel(html) || label;
+      return inputOptionLabel(html) || label;
     }
     throw new Error(`Dropdown option "${label}" is not open — no combobox trigger found`);
   }
@@ -199,14 +182,14 @@ export async function selectRadioElement(el: Element, value: string | null): Pro
         html.getAttribute("aria-checked") === "true" ||
         html.getAttribute("aria-pressed") === "true";
       if (!pressed) pointerActivate(html);
-      return optionLabel(html) || "checked";
+      return inputOptionLabel(html) || "checked";
     }
   }
 
   // Custom choice buttons: the planned node is the option to activate.
   if (el instanceof HTMLButtonElement && intended && labelsMatch(html, intended)) {
     pointerActivate(html);
-    return optionLabel(html) || intended;
+    return inputOptionLabel(html) || intended;
   }
 
   if (intended) {
@@ -218,12 +201,12 @@ export async function selectRadioElement(el: Element, value: string | null): Pro
     const aria = findAriaChoice(root, intended);
     if (aria) {
       pointerActivate(aria);
-      return optionLabel(aria) || intended;
+      return inputOptionLabel(aria) || intended;
     }
     const button = findButtonChoice(root, intended);
     if (button) {
       pointerActivate(button);
-      return optionLabel(button) || intended;
+      return inputOptionLabel(button) || intended;
     }
   }
 
@@ -240,5 +223,5 @@ export async function selectRadioElement(el: Element, value: string | null): Pro
   }
 
   pointerActivate(html);
-  return optionLabel(el) || "clicked";
+  return inputOptionLabel(el) || "clicked";
 }

@@ -69,6 +69,29 @@ export function isProxyControl(el: Element): boolean {
   return !hasClickableBox(el);
 }
 
+/** A native or ARIA option's label: aria-label, its <label>, then its value or text. */
+export function inputOptionLabel(el: Element): string {
+  const html = el as HTMLElement;
+  const id = html.id;
+  const byFor =
+    id && html.ownerDocument
+      ? html.ownerDocument.querySelector(`label[for="${CSS.escape(id)}"]`)?.textContent
+      : null;
+  const wrapping = html.closest("label")?.textContent;
+  return (
+    html.getAttribute("aria-label") ||
+    byFor ||
+    wrapping ||
+    html.getAttribute("value") ||
+    (html instanceof HTMLInputElement ? html.value : "") ||
+    html.innerText ||
+    html.textContent ||
+    ""
+  )
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
 /** The option's own label — what the person reads on the control. */
 export function choiceOptionLabel(el: Element): string {
   const html = el as HTMLElement;
