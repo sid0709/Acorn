@@ -6,13 +6,19 @@ import (
 	"strings"
 )
 
-const googleFontsHref = "https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700&family=JetBrains+Mono:wght@400;600&family=Lato:wght@400;700&family=Lora:wght@400;700&family=Merriweather:wght@400;700&family=Open+Sans:wght@400;600;700&family=PT+Serif:wght@400;700&family=Roboto+Mono:wght@400;600&family=Roboto:wght@400;500;700&family=Source+Sans+3:wght@400;600;700&family=Source+Serif+4:wght@400;600;700&display=swap"
+// Sheet sizes for the preview page, so a short draft still reads as a full page.
+const (
+	letterWidth  = "8.5in"
+	letterHeight = "11in"
+	a4Width      = "210mm"
+	a4Height     = "297mm"
+)
 
 func renderHTML(identity Identity, sections map[string]any, cfg map[string]any) string {
 	theme := asRecord(cfg["theme"])
 	font := asString(theme["font"])
 	if font == "" {
-		font = "Georgia"
+		font = defaultFont
 	}
 	accent := asString(theme["accent"])
 	if accent == "" {
@@ -34,13 +40,13 @@ func renderHTML(identity Identity, sections map[string]any, cfg map[string]any) 
 	} else {
 		body.WriteString(builtinHTML(identity, content, templateID, accent, text, align))
 	}
-	width := "8.5in"
+	width, height := letterWidth, letterHeight
 	if asString(theme["paper"]) == "a4" {
-		width = "210mm"
+		width, height = a4Width, a4Height
 	}
 	return fmt.Sprintf(`<!doctype html><html><head><meta charset="utf-8"><link rel="stylesheet" href="%s"><style>
-body{margin:0;background:#f4f4f5;color:%s;font-family:%s,serif;}
-.page{width:%s;max-width:100%%;margin:24px auto;background:#fff;padding:0.6in;box-sizing:border-box;}
+body{margin:0;background:#f4f4f5;color:%s;font-family:%s;}
+.page{width:%s;min-height:%s;max-width:100%%;margin:24px auto;background:#fff;padding:0.6in;box-sizing:border-box;}
 h1{font-size:24pt;margin:0 0 4px;font-weight:700;}
 .contact{font-size:10.5pt;margin-bottom:16px;}
 h2{font-size:12pt;letter-spacing:.08em;margin:18px 0 8px;}
@@ -50,17 +56,7 @@ ul{margin:4px 0 0 18px;padding:0;}
 .side{width:34%%;}
 .main{flex:1;}
 </style></head><body><div class="page">%s</div></body></html>`,
-		googleFontsHref, html.EscapeString(text), html.EscapeString(fontStack(font)), width, body.String())
-}
-
-func fontStack(name string) string {
-	if strings.Contains(name, ",") {
-		return name
-	}
-	if strings.Contains(name, " ") {
-		return `"` + name + `"`
-	}
-	return name
+		googleFontsHref, cssValue(text), cssValue(fontStack(font)), width, height, body.String())
 }
 
 func builtinHTML(identity Identity, content generatedContent, templateID, accent, text, align string) string {

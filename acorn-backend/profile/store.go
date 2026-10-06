@@ -23,6 +23,9 @@ const (
 	maxTimeline    = 24
 	maxResume      = 8 << 20
 	minResumeRunes = 40
+
+	defaultGender      = "Male"
+	defaultOrientation = "Heterosexual"
 )
 
 var (
@@ -59,7 +62,6 @@ type Document struct {
 	Orientation            string  `json:"orientation" bson:"orientation"`
 	Email                  string  `json:"email" bson:"email"`
 	Phone                  string  `json:"phone" bson:"phone"`
-	GmailAppPassword       string  `json:"gmailAppPassword" bson:"gmailAppPassword"`
 	Street                 string  `json:"street" bson:"street"`
 	City                   string  `json:"city" bson:"city"`
 	State                  string  `json:"state" bson:"state"`
@@ -182,11 +184,16 @@ func normalize(doc Document) Document {
 	doc.LastName = clip(doc.LastName, maxName)
 	doc.Age = clip(doc.Age, 3)
 	doc.Gender = clip(doc.Gender, maxContact)
+	if doc.Gender == "" {
+		doc.Gender = defaultGender
+	}
 	doc.Pronouns = clip(doc.Pronouns, maxContact)
 	doc.Orientation = clip(doc.Orientation, maxContact)
+	if doc.Orientation == "" {
+		doc.Orientation = defaultOrientation
+	}
 	doc.Email = clip(doc.Email, maxContact)
 	doc.Phone = clip(doc.Phone, maxContact)
-	doc.GmailAppPassword = clip(doc.GmailAppPassword, maxSecret)
 	doc.Street = clip(doc.Street, maxContact)
 	doc.City = clip(doc.City, maxContact)
 	doc.State = clip(doc.State, maxContact)

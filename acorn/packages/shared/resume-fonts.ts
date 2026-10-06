@@ -73,8 +73,9 @@ export function resumeFontStack(name: string): string {
   return `${quoted}, ${generic}`;
 }
 
+/** Same families and weights as acorn-backend/resume/fonts.go, which renders the preview. */
 export const RESUME_GOOGLE_FONTS_HREF =
-  "https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700&family=JetBrains+Mono:wght@400;600&family=Lato:wght@400;700&family=Lora:wght@400;700&family=Merriweather:wght@400;700&family=Open+Sans:wght@400;600;700&family=PT+Serif:wght@400;700&family=Roboto+Mono:wght@400;600&family=Roboto:wght@400;500;700&family=Source+Sans+3:wght@400;600;700&family=Source+Serif+4:wght@400;600;700&display=swap";
+  "https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Source+Sans+3:wght@400;600;700&family=Roboto:wght@400;500;700&family=Open+Sans:wght@400;600;700&family=Lato:wght@400;700&family=Source+Serif+4:wght@400;600;700&family=Merriweather:wght@400;700&family=Lora:wght@400;600;700&family=PT+Serif:wght@400;700&family=Roboto+Mono:wght@400;500;700&family=JetBrains+Mono:wght@400;700&display=swap";
 
 export const RESUME_PALETTES: { name: string; accent: string; text: string }[] = [
   { name: "Navy", accent: "#1f3a5f", text: "#1a1a1a" },

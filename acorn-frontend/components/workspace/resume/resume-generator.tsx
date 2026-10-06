@@ -1,16 +1,14 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import {
   Banner,
   Button,
-  FileUploader,
+  Glyph,
   GridColumn,
   GridSystem,
-  HStack,
   ProgressBar,
   SectionCard,
-  Selector,
   Stack,
   Text,
   TextArea,
@@ -18,66 +16,66 @@ import {
 import type { AcornAccount } from "@/lib/auth/session";
 import {
   deleteResumeTemplate,
+  downloadGeneration,
   listResumeTemplates,
   loadResumeConfig,
-  pollResumeGenerate,
-  previewGeneration,
   previewResume,
   saveResumeConfig,
-  startResumeGenerate,
   uploadResumeTemplate,
 } from "@/lib/resume/api";
+import { FALLBACK_TEMPLATE_ID, PREVIEW_DEBOUNCE_MS, withTemplate } from "@/lib/resume/design";
 import { identityFrom } from "@/lib/resume/identity";
 import { JOB_DESCRIPTION_MAX, JOB_DESCRIPTION_ROWS } from "@/lib/workspace/model";
 import { sampleProfile } from "@/lib/workspace/profile";
-import { RESUME_FONT_OPTIONS, RESUME_PALETTES, resumeFontStack } from "@acorn/shared/resume-fonts";
+import { bytesToBase64, saveBase64File } from "@/lib/workspace/resume-file";
 import {
   defaultResumeConfig,
   mergeStoredResumeConfig,
   type ResumeGeneratorConfig,
 } from "@acorn/shared/resume-config";
+import { resumeSampleSections } from "@acorn/shared/resume-samples";
 import {
-  RESUME_TEMPLATES,
   isUploadedTemplateId,
   resumeTemplateById,
   uploadedTemplateId,
 } from "@acorn/shared/resume-templates";
-import { RESUME_TEMPLATE_ACCEPT, RESUME_TEMPLATE_MAX_BYTES } from "@acorn/shared/resume-library";
+import { DesignCard } from "./design-card";
+import { LivePreview, type PreviewStage } from "./live-preview";
+import { TemplateGallery, type UploadedTemplate } from "./template-gallery";
+import { GENERATE_STEPS, useResumeGenerate } from "./use-resume-generate";
 import { useResumes } from "./use-resumes";
+import { useTemplateThumbs } from "./use-template-thumbs";
 
-const POLL_MS = 800;
-const MAX_POLLS = 45;
-const GENERATE_STEPS = 5;
+/** Design choices persist on their own after this pause, so they survive a reload. */
+const CONFIG_SAVE_DEBOUNCE_MS = 800;
 
-type Uploaded = { id: string; name: string; warnings: string[] };
+const PAPER_LABEL = { letter: "US Letter · 8.5 × 11 in", a4: "A4 · 210 × 297 mm" } as const;
 
-function fileBase64(file: File): Promise<string> {
-  return file.arrayBuffer().then((buffer) => {
-    const bytes = new Uint8Array(buffer);
-    let binary = "";
-    bytes.forEach((byte) => {
-      binary += String.fromCharCode(byte);
-    });
-    return btoa(binary);
-  });
-}
-
-/** Template, font, uploaded DOCX, job description, and a live preview of the generated résumé. */
+/** Live page on one side, design and posting on the other — the Athens generator layout on sid-ui. */
 export function ResumeGenerator({ account }: { account: AcornAccount }) {
   const { workspace } = useResumes();
   const profile = workspace.profile ?? sampleProfile(account);
+  const identity = identityFrom(account, profile);
   const [config, setConfig] = useState<ResumeGeneratorConfig>(defaultResumeConfig);
-  const [uploads, setUploads] = useState<Uploaded[]>([]);
+  const [loaded, setLoaded] = useState(false);
+  const [uploads, setUploads] = useState<UploadedTemplate[]>([]);
+  const [uploading, setUploading] = useState(false);
+  const [galleryOpen, setGalleryOpen] = useState(false);
   const [description, setDescription] = useState("");
   const [html, setHtml] = useState("");
   const [error, setError] = useState("");
-  const [busy, setBusy] = useState("");
-  const [doneSteps, setDoneSteps] = useState(0);
+  const [downloading, setDownloading] = useState(false);
+  const run = useResumeGenerate(setError);
+  const thumbs = useTemplateThumbs(galleryOpen, identity, config);
+  const previewSeq = useRef(0);
 
-  const identity = identityFrom(account, profile);
+  const uploadedTemplate = isUploadedTemplateId(config.templateId)
+    ? uploads.find((item) => uploadedTemplateId(item.id) === config.templateId)
+    : undefined;
   const template = resumeTemplateById(
-    isUploadedTemplateId(config.templateId) ? "classic" : config.templateId,
+    isUploadedTemplateId(config.templateId) ? FALLBACK_TEMPLATE_ID : config.templateId,
   );
+  const identityKey = JSON.stringify(identity);
 
   useEffect(() => {
     let cancel = false;
@@ -86,47 +84,50 @@ export function ResumeGenerator({ account }: { account: AcornAccount }) {
       if (cancel) return;
       if (stored.ok) setConfig(mergeStoredResumeConfig(stored.data.config));
       if (templates.ok) setUploads(templates.data.templates);
+      setLoaded(true);
     })();
     return () => {
       cancel = true;
     };
   }, []);
 
-  const patch = (next: ResumeGeneratorConfig) => setConfig(next);
+  // Re-render the page whenever the design, the person, or the written sections change.
+  useEffect(() => {
+    const seq = ++previewSeq.current;
+    const timer = setTimeout(() => {
+      void (async () => {
+        const result = await previewResume({
+          identity,
+          config,
+          sections: run.sections ?? resumeSampleSections(identity),
+        });
+        if (seq === previewSeq.current && result.ok) setHtml(result.data.html);
+      })();
+    }, PREVIEW_DEBOUNCE_MS);
+    return () => clearTimeout(timer);
+    // identity is rebuilt every render; its serialized form is the real dependency.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [config, run.sections, identityKey]);
 
-  const chooseTemplate = (id: string) => {
-    const picked = resumeTemplateById(id);
-    patch({
-      ...config,
-      templateId: id,
-      theme: {
-        ...config.theme,
-        font: picked.defaults?.font ?? config.theme.font,
-        accent: picked.defaults?.accent ?? config.theme.accent,
-        headerAlign: picked.defaultHeaderAlign,
-      },
-    });
-  };
+  useEffect(() => {
+    if (!loaded) return;
+    const timer = setTimeout(() => void saveResumeConfig(config), CONFIG_SAVE_DEBOUNCE_MS);
+    return () => clearTimeout(timer);
+  }, [config, loaded]);
 
-  const refreshPreview = async (
-    next: ResumeGeneratorConfig,
-    sections?: Record<string, unknown>,
-  ) => {
-    const result = await previewResume({ identity, config: next, sections });
-    if (result.ok) setHtml(result.data.html);
-  };
+  const chooseTemplate = (id: string) => setConfig((current) => withTemplate(current, id));
 
   const upload = async (files: File[]) => {
     const file = files[0];
     if (!file) return;
-    setBusy("Uploading template");
+    setUploading(true);
     setError("");
     const result = await uploadResumeTemplate({
       name: file.name.replace(/\.docx$/i, ""),
       fileName: file.name,
-      contentBase64: await fileBase64(file),
+      contentBase64: bytesToBase64(new Uint8Array(await file.arrayBuffer())),
     });
-    setBusy("");
+    setUploading(false);
     if (!result.ok) {
       setError(result.message);
       return;
@@ -142,151 +143,59 @@ export function ResumeGenerator({ account }: { account: AcornAccount }) {
       return;
     }
     setUploads((current) => current.filter((item) => item.id !== id));
-    if (config.templateId === uploadedTemplateId(id)) chooseTemplate("classic");
+    if (config.templateId === uploadedTemplateId(id)) chooseTemplate(FALLBACK_TEMPLATE_ID);
   };
 
-  const generate = async () => {
+  const generate = () => {
     const jobDescription = description.trim();
     if (!jobDescription) {
       setError("Paste the job description first.");
       return;
     }
     setError("");
-    setBusy("Saving design");
-    setDoneSteps(0);
-    const next = { ...config, jobDescription };
-    const saved = await saveResumeConfig(next);
-    if (!saved.ok) {
-      setBusy("");
-      setError(saved.message);
-      return;
-    }
-    setBusy("Generating");
-    const started = await startResumeGenerate({ jobDescription, identity });
-    if (!started.ok || !started.data.inputId) {
-      setBusy("");
-      setError(started.ok ? "Generate did not start." : started.message);
-      return;
-    }
-    for (let attempt = 0; attempt < MAX_POLLS; attempt += 1) {
-      const polled = await pollResumeGenerate(started.data.inputId);
-      if (!polled.ok) {
-        setBusy("");
-        setError(polled.message);
-        return;
-      }
-      const finished =
-        polled.data.progress?.steps.filter((step) => step.status === "done").length ?? 0;
-      setDoneSteps(finished);
-      if (polled.data.status === "failed") {
-        setBusy("");
-        setError(polled.data.error || "Generation failed.");
-        return;
-      }
-      if (polled.data.status === "completed" && polled.data.generationId) {
-        const view = await previewGeneration(polled.data.generationId);
-        setBusy("");
-        setDoneSteps(GENERATE_STEPS);
-        if (!view.ok) {
-          setError(view.message);
-          return;
-        }
-        setHtml(view.data.html);
-        return;
-      }
-      await new Promise((resolve) => setTimeout(resolve, POLL_MS));
-    }
-    setBusy("");
-    setError("Generation is still running. Open History in a moment.");
+    void run.generate(config, jobDescription, identity);
   };
 
-  const templateOptions = [
-    ...RESUME_TEMPLATES.map((item) => ({ value: item.id, label: item.name })),
-    ...uploads.map((item) => ({ value: uploadedTemplateId(item.id), label: item.name })),
-  ];
+  const download = async () => {
+    if (!run.generationId) return;
+    setDownloading(true);
+    const result = await downloadGeneration(run.generationId);
+    setDownloading(false);
+    if (!result.ok) {
+      setError(result.message);
+      return;
+    }
+    saveBase64File(result.data.name, result.data.base64);
+  };
+
+  const stage: PreviewStage = run.busy ? "writing" : run.generationId ? "ready" : "sample";
 
   return (
     <Stack gap={4}>
       {error ? (
         <Banner status="error" title="Couldn’t update the résumé" description={error} />
       ) : null}
-      <GridSystem gap={4} align="start">
+      <GridSystem gap={4} align="start" responsiveTo="viewport">
+        <GridColumn span="full" lg={7}>
+          <div className="resume-preview-column">
+            <LivePreview
+              html={html}
+              stage={stage}
+              paperLabel={`${template.name} · ${PAPER_LABEL[config.theme.paper]}`}
+              downloading={downloading}
+              onDownload={run.generationId && !run.busy ? () => void download() : undefined}
+            />
+          </div>
+        </GridColumn>
         <GridColumn span="full" lg={5}>
           <Stack gap={4}>
-            <SectionCard title="Design" description={template.blurb}>
-              <Stack gap={3}>
-                <Selector
-                  label="Template"
-                  value={config.templateId}
-                  options={templateOptions}
-                  onChange={chooseTemplate}
-                />
-                <Selector
-                  label="Font"
-                  value={config.theme.font}
-                  options={RESUME_FONT_OPTIONS.map((font) => ({
-                    value: font.value,
-                    label: font.label,
-                  }))}
-                  onChange={(font) => patch({ ...config, theme: { ...config.theme, font } })}
-                />
-                <Selector
-                  label="Palette"
-                  value={
-                    RESUME_PALETTES.find((item) => item.accent === config.theme.accent)?.name ??
-                    "Navy"
-                  }
-                  options={RESUME_PALETTES.map((item) => ({ value: item.name, label: item.name }))}
-                  onChange={(name) => {
-                    const palette = RESUME_PALETTES.find((item) => item.name === name);
-                    if (!palette) return;
-                    patch({
-                      ...config,
-                      theme: { ...config.theme, accent: palette.accent, text: palette.text },
-                    });
-                  }}
-                />
-                <Text type="supporting" color="secondary">
-                  {`Written for ${identity.fullName}. Edit the name on Profile.`}
-                </Text>
-                <Button
-                  label="Refresh preview"
-                  variant="secondary"
-                  onClick={() => void refreshPreview(config)}
-                />
-              </Stack>
-            </SectionCard>
-            <SectionCard
-              title="Uploaded template"
-              description="A .docx with {summary}, {skills}, {title1}, and {experience1}."
-            >
-              <Stack gap={3}>
-                <FileUploader
-                  label="DOCX template"
-                  accept={RESUME_TEMPLATE_ACCEPT}
-                  maxSize={RESUME_TEMPLATE_MAX_BYTES}
-                  maxFiles={1}
-                  onChange={(files) => void upload(files)}
-                />
-                {uploads.map((item) => (
-                  <HStack key={item.id} gap={2} vAlign="center">
-                    <Text weight="semibold">{item.name}</Text>
-                    <Button
-                      label="Use"
-                      variant="ghost"
-                      size="sm"
-                      onClick={() => chooseTemplate(uploadedTemplateId(item.id))}
-                    />
-                    <Button
-                      label="Remove"
-                      variant="ghost"
-                      size="sm"
-                      onClick={() => void removeUpload(item.id)}
-                    />
-                  </HStack>
-                ))}
-              </Stack>
-            </SectionCard>
+            <DesignCard
+              config={config}
+              templateName={uploadedTemplate?.name ?? template.name}
+              templateBlurb={uploadedTemplate ? "Your Word template" : template.blurb}
+              onChange={setConfig}
+              onBrowse={() => setGalleryOpen(true)}
+            />
             <SectionCard
               title="Job description"
               description="The model writes summary, skills, and experience for this posting."
@@ -296,46 +205,46 @@ export function ResumeGenerator({ account }: { account: AcornAccount }) {
                   label="Posting"
                   value={description}
                   rows={JOB_DESCRIPTION_ROWS}
+                  placeholder="Paste the full posting: role, responsibilities, requirements."
                   onChange={(value) => setDescription(value.slice(0, JOB_DESCRIPTION_MAX))}
                 />
-                {busy ? (
+                <Text type="supporting" color="secondary">
+                  {`Written for ${identity.fullName}. Edit your name and roles on Profile.`}
+                </Text>
+                {run.busy ? (
                   <ProgressBar
-                    label={busy}
-                    value={Math.round((doneSteps / GENERATE_STEPS) * 100)}
+                    label={run.busy}
+                    value={Math.round((run.doneSteps / GENERATE_STEPS) * 100)}
                     hasValueLabel
                     variant="accent"
                   />
                 ) : null}
                 <Button
-                  label={busy || "Generate"}
+                  label={
+                    run.busy ? "Generating…" : run.generationId ? "Generate again" : "Generate"
+                  }
                   variant="primary"
-                  isDisabled={Boolean(busy)}
-                  onClick={() => void generate()}
+                  icon={<Glyph name="sparkle" />}
+                  isLoading={Boolean(run.busy)}
+                  isDisabled={Boolean(run.busy)}
+                  onClick={generate}
                 />
               </Stack>
             </SectionCard>
           </Stack>
         </GridColumn>
-        <GridColumn span="full" lg={7}>
-          <SectionCard
-            title="Preview"
-            description={`Set in ${resumeFontStack(config.theme.font)}.`}
-          >
-            {html ? (
-              <iframe
-                title="Résumé preview"
-                srcDoc={html}
-                sandbox=""
-                className="resume-preview-frame"
-              />
-            ) : (
-              <Text color="secondary">
-                Generate to see the résumé, or refresh the preview for the header.
-              </Text>
-            )}
-          </SectionCard>
-        </GridColumn>
       </GridSystem>
+      <TemplateGallery
+        isOpen={galleryOpen}
+        onOpenChange={setGalleryOpen}
+        selectedId={config.templateId}
+        thumbs={thumbs}
+        uploads={uploads}
+        uploading={uploading}
+        onSelect={chooseTemplate}
+        onUpload={(files) => void upload(files)}
+        onRemoveUpload={(id) => void removeUpload(id)}
+      />
     </Stack>
   );
 }

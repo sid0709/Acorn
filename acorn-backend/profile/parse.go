@@ -9,7 +9,7 @@ import (
 var (
 	emailPattern    = regexp.MustCompile(`(?i)[A-Z0-9._%+\-]+@[A-Z0-9.\-]+\.[A-Z]{2,}`)
 	phonePattern    = regexp.MustCompile(`(?:\+?1[\s.\-]?)?(?:\(\d{3}\)|\d{3})[\s.\-]\d{3}[\s.\-]\d{4}`)
-	linkedinPattern = regexp.MustCompile(`(?i)https?://(?:www\.)?linkedin\.com/in/[^\s)]+`)
+	linkedinPattern = regexp.MustCompile(`(?i)(?:https?://)?(?:www\.)?linkedin\.com\s*/\s*in\s*/\s*([a-z0-9\-_%]+)`)
 	githubPattern   = regexp.MustCompile(`(?i)https?://(?:www\.)?github\.com/[^\s)]+`)
 	urlPattern      = regexp.MustCompile(`(?i)https?://[^\s)]+`)
 	sectionPattern  = regexp.MustCompile(`(?i)^(experience|work experience|employment|education|skills|summary|objective|projects|contact)\b`)
@@ -32,7 +32,7 @@ func MergeResume(current Document, text string) (Document, error) {
 	if found := phonePattern.FindString(text); found != "" {
 		next.Phone = found
 	}
-	linkedin := linkedinPattern.FindString(text)
+	linkedin := linkedinURL(text)
 	github := githubPattern.FindString(text)
 	if linkedin != "" {
 		next.Linkedin = linkedin
@@ -42,6 +42,20 @@ func MergeResume(current Document, text string) (Document, error) {
 	}
 	if site := otherURL(text, linkedin, github); site != "" {
 		next.Portfolio = site
+	}
+	if city, state, country, zip := placeFrom(lines); city != "" || state != "" || country != "" {
+		if city != "" {
+			next.City = city
+		}
+		if state != "" {
+			next.State = state
+		}
+		if country != "" {
+			next.Country = country
+		}
+		if zip != "" {
+			next.Zip = zip
+		}
 	}
 	if name := firstNameLine(lines); name != "" {
 		next.FullName = name
@@ -85,8 +99,17 @@ func firstNameLine(lines []string) string {
 	return ""
 }
 
+func linkedinURL(text string) string {
+	flat := strings.Join(strings.Fields(text), " ")
+	match := linkedinPattern.FindStringSubmatch(flat)
+	if len(match) < 2 || match[1] == "" {
+		return ""
+	}
+	return "https://www.linkedin.com/in/" + strings.Trim(match[1], "-_")
+}
+
 func looksLikeName(line string) bool {
-	if len(line) > 40 || sectionPattern.MatchString(line) || emailPattern.MatchString(line) || strings.ContainsAny(line, "0123456789") {
+	if len(line) > 40 || strings.Contains(line, ",") || sectionPattern.MatchString(line) || emailPattern.MatchString(line) || strings.ContainsAny(line, "0123456789") || countryName(line) != "" {
 		return false
 	}
 	words := strings.Fields(line)

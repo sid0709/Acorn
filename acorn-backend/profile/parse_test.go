@@ -6,9 +6,11 @@ import (
 )
 
 const sampleResume = `Jordan Avery Lee
+San Francisco, CA
+United States
 jordan@example.com
 (415) 555-0148
-https://www.linkedin.com/in/jordan
+linkedin.com/in/jordan
 https://github.com/jordan
 https://jordan.dev
 
@@ -39,8 +41,14 @@ func TestMergeResumeFillsContactAndTimeline(t *testing.T) {
 	if next.Email != "jordan@example.com" || next.Phone != "(415) 555-0148" {
 		t.Fatalf("contact = %s %s", next.Email, next.Phone)
 	}
-	if next.Linkedin == "" || next.Github == "" || next.Portfolio != "https://jordan.dev" {
+	if next.Linkedin != "https://www.linkedin.com/in/jordan" || next.Github == "" || next.Portfolio != "https://jordan.dev" {
 		t.Fatalf("links = %s %s %s", next.Linkedin, next.Github, next.Portfolio)
+	}
+	if next.City != "San Francisco" || next.State != "CA" || next.Country != "United States" {
+		t.Fatalf("place = %s %s %s", next.City, next.State, next.Country)
+	}
+	if next.Gender != "Male" || next.Orientation != "Heterosexual" {
+		t.Fatalf("defaults = %s %s", next.Gender, next.Orientation)
 	}
 	if len(next.Timeline) < 3 {
 		t.Fatalf("timeline = %+v", next.Timeline)
@@ -55,6 +63,19 @@ func TestMergeResumeFillsContactAndTimeline(t *testing.T) {
 	}
 	if next.VisaSponsorship != "" || next.OpenaiApiKey != "" {
 		t.Fatal("résumé text must not invent disclosures or secrets")
+	}
+}
+
+func TestPlaceReadsStateNameAndZip(t *testing.T) {
+	next, err := MergeResume(Blank("Ada Lovelace", "ada@example.com"), "Ada Lovelace\nada@example.com\nAustin, Texas 78701\nhttps://linkedin.com/in/ada-lovelace\nExperience\nAnalytical Engines\nMathematician\nJan 2018 - Present\nWrote notes.\n")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if next.City != "Austin" || next.State != "TX" || next.Country != "United States" || next.Zip != "78701" {
+		t.Fatalf("place = %s %s %s %s", next.City, next.State, next.Country, next.Zip)
+	}
+	if next.Linkedin != "https://www.linkedin.com/in/ada-lovelace" {
+		t.Fatalf("linkedin = %s", next.Linkedin)
 	}
 }
 

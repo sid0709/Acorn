@@ -8,7 +8,6 @@ import {
   LINK_MAX,
   ORIENTATION_OPTIONS,
   PRONOUN_OPTIONS,
-  SECRET_MAX,
   type ApplicantProfile,
   type SetProfileField,
 } from "@/lib/workspace/profile";
@@ -81,13 +80,6 @@ export function IdentityForm({
           label="Phone"
           value={profile.phone}
           onChange={(value) => onChange("phone", value.slice(0, PHONE_MAX))}
-        />
-        <TextInput
-          label="Gmail app password"
-          type="password"
-          value={profile.gmailAppPassword}
-          onChange={(value) => onChange("gmailAppPassword", value.slice(0, SECRET_MAX))}
-          description="Lets Acorn read application mail for this mailbox."
         />
         <TextInput
           label="Street address"

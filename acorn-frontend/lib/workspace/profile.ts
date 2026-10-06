@@ -33,7 +33,6 @@ export type ApplicantProfile = {
   orientation: string;
   email: string;
   phone: string;
-  gmailAppPassword: string;
   street: string;
   city: string;
   state: string;
@@ -150,12 +149,11 @@ export function sampleProfile(account: AcornAccount): ApplicantProfile {
     middleName,
     lastName,
     age: "32",
-    gender: "Decline to answer",
+    gender: "Male",
     pronouns: "they/them",
-    orientation: "Decline to answer",
+    orientation: "Heterosexual",
     email: account.email,
     phone: "(415) 555-0148",
-    gmailAppPassword: "sample-app-password",
     street: "100 Market Street",
     city: "San Francisco",
     state: "CA",
@@ -255,7 +253,10 @@ const LATER_FIELDS = {
 
 /** A stored profile with every field present, whichever version saved it. */
 export function withDefaults(profile: ApplicantProfile): ApplicantProfile {
-  return { ...LATER_FIELDS, ...profile };
+  const next = { ...LATER_FIELDS, ...profile };
+  if (!next.gender?.trim()) next.gender = "Male";
+  if (!next.orientation?.trim()) next.orientation = "Heterosexual";
+  return next;
 }
 
 export function isApplicantProfile(value: unknown): value is ApplicantProfile {

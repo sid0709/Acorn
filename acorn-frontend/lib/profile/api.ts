@@ -32,15 +32,15 @@ async function read(path: string, init?: RequestInit): Promise<ProfileCall<Profi
   return { ok: true, data };
 }
 
-export function loadProfile(): Promise<ProfileCall<ProfileBody>> {
+export async function loadProfile(): Promise<ProfileCall<ProfileBody>> {
   return read("");
 }
 
-export function saveProfile(profile: ApplicantProfile): Promise<ProfileCall<ProfileBody>> {
+export async function saveProfile(profile: ApplicantProfile): Promise<ProfileCall<ProfileBody>> {
   return read("", { method: "PUT", body: JSON.stringify(profile) });
 }
 
-export function fillProfileFromResume(input: {
+export async function fillProfileFromResume(input: {
   fileName: string;
   text?: string;
   contentBase64?: string;

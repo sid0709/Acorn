@@ -21,3 +21,48 @@ html {
   border-radius: var(--radius-inner);
   background: var(--color-background-surface);
 }
+
+/* A résumé page rendered at true size and scaled to its column (PaperFrame). */
+.resume-paper {
+  position: relative;
+  width: 100%;
+  overflow: hidden;
+  border: 1px solid var(--color-border-subtle);
+  border-radius: var(--radius-inner);
+  background: var(--color-background-surface);
+}
+
+.resume-paper-page {
+  position: absolute;
+  inset: 0 auto auto 0;
+  border: 0;
+  transform-origin: top left;
+}
+
+.resume-paper-thumb .resume-paper-page {
+  pointer-events: none;
+}
+
+/* Template tiles in the gallery: a fixed column count that collapses on narrow screens. */
+.resume-template-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(10rem, 1fr));
+  gap: var(--spacing-4);
+}
+
+/* Placeholder the size of a first page while its preview loads. */
+.resume-thumb-slot {
+  width: 100%;
+  aspect-ratio: 816 / 1080;
+}
+
+/* The generator's preview column stays in view beside the controls once they sit side by side
+   (GridSystem lg, viewport). A page taller than the window scrolls inside the column. */
+@media (min-width: 1024px) {
+  .resume-preview-column {
+    position: sticky;
+    top: var(--spacing-4);
+    max-height: calc(100dvh - 2 * var(--spacing-4));
+    overflow-y: auto;
+  }
+}

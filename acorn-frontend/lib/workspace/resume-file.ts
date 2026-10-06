@@ -11,11 +11,22 @@ export function bytesToBase64(bytes: Uint8Array) {
   }
   return btoa(binary);
 }
+
+/** Hands the browser a base64 file to save, e.g. an exported DOCX. */
+export function saveBase64File(name: string, base64: string) {
+  const bytes = Uint8Array.from(atob(base64), (char) => char.charCodeAt(0));
+  const url = URL.createObjectURL(new Blob([bytes]));
+  const link = document.createElement("a");
+  link.href = url;
+  link.download = name;
+  link.click();
+  URL.revokeObjectURL(url);
+}
 export const MIN_RESUME_TEXT = 40;
 
 const EMAIL = /[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}/i;
 const PHONE = /(?:\+?1[\s.-]?)?(?:\(\d{3}\)|\d{3})[\s.-]\d{3}[\s.-]\d{4}/;
-const LINKEDIN = /https?:\/\/(?:www\.)?linkedin\.com\/in\/[^\s)]+/i;
+const LINKEDIN = /(?:https?:\/\/)?(?:www\.)?linkedin\.com\/in\/[^\s)]+/i;
 const GITHUB = /https?:\/\/(?:www\.)?github\.com\/[^\s)]+/i;
 const PORTFOLIO = /https?:\/\/[^\s)]+/i;
 const DATE_RANGE =

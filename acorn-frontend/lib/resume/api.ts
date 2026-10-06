@@ -45,23 +45,23 @@ async function read<T>(path: string, init?: RequestInit): Promise<ResumeCall<T>>
   return { ok: true, data };
 }
 
-export function loadResumeConfig(): Promise<ResumeCall<{ config: ResumeGeneratorConfig }>> {
+export async function loadResumeConfig(): Promise<ResumeCall<{ config: ResumeGeneratorConfig }>> {
   return read(RESUME_API.config);
 }
 
-export function saveResumeConfig(
+export async function saveResumeConfig(
   config: ResumeGeneratorConfig,
 ): Promise<ResumeCall<{ config: ResumeGeneratorConfig }>> {
   return read(RESUME_API.config, { method: "PUT", body: JSON.stringify(config) });
 }
 
-export function listResumeTemplates(): Promise<
+export async function listResumeTemplates(): Promise<
   ResumeCall<{ templates: { id: string; name: string; warnings: string[] }[] }>
 > {
   return read(RESUME_API.templates);
 }
 
-export function uploadResumeTemplate(input: {
+export async function uploadResumeTemplate(input: {
   name: string;
   fileName: string;
   contentBase64: string;
@@ -69,11 +69,11 @@ export function uploadResumeTemplate(input: {
   return read(RESUME_API.templates, { method: "POST", body: JSON.stringify(input) });
 }
 
-export function deleteResumeTemplate(id: string): Promise<ResumeCall<{ success: true }>> {
+export async function deleteResumeTemplate(id: string): Promise<ResumeCall<{ success: true }>> {
   return read(RESUME_API.template(id), { method: "DELETE" });
 }
 
-export function previewResume(input: {
+export async function previewResume(input: {
   identity: ResumeIdentity;
   sections?: Record<string, unknown>;
   config: ResumeGeneratorConfig;
@@ -81,17 +81,17 @@ export function previewResume(input: {
   return read(RESUME_API.preview, { method: "POST", body: JSON.stringify(input) });
 }
 
-export function startResumeGenerate(
+export async function startResumeGenerate(
   input: ResumeGenerateRequest,
 ): Promise<ResumeCall<{ inputId: string }>> {
   return read(RESUME_API.generate, { method: "POST", body: JSON.stringify(input) });
 }
 
-export function pollResumeGenerate(inputId: string): Promise<ResumeCall<ResumeGeneratePoll>> {
+export async function pollResumeGenerate(inputId: string): Promise<ResumeCall<ResumeGeneratePoll>> {
   return read(RESUME_API.generatePoll(inputId));
 }
 
-export function previewGeneration(id: string): Promise<ResumeCall<{ html: string }>> {
+export async function previewGeneration(id: string): Promise<ResumeCall<{ html: string }>> {
   return read(RESUME_API.generationPreview(id));
 }
 
@@ -111,23 +111,25 @@ export async function downloadGeneration(
   return { ok: true, data: { name, base64: Buffer.from(bytes).toString("base64") } };
 }
 
-export function listGenerations(query: ResumeHistoryQuery): Promise<ResumeCall<ResumeHistoryPage>> {
+export async function listGenerations(
+  query: ResumeHistoryQuery,
+): Promise<ResumeCall<ResumeHistoryPage>> {
   return read(`${RESUME_API.generations}${historyQueryString(query)}`);
 }
 
-export function deleteGeneration(id: string): Promise<ResumeCall<{ success: true }>> {
+export async function deleteGeneration(id: string): Promise<ResumeCall<{ success: true }>> {
   return read(RESUME_API.generation(id), { method: "DELETE" });
 }
 
-export function loadGeneration(id: string): Promise<ResumeCall<{ run: ResumeHistoryRun }>> {
+export async function loadGeneration(id: string): Promise<ResumeCall<{ run: ResumeHistoryRun }>> {
   return read(RESUME_API.generation(id));
 }
 
-export function listLibrary(): Promise<ResumeCall<{ resumes: ResumeLibraryRow[] }>> {
+export async function listLibrary(): Promise<ResumeCall<{ resumes: ResumeLibraryRow[] }>> {
   return read(RESUME_API.library);
 }
 
-export function uploadLibraryFile(input: {
+export async function uploadLibraryFile(input: {
   fileName: string;
   title: string;
   contentBase64: string;
@@ -135,14 +137,18 @@ export function uploadLibraryFile(input: {
   return read(RESUME_API.library, { method: "POST", body: JSON.stringify(input) });
 }
 
-export function deleteLibraryFile(id: string): Promise<ResumeCall<{ success: true }>> {
+export async function deleteLibraryFile(id: string): Promise<ResumeCall<{ success: true }>> {
   return read(RESUME_API.libraryItem(id), { method: "DELETE" });
 }
 
-export function analyzeLibraryFile(id: string): Promise<ResumeCall<{ resume: ResumeLibraryRow }>> {
+export async function analyzeLibraryFile(
+  id: string,
+): Promise<ResumeCall<{ resume: ResumeLibraryRow }>> {
   return read(RESUME_API.libraryAnalyze(id), { method: "POST" });
 }
 
-export function makeLibraryPrimary(id: string): Promise<ResumeCall<{ resume: ResumeLibraryRow }>> {
+export async function makeLibraryPrimary(
+  id: string,
+): Promise<ResumeCall<{ resume: ResumeLibraryRow }>> {
   return read(RESUME_API.libraryPrimary(id), { method: "POST" });
 }
