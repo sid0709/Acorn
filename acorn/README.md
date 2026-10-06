@@ -139,7 +139,7 @@ bun run dev:acorn   # from the repo root: watch-build the extension
 To see exactly what Fill saw and what the AI decided, turn on debug capture on both sides:
 
 1. `acorn-backend/.env`: `ACORN_DEBUG_DIR=./debug-runs`
-2. `acorn/.env`: `VITE_ACORN_DEBUG=true`, then rebuild the extension and reload it.
+2. `acorn/.env`: `VITE_ACORN_DEBUG=true`, then build with `bun run dev:acorn` and reload the extension. Production builds (`bun run build:acorn`) ignore the flag, and their build log says so.
 
 Each Fill's Analyze opens `acorn-backend/debug-runs/<time>-<host>-<title>/` with numbered files in capture order: `page.json`, `page.html` (the form frame), `dom-tree.json`, `meta-tree.txt`, `pure-tree.txt` (what the planner reads), `applicant.txt`, one `ai-<purpose>.md` per model call (response, prompts, schema, timing, error), `plan.json`, and `steps.ndjson` (the extension's per-step trace: what each control read before and after, option lists, typed queries, clicks, timeouts, and the leftover pass). Option-match and Q&A calls during that Fill land in the same folder. `POST /acorn/debug/log` only exists while `ACORN_DEBUG_DIR` is set.
 

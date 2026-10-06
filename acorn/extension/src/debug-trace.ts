@@ -1,11 +1,13 @@
 import { MSG } from "./types";
 
 /**
- * Local debug capture, on only in builds with VITE_ACORN_DEBUG=true. Analyze then
- * carries the page HTML and trees, and every trace event goes to the backend's
- * debug run (ACORN_DEBUG_DIR). Production builds leave it off and send nothing extra.
+ * Local debug capture: development builds (`bun run dev:acorn`) with VITE_ACORN_DEBUG=true.
+ * Analyze then carries the page HTML and trees, and every trace event goes to the
+ * backend's debug run (ACORN_DEBUG_DIR). A production build is always off, whatever
+ * acorn/.env says, so a release can never send page HTML or traces.
  */
-export const ACORN_DEBUG = import.meta.env.VITE_ACORN_DEBUG === "true";
+export const ACORN_DEBUG =
+  import.meta.env.MODE === "development" && import.meta.env.VITE_ACORN_DEBUG === "true";
 
 /** Page HTML beyond this is cut so Analyze stays under the API body limit. */
 export const DEBUG_HTML_MAX_CHARS = 6_000_000;
