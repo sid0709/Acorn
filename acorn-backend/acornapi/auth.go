@@ -67,6 +67,35 @@ func (s *Server) signOut(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, map[string]bool{"success": true})
 }
 
+// deleteAccount removes the signed-in account and the profile, résumés, and sessions that belong to it.
+func (s *Server) deleteAccount(w http.ResponseWriter, r *http.Request) {
+	session, ok := s.session(w, r)
+	if !ok {
+		return
+	}
+	if err := s.resumes.DeleteAccount(r.Context(), session.User.ID); err != nil {
+		writeError(w, http.StatusInternalServerError, "could not delete résumés")
+		return
+	}
+	if err := s.profiles.Delete(r.Context(), session.User.ID); err != nil {
+		writeError(w, http.StatusInternalServerError, "could not delete the profile")
+		return
+	}
+	if err := s.accounts.Delete(r.Context(), session.User.ID); err != nil {
+		if errors.Is(err, account.ErrNotFound) {
+			writeError(w, http.StatusNotFound, err.Error())
+			return
+		}
+		if errors.Is(err, account.ErrInvalid) {
+			writeError(w, http.StatusBadRequest, err.Error())
+			return
+		}
+		writeError(w, http.StatusInternalServerError, "could not delete the account")
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]bool{"success": true})
+}
+
 func sessionBody(token string, user account.User) map[string]any {
 	body := map[string]any{
 		"success": true,

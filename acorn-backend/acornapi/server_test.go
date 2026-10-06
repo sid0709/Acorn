@@ -83,6 +83,7 @@ func (f *fakeAccounts) GoogleMatch(context.Context, account.GoogleIdentity, time
 	}
 	return "hunter", account.User{ID: "u1", Name: "Jordan Lee", Email: "j@example.com"}, nil
 }
+func (f *fakeAccounts) Delete(context.Context, string) error { return nil }
 
 type fakeModel struct{ reply string }
 

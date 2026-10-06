@@ -293,6 +293,13 @@ func (s *Service) GeneratedFile(accountID, generationID string) (FilePayload, er
 	}, nil
 }
 
+func (s *Service) DeleteAccount(ctx context.Context, accountID string) error {
+	if s == nil || s.store == nil {
+		return nil
+	}
+	return s.store.DeleteAccount(ctx, accountID)
+}
+
 func (s *Service) Recommend(accountID, jobDescription, jobID string) (id, stack, reason string, err error) {
 	id, stack, reason, err = s.recommend(accountID, jobDescription)
 	if err == nil && jobID != "" {

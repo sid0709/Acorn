@@ -33,7 +33,7 @@ export const RESUME_LIBRARY_MAX_BYTES = 8 * 1024 * 1024;
 /** Parallel library uploads. Matches the Athens library folder upload. */
 export const RESUME_BULK_UPLOAD_CONCURRENCY = 8;
 /** How many résumés one folder upload may include. */
-export const RESUME_BULK_UPLOAD_MAX_FILES = 100;
+export const RESUME_BULK_UPLOAD_MAX_FILES = 300;
 /** Parallel skill-analysis calls from the library. */
 export const RESUME_ANALYZE_CONCURRENCY = 4;
 export const RESUME_TEMPLATE_ACCEPT = ".docx";

@@ -2,6 +2,7 @@ package resume
 
 import (
 	"context"
+	"fmt"
 	"strings"
 	"sync"
 	"time"
@@ -315,6 +316,55 @@ func (s *Store) jobFile(accountID, jobID string) string {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	return s.jobs[accountID+"\x00"+jobID]
+}
+
+// DeleteAccount removes every résumé record this account owns.
+func (s *Store) DeleteAccount(ctx context.Context, accountID string) error {
+	s.mu.Lock()
+	delete(s.configs, accountID)
+	for id, row := range s.templates {
+		if row.AccountID == accountID {
+			delete(s.templates, id)
+		}
+	}
+	for id, row := range s.generations {
+		if row.AccountID == accountID {
+			delete(s.generations, id)
+		}
+	}
+	for id, row := range s.library {
+		if row.AccountID == accountID {
+			delete(s.library, id)
+		}
+	}
+	for id, row := range s.tasks {
+		if row.AccountID == accountID {
+			delete(s.tasks, id)
+		}
+	}
+	prefix := accountID + "\x00"
+	for key := range s.jobs {
+		if strings.HasPrefix(key, prefix) {
+			delete(s.jobs, key)
+		}
+	}
+	s.mu.Unlock()
+	if s.db == nil {
+		return nil
+	}
+	filter := bson.D{{Key: "accountId", Value: accountID}}
+	for _, name := range []string{
+		configsCollection,
+		templatesCollection,
+		generationsCollection,
+		libraryCollection,
+		tasksCollection,
+	} {
+		if _, err := s.db.Collection(name).DeleteMany(ctx, filter); err != nil {
+			return fmt.Errorf("delete %s: %w", name, err)
+		}
+	}
+	return nil
 }
 
 func cloneMap(in map[string]any) map[string]any {

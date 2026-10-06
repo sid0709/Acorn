@@ -28,6 +28,7 @@ import {
   type ApplicantProfile,
   type SetProfileField,
 } from "@/lib/workspace/profile";
+import { AccountSettings } from "./profile/account-settings";
 import { AssistantForm } from "./profile/assistant-form";
 import { DisclosuresForm } from "./profile/disclosures-form";
 import { IdentityForm } from "./profile/identity-form";
@@ -44,6 +45,7 @@ const SECTIONS = [
   { value: "logistics", label: "Work & logistics", icon: "pin" },
   { value: "disclosures", label: "Disclosures", icon: "lock" },
   { value: "assistant", label: "Job bid & AI", icon: "sparkle" },
+  { value: "account", label: "Account", icon: "settings" },
 ] as const satisfies { value: string; label: string; icon: GlyphName }[];
 type Section = (typeof SECTIONS)[number]["value"];
 
@@ -188,6 +190,7 @@ export function ProfilePanel({ account }: { account: AcornAccount }) {
               <DisclosuresForm profile={profile} onChange={set} />
             ) : null}
             {section === "assistant" ? <AssistantForm profile={profile} onChange={set} /> : null}
+            {section === "account" ? <AccountSettings email={account.email} /> : null}
           </Stack>
         </GridColumn>
       </GridSystem>
