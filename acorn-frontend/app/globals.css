@@ -13,3 +13,11 @@ body {
 html {
   scrollbar-gutter: stable;
 }
+
+.resume-preview-frame {
+  width: 100%;
+  min-height: 70vh;
+  border: 1px solid var(--color-border-subtle);
+  border-radius: var(--radius-inner);
+  background: var(--color-background-surface);
+}
