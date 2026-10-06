@@ -1,3 +1,5 @@
+import { visibleOptions } from "./option-mirror";
+
 export function normalize(text: string): string {
   return text.replace(/\s+/g, " ").replace(/[–—]/g, "-").trim().toLowerCase();
 }
@@ -110,6 +112,10 @@ function listboxServesControl(listbox: HTMLElement, control: HTMLElement, doc: D
 }
 
 export function pickScopedOptions(control: HTMLElement, doc: Document): HTMLElement[] {
+  return visibleOptions(collectScopedOptions(control, doc));
+}
+
+function collectScopedOptions(control: HTMLElement, doc: Document): HTMLElement[] {
   const owned = listboxRootsForControl(control, doc);
   if (owned.length) {
     for (const root of owned) {

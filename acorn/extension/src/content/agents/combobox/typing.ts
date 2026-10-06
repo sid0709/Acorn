@@ -105,27 +105,6 @@ export function typeaheadFilterWaitMs(doc: Document): number {
   return doc.hidden ? 8000 : 4000;
 }
 
-/** Set the whole search string at once so the host queries the full school name. */
-export async function pasteQueryIntoOpenCombobox(el: HTMLElement, query: string): Promise<void> {
-  const input = resolveTypeableInput(el);
-  if (!input) return;
-  input.removeAttribute("aria-hidden");
-  input.focus();
-  setInputValue(input, "");
-  input.dispatchEvent(new Event("input", { bubbles: true }));
-  setInputValue(input, query);
-  input.dispatchEvent(
-    new InputEvent("input", {
-      bubbles: true,
-      cancelable: true,
-      data: query,
-      inputType: "insertText",
-    }),
-  );
-  input.dispatchEvent(new Event("change", { bubbles: true }));
-  await waitMs(el.ownerDocument.hidden ? 1000 : WORD_SEARCH_SETTLE_MS);
-}
-
 /** Type the full query string into an already-focused open combobox. */
 export async function typeQueryIntoOpenCombobox(el: HTMLElement, query: string): Promise<void> {
   const input = resolveTypeableInput(el);

@@ -178,7 +178,8 @@ type MatchResult struct {
 	Model         string  `json:"model"`
 }
 
-// MatchOption picks the listed option that means the intended value.
+// MatchOption picks the listed option that means the intended value, or none when
+// the intended answer is not among these options.
 func (s *Service) MatchOption(ctx context.Context, intended string, options []string, fieldLabel, typedQuery string) (MatchResult, error) {
 	var list []string
 	for _, option := range options {
@@ -201,7 +202,7 @@ func (s *Service) MatchOption(ctx context.Context, intended string, options []st
 	for i, option := range list {
 		lines = append(lines, fmt.Sprintf("%d. %s", i+1, option))
 	}
-	lines = append(lines, "Pick one Visible options string verbatim. Do not return null.", "Respond with json.")
+	lines = append(lines, "Return one Visible options string verbatim, or null if none of them is the intended answer.", "Respond with json.")
 
 	text, err := s.ask(ctx, PurposeMatchOption, matchOptionSystem, strings.Join(lines, "\n"), matchOptionSchema(list))
 	if err != nil {

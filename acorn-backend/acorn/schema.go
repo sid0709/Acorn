@@ -66,12 +66,14 @@ func actionPlanSchema() json.RawMessage {
 // matchOptionSchema constrains matched_option to the live listed strings.
 func matchOptionSchema(options []string) json.RawMessage {
 	listed := uniqueTrimmed(options)
+	// null means the intended answer is not among these options.
 	matched := map[string]any{"type": []string{"string", "null"}}
-	if len(listed) > 0 {
-		matched = map[string]any{"type": "string"}
-		if len(listed) <= matchOptionEnumMax {
-			matched["enum"] = listed
+	if len(listed) > 0 && len(listed) <= matchOptionEnumMax {
+		enum := make([]any, 0, len(listed)+1)
+		for _, option := range listed {
+			enum = append(enum, option)
 		}
+		matched["enum"] = append(enum, nil)
 	}
 	return mustSchema(map[string]any{
 		"type":                 "object",

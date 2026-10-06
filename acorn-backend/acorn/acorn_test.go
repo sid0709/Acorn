@@ -93,6 +93,38 @@ func TestMatchOptionRecoversListedString(t *testing.T) {
 	}
 }
 
+func TestMatchOptionAbsentIsNull(t *testing.T) {
+	model := &fakeModel{replies: []string{`{"matched_option":null,"confidence":0.9,"reason":"No option means no suffix"}`}}
+	got, err := New(model).MatchOption(context.Background(), "None", []string{"II", "III", "Jr."}, "Suffix", "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.MatchedOption != nil {
+		t.Fatalf("absent answer should be nil, got %q", *got.MatchedOption)
+	}
+	if !strings.Contains(model.calls[0], "or null if none of them") {
+		t.Fatalf("user prompt should allow null: %s", model.calls[0])
+	}
+}
+
+func TestMatchOptionSchemaAllowsNull(t *testing.T) {
+	var schema struct {
+		Properties struct {
+			MatchedOption struct {
+				Type []string `json:"type"`
+				Enum []any    `json:"enum"`
+			} `json:"matched_option"`
+		} `json:"properties"`
+	}
+	if err := json.Unmarshal(matchOptionSchema([]string{"II", "III"}), &schema); err != nil {
+		t.Fatal(err)
+	}
+	got := schema.Properties.MatchedOption
+	if strings.Join(got.Type, ",") != "string,null" || len(got.Enum) != 3 || got.Enum[2] != nil {
+		t.Fatalf("matched_option schema = %+v", got)
+	}
+}
+
 func TestMatchOptionMissingInput(t *testing.T) {
 	got, err := New(&fakeModel{}).MatchOption(context.Background(), "", []string{"x"}, "", "")
 	if err != nil || got.MatchedOption != nil || got.Reason != "Missing value or options" {
