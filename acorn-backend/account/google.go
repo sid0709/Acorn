@@ -28,46 +28,49 @@ type GoogleIdentity struct {
 type storedGoogleState struct {
 	State     string    `bson:"state"`
 	Verifier  string    `bson:"verifier"`
+	Redirect  string    `bson:"redirect"`
 	ExpiresAt time.Time `bson:"expiresAt"`
 }
 
 // SaveGoogleState remembers a sign-in in progress. The verifier stays here, not in
 // the browser, so the redirect back cannot be replayed with a different one.
-func (s *Store) SaveGoogleState(ctx context.Context, state, verifier string, now time.Time) error {
+// redirect is the URI the auth URL used, and the only one the code may be traded with.
+func (s *Store) SaveGoogleState(ctx context.Context, state, verifier, redirect string, now time.Time) error {
 	_, err := s.googleStates.InsertOne(ctx, storedGoogleState{
 		State:     state,
 		Verifier:  verifier,
+		Redirect:  redirect,
 		ExpiresAt: now.UTC().Add(googleStateTTL),
 	})
 	return err
 }
 
-// TakeGoogleState returns the verifier saved for state and forgets the state, so a
-// redirect can be used once.
-func (s *Store) TakeGoogleState(ctx context.Context, state string, now time.Time) (string, error) {
+// TakeGoogleState returns the verifier and redirect saved for state and forgets the
+// state, so a redirect can be used once.
+func (s *Store) TakeGoogleState(ctx context.Context, state string, now time.Time) (string, string, error) {
 	if state == "" {
-		return "", ErrGoogleState
+		return "", "", ErrGoogleState
 	}
 	var record storedGoogleState
 	err := s.googleStates.FindOneAndDelete(ctx, bson.D{{Key: "state", Value: state}}).Decode(&record)
 	if errors.Is(err, mongo.ErrNoDocuments) {
-		return "", ErrGoogleState
+		return "", "", ErrGoogleState
 	}
 	if err != nil {
-		return "", err
+		return "", "", err
 	}
 	if !record.ExpiresAt.After(now) || record.Verifier == "" {
-		return "", ErrGoogleState
+		return "", "", ErrGoogleState
 	}
-	return record.Verifier, nil
+	return record.Verifier, record.Redirect, nil
 }
 
 // GoogleSignIn signs in the Acorn account behind a verified Google identity, creating
 // one when the email is new. An email account links to Google on its first visit.
 func (s *Store) GoogleSignIn(ctx context.Context, id GoogleIdentity, now time.Time) (string, User, error) {
-	email := normalizeEmail(id.Email)
-	if id.Subject == "" || email == "" || len(email) > maxEmailLength || !strings.Contains(email, "@") || !id.EmailVerified {
-		return "", User{}, ErrInvalid
+	email, err := checkedGoogleEmail(id)
+	if err != nil {
+		return "", User{}, err
 	}
 	doc, found, err := s.findGoogleAccount(ctx, id.Subject, email)
 	if err != nil {
@@ -76,6 +79,35 @@ func (s *Store) GoogleSignIn(ctx context.Context, id GoogleIdentity, now time.Ti
 	if !found {
 		return s.createGoogleAccount(ctx, id, email, now)
 	}
+	return s.sessionForGoogle(ctx, doc, id, now)
+}
+
+// GoogleMatch signs in only when this Gmail already has an Acorn account. A new
+// Gmail does not create one.
+func (s *Store) GoogleMatch(ctx context.Context, id GoogleIdentity, now time.Time) (string, User, error) {
+	email, err := checkedGoogleEmail(id)
+	if err != nil {
+		return "", User{}, err
+	}
+	doc, found, err := s.findGoogleAccount(ctx, id.Subject, email)
+	if err != nil {
+		return "", User{}, err
+	}
+	if !found {
+		return "", User{}, ErrGoogleUnknown
+	}
+	return s.sessionForGoogle(ctx, doc, id, now)
+}
+
+func checkedGoogleEmail(id GoogleIdentity) (string, error) {
+	email := normalizeEmail(id.Email)
+	if id.Subject == "" || email == "" || len(email) > maxEmailLength || !strings.Contains(email, "@") || !id.EmailVerified {
+		return "", ErrInvalid
+	}
+	return email, nil
+}
+
+func (s *Store) sessionForGoogle(ctx context.Context, doc storedAccount, id GoogleIdentity, now time.Time) (string, User, error) {
 	link, err := googleLink(doc.GoogleID, id.Subject)
 	if err != nil {
 		return "", User{}, err

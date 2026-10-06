@@ -5,6 +5,8 @@ import (
 	"errors"
 	"log/slog"
 	"net/http"
+	"net/url"
+	"strings"
 	"time"
 
 	"github.com/sid0709/OpenSeat/acorn-backend/account"
@@ -45,7 +47,7 @@ func (s *Server) startGoogle(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusInternalServerError, "could not start Google sign-in")
 		return
 	}
-	if err := s.accounts.SaveGoogleState(r.Context(), state, verifier, time.Now()); err != nil {
+	if err := s.accounts.SaveGoogleState(r.Context(), state, verifier, s.googleRedirect, time.Now()); err != nil {
 		slog.Error("save google state", "error", err)
 		writeError(w, http.StatusInternalServerError, "could not start Google sign-in")
 		return
@@ -63,6 +65,64 @@ func (s *Server) startGoogle(w http.ResponseWriter, r *http.Request) {
 
 // finishGoogle trades the code from Google's redirect for an Acorn session.
 func (s *Server) finishGoogle(w http.ResponseWriter, r *http.Request) {
+	s.completeGoogle(w, r, s.accounts.GoogleSignIn)
+}
+
+// startExtensionGoogle starts Google sign-in for the extension. The redirect must
+// be that extension's chromiumapp.org address, registered on the OAuth client.
+func (s *Server) startExtensionGoogle(w http.ResponseWriter, r *http.Request) {
+	if !s.googleReady() {
+		writeError(w, http.StatusServiceUnavailable, "Google sign-in is not set up")
+		return
+	}
+	var body struct {
+		RedirectURI string `json:"redirectUri"`
+	}
+	if !decode(w, r, &body) {
+		return
+	}
+	if !extensionRedirect(body.RedirectURI) {
+		writeError(w, http.StatusBadRequest, "redirect is not this extension")
+		return
+	}
+	state, err := google.NewState()
+	if err != nil {
+		slog.Error("google state", "error", err)
+		writeError(w, http.StatusInternalServerError, "could not start Google sign-in")
+		return
+	}
+	verifier, challenge, err := google.NewVerifier()
+	if err != nil {
+		slog.Error("google verifier", "error", err)
+		writeError(w, http.StatusInternalServerError, "could not start Google sign-in")
+		return
+	}
+	if err := s.accounts.SaveGoogleState(r.Context(), state, verifier, body.RedirectURI, time.Now()); err != nil {
+		slog.Error("save google state", "error", err)
+		writeError(w, http.StatusInternalServerError, "could not start Google sign-in")
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]string{
+		"url": s.google.AuthURL(google.AuthRequest{
+			RedirectURL:   body.RedirectURI,
+			Scopes:        googleSignInScopes,
+			State:         state,
+			CodeChallenge: challenge,
+		}),
+		"state": state,
+	})
+}
+
+// finishExtensionGoogle signs in when the Gmail already has an Acorn account.
+func (s *Server) finishExtensionGoogle(w http.ResponseWriter, r *http.Request) {
+	s.completeGoogle(w, r, s.accounts.GoogleMatch)
+}
+
+func (s *Server) completeGoogle(
+	w http.ResponseWriter,
+	r *http.Request,
+	signIn func(context.Context, account.GoogleIdentity, time.Time) (string, account.User, error),
+) {
 	if !s.googleReady() {
 		writeError(w, http.StatusServiceUnavailable, "Google sign-in is not set up")
 		return
@@ -75,14 +135,17 @@ func (s *Server) finishGoogle(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	now := time.Now()
-	verifier, err := s.accounts.TakeGoogleState(r.Context(), body.State, now)
+	verifier, redirect, err := s.accounts.TakeGoogleState(r.Context(), body.State, now)
 	if err != nil {
 		writeGoogleAccountError(w, err)
 		return
 	}
+	if redirect == "" {
+		redirect = s.googleRedirect
+	}
 	ctx, cancel := context.WithTimeout(r.Context(), googleTimeout)
 	defer cancel()
-	token, err := s.google.Exchange(ctx, body.Code, s.googleRedirect, verifier)
+	token, err := s.google.Exchange(ctx, body.Code, redirect, verifier)
 	if err != nil {
 		writeGoogleReachError(w, err)
 		return
@@ -92,7 +155,7 @@ func (s *Server) finishGoogle(w http.ResponseWriter, r *http.Request) {
 		writeGoogleReachError(w, err)
 		return
 	}
-	sessionToken, user, err := s.accounts.GoogleSignIn(ctx, account.GoogleIdentity{
+	sessionToken, user, err := signIn(ctx, account.GoogleIdentity{
 		Subject:       profile.Subject,
 		Email:         profile.Email,
 		EmailVerified: profile.EmailVerified,
@@ -105,10 +168,22 @@ func (s *Server) finishGoogle(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, sessionBody(sessionToken, user))
 }
 
+// extensionRedirect is Chrome's identity redirect: https://<extension-id>.chromiumapp.org/
+func extensionRedirect(raw string) bool {
+	parsed, err := url.Parse(raw)
+	if err != nil || parsed.Scheme != "https" || parsed.Host == "" || parsed.User != nil {
+		return false
+	}
+	host := parsed.Hostname()
+	return strings.HasSuffix(host, ".chromiumapp.org") && len(host) > len(".chromiumapp.org")
+}
+
 func writeGoogleAccountError(w http.ResponseWriter, err error) {
 	switch {
 	case errors.Is(err, account.ErrGoogleState), errors.Is(err, account.ErrInvalid):
 		writeError(w, http.StatusBadRequest, err.Error())
+	case errors.Is(err, account.ErrGoogleUnknown):
+		writeError(w, http.StatusNotFound, err.Error())
 	case errors.Is(err, account.ErrGoogleMismatch), errors.Is(err, account.ErrEmailTaken):
 		writeError(w, http.StatusConflict, err.Error())
 	default:

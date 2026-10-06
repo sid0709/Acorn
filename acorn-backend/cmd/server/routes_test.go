@@ -87,14 +87,17 @@ func (noAccounts) AppliedJobIDs(context.Context, string) ([]string, error) {
 	return nil, nil
 }
 func (noAccounts) MarkApplied(context.Context, string, string) error { return nil }
-func (noAccounts) SaveGoogleState(context.Context, string, string, time.Time) error {
+func (noAccounts) SaveGoogleState(context.Context, string, string, string, time.Time) error {
 	return nil
 }
-func (noAccounts) TakeGoogleState(context.Context, string, time.Time) (string, error) {
-	return "", account.ErrGoogleState
+func (noAccounts) TakeGoogleState(context.Context, string, time.Time) (string, string, error) {
+	return "", "", account.ErrGoogleState
 }
 func (noAccounts) GoogleSignIn(context.Context, account.GoogleIdentity, time.Time) (string, account.User, error) {
 	return "", account.User{}, account.ErrInvalidLogin
+}
+func (noAccounts) GoogleMatch(context.Context, account.GoogleIdentity, time.Time) (string, account.User, error) {
+	return "", account.User{}, account.ErrGoogleUnknown
 }
 
 // The real Acorn handler behind the real router: the extension's Engine.IO handshake

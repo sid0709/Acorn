@@ -1,4 +1,4 @@
-import { ACORN_SESSION_COOKIE, ACORN_SOCKET_PATH, acornHosts } from "@acorn/shared/api";
+import { ACORN_SOCKET_PATH, acornHosts } from "@acorn/shared/api";
 
 const hosts = acornHosts(import.meta.env.MODE);
 
@@ -71,56 +71,62 @@ export async function getAccessToken(): Promise<string | null> {
 export type AcornAuthResult =
   { ok: true; session: AcornStoredSession } | { ok: false; error: string };
 
-export const ACORN_SIGN_IN_REQUIRED = "Sign in on the Acorn site in this browser, then try again.";
-export const ACORN_SESSION_REJECTED =
-  "Acorn didn’t accept that sign-in. Sign in on the Acorn site again, then try again.";
+const SIGN_UP_PATH = "/sign-up";
 
-/** The Acorn session token in the browser's cookie jar, or null when signed out. */
-async function readAcornToken(): Promise<string | null> {
-  const cookie = await chrome.cookies.get({
-    url: DEFAULT_ACORN_WEB_URL,
-    name: ACORN_SESSION_COOKIE,
-  });
-  return cookie?.value?.trim() || null;
-}
+export const ACORN_ACCOUNT_REQUIRED =
+  "No Acorn account uses this Gmail. Create one on the Acorn site, then try again.";
+export const ACORN_SESSION_REJECTED = "Acorn didn’t accept that Google sign-in. Try again.";
 
-/**
- * Make the extension's session the acorn-frontend cookie. Reads that cookie and
- * asks Acorn's API who it belongs to.
- */
-export async function syncAcornSession(
-  options: { apiUrl?: string } = {},
-): Promise<AcornAuthResult> {
-  const base = (options.apiUrl || (await getAcornApiUrl())).replace(/\/$/, "");
-  const token = await readAcornToken();
-  if (!token) {
-    await clearAcornSession();
-    return { ok: false, error: ACORN_SIGN_IN_REQUIRED };
-  }
+type GoogleStart = { url?: string; state?: string; message?: string };
+type GoogleFinish = {
+  token?: string;
+  message?: string;
+  session?: { username?: string; displayName?: string; profileId?: string };
+};
+
+/** Sign in with Google. A matching Gmail uses that Acorn account. A new Gmail does not create one. */
+export async function acornSignIn(apiUrl?: string): Promise<AcornAuthResult> {
+  const base = (apiUrl || (await getAcornApiUrl())).replace(/\/$/, "");
+  const redirectUri = chrome.identity.getRedirectURL();
   try {
-    const res = await fetch(`${base}/acorn/auth/me`, {
-      headers: { Authorization: `Bearer ${token}` },
+    const started = await postJSON<GoogleStart>(`${base}/acorn/auth/google/start`, { redirectUri });
+    if (!started.ok || !started.data.url || !started.data.state) {
+      return { ok: false, error: started.data.message || "Couldn’t start Google sign-in." };
+    }
+    const returned = await chrome.identity.launchWebAuthFlow({
+      url: started.data.url,
+      interactive: true,
     });
-    const data = (await res.json().catch(() => ({}))) as {
-      message?: string;
-      session?: {
-        username?: string;
-        displayName?: string;
-        profileId?: string;
-      };
-    };
-    if (res.status === 401) {
-      await clearAcornSession();
+    if (chrome.runtime.lastError || !returned) {
+      return { ok: false, error: "Google sign-in was cancelled." };
+    }
+    const params = new URL(returned).searchParams;
+    if (params.get("error")) {
+      return { ok: false, error: "Google sign-in was cancelled." };
+    }
+    const code = params.get("code");
+    const state = params.get("state");
+    if (!code || state !== started.data.state) {
       return { ok: false, error: ACORN_SESSION_REJECTED };
     }
-    if (!res.ok || !data.session) {
-      return { ok: false, error: data.message || "Couldn’t sign in." };
+    const finished = await postJSON<GoogleFinish>(`${base}/acorn/auth/google/finish`, {
+      code,
+      state,
+    });
+    if (finished.status === 404) {
+      return {
+        ok: false,
+        error: `${ACORN_ACCOUNT_REQUIRED} ${DEFAULT_ACORN_WEB_URL}${SIGN_UP_PATH}`,
+      };
+    }
+    if (!finished.ok || !finished.data.token || !finished.data.session) {
+      return { ok: false, error: finished.data.message || "Couldn’t sign in." };
     }
     const session: AcornStoredSession = {
-      accessToken: token,
-      username: data.session.username || "",
-      displayName: data.session.displayName || data.session.username || "Acorn",
-      profileId: data.session.profileId || "",
+      accessToken: finished.data.token,
+      username: finished.data.session.username || "",
+      displayName: finished.data.session.displayName || finished.data.session.username || "Acorn",
+      profileId: finished.data.session.profileId || "",
       expiresAt: "",
     };
     await setAcornApiUrl(base);
@@ -138,12 +144,20 @@ export async function syncAcornSession(
   }
 }
 
-/** Sign in with the Acorn session already in this browser. */
-export function acornSignIn(apiUrl?: string): Promise<AcornAuthResult> {
-  return syncAcornSession({ apiUrl });
+async function postJSON<T extends { message?: string }>(
+  url: string,
+  body: unknown,
+): Promise<{ ok: boolean; status: number; data: T }> {
+  const res = await fetch(url, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(body),
+  });
+  const data = (await res.json().catch(() => ({}))) as T;
+  return { ok: res.ok, status: res.status, data };
 }
 
-/** End the shared Acorn session: the API, the site cookie, and this extension. */
+/** End this extension's Acorn session. The website sign-in is left as it is. */
 export async function acornSignOut(): Promise<void> {
   const token = await getAccessToken();
   const base = await getAcornApiUrl();
@@ -153,16 +167,7 @@ export async function acornSignOut(): Promise<void> {
       headers: { Authorization: `Bearer ${token}` },
     }).catch(() => undefined);
   }
-  await chrome.cookies.remove({ url: DEFAULT_ACORN_WEB_URL, name: ACORN_SESSION_COOKIE });
   await clearAcornSession();
-}
-
-/** True for a change to the Acorn session cookie on acorn-frontend. */
-export function isAcornSessionCookie(cookie: chrome.cookies.Cookie): boolean {
-  return (
-    cookie.name === ACORN_SESSION_COOKIE &&
-    DEFAULT_ACORN_WEB_URL.includes(cookie.domain.replace(/^\./, ""))
-  );
 }
 
 export async function authHeaders(): Promise<Record<string, string>> {

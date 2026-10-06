@@ -7,20 +7,20 @@
 /** Engine.IO path of Acorn's Socket.IO gateway, on the API host. */
 export const ACORN_SOCKET_PATH = "/acorn/socket.io";
 
-/** Cookie acorn-frontend sets and the extension reads. The API accepts it as a bearer token. */
+/** Cookie acorn-frontend sets. The API accepts that value as a bearer token. */
 export const ACORN_SESSION_COOKIE = "acorn_session";
 
 export type AcornHosts = {
-  /** acorn-backend. */
+  /** acorn-backend. Routes and the socket both live under `/acorn` on this origin. */
   api: string;
-  /** acorn-frontend, whose session cookie Acorn signs in with. */
+  /** acorn-frontend, where a new Gmail creates an Acorn account. */
   web: string;
 };
 
 /** Development builds talk to the local servers (`bun run dev`); every other build to production. */
 export const ACORN_HOSTS = {
   development: { api: "http://127.0.0.1:8083", web: "http://localhost:6005" },
-  production: { api: "https://api.joinedhq.com", web: "https://acorn.joinedhq.com" },
+  production: { api: "https://acorn.remotepairnet.net", web: "https://acorn.remotepairnet.net" },
 } as const satisfies Record<string, AcornHosts>;
 
 /** The hosts for a Vite build mode (`import.meta.env.MODE`). */
