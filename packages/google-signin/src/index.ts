@@ -1,5 +1,4 @@
-// Sign in with Google, the only way to sign in or sign up, shared by
-// joined-frontend, scoutwell-frontend, and admin-frontend. Each app keeps two thin route handlers (its route and the
+// Sign in with Google, the only way to sign in or sign up. Each app keeps two thin route handlers (its route and the
 // callback under it) that own its cookies; the API calls and decisions live here.
 export { finishGoogleSignIn, seeOther, signInErrorPath, startGoogleSignIn } from "./flow";
 export type { GoogleFinished, GoogleStarted, GoogleStartOptions } from "./flow";

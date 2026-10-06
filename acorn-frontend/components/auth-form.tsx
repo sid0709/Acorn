@@ -2,7 +2,7 @@
 
 import { useState, type FormEvent } from "react";
 import { useRouter } from "next/navigation";
-import { GOOGLE_AUTH_ROUTE } from "@joined/google-signin";
+import { GOOGLE_AUTH_ROUTE } from "@acorn/google-signin";
 import {
   Banner,
   Button,

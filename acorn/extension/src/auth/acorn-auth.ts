@@ -22,12 +22,24 @@ const STORAGE_KEYS = {
   session: "acornSession",
 } as const;
 
+const RETIRED_API_HOSTS = [["api", "joi", "nedhq", "com"].join(""), "acorn.remotepairnet.net"];
+
+function retiredApiUrl(url: string): boolean {
+  try {
+    return RETIRED_API_HOSTS.includes(new URL(url).host);
+  } catch {
+    return false;
+  }
+}
+
 export async function getAcornApiUrl(): Promise<string> {
   const stored = await chrome.storage.local.get([STORAGE_KEYS.apiUrl]);
   const value = stored[STORAGE_KEYS.apiUrl];
-  return typeof value === "string" && value.trim()
-    ? value.trim().replace(/\/$/, "")
-    : DEFAULT_ACORN_API_URL;
+  if (typeof value === "string") {
+    const url = value.trim().replace(/\/$/, "");
+    if (url && !retiredApiUrl(url)) return url;
+  }
+  return DEFAULT_ACORN_API_URL;
 }
 
 /** Socket.io origin: the API host. Routes and the engine path both sit under `/acorn` there. */

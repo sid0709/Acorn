@@ -9,7 +9,7 @@ alwaysApply: true
 
 This is a **bun workspaces monorepo**. Work from the repo root. Shared UI is the `sid-ui` package (https://github.com/sid0709/sid-ui). Apps consume it from the catalog. Do not copy a component, token, or helper into a workspace, and do not add the source back under `packages/`.
 
-`acorn-backend` compiles against `backend-core` in the sibling Joined checkout. The `replace` in `acorn-backend/go.mod` is `../../Joined/backend-core` (paths in `go.mod` are relative to that module). `@joined/google-signin` re-exports the package in that same checkout. Both repos sit next to each other under `Utils`.
+`acorn-backend` compiles against `backend-core` in this repo. The `replace` in `acorn-backend/go.mod` is `../backend-core` (paths in `go.mod` are relative to that module). Google sign-in is the workspace package `@acorn/google-signin`.
 
 ## Package manager
 

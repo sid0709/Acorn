@@ -118,7 +118,7 @@ func (d Document) Candidate(accountName, accountEmail string) candidate.Profile 
 	}
 }
 
-// PlannerExtra is form answers Joined's profile type does not carry.
+// PlannerExtra is form answers the profile type does not carry.
 // Passwords and API keys are omitted on purpose.
 func (d Document) PlannerExtra() map[string]string {
 	return map[string]string{

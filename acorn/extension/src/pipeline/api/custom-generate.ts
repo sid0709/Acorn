@@ -59,7 +59,7 @@ export async function extractCustomJd(
  * and stores the DOCX.
  *
  * Optional `jobId` associates the file with a Worker pool job (Fill).
- * Optional `checkpoint` asks the Joined API to skip completed section steps.
+ * Optional `checkpoint` asks the API to skip completed section steps.
  */
 export async function enqueueCustomGenerate(
   input:

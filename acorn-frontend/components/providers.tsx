@@ -2,12 +2,12 @@
 
 import type { ReactNode } from "react";
 import Link from "next/link";
-import { JoinedProvider } from "sid-ui/theme";
+import { AppTheme } from "@acorn/app-theme";
 
 export function Providers({ children }: { children: ReactNode }) {
   return (
-    <JoinedProvider mode="light" linkComponent={Link}>
+    <AppTheme mode="light" linkComponent={Link}>
       {children}
-    </JoinedProvider>
+    </AppTheme>
   );
 }

@@ -11,9 +11,10 @@
     "typecheck": "tsc --noEmit --incremental false -p tsconfig.json"
   },
   "dependencies": {
+    "@acorn/app-theme": "workspace:*",
     "@acorn/shared": "workspace:*",
     "sid-ui": "catalog:",
-    "@joined/google-signin": "workspace:*",
+    "@acorn/google-signin": "workspace:*",
     "next": "catalog:",
     "pdfjs-dist": "catalog:",
     "react": "catalog:",

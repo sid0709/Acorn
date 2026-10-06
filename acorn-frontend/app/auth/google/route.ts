@@ -7,7 +7,7 @@ import {
   seeOther,
   signInErrorPath,
   startGoogleSignIn,
-} from "@joined/google-signin";
+} from "@acorn/google-signin";
 import { acornApiUrl } from "@/lib/config";
 import { ROUTES, safeNextPath } from "@/lib/routes";
 

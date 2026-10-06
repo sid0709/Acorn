@@ -17,6 +17,7 @@
   "host_permissions": [
     "<all_urls>",
     "https://acorn.remotepairnet.net/*",
+    "https://acornapi.remotepairnet.net/*",
     "http://127.0.0.1:8083/*",
     "http://localhost:8083/*",
     "http://localhost:6005/*",

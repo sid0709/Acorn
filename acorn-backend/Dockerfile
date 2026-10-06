@@ -1,17 +1,15 @@
-# Build context is the parent of the Acorn and Joined checkouts:
-#   Acorn/acorn-backend
-#   Joined/backend-core
-# go.mod replaces backend-core with ../../Joined/backend-core from this module.
+# Build context is the Acorn repo. backend-core sits next to acorn-backend,
+# and go.mod replaces the module with ../backend-core.
 FROM golang:1.26.4-bookworm AS build
 
-WORKDIR /src/Acorn/acorn-backend
+WORKDIR /src/acorn-backend
 
-COPY Acorn/acorn-backend/go.mod Acorn/acorn-backend/go.sum ./
-COPY Joined/backend-core /src/Joined/backend-core
+COPY acorn-backend/go.mod acorn-backend/go.sum ./
+COPY backend-core /src/backend-core
 
 RUN go mod download
 
-COPY Acorn/acorn-backend/ ./
+COPY acorn-backend/ ./
 
 RUN CGO_ENABLED=0 go build -o /out/acorn-api ./cmd/server
 

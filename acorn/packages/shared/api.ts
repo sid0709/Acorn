@@ -20,7 +20,7 @@ export type AcornHosts = {
 /** Development builds talk to the local servers (`bun run dev`); every other build to production. */
 export const ACORN_HOSTS = {
   development: { api: "http://127.0.0.1:8083", web: "http://localhost:6005" },
-  production: { api: "https://acorn.remotepairnet.net", web: "https://acorn.remotepairnet.net" },
+  production: { api: "https://acornapi.remotepairnet.net", web: "https://acorn.remotepairnet.net" },
 } as const satisfies Record<string, AcornHosts>;
 
 /** The hosts for a Vite build mode (`import.meta.env.MODE`). */

@@ -3,11 +3,11 @@
  * to `<route>/callback`, and the state cookie is scoped to the route. Each app's OAuth
  * client registers `<app origin><route>/callback` in Google Cloud.
  */
-/** Joined's routes. */
+/** Website routes that post to the API under /api. */
 export const GOOGLE_SIGNIN_ROUTE = "/api/auth/google";
 /** Scoutwell's and Admin's routes. */
 export const GOOGLE_AUTH_ROUTE = "/auth/google";
-/** Joined's callback. */
+/** Callback for GOOGLE_SIGNIN_ROUTE. */
 export const GOOGLE_CALLBACK_ROUTE = googleCallbackRoute(GOOGLE_SIGNIN_ROUTE);
 
 /** The page Google redirects back to for an app serving its routes at route. */

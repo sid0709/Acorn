@@ -6,7 +6,7 @@ import {
   googleStateCookie,
   seeOther,
   signInErrorPath,
-} from "@joined/google-signin";
+} from "@acorn/google-signin";
 import { writeSessionCookie } from "@/lib/auth/cookie";
 import { acornApiUrl } from "@/lib/config";
 import { ROUTES, safeNextPath } from "@/lib/routes";

@@ -1,6 +1,6 @@
 import type { Metadata } from "next";
 import { redirect } from "next/navigation";
-import { GOOGLE_ERROR_PARAM, googleErrorMessage } from "@joined/google-signin";
+import { GOOGLE_ERROR_PARAM, googleErrorMessage } from "@acorn/google-signin";
 import { Heading, PageContainer, Stack } from "sid-ui";
 import { AuthForm } from "@/components/auth-form";
 import { SiteHeader } from "@/components/site-header";

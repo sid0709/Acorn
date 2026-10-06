@@ -14,6 +14,6 @@ This is a bun workspaces repo. One `node_modules` at the root, one version of ea
 bun install
 ```
 
-The API compiles against `backend-core` in the Joined repo next to this one (`acorn-backend/go.mod` replaces it with `../../Joined/backend-core`). Google sign-in re-exports that checkout's `packages/google-signin`. Clone Joined as a sibling directory named `Joined`.
+The API compiles against `backend-core` in this repo (`acorn-backend/go.mod` replaces it with `../backend-core`). Google sign-in is `packages/google-signin` (`@acorn/google-signin`).
 
 `bun run format:check` is the Prettier check. `bun run lint` is ESLint.

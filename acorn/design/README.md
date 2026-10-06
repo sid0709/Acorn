@@ -1,6 +1,6 @@
 # Acorn design language
 
-Acorn's side panel is built from **`sid-ui`**, the same components and tokens as every other Joined app. It imports `sid-ui/styles/joined.css` and wraps in `JoinedProvider`, like `joined-frontend`. Acorn adds only what the design system has no equivalent for: the live Acorn Face, the logo-and-face mark on list rows, and the segmented generate progress. Tokens: [`tokens.md`](tokens.md). Cursor policy: [`.cursor/rules/acorn-ui-design.mdc`](../.cursor/rules/acorn-ui-design.mdc).
+Acorn's side panel is built from **`sid-ui`**. It imports `sid-ui/styles/astryx.css` and `sid-ui/styles/components.css`, and wraps in `AppTheme`. Acorn adds only what the design system has no equivalent for: the live Acorn Face, the logo-and-face mark on list rows, and the segmented generate progress. Tokens: [`tokens.md`](tokens.md). Cursor policy: [`.cursor/rules/acorn-ui-design.mdc`](../.cursor/rules/acorn-ui-design.mdc).
 
 ## Layout
 
@@ -16,8 +16,8 @@ Overlays are design-system `Drawer`s: Settings (API URL, connection, version) an
 
 ## Language
 
-- **Reuse first.** Use a design-system component before writing markup or CSS. Don't restyle Joined components; if one doesn't fit, raise it in the sid-ui package.
-- **One accent.** Joined blue (`--color-accent`) for primary actions, the selected row (`Card variant="blue"`), and the active pill. Status uses `Badge`: `green` ready, `neutral` waiting, `error` failed.
+- **Reuse first.** Use a design-system component before writing markup or CSS. Don't restyle design-system components; if one doesn't fit, raise it in the sid-ui package.
+- **One accent.** `--color-accent` for primary actions, the selected row (`Card variant="blue"`), and the active pill. Status uses `Badge`: `green` ready, `neutral` waiting, `error` failed.
 - **Hierarchy by type.** `Text` and its `type` / `weight` props. No all-caps labels, no raw font sizes.
 - **Actions where they apply.** Actions on the current page live in the Now card. Actions on a row live in that row. No floating action bars, and no chevrons that duplicate "click the row".
 - **Toasts for issues.** Sign-in, socket, and Fill failures are design-system toasts (`useToast`) through `pushAcornNotice()` in the sidebar or `broadcastOperatorNotice()` from the service worker. Errors hold about 12s. Never `throw` or `console.error` expected operator failures; those show up as Chrome extension Errors.
@@ -30,4 +30,4 @@ Overlays are design-system `Drawer`s: Settings (API URL, connection, version) an
 | Current-tab actions in the Now card                             | A sticky button bar detached from what it acts on        |
 | One visible row action plus a ⋯ menu                            | Four icon buttons on every row                           |
 | Account, settings, and sign-out in the avatar menu              | "Signed in as …" text, a Sign out pill, a footer strip   |
-| Joined tokens (`--color-*`, `--spacing-*`, `--radius-*`)        | New hex values, px font sizes, or Acorn-only tokens      |
+| Design-system tokens (`--color-*`, `--spacing-*`, `--radius-*`) | New hex values, px font sizes, or Acorn-only tokens      |

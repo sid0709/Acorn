@@ -1,6 +1,6 @@
 {
   "name": "acorn-extension",
-  "version": "1.11.0",
+  "version": "1.11.2",
   "private": true,
   "type": "module",
   "scripts": {
@@ -8,6 +8,7 @@
     "build": "tsc && vite build"
   },
   "dependencies": {
+    "@acorn/app-theme": "workspace:*",
     "@acorn/face": "workspace:*",
     "@acorn/shared": "workspace:*",
     "sid-ui": "catalog:",

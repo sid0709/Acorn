@@ -1,6 +1,6 @@
 // Package acorn is the Acorn extension's brain: it plans form fills, matches dropdown
 // options, answers free-text questions, and extracts job postings, all from the
-// signed-in job hunter's Joined profile.
+// signed-in job hunter's Acorn profile.
 package acorn
 
 import (

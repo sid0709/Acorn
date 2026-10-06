@@ -45,7 +45,7 @@ function fixture({ app = {}, overrides, catalog = { next: "16.3.6" } } = {}) {
 describe("manifest rules catch the mistakes contributors make", () => {
   it("accepts catalog: and workspace:*", () => {
     const repo = fixture({
-      app: { dependencies: { next: "catalog:", "@joined/job-schema": "workspace:*" } },
+      app: { dependencies: { next: "catalog:", "@acorn/job-schema": "workspace:*" } },
     });
     expect(manifestViolations(repo)).toEqual([]);
   });
