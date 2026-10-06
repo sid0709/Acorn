@@ -68,14 +68,15 @@ export async function fillNativeSelect(select: HTMLSelectElement, value: string)
       fieldLabel: fieldLabelFor(select),
       typedQuery: null,
     });
-    const picked =
-      typeof ai.matched_option === "string"
-        ? options.find(
-            (option) =>
-              optionLabel(option) === ai.matched_option ||
-              normalize(optionLabel(option)) === normalize(ai.matched_option || ""),
-          )
-        : null;
+    // null: the intended answer is not among these options.
+    const matched = ai.matched_option;
+    const picked = matched
+      ? options.find(
+          (option) =>
+            optionLabel(option) === matched ||
+            normalize(optionLabel(option)) === normalize(matched),
+        )
+      : null;
     if (picked) {
       return applySelectOption(select, picked);
     }

@@ -1,3 +1,5 @@
+import { visibleOptions } from "./option-mirror";
+
 export function normalize(text: string): string {
   return text.replace(/\s+/g, " ").replace(/[–—]/g, "-").trim().toLowerCase();
 }
@@ -110,6 +112,10 @@ function listboxServesControl(listbox: HTMLElement, control: HTMLElement, doc: D
 }
 
 export function pickScopedOptions(control: HTMLElement, doc: Document): HTMLElement[] {
+  return visibleOptions(collectScopedOptions(control, doc));
+}
+
+function collectScopedOptions(control: HTMLElement, doc: Document): HTMLElement[] {
   const owned = listboxRootsForControl(control, doc);
   if (owned.length) {
     for (const root of owned) {
@@ -141,6 +147,12 @@ export function pickScopedOptions(control: HTMLElement, doc: Document): HTMLElem
 
 export function optionSignature(options: HTMLElement[]): string {
   return options.map((opt) => normalize(optionText(opt))).join("\n");
+}
+
+/** True while the control says it is expanded or one of its own listboxes is on screen. */
+export function ownedPopupOpen(control: HTMLElement, doc: Document): boolean {
+  if (control.getAttribute("aria-expanded") === "true") return true;
+  return listboxRootsForControl(control, doc).some((node) => isDisplayed(node));
 }
 
 export function displayedListboxes(control: HTMLElement, doc: Document): HTMLElement[] {

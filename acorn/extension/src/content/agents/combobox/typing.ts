@@ -1,19 +1,59 @@
 import { pointerActivate } from "../pointer-activate";
 import { waitMs } from "../wait";
-import { isDisplayed } from "./options-dom";
+import { isDisplayed, ownedPopupOpen } from "./options-dom";
+import { comboboxWidgetRoot } from "./widget-value";
 
 /** Delay between keystrokes when appending a typed word. */
 const SMOOTH_TYPE_DELAY_MS = 45;
 /** Settle time after each typed word so filtered options can render. */
 const WORD_SEARCH_SETTLE_MS = 320;
+/** Time for a widget to close (or reopen on refocus) after a pick or a dismiss. */
+const POPUP_SETTLE_MS = 120;
+/** Legacy key code many widget libraries still read instead of `key`. */
+const ESCAPE_KEY_CODE = 27;
+
+function escapeKeydown(): KeyboardEvent {
+  return new KeyboardEvent("keydown", {
+    key: "Escape",
+    code: "Escape",
+    keyCode: ESCAPE_KEY_CODE,
+    which: ESCAPE_KEY_CODE,
+    bubbles: true,
+    cancelable: true,
+  });
+}
 
 export function dismissOpenOverlays(doc: Document, control: HTMLElement): void {
-  control.dispatchEvent(
-    new KeyboardEvent("keydown", { key: "Escape", bubbles: true, cancelable: true }),
-  );
-  doc.dispatchEvent(
-    new KeyboardEvent("keydown", { key: "Escape", bubbles: true, cancelable: true }),
-  );
+  control.dispatchEvent(escapeKeydown());
+  doc.dispatchEvent(escapeKeydown());
+}
+
+export type PopupCloseOutcome = "closed" | "escape" | "blur" | "still-open";
+
+/**
+ * A pick should leave the popup closed. Some widgets stay open, or reopen when focus
+ * returns to them, until focus moves on. Escalate the way a person would: Escape,
+ * then leave the field (Tab-like blur).
+ */
+export async function settlePopupClosed(
+  control: HTMLElement,
+  doc: Document,
+): Promise<PopupCloseOutcome> {
+  await waitMs(POPUP_SETTLE_MS);
+  if (!ownedPopupOpen(control, doc)) return "closed";
+
+  dismissOpenOverlays(doc, control);
+  await waitMs(POPUP_SETTLE_MS);
+  if (!ownedPopupOpen(control, doc)) return "escape";
+
+  const widget = comboboxWidgetRoot(control);
+  const active = doc.activeElement;
+  if (active instanceof HTMLElement && (active === control || widget.contains(active))) {
+    active.blur();
+  }
+  control.blur();
+  await waitMs(POPUP_SETTLE_MS);
+  return ownedPopupOpen(control, doc) ? "still-open" : "blur";
 }
 
 export async function focusAndOpenCombobox(el: HTMLElement): Promise<void> {
@@ -63,27 +103,6 @@ function setInputValue(el: HTMLInputElement | HTMLTextAreaElement, text: string)
 
 export function typeaheadFilterWaitMs(doc: Document): number {
   return doc.hidden ? 8000 : 4000;
-}
-
-/** Set the whole search string at once so the host queries the full school name. */
-export async function pasteQueryIntoOpenCombobox(el: HTMLElement, query: string): Promise<void> {
-  const input = resolveTypeableInput(el);
-  if (!input) return;
-  input.removeAttribute("aria-hidden");
-  input.focus();
-  setInputValue(input, "");
-  input.dispatchEvent(new Event("input", { bubbles: true }));
-  setInputValue(input, query);
-  input.dispatchEvent(
-    new InputEvent("input", {
-      bubbles: true,
-      cancelable: true,
-      data: query,
-      inputType: "insertText",
-    }),
-  );
-  input.dispatchEvent(new Event("change", { bubbles: true }));
-  await waitMs(el.ownerDocument.hidden ? 1000 : WORD_SEARCH_SETTLE_MS);
 }
 
 /** Type the full query string into an already-focused open combobox. */

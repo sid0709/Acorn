@@ -358,7 +358,13 @@ func (s *Server) analyzeLibrary(w http.ResponseWriter, r *http.Request) {
 	if !ok {
 		return
 	}
-	row, err := s.resumes.AnalyzeLibrary(session.User.ID, r.PathValue("resumeId"))
+	var body struct {
+		Force bool `json:"force"`
+	}
+	if !decode(w, r, &body) {
+		return
+	}
+	row, err := s.resumes.AnalyzeLibrary(r.Context(), session.User.ID, r.PathValue("resumeId"), body.Force)
 	if err != nil {
 		s.writeResumeErr(w, err)
 		return

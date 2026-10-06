@@ -2,29 +2,17 @@ import { askAiMatchOption } from "../match-option-client";
 import { stripChoiceMarker } from "../string-similarity";
 import { normalize, optionText } from "./options-dom";
 
-function findLocalMatch(
-  options: HTMLElement[],
-  value: string,
-  _fieldLabel?: string | null,
-): { match: HTMLElement | null; score: number | null; strategy: string } {
-  return matchLocally(options, value);
-}
-
-function matchLocally(
-  options: HTMLElement[],
-  value: string,
-): { match: HTMLElement | null; score: number | null; strategy: string } {
+/** The option whose text is the value (ignoring case, spacing, and an "A." style marker). */
+export function findExactOption(options: HTMLElement[], value: string): HTMLElement | null {
   const target = normalize(value);
   const targetBare = normalize(stripChoiceMarker(value));
-  if (!target) return { match: null, score: null, strategy: "empty" };
-
-  const exact = options.find((opt) => {
-    const have = normalize(optionText(opt));
-    const haveBare = normalize(stripChoiceMarker(optionText(opt)));
-    return have === target || haveBare === targetBare;
-  });
-  if (exact) return { match: exact, score: 1, strategy: "exact" };
-  return { match: null, score: null, strategy: "none" };
+  if (!target) return null;
+  return (
+    options.find((opt) => {
+      const have = normalize(optionText(opt));
+      return have === target || normalize(stripChoiceMarker(optionText(opt))) === targetBare;
+    }) ?? null
+  );
 }
 
 function optionKey(text: string): string {
@@ -44,42 +32,21 @@ function resolveOptionElement(options: HTMLElement[], label: string): HTMLElemen
 }
 
 /**
- * Closed lists already show every choice, so AI may pick a semantic equivalent.
- * Typeahead first pages are incomplete — only ask AI when the intended label is
- * already among the visible options, or after the full query has been typed.
+ * One AI decision over exactly these candidates. The matcher returns null when the
+ * intended answer is not among them, and that is final for this list.
  */
-export async function matchFromCandidates(
+export async function decideAmongOptions(
   options: HTMLElement[],
   value: string,
   fieldLabel: string | null,
   typedQuery: string | null,
-  allowAi = true,
-): Promise<{ match: HTMLElement | null; score: number | null; strategy: string }> {
-  const local = findLocalMatch(options, value, fieldLabel);
-  if (local.match) return local;
-
-  if (!allowAi || !options.length) {
-    return { match: null, score: local.score, strategy: local.strategy };
-  }
-
-  const labels = options.map(optionText);
+): Promise<HTMLElement | null> {
+  if (!options.length || !value.trim()) return null;
   const ai = await askAiMatchOption({
     intendedValue: value,
-    options: labels,
+    options: options.map(optionText),
     fieldLabel,
     typedQuery,
   });
-
-  const aiConfidence = typeof ai.confidence === "number" ? ai.confidence : 0;
-  const el = ai.matched_option ? resolveOptionElement(options, ai.matched_option) : null;
-  // Confidence 0 means the model did not consider this the intended entity.
-  if (el && aiConfidence > 0) {
-    return {
-      match: el,
-      score: aiConfidence,
-      strategy: "ai",
-    };
-  }
-
-  return { match: null, score: local.score, strategy: local.strategy };
+  return ai.matched_option ? resolveOptionElement(options, ai.matched_option) : null;
 }

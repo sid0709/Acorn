@@ -14,6 +14,7 @@ import (
 	"github.com/sid0709/OpenSeat/acorn-backend/account"
 	"github.com/sid0709/OpenSeat/acorn-backend/acorn"
 	"github.com/sid0709/OpenSeat/acorn-backend/acornapi/gateway"
+	"github.com/sid0709/OpenSeat/acorn-backend/debugtrace"
 	"github.com/sid0709/OpenSeat/acorn-backend/profile"
 	"github.com/sid0709/OpenSeat/acorn-backend/resume"
 	"github.com/sid0709/OpenSeat/backend-core/google"
@@ -64,6 +65,7 @@ type Server struct {
 	googleRedirect string
 	resumes        *resume.Service
 	profiles       *profile.Store
+	debug          *debugtrace.Recorder
 }
 
 // Options are the Acorn API's settings. CORS is the server's: see acorn-backend/cmd/server.
@@ -82,6 +84,8 @@ type Options struct {
 	Resumes *resume.Service
 	// Profiles is the account profile. Nil uses an in-memory store.
 	Profiles *profile.Store
+	// Debug is local debug capture (pages, prompts, plans, step traces). Nil is off.
+	Debug *debugtrace.Recorder
 }
 
 func New(accounts Accounts, listings *jobs.Store, brain *acorn.Service, opts Options) (http.Handler, *gateway.Gateway) {
@@ -89,7 +93,10 @@ func New(accounts Accounts, listings *jobs.Store, brain *acorn.Service, opts Opt
 		accounts: accounts, listings: listings, acorn: brain, files: opts.Runtime,
 		cookie: opts.SessionCookie, switches: opts.KillSwitches,
 		google: opts.Google, googleRedirect: opts.GoogleRedirectURL,
-		resumes: opts.Resumes, profiles: opts.Profiles,
+		resumes: opts.Resumes, profiles: opts.Profiles, debug: opts.Debug,
+	}
+	if s.debug != nil {
+		brain.SetTracer(debugtrace.Tracer())
 	}
 	if s.resumes == nil {
 		s.resumes = resume.New(nil, nil)
@@ -117,6 +124,9 @@ func New(accounts Accounts, listings *jobs.Store, brain *acorn.Service, opts Opt
 	mux.HandleFunc("POST /acorn/match-option", s.requireAI(s.matchOption))
 	mux.HandleFunc("POST /acorn/qa", s.requireAI(s.qa))
 	mux.HandleFunc("GET /acorn/runtime-file", s.runtimeFile)
+	if s.debug != nil {
+		mux.HandleFunc("POST /acorn/debug/log", s.debugLog)
+	}
 
 	mux.HandleFunc("GET /acorn/jobs", s.listJobs)
 	mux.HandleFunc("GET /acorn/jobs/{jobId}", s.getJob)

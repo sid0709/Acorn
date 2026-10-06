@@ -1,5 +1,4 @@
 import { authHeaders, getAcornApiUrl } from "../../auth/acorn-auth";
-import { matchOptionViaAnalyze } from "../../pipeline/match-option-analyze";
 import { addPipelineUsage } from "../../pipeline/usage-tracker";
 import type { MatchOptionRequest, MatchOptionResponse } from "../../types";
 import { pipelineRunningTabIds } from "../work-state";
@@ -44,20 +43,8 @@ export function handleMatchOption(
       if (usageTabId != null && pipelineRunningTabIds.has(usageTabId) && data.usage) {
         addPipelineUsage(usageTabId, data.usage);
       }
-      let reply: MatchOptionResponse = { ...data, ok: data.ok !== false };
-      const listed = (payload.options as string[]) || [];
-      let fromAnalyze: string | null = null;
-      if (reply.ok && !reply.matched_option && listed.length) {
-        fromAnalyze = await matchOptionViaAnalyze({
-          intendedValue: String(incoming.intendedValue || ""),
-          options: listed,
-          fieldLabel: typeof incoming.fieldLabel === "string" ? incoming.fieldLabel : "",
-          apiUrl: base,
-        }).catch(() => null);
-        if (fromAnalyze) {
-          reply = { ...reply, matched_option: fromAnalyze, ok: true };
-        }
-      }
+      // A null match means the intended answer is not among these options; it stands.
+      const reply: MatchOptionResponse = { ...data, ok: data.ok !== false };
       sendResponse(reply);
     } catch (err) {
       sendResponse({

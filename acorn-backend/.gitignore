@@ -1,3 +1,5 @@
 .env
 /bin/
 *.test
+# Local debug capture (ACORN_DEBUG_DIR): page HTML and applicant data.
+debug-runs/

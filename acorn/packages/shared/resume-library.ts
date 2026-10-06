@@ -1,5 +1,16 @@
 export type ResumeLibrarySource = "uploaded" | "generated";
 
+/** Radar categories from résumé skill analysis. */
+export const RESUME_SKILL_CATEGORIES = ["hard", "devops", "tools", "domain", "soft"] as const;
+
+export type ResumeSkillCategory = (typeof RESUME_SKILL_CATEGORIES)[number];
+
+export type ResumeSkillEntry = {
+  name: string;
+  category: string;
+  level: number;
+};
+
 export type ResumeLibraryRow = {
   id: string;
   source: ResumeLibrarySource;
@@ -9,6 +20,8 @@ export type ResumeLibraryRow = {
   isPrimary: boolean;
   analyzed: boolean;
   analyzedAt: string | null;
+  skillCount: number;
+  skillProfile: ResumeSkillEntry[];
   generationId: string | null;
   templateId: string | null;
   uploadedAt: string;
@@ -17,6 +30,12 @@ export type ResumeLibraryRow = {
 
 export const RESUME_LIBRARY_ACCEPT = ".pdf,.doc,.docx,.txt";
 export const RESUME_LIBRARY_MAX_BYTES = 8 * 1024 * 1024;
+/** Parallel library uploads. Matches the Athens library folder upload. */
+export const RESUME_BULK_UPLOAD_CONCURRENCY = 8;
+/** How many résumés one folder upload may include. */
+export const RESUME_BULK_UPLOAD_MAX_FILES = 100;
+/** Parallel skill-analysis calls from the library. */
+export const RESUME_ANALYZE_CONCURRENCY = 4;
 export const RESUME_TEMPLATE_ACCEPT = ".docx";
 export const RESUME_TEMPLATE_MAX_BYTES = 8 * 1024 * 1024;
 

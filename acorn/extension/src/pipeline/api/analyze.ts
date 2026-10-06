@@ -23,6 +23,8 @@ export interface AiAnalyzeRequest {
   /** Sole tree the planner reads; control attrs ride on each node's `detail`. */
   pureTree: string;
   page?: AiAnalyzePage | null;
+  /** Debug builds only: saved by a backend running with ACORN_DEBUG_DIR, never sent to the model. */
+  debug?: { html?: string; domTree?: unknown; metaTree?: string };
 }
 
 export interface AiAnalyzeResponse {

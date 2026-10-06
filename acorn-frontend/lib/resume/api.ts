@@ -143,8 +143,12 @@ export async function deleteLibraryFile(id: string): Promise<ResumeCall<{ succes
 
 export async function analyzeLibraryFile(
   id: string,
+  force = false,
 ): Promise<ResumeCall<{ resume: ResumeLibraryRow }>> {
-  return read(RESUME_API.libraryAnalyze(id), { method: "POST" });
+  return read(RESUME_API.libraryAnalyze(id), {
+    method: "POST",
+    body: JSON.stringify({ force }),
+  });
 }
 
 export async function makeLibraryPrimary(

@@ -11,6 +11,7 @@ import (
 	"github.com/sid0709/OpenSeat/acorn-backend/account"
 	"github.com/sid0709/OpenSeat/acorn-backend/acorn"
 	"github.com/sid0709/OpenSeat/acorn-backend/acornapi"
+	"github.com/sid0709/OpenSeat/acorn-backend/debugtrace"
 	"github.com/sid0709/OpenSeat/acorn-backend/profile"
 	"github.com/sid0709/OpenSeat/acorn-backend/resume"
 	"github.com/sid0709/OpenSeat/backend-core/aisettings"
@@ -84,6 +85,11 @@ func main() {
 		slog.Error("acorn profiles", "error", err)
 		os.Exit(1)
 	}
+	// Local debug capture: pages, profiles, prompts, and plans land on disk. Never set in production.
+	debug := debugtrace.New(config.Env("ACORN_DEBUG_DIR", ""))
+	if debug != nil {
+		slog.Warn("Acorn debug capture is on: page HTML, applicant profiles, and AI prompts are written to disk", "dir", debug.Dir())
+	}
 	acornHandler, gateway := acornapi.New(accounts, p.Jobs, acorn.New(model), acornapi.Options{
 		Resumes:       resumes,
 		Profiles:      profiles,
@@ -95,6 +101,7 @@ func main() {
 		KillSwitches:      p.KillSwitches,
 		Google:            oauth,
 		GoogleRedirectURL: googleConfig.SignInRedirectURL,
+		Debug:             debug,
 	})
 	defer gateway.Close()
 

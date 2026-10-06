@@ -17,6 +17,13 @@ function logAcornVersion(): Plugin {
     name: "acorn-version",
     configResolved(config) {
       config.logger.info(`\nAcorn extension v${ACORN_VERSION} (${config.mode})\n`);
+      // Mirrors ACORN_DEBUG in src/debug-trace.ts: only development builds capture.
+      if (config.env.VITE_ACORN_DEBUG !== "true") return;
+      if (config.mode === "development") {
+        config.logger.warn("Debug capture is ON: Fill sends page HTML and step traces.\n");
+      } else {
+        config.logger.info("VITE_ACORN_DEBUG is ignored: debug capture is off in this build.\n");
+      }
     },
   };
 }

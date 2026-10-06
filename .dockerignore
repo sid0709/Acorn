@@ -10,3 +10,5 @@ secrets
 **/.env
 **/.env.*
 !**/.env.example
+# Local debug capture (ACORN_DEBUG_DIR): page HTML and applicant data.
+**/debug-runs

@@ -235,23 +235,6 @@ func (s *Service) DeleteLibrary(accountID, id string) error {
 	return nil
 }
 
-func (s *Service) AnalyzeLibrary(accountID, id string) (LibraryRow, error) {
-	row, ok := s.store.libraryItem(accountID, id)
-	if !ok {
-		return LibraryRow{}, ErrNotFound
-	}
-	if row.ExtractedText == "" {
-		row.ExtractedText = extractFileText(row.FileName, row.Bytes)
-	}
-	row.Skills = analyzeText(row.ExtractedText)
-	now := time.Now().UTC()
-	row.Analyzed = true
-	row.AnalyzedAt = &now
-	s.store.putLibrary(row)
-	row.Bytes = nil
-	return row, nil
-}
-
 func (s *Service) SetPrimary(accountID, id string) (LibraryRow, error) {
 	target, ok := s.store.libraryItem(accountID, id)
 	if !ok {
@@ -418,11 +401,16 @@ func PublicRow(row LibraryRow) map[string]any {
 	if row.AnalyzedAt != nil {
 		analyzedAt = row.AnalyzedAt.Format(time.RFC3339)
 	}
+	profile := row.SkillProfile
+	if profile == nil {
+		profile = []SkillEntry{}
+	}
 	return map[string]any{
 		"id": row.ID, "source": row.Source, "fileName": row.FileName, "title": row.Title,
 		"size": row.Size, "isPrimary": row.IsPrimary, "analyzed": row.Analyzed,
 		"analyzedAt": analyzedAt, "generationId": row.GenerationID, "templateId": row.TemplateID,
 		"uploadedAt": row.UploadedAt.Format(time.RFC3339), "extractedText": row.ExtractedText,
+		"skillCount": len(profile), "skillProfile": profile,
 	}
 }
 

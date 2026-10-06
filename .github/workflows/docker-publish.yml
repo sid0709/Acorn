@@ -83,7 +83,7 @@ jobs:
       - name: Build and push API
         uses: docker/build-push-action@v6
         with:
-          context: src
+          context: src/Acorn
           file: src/Acorn/acorn-backend/Dockerfile
           push: true
           platforms: linux/amd64
