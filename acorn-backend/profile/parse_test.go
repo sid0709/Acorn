@@ -61,7 +61,7 @@ func TestMergeResumeFillsContactAndTimeline(t *testing.T) {
 	if school.Kind != "education" || school.Org != "State University" || school.EndYear != "2015" {
 		t.Fatalf("school = %+v", school)
 	}
-	if next.VisaSponsorship != "" || next.OpenaiApiKey != "" {
+	if next.VisaSponsorship != defaultVisaSponsorship || next.OpenaiApiKey != "" {
 		t.Fatal("résumé text must not invent disclosures or secrets")
 	}
 }

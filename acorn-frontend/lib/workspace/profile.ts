@@ -120,6 +120,7 @@ export const CITIZENSHIP_OPTIONS = choice([
 ]);
 export const YES_NO_OPTIONS = choice(["Yes", "No"]);
 export const PUBLIC_TRUST_OPTIONS = choice([
+  "None",
   "Active public trust",
   "Eligible and willing to obtain",
   "Not eligible",
@@ -283,6 +284,26 @@ const LATER_FIELDS = {
   noticePeriod: "",
 } satisfies Partial<ApplicantProfile>;
 
+/** What an empty answer starts as. Matches the backend's defaults. */
+const ANSWER_DEFAULTS = {
+  gender: "Male",
+  orientation: "Heterosexual",
+  publicTrust: "None",
+  securityClearance: "None",
+  willingToRelocate: "Yes",
+  workModePreference: "Remote",
+  willingToTravel: "None",
+  noticePeriod: "Immediately",
+  hispanicLatino: "No",
+  raceEthnicity: "White",
+  citizenship: "U.S. Citizen",
+  visaSponsorship: "No — no sponsorship",
+  over18: "Yes",
+  backgroundCheck: "Yes",
+  disability: "No — no disability",
+  veteranStatus: "I am not a protected veteran",
+} satisfies Partial<ApplicantProfile>;
+
 /** A stored profile with every field present, whichever version saved it. */
 export function withDefaults(profile: ApplicantProfile): ApplicantProfile {
   const next = { ...LATER_FIELDS, ...profile };
@@ -290,8 +311,12 @@ export function withDefaults(profile: ApplicantProfile): ApplicantProfile {
     ...entry,
     location: entry.location ?? "",
   }));
-  if (!next.gender?.trim()) next.gender = "Male";
-  if (!next.orientation?.trim()) next.orientation = "Heterosexual";
+  for (const [key, value] of Object.entries(ANSWER_DEFAULTS) as [
+    keyof typeof ANSWER_DEFAULTS,
+    string,
+  ][]) {
+    if (!next[key]?.trim()) next[key] = value;
+  }
   return next;
 }
 

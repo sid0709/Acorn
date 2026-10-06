@@ -28,6 +28,22 @@ const (
 
 	defaultGender      = "Male"
 	defaultOrientation = "Heterosexual"
+
+	// Answers a new profile starts with; an empty answer is filled with these on save.
+	defaultPublicTrust     = "None"
+	defaultClearance       = "None"
+	defaultRelocate        = "Yes"
+	defaultWorkMode        = "Remote"
+	defaultTravel          = "None"
+	defaultNoticePeriod    = "Immediately"
+	defaultHispanicLatino  = "No"
+	defaultRaceEthnicity   = "White"
+	defaultCitizenship     = "U.S. Citizen"
+	defaultVisaSponsorship = "No — no sponsorship"
+	defaultOver18          = "Yes"
+	defaultBackgroundCheck = "Yes"
+	defaultDisability      = "No — no disability"
+	defaultVeteranStatus   = "I am not a protected veteran"
 )
 
 var (
@@ -205,26 +221,26 @@ func normalize(doc Document) Document {
 	doc.Street = clip(doc.Street, maxContact)
 	doc.City = clip(doc.City, maxContact)
 	doc.State = clip(doc.State, maxContact)
-	doc.Citizenship = clip(doc.Citizenship, maxContact)
+	doc.Citizenship = orDefault(clip(doc.Citizenship, maxContact), defaultCitizenship)
 	doc.Country = clip(doc.Country, maxContact)
 	doc.Zip = clip(doc.Zip, maxContact)
 	doc.Linkedin = clip(doc.Linkedin, maxContact)
 	doc.Github = clip(doc.Github, maxContact)
 	doc.Portfolio = clip(doc.Portfolio, maxContact)
-	doc.HispanicLatino = clip(doc.HispanicLatino, maxContact)
-	doc.RaceEthnicity = clip(doc.RaceEthnicity, maxContact)
-	doc.VisaSponsorship = clip(doc.VisaSponsorship, maxContact)
+	doc.HispanicLatino = orDefault(clip(doc.HispanicLatino, maxContact), defaultHispanicLatino)
+	doc.RaceEthnicity = orDefault(clip(doc.RaceEthnicity, maxContact), defaultRaceEthnicity)
+	doc.VisaSponsorship = orDefault(clip(doc.VisaSponsorship, maxContact), defaultVisaSponsorship)
 	doc.WorkAuthorized = clip(doc.WorkAuthorized, maxContact)
-	doc.PublicTrust = clip(doc.PublicTrust, maxContact)
-	doc.SecurityClearance = clip(doc.SecurityClearance, maxContact)
-	doc.Over18 = clip(doc.Over18, maxContact)
-	doc.BackgroundCheck = clip(doc.BackgroundCheck, maxContact)
-	doc.WillingToRelocate = clip(doc.WillingToRelocate, maxContact)
-	doc.WorkModePreference = clip(doc.WorkModePreference, maxContact)
-	doc.WillingToTravel = clip(doc.WillingToTravel, maxContact)
-	doc.NoticePeriod = clip(doc.NoticePeriod, maxContact)
-	doc.Disability = clip(doc.Disability, maxContact)
-	doc.VeteranStatus = clip(doc.VeteranStatus, maxContact)
+	doc.PublicTrust = orDefault(clip(doc.PublicTrust, maxContact), defaultPublicTrust)
+	doc.SecurityClearance = orDefault(clip(doc.SecurityClearance, maxContact), defaultClearance)
+	doc.Over18 = orDefault(clip(doc.Over18, maxContact), defaultOver18)
+	doc.BackgroundCheck = orDefault(clip(doc.BackgroundCheck, maxContact), defaultBackgroundCheck)
+	doc.WillingToRelocate = orDefault(clip(doc.WillingToRelocate, maxContact), defaultRelocate)
+	doc.WorkModePreference = orDefault(clip(doc.WorkModePreference, maxContact), defaultWorkMode)
+	doc.WillingToTravel = orDefault(clip(doc.WillingToTravel, maxContact), defaultTravel)
+	doc.NoticePeriod = orDefault(clip(doc.NoticePeriod, maxContact), defaultNoticePeriod)
+	doc.Disability = orDefault(clip(doc.Disability, maxContact), defaultDisability)
+	doc.VeteranStatus = orDefault(clip(doc.VeteranStatus, maxContact), defaultVeteranStatus)
 	doc.DesiredSalary = clip(doc.DesiredSalary, maxContact)
 	doc.OpenaiApiKey = clip(doc.OpenaiApiKey, maxSecret)
 	doc.DeepseekApiKey = clip(doc.DeepseekApiKey, maxSecret)
@@ -271,4 +287,11 @@ func clip(value string, max int) string {
 		cut--
 	}
 	return strings.TrimSpace(value[:cut])
+}
+
+func orDefault(value, fallback string) string {
+	if value == "" {
+		return fallback
+	}
+	return value
 }

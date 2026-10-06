@@ -68,3 +68,15 @@ func TestFillFallsBackToLayout(t *testing.T) {
 		t.Fatalf("filled = %s %+v", filled.Reader, filled.Profile)
 	}
 }
+
+func TestDefaultAnswersStayEditable(t *testing.T) {
+	doc := normalize(Document{})
+	if doc.Citizenship != "U.S. Citizen" || doc.Over18 != "Yes" || doc.VeteranStatus != "I am not a protected veteran" || doc.WillingToRelocate != "Yes" {
+		t.Fatalf("defaults = %+v", doc)
+	}
+	doc.Citizenship, doc.WorkModePreference, doc.RaceEthnicity = "Permanent resident", "Hybrid", "Decline to answer"
+	again := normalize(doc)
+	if again.Citizenship != "Permanent resident" || again.WorkModePreference != "Hybrid" || again.RaceEthnicity != "Decline to answer" {
+		t.Fatalf("a chosen answer was overwritten: %+v", again)
+	}
+}
