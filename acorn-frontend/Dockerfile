@@ -7,7 +7,7 @@ ENV HUSKY=0
 COPY . .
 
 RUN bun install --frozen-lockfile --filter acorn-frontend
-RUN bun --filter acorn-frontend run build
+RUN bun run --filter acorn-frontend build
 
 FROM node:20-bookworm-slim
 
