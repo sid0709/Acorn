@@ -67,7 +67,19 @@ export function ResumeLibrary() {
   };
 
   useEffect(() => {
-    void reload();
+    let cancel = false;
+    void (async () => {
+      const result = await listLibrary();
+      if (cancel) return;
+      if (!result.ok) {
+        setError(result.message);
+        return;
+      }
+      setRows(result.data.resumes);
+    })();
+    return () => {
+      cancel = true;
+    };
   }, []);
 
   const upload = async (files: File[]) => {
