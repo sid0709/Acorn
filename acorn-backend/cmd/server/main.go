@@ -45,6 +45,9 @@ func main() {
 		slog.Error("config", "error", err)
 		os.Exit(1)
 	}
+	if envFile == "" {
+		slog.Info("acorn-backend/.env not present; using the process environment")
+	}
 	db, err := config.LoadDatabase()
 	if err != nil {
 		slog.Error("config", "error", err)

@@ -14,10 +14,15 @@ const acornModule = "module github.com/sid0709/OpenSeat/acorn-backend"
 
 // loadAcornEnv reads acorn-backend/.env, walking up from the working directory
 // until it finds that module. A .env in another folder, including backend-core, is ignored.
+// The production image has no source tree; Docker already injected /opt/acorn/deploy.env,
+// so a missing module leaves the process environment as the config.
 func loadAcornEnv() (string, error) {
 	path, err := acornEnvPath()
 	if err != nil {
 		return "", err
+	}
+	if path == "" {
+		return "", nil
 	}
 	if _, err := os.Stat(path); err != nil {
 		return "", fmt.Errorf("acorn-backend/.env not found at %s", path)
@@ -41,7 +46,7 @@ func acornEnvPath() (string, error) {
 		}
 		parent := filepath.Dir(dir)
 		if parent == dir {
-			return "", fmt.Errorf("acorn-backend module not found from %s", dir)
+			return "", nil
 		}
 		dir = parent
 	}
