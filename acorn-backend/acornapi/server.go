@@ -14,6 +14,7 @@ import (
 	"github.com/sid0709/OpenSeat/acorn-backend/account"
 	"github.com/sid0709/OpenSeat/acorn-backend/acorn"
 	"github.com/sid0709/OpenSeat/acorn-backend/acornapi/gateway"
+	"github.com/sid0709/OpenSeat/acorn-backend/resume"
 	"github.com/sid0709/OpenSeat/backend-core/google"
 	"github.com/sid0709/OpenSeat/backend-core/httpkit"
 	"github.com/sid0709/OpenSeat/backend-core/jobs"
@@ -59,6 +60,7 @@ type Server struct {
 	switches       killswitch.Switches
 	google         *google.Client
 	googleRedirect string
+	resumes        *resume.Service
 }
 
 // Options are the Acorn API's settings. CORS is the server's: see acorn-backend/cmd/server.
@@ -73,6 +75,8 @@ type Options struct {
 	Google *google.Client
 	// GoogleRedirectURL is acorn-frontend's callback, registered in Google Cloud.
 	GoogleRedirectURL string
+	// Resumes is the template, generation, library, and history engine. Nil uses an in-memory store.
+	Resumes *resume.Service
 }
 
 func New(accounts Accounts, listings *jobs.Store, brain *acorn.Service, opts Options) (http.Handler, *gateway.Gateway) {
@@ -80,6 +84,10 @@ func New(accounts Accounts, listings *jobs.Store, brain *acorn.Service, opts Opt
 		accounts: accounts, listings: listings, acorn: brain, files: opts.Runtime,
 		cookie: opts.SessionCookie, switches: opts.KillSwitches,
 		google: opts.Google, googleRedirect: opts.GoogleRedirectURL,
+		resumes: opts.Resumes,
+	}
+	if s.resumes == nil {
+		s.resumes = resume.New(nil, nil)
 	}
 	if s.cookie == "" {
 		s.cookie = DefaultSessionCookie
@@ -104,19 +112,41 @@ func New(accounts Accounts, listings *jobs.Store, brain *acorn.Service, opts Opt
 	mux.HandleFunc("GET /acorn/jobs/{jobId}", s.getJob)
 	mux.HandleFunc("POST /acorn/jobs/{jobId}/generate", s.requireAI(s.generateForJob))
 	mux.HandleFunc("POST /acorn/jobs/{jobId}/mark-applied", s.markApplied)
-	mux.HandleFunc("GET /acorn/jobs/{jobId}/resume-preview", s.emptyPreview)
-	mux.HandleFunc("GET /acorn/jobs/{jobId}/recommended-resume", s.noJobResume)
+	mux.HandleFunc("GET /acorn/jobs/{jobId}/resume-preview", s.jobResumePreview)
+	mux.HandleFunc("GET /acorn/jobs/{jobId}/recommended-resume", s.jobRecommendedResume)
 
 	mux.HandleFunc("POST /acorn/custom/extract-jd", s.requireAI(s.extractJD))
 	mux.HandleFunc("POST /acorn/custom/analyze-meta", s.requireAI(s.analyzeMeta))
-	mux.HandleFunc("POST /acorn/custom/generate", s.noGenerate)
-	mux.HandleFunc("POST /acorn/custom/generate/{inputId}/continue", s.noContinue)
-	mux.HandleFunc("GET /acorn/custom/generate/{inputId}", s.noPoll)
-	mux.HandleFunc("POST /acorn/custom/recommend", s.noRecommend)
-	mux.HandleFunc("GET /acorn/custom/library-resumes/{resumeId}/preview", s.emptyPreview)
-	mux.HandleFunc("GET /acorn/custom/library-resumes/{resumeId}", s.noLibraryResume)
-	mux.HandleFunc("GET /acorn/custom/resumes/{generationId}/preview", s.emptyPreview)
-	mux.HandleFunc("GET /acorn/custom/resumes/{generationId}", s.noGeneratedResume)
+	mux.HandleFunc("POST /acorn/custom/generate", s.requireAI(s.startGenerate))
+	mux.HandleFunc("POST /acorn/custom/generate/{inputId}/continue", s.requireAI(s.continueGenerate))
+	mux.HandleFunc("GET /acorn/custom/generate/{inputId}", s.pollGenerate)
+	mux.HandleFunc("POST /acorn/custom/recommend", s.recommendLibrary)
+	mux.HandleFunc("GET /acorn/custom/library-resumes/{resumeId}/preview", s.customLibraryPreview)
+	mux.HandleFunc("GET /acorn/custom/library-resumes/{resumeId}", s.customLibraryResume)
+	mux.HandleFunc("GET /acorn/custom/resumes/{generationId}/preview", s.customGeneratedPreview)
+	mux.HandleFunc("GET /acorn/custom/resumes/{generationId}", s.customGeneratedResume)
+
+	mux.HandleFunc("GET /acorn/resume/config", s.getConfig)
+	mux.HandleFunc("PUT /acorn/resume/config", s.putConfig)
+	mux.HandleFunc("POST /acorn/resume/preview", s.previewResume)
+	mux.HandleFunc("GET /acorn/resume/templates", s.listTemplates)
+	mux.HandleFunc("POST /acorn/resume/templates", s.uploadTemplate)
+	mux.HandleFunc("DELETE /acorn/resume/templates/{templateId}", s.deleteTemplate)
+	mux.HandleFunc("POST /acorn/resume/generate", s.requireAI(s.startGenerate))
+	mux.HandleFunc("POST /acorn/resume/generate/{inputId}/continue", s.requireAI(s.continueGenerate))
+	mux.HandleFunc("GET /acorn/resume/generate/{inputId}", s.pollGenerate)
+	mux.HandleFunc("GET /acorn/resume/generations", s.listGenerations)
+	mux.HandleFunc("GET /acorn/resume/generations/{generationId}/docx", s.generationDocx)
+	mux.HandleFunc("GET /acorn/resume/generations/{generationId}/preview", s.generationPreview)
+	mux.HandleFunc("GET /acorn/resume/generations/{generationId}", s.getGeneration)
+	mux.HandleFunc("DELETE /acorn/resume/generations/{generationId}", s.deleteGeneration)
+	mux.HandleFunc("GET /acorn/resume/library", s.listLibrary)
+	mux.HandleFunc("POST /acorn/resume/library", s.uploadLibrary)
+	mux.HandleFunc("DELETE /acorn/resume/library/{resumeId}", s.deleteLibrary)
+	mux.HandleFunc("POST /acorn/resume/library/{resumeId}/analyze", s.analyzeLibrary)
+	mux.HandleFunc("POST /acorn/resume/library/{resumeId}/primary", s.primaryLibrary)
+	mux.HandleFunc("GET /acorn/resume/library/{resumeId}/file", s.libraryFile)
+	mux.HandleFunc("GET /acorn/resume/library/{resumeId}/preview", s.libraryPreview)
 
 	socket := gw.Handler()
 	mux.Handle(gateway.Path, socket)
