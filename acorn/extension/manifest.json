@@ -9,15 +9,14 @@
     "alarms",
     "webNavigation",
     "sidePanel",
-    "cookies"
+    "identity"
   ],
   "side_panel": {
     "default_path": "sidebar.html"
   },
   "host_permissions": [
     "<all_urls>",
-    "https://api.joinedhq.com/*",
-    "https://acorn.joinedhq.com/*",
+    "https://acorn.remotepairnet.net/*",
     "http://127.0.0.1:8083/*",
     "http://localhost:8083/*",
     "http://localhost:6005/*",

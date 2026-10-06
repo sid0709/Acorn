@@ -1,10 +1,5 @@
 import { isAcornSocketConnected } from "../../acorn-socket";
-import {
-  acornSignIn,
-  acornSignOut,
-  getAcornSession,
-  syncAcornSession,
-} from "../../auth/acorn-auth";
+import { acornSignIn, acornSignOut, getAcornSession } from "../../auth/acorn-auth";
 import { connectSocket } from "../socket-connection";
 import type { RuntimeMessage, SendResponse } from "./shared";
 
@@ -13,15 +8,13 @@ export function handleSocketStatus(sendResponse: SendResponse): void {
 }
 
 export function handleAuthStatus(sendResponse: SendResponse): void {
-  void syncAcornSession()
-    .then(getAcornSession)
-    .then((session) => {
-      sendResponse({
-        signedIn: Boolean(session),
-        session,
-        connected: isAcornSocketConnected(),
-      });
+  void getAcornSession().then((session) => {
+    sendResponse({
+      signedIn: Boolean(session),
+      session,
+      connected: isAcornSocketConnected(),
     });
+  });
 }
 
 export function handleAuthSignIn(message: RuntimeMessage, sendResponse: SendResponse): void {

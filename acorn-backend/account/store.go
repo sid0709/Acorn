@@ -42,6 +42,8 @@ var (
 	ErrGoogleState = errors.New("the Google sign-in expired; try again")
 	// ErrGoogleMismatch is a Google account that is not the one linked to this email.
 	ErrGoogleMismatch = errors.New("this email is linked to a different Google account")
+	// ErrGoogleUnknown is a Google account with no Acorn account for that email.
+	ErrGoogleUnknown = errors.New("no Acorn account uses this Gmail")
 )
 
 // User is one Acorn account.

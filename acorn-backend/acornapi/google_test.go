@@ -2,10 +2,12 @@ package acornapi
 
 import (
 	"encoding/json"
+	"io"
 	"net/http"
 	"strings"
 	"testing"
 
+	"github.com/sid0709/OpenSeat/acorn-backend/account"
 	"github.com/sid0709/OpenSeat/acorn-backend/acorn"
 	"github.com/sid0709/OpenSeat/backend-core/google"
 )
@@ -45,6 +47,74 @@ func TestGoogleStartReturnsConsentURL(t *testing.T) {
 	}
 	if accounts.googleState != body.State || accounts.googleVerifier == "" {
 		t.Fatalf("saved state %q verifier %q", accounts.googleState, accounts.googleVerifier)
+	}
+}
+
+func TestExtensionGoogleStartRejectsOtherRedirects(t *testing.T) {
+	accounts := &fakeAccounts{}
+	handler, gw := New(accounts, nil, acorn.New(fakeModel{}), Options{
+		Google:            &google.Client{ClientID: "client", ClientSecret: "secret"},
+		GoogleRedirectURL: "http://localhost:6005/auth/google/callback",
+	})
+	t.Cleanup(gw.Close)
+
+	rec := call(handler, http.MethodPost, "/acorn/auth/google/start", `{"redirectUri":"https://acorn.remotepairnet.net/auth/google/callback"}`, nil, "")
+	if rec.Code != http.StatusBadRequest {
+		t.Fatalf("site redirect = %d, want 400", rec.Code)
+	}
+}
+
+func TestExtensionGoogleStartUsesExtensionRedirect(t *testing.T) {
+	accounts := &fakeAccounts{}
+	handler, gw := New(accounts, nil, acorn.New(fakeModel{}), Options{
+		Google:            &google.Client{ClientID: "client", ClientSecret: "secret"},
+		GoogleRedirectURL: "http://localhost:6005/auth/google/callback",
+	})
+	t.Cleanup(gw.Close)
+
+	const redirect = "https://abcdefghijklmnopqrstuvwxyzabcdef.chromiumapp.org/"
+	rec := call(handler, http.MethodPost, "/acorn/auth/google/start", `{"redirectUri":"`+redirect+`"}`, nil, "")
+	if rec.Code != http.StatusOK {
+		t.Fatalf("start = %d %s", rec.Code, rec.Body.String())
+	}
+	if !strings.Contains(rec.Body.String(), "chromiumapp.org") {
+		t.Fatalf("redirect missing from %s", rec.Body.String())
+	}
+	if accounts.googleRedirect != redirect {
+		t.Fatalf("saved redirect %q", accounts.googleRedirect)
+	}
+}
+
+type googleHTTP struct{}
+
+func (googleHTTP) RoundTrip(req *http.Request) (*http.Response, error) {
+	body := `{"sub":"sub-1","email":"j@example.com","email_verified":true,"name":"Jordan"}`
+	if strings.Contains(req.URL.Path, "token") {
+		body = `{"access_token":"tok","scope":"openid email profile"}`
+	}
+	return &http.Response{
+		StatusCode: http.StatusOK,
+		Body:       io.NopCloser(strings.NewReader(body)),
+		Header:     make(http.Header),
+		Request:    req,
+	}, nil
+}
+
+func TestExtensionGoogleFinishNeedsAnAccount(t *testing.T) {
+	accounts := &fakeAccounts{googleErr: account.ErrGoogleUnknown}
+	handler, gw := New(accounts, nil, acorn.New(fakeModel{}), Options{
+		Google: &google.Client{
+			ClientID: "client", ClientSecret: "secret", HTTP: &http.Client{Transport: googleHTTP{}},
+		},
+		GoogleRedirectURL: "http://localhost:6005/auth/google/callback",
+	})
+	t.Cleanup(gw.Close)
+	accounts.googleState = "state-1"
+	accounts.googleVerifier = "verifier"
+
+	rec := call(handler, http.MethodPost, "/acorn/auth/google/finish", `{"code":"abc","state":"state-1"}`, nil, "")
+	if rec.Code != http.StatusNotFound {
+		t.Fatalf("unknown gmail = %d %s, want 404", rec.Code, rec.Body.String())
 	}
 }
 

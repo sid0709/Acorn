@@ -9,7 +9,7 @@ type SignInCardProps = {
   onSignIn: () => void;
 };
 
-/** Signed-out welcome: Acorn shares the acorn-frontend session, so sign-in is one button. */
+/** Signed-out welcome. Google sign-in uses an Acorn account with the same Gmail. */
 export function SignInCard({ authBusy, faceMode, onSignIn }: SignInCardProps) {
   return (
     <VStack gap={4} align="center" justify="center" className="acorn-welcome">
@@ -25,14 +25,14 @@ export function SignInCard({ authBusy, faceMode, onSignIn }: SignInCardProps) {
       <Button
         variant="primary"
         size="lg"
-        label={authBusy ? "Connecting…" : "Continue"}
+        label={authBusy ? "Connecting…" : "Continue with Google"}
         isLoading={authBusy}
         isDisabled={authBusy}
         width="100%"
         onClick={onSignIn}
       />
       <Text type="supporting" color="secondary" justify="center">
-        Sign in on the Acorn site in this browser first.
+        Uses the Gmail on your Acorn account. A new Gmail needs an account on the Acorn site.
       </Text>
     </VStack>
   );

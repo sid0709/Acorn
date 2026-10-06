@@ -1,4 +1,3 @@
-import { isAcornSessionCookie, syncAcornSession } from "./auth/acorn-auth";
 import { isAcornSocketConnected, scheduleConnectAcornSocket } from "./acorn-socket";
 import { rekeyPipelineUsage } from "./pipeline/usage-tracker";
 import { bindContentScriptInjection, injectIntoOpenTabs } from "./inject-content";
@@ -91,12 +90,6 @@ chrome.tabs.onUpdated.addListener((tabId, changeInfo, tab) => {
     favIconUrl: tab.favIconUrl,
   });
 });
-
-// acorn-frontend is where a person signs in or out: follow its cookie.
-chrome.cookies.onChanged.addListener(({ cookie }) => {
-  if (isAcornSessionCookie(cookie)) void syncAcornSession();
-});
-void syncAcornSession();
 
 chrome.storage.onChanged.addListener((changes) => {
   if (changes.acornApiUrl || changes.acornSession) {

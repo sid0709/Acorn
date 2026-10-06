@@ -47,9 +47,10 @@ type Accounts interface {
 	SavedJobIDs(ctx context.Context, userID string) ([]string, error)
 	AppliedJobIDs(ctx context.Context, userID string) ([]string, error)
 	MarkApplied(ctx context.Context, userID, jobID string) error
-	SaveGoogleState(ctx context.Context, state, verifier string, now time.Time) error
-	TakeGoogleState(ctx context.Context, state string, now time.Time) (string, error)
+	SaveGoogleState(ctx context.Context, state, verifier, redirect string, now time.Time) error
+	TakeGoogleState(ctx context.Context, state string, now time.Time) (string, string, error)
 	GoogleSignIn(ctx context.Context, id account.GoogleIdentity, now time.Time) (string, account.User, error)
+	GoogleMatch(ctx context.Context, id account.GoogleIdentity, now time.Time) (string, account.User, error)
 }
 
 type Server struct {
@@ -109,6 +110,8 @@ func New(accounts Accounts, listings *jobs.Store, brain *acorn.Service, opts Opt
 	mux.HandleFunc("POST /acorn/auth/signout", s.signOut)
 	mux.HandleFunc("POST /v1/auth/google/start", s.startGoogle)
 	mux.HandleFunc("POST /v1/auth/google/callback", s.finishGoogle)
+	mux.HandleFunc("POST /acorn/auth/google/start", s.startExtensionGoogle)
+	mux.HandleFunc("POST /acorn/auth/google/finish", s.finishExtensionGoogle)
 
 	mux.HandleFunc("POST /acorn/ai-analyze", s.requireAI(s.aiAnalyze))
 	mux.HandleFunc("POST /acorn/match-option", s.requireAI(s.matchOption))

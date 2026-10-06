@@ -37,7 +37,7 @@ export function useSidebarAuth({ onSignedOut }: { onSignedOut: () => void }) {
         pushAcornNotice({
           kind: "error",
           title: "Couldn’t sign in",
-          detail: res?.error || "Sign in on the Acorn site in this browser first.",
+          detail: res?.error || "Google sign-in didn’t finish. Try again.",
         });
         return;
       }

@@ -20,6 +20,7 @@ type fakeAccounts struct {
 	applied        []string
 	googleState    string
 	googleVerifier string
+	googleRedirect string
 	googleErr      error
 }
 
@@ -55,20 +56,28 @@ func (f *fakeAccounts) MarkApplied(_ context.Context, _ string, jobID string) er
 	f.applied = append(f.applied, jobID)
 	return nil
 }
-func (f *fakeAccounts) SaveGoogleState(_ context.Context, state, verifier string, _ time.Time) error {
+func (f *fakeAccounts) SaveGoogleState(_ context.Context, state, verifier, redirect string, _ time.Time) error {
 	f.googleState = state
 	f.googleVerifier = verifier
+	f.googleRedirect = redirect
 	return nil
 }
-func (f *fakeAccounts) TakeGoogleState(_ context.Context, state string, _ time.Time) (string, error) {
+func (f *fakeAccounts) TakeGoogleState(_ context.Context, state string, _ time.Time) (string, string, error) {
 	if state == "" || state != f.googleState {
-		return "", account.ErrGoogleState
+		return "", "", account.ErrGoogleState
 	}
 	verifier := f.googleVerifier
+	redirect := f.googleRedirect
 	f.googleState = ""
-	return verifier, nil
+	return verifier, redirect, nil
 }
 func (f *fakeAccounts) GoogleSignIn(context.Context, account.GoogleIdentity, time.Time) (string, account.User, error) {
+	if f.googleErr != nil {
+		return "", account.User{}, f.googleErr
+	}
+	return "hunter", account.User{ID: "u1", Name: "Jordan Lee", Email: "j@example.com"}, nil
+}
+func (f *fakeAccounts) GoogleMatch(context.Context, account.GoogleIdentity, time.Time) (string, account.User, error) {
 	if f.googleErr != nil {
 		return "", account.User{}, f.googleErr
 	}
