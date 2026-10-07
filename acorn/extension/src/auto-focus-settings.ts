@@ -8,7 +8,7 @@
 export const AUTO_FOCUS_STORAGE_KEY = "acornAutoFocus";
 
 /** Seconds each run tab stays in front when VITE_ACORN_AUTO_FOCUS_SECONDS is unset or not a positive number. */
-export const AUTO_FOCUS_DEFAULT_SECONDS = 2;
+export const AUTO_FOCUS_DEFAULT_SECONDS = 4;
 
 const MS_PER_SECOND = 1000;
 

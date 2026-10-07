@@ -19,6 +19,27 @@
         "typescript-eslint": "catalog:",
       },
     },
+    "acorn-admin": {
+      "name": "acorn-admin",
+      "version": "0.1.0",
+      "dependencies": {
+        "@acorn/app-theme": "workspace:*",
+        "next": "catalog:",
+        "react": "catalog:",
+        "react-dom": "catalog:",
+        "sid-ui": "catalog:",
+      },
+      "devDependencies": {
+        "@tailwindcss/postcss": "catalog:",
+        "@types/node": "catalog:",
+        "@types/react": "catalog:",
+        "@types/react-dom": "catalog:",
+        "eslint": "catalog:",
+        "eslint-config-next": "catalog:",
+        "tailwindcss": "catalog:",
+        "typescript": "catalog:",
+      },
+    },
     "acorn-frontend": {
       "name": "acorn-frontend",
       "version": "0.1.0",
@@ -55,7 +76,7 @@
     },
     "acorn/extension": {
       "name": "acorn-extension",
-      "version": "1.21.0",
+      "version": "1.26.0",
       "dependencies": {
         "@acorn/app-theme": "workspace:*",
         "@acorn/face": "workspace:*",
@@ -590,6 +611,8 @@
     "@webcomponents/custom-elements": ["@webcomponents/custom-elements@1.6.0", "", {}, "sha512-CqTpxOlUCPWRNUPZDxT5v2NnHXA4oox612iUGnmTUGQFhZ1Gkj8kirtl/2wcF6MqX7+PqqicZzOCBKKfIn0dww=="],
 
     "acorn": ["acorn@8.19.0", "", { "bin": { "acorn": "bin/acorn" } }, "sha512-oJlA3XiRm7Cyk6qFD2Jn8ak9B7jSy0qy00ADO3+8dpT0LSjFihQYv4C02LFCSYJV3Q37xYwwRy5m+IpIiUzqWw=="],
+
+    "acorn-admin": ["acorn-admin@workspace:acorn-admin"],
 
     "acorn-extension": ["acorn-extension@workspace:acorn/extension"],
 

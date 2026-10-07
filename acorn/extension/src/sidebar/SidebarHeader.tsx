@@ -18,6 +18,8 @@ type SidebarHeaderProps = {
   signOutDisabled: boolean;
   onOpenGuide: () => void;
   onOpenSettings: () => void;
+  onReport: () => void;
+  reportDisabled: boolean;
   onSignOut: () => void;
 };
 
@@ -36,6 +38,8 @@ export function SidebarHeader({
   signOutDisabled,
   onOpenGuide,
   onOpenSettings,
+  onReport,
+  reportDisabled,
   onSignOut,
 }: SidebarHeaderProps) {
   return (
@@ -100,6 +104,13 @@ export function SidebarHeader({
             items: [
               { label: "Acorn Face guide", icon: <Glyph name="info" />, onClick: onOpenGuide },
               { label: "Settings", icon: <Glyph name="settings" />, onClick: onOpenSettings },
+              {
+                label: "Report issue",
+                icon: <Glyph name="share" />,
+                isDisabled: reportDisabled,
+                description: reportDisabled ? "Sign in on an active tab first" : undefined,
+                onClick: onReport,
+              },
             ],
           },
           { type: "divider" },

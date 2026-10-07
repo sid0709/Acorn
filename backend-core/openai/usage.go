@@ -39,7 +39,9 @@ type Usage struct {
 	Duration         time.Duration
 	// Request is the JSON sent to the provider, without the API key.
 	Request string
-	Error   string
+	// Response is the provider response body, clipped for usage history detail views.
+	Response string
+	Error    string
 }
 
 type recorderKey struct{}
@@ -55,8 +57,17 @@ func WithRecorder(ctx context.Context, record Recorder) context.Context {
 	return context.WithValue(ctx, recorderKey{}, record)
 }
 
+// StoredResponse is the provider response, pretty-printed and clipped, for the usage history.
+func StoredResponse(body []byte) string {
+	return storedBodyText(body)
+}
+
 // StoredRequest is the provider request, pretty-printed and clipped, for the usage history.
 func StoredRequest(body []byte) string {
+	return storedBodyText(body)
+}
+
+func storedBodyText(body []byte) string {
 	pretty := body
 	if len(body) > 0 && len(body) <= maxPrettyRequest {
 		var buf bytes.Buffer

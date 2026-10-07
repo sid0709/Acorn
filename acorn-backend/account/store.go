@@ -56,6 +56,14 @@ type User struct {
 	Email string
 }
 
+// AccountRow is a user account for the support console list.
+type AccountRow struct {
+	ID        string
+	Name      string
+	Email     string
+	CreatedAt time.Time
+}
+
 // Session is a live sign-in.
 type Session struct {
 	User User
@@ -280,6 +288,57 @@ func (s *Store) jobIDs(ctx context.Context, userID, field string) ([]string, err
 		return doc.AppliedIDs, nil
 	}
 	return doc.SavedJobIDs, nil
+}
+
+// ListAccounts returns recent accounts for the support console.
+func (s *Store) ListAccounts(ctx context.Context, skip, limit int) ([]AccountRow, error) {
+	if s == nil || s.accounts == nil {
+		return nil, nil
+	}
+	if skip < 0 {
+		skip = 0
+	}
+	if limit <= 0 || limit > 100 {
+		limit = 100
+	}
+	cursor, err := s.accounts.Find(ctx, bson.M{}, options.Find().
+		SetSort(bson.D{{Key: "createdAt", Value: -1}}).
+		SetSkip(int64(skip)).
+		SetLimit(int64(limit)).
+		SetProjection(bson.M{"id": 1, "name": 1, "email": 1, "createdAt": 1}))
+	if err != nil {
+		return nil, err
+	}
+	defer cursor.Close(ctx)
+	var docs []storedAccount
+	if err := cursor.All(ctx, &docs); err != nil {
+		return nil, err
+	}
+	rows := make([]AccountRow, 0, len(docs))
+	for _, doc := range docs {
+		rows = append(rows, AccountRow{
+			ID: doc.ID, Name: doc.Name, Email: doc.Email, CreatedAt: doc.CreatedAt,
+		})
+	}
+	return rows, nil
+}
+
+// GetAccount loads one account by id.
+func (s *Store) GetAccount(ctx context.Context, id string) (AccountRow, error) {
+	if s == nil || s.accounts == nil || id == "" {
+		return AccountRow{}, ErrNotFound
+	}
+	var doc storedAccount
+	err := s.accounts.FindOne(ctx, bson.M{"id": id}, options.FindOne().
+		SetProjection(bson.M{"id": 1, "name": 1, "email": 1, "createdAt": 1})).
+		Decode(&doc)
+	if errors.Is(err, mongo.ErrNoDocuments) {
+		return AccountRow{}, ErrNotFound
+	}
+	if err != nil {
+		return AccountRow{}, err
+	}
+	return AccountRow{ID: doc.ID, Name: doc.Name, Email: doc.Email, CreatedAt: doc.CreatedAt}, nil
 }
 
 func (s *Store) insertSession(ctx context.Context, userID string, now time.Time) (string, error) {

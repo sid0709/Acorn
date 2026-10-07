@@ -147,6 +147,7 @@ func usageRow(entry aiusage.Entry, withRequest bool) map[string]any {
 	}
 	if withRequest {
 		row["request"] = entry.Request
+		row["response"] = entry.Response
 	}
 	return row
 }

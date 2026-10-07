@@ -84,21 +84,23 @@ func (c *Client) JSON(ctx context.Context, system, user string, schema json.RawM
 	request := StoredRequest(body)
 	var last error
 	var lastUsage Usage
+	var lastStoredResponse string
 	for attempt := 0; attempt < maxAttempts; attempt++ {
 		attemptStarted := time.Now()
-		content, usage, status, retryAfter, err := c.complete(ctx, body)
+		content, usage, storedResponse, status, retryAfter, err := c.complete(ctx, body)
+		lastStoredResponse = storedResponse
 		if err == nil && status >= 200 && status < 300 {
 			if strings.TrimSpace(content) == "" {
 				empty := fmt.Errorf("model returned an empty job")
 				LogProvider(ctx, "chat", c.model, status, attempt+1, len(body), attemptStarted, usage, empty, "", false)
-				noteCall(ctx, c.model, started, request, usage, empty)
+				noteCall(ctx, c.model, started, request, storedResponse, usage, empty)
 				return nil, empty
 			}
 			if usage.Model == "" {
 				usage.Model = c.model
 			}
 			LogProvider(ctx, "chat", usage.Model, status, attempt+1, len(body), attemptStarted, usage, nil, "", false)
-			noteCall(ctx, usage.Model, started, request, usage, nil)
+			noteCall(ctx, usage.Model, started, request, storedResponse, usage, nil)
 			return []byte(content), nil
 		}
 		callErr := err
@@ -108,11 +110,11 @@ func (c *Client) JSON(ctx context.Context, system, user string, schema json.RawM
 		willRetry := attempt < maxAttempts-1 && ctx.Err() == nil && (err != nil || llmhttp.Retryable(status))
 		LogProvider(ctx, "chat", c.model, status, attempt+1, len(body), attemptStarted, usage, callErr, retryAfter, willRetry)
 		if err == nil && !llmhttp.Retryable(status) {
-			noteCall(ctx, c.model, started, request, usage, callErr)
+			noteCall(ctx, c.model, started, request, storedResponse, usage, callErr)
 			return nil, callErr
 		}
 		if err != nil && ctx.Err() != nil {
-			noteCall(ctx, c.model, started, request, Usage{}, err)
+			noteCall(ctx, c.model, started, request, storedResponse, Usage{}, err)
 			return nil, err
 		}
 		last = callErr
@@ -121,23 +123,24 @@ func (c *Client) JSON(ctx context.Context, system, user string, schema json.RawM
 			break
 		}
 		if err := llmhttp.Wait(ctx, llmhttp.RetryDelay(attempt, retryAfter)); err != nil {
-			noteCall(ctx, c.model, started, request, Usage{}, err)
+			noteCall(ctx, c.model, started, request, storedResponse, Usage{}, err)
 			return nil, err
 		}
 	}
 	if last == nil {
 		last = fmt.Errorf("model request failed")
 	}
-	noteCall(ctx, c.model, started, request, lastUsage, last)
+	noteCall(ctx, c.model, started, request, lastStoredResponse, lastUsage, last)
 	return nil, last
 }
 
-func noteCall(ctx context.Context, model string, started time.Time, request string, usage Usage, err error) {
+func noteCall(ctx context.Context, model string, started time.Time, request, response string, usage Usage, err error) {
 	if usage.Model == "" {
 		usage.Model = model
 	}
 	usage.Duration = time.Since(started)
 	usage.Request = request
+	usage.Response = response
 	if err != nil {
 		usage.Error = err.Error()
 	}
@@ -173,27 +176,28 @@ func (c *Client) chatRequest(system, user string, schema json.RawMessage) chatRe
 	return request
 }
 
-func (c *Client) complete(ctx context.Context, body []byte) (string, Usage, int, string, error) {
+func (c *Client) complete(ctx context.Context, body []byte) (string, Usage, string, int, string, error) {
 	request, err := http.NewRequestWithContext(ctx, http.MethodPost, c.baseURL+"/chat/completions", bytes.NewReader(body))
 	if err != nil {
-		return "", Usage{}, 0, "", err
+		return "", Usage{}, "", 0, "", err
 	}
 	request.Header.Set("Authorization", "Bearer "+c.apiKey)
 	request.Header.Set("Content-Type", "application/json")
 
 	response, err := c.http.Do(request)
 	if err != nil {
-		return "", Usage{}, 0, "", err
+		return "", Usage{}, "", 0, "", err
 	}
 	defer response.Body.Close()
 
 	payload, err := io.ReadAll(io.LimitReader(response.Body, 1<<20))
 	if err != nil {
-		return "", Usage{}, response.StatusCode, "", err
+		return "", Usage{}, "", response.StatusCode, "", err
 	}
+	stored := StoredResponse(payload)
 	var decoded chatResponse
 	if err := json.Unmarshal(payload, &decoded); err != nil {
-		return "", Usage{}, response.StatusCode, response.Header.Get("Retry-After"), fmt.Errorf("read model response: %w", err)
+		return "", Usage{}, stored, response.StatusCode, response.Header.Get("Retry-After"), fmt.Errorf("read model response: %w", err)
 	}
 	content := ""
 	if len(decoded.Choices) > 0 {
@@ -205,9 +209,9 @@ func (c *Client) complete(ctx context.Context, body []byte) (string, Usage, int,
 	}
 	usage, _ := ParseChatUsage(model, decoded.Usage)
 	if decoded.Error != nil && decoded.Error.Message != "" && (response.StatusCode < 200 || response.StatusCode >= 300) {
-		return decoded.Error.Message, Usage{}, response.StatusCode, response.Header.Get("Retry-After"), nil
+		return decoded.Error.Message, Usage{}, stored, response.StatusCode, response.Header.Get("Retry-After"), nil
 	}
-	return content, usage, response.StatusCode, response.Header.Get("Retry-After"), nil
+	return content, usage, stored, response.StatusCode, response.Header.Get("Retry-After"), nil
 }
 
 func statusError(status int, message string) error {

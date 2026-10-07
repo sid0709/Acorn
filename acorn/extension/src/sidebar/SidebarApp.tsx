@@ -25,6 +25,8 @@ import { useSocketStatus } from "./use-socket-status";
 import { useTabSession } from "./use-tab-session";
 import { useTabUi } from "./use-tab-ui";
 import { useTabWork } from "./use-tab-work";
+import { sendMessage } from "./runtime";
+import { MSG } from "../types";
 import { AskPanel } from "./AskPanel";
 import { CustomPanel } from "./CustomPanel";
 import { JobsPanel } from "./JobsPanel";
@@ -227,6 +229,37 @@ export default function SidebarApp() {
       onClick: () => void rememberFocusedTab(),
     },
   };
+  const reportDisabled = !session || activeTabId == null || tabWorkBusy;
+  const submitReport = () => {
+    if (activeTabId == null) return;
+    void sendMessage<{ ok?: boolean; error?: string }>({
+      type: MSG.SUBMIT_SUPPORT_CLAIM,
+      tabId: activeTabId,
+    })
+      .then((res) => {
+        if (res?.ok) {
+          pushAcornNotice({
+            kind: "success",
+            title: "Report sent",
+            detail: "Support received a screenshot of this tab.",
+          });
+          return;
+        }
+        pushAcornNotice({
+          kind: "error",
+          title: "Couldn’t send report",
+          detail: res?.error ?? "Try again in a moment.",
+        });
+      })
+      .catch((err: unknown) => {
+        pushAcornNotice({
+          kind: "error",
+          title: "Couldn’t send report",
+          detail: err instanceof Error ? err.message : String(err),
+        });
+      });
+  };
+
   const nowCard = (tab: "fill" | "custom") => (
     <NowCard
       mainTab={tab}
@@ -255,6 +288,8 @@ export default function SidebarApp() {
               signOutDisabled={authBusy || anyTabWorking}
               onOpenGuide={() => setHelpOpen(true)}
               onOpenSettings={() => setSettingsOpen(true)}
+              onReport={submitReport}
+              reportDisabled={reportDisabled}
               onSignOut={() => void handleSignOut()}
             />
             <SidebarNav

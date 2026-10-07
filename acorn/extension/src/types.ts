@@ -65,6 +65,8 @@ export const MSG = {
   PAGE_PROBE: "acorn:page-probe",
   /** Sidebar → service worker: reconcile one tab's AI usage with the server's list. */
   REFRESH_TAB_USAGE: "acorn:refresh-tab-usage",
+  /** Sidebar → service worker: screenshot active tab and file a support claim. */
+  SUBMIT_SUPPORT_CLAIM: "acorn:submit-support-claim",
   /** Press one control the Run orchestrator picked from the tree. */
   CLICK_CONTROL: "acorn:click-control",
   START_PIPELINE: "acorn:start-pipeline",

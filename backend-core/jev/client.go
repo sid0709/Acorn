@@ -137,12 +137,13 @@ func (c *Client) Decide(ctx context.Context, req Request) (Response, error) {
 	var last error
 	for attempt := 0; attempt < maxAttempts; attempt++ {
 		attemptStarted := time.Now()
-		res, status, retryAfter, err := c.post(ctx, body)
+		res, status, retryAfter, rawResponse, err := c.post(ctx, body)
 		usage := providerUsage(c.model, res.Usage)
 		if err == nil {
 			openai.LogProvider(ctx, "decision", c.model, status, attempt+1, len(body), attemptStarted, usage, nil, "", false)
 			usage.Duration = time.Since(started)
 			usage.Request = request
+			usage.Response = openai.StoredResponse(rawResponse)
 			openai.Note(ctx, usage)
 			return res, nil
 		}
@@ -182,32 +183,32 @@ func providerUsage(model string, usage Usage) openai.Usage {
 }
 
 // post sends one attempt. A non-2xx status comes back with err set to the API's message.
-func (c *Client) post(ctx context.Context, body []byte) (Response, int, string, error) {
+func (c *Client) post(ctx context.Context, body []byte) (Response, int, string, []byte, error) {
 	request, err := http.NewRequestWithContext(ctx, http.MethodPost, c.url, bytes.NewReader(body))
 	if err != nil {
-		return Response{}, 0, "", fmt.Errorf("build jev request: %w", err)
+		return Response{}, 0, "", nil, fmt.Errorf("build jev request: %w", err)
 	}
 	request.Header.Set("Authorization", "Bearer "+c.apiKey)
 	request.Header.Set("Content-Type", "application/json")
 
 	response, err := c.http.Do(request)
 	if err != nil {
-		return Response{}, 0, "", fmt.Errorf("jev request: %w", err)
+		return Response{}, 0, "", nil, fmt.Errorf("jev request: %w", err)
 	}
 	defer response.Body.Close()
 	retryAfter := response.Header.Get("Retry-After")
 	payload, err := io.ReadAll(io.LimitReader(response.Body, maxResponse))
 	if err != nil {
-		return Response{}, response.StatusCode, retryAfter, fmt.Errorf("read jev response: %w", err)
+		return Response{}, response.StatusCode, retryAfter, nil, fmt.Errorf("read jev response: %w", err)
 	}
 	if response.StatusCode < 200 || response.StatusCode >= 300 {
-		return Response{}, response.StatusCode, retryAfter, statusError(response.StatusCode, payload)
+		return Response{}, response.StatusCode, retryAfter, payload, statusError(response.StatusCode, payload)
 	}
 	var decoded Response
 	if err := json.Unmarshal(payload, &decoded); err != nil {
-		return Response{}, response.StatusCode, retryAfter, fmt.Errorf("decode jev response: %w", err)
+		return Response{}, response.StatusCode, retryAfter, payload, fmt.Errorf("decode jev response: %w", err)
 	}
-	return decoded, response.StatusCode, retryAfter, nil
+	return decoded, response.StatusCode, retryAfter, payload, nil
 }
 
 func statusError(status int, payload []byte) error {

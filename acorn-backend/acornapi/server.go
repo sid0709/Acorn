@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"github.com/sid0709/OpenSeat/acorn-backend/account"
+	"github.com/sid0709/OpenSeat/acorn-backend/admin"
 	"github.com/sid0709/OpenSeat/acorn-backend/acorn"
 	"github.com/sid0709/OpenSeat/acorn-backend/acornapi/gateway"
 	"github.com/sid0709/OpenSeat/acorn-backend/aiusage"
@@ -20,6 +21,7 @@ import (
 	"github.com/sid0709/OpenSeat/acorn-backend/profile"
 	"github.com/sid0709/OpenSeat/acorn-backend/resume"
 	"github.com/sid0709/OpenSeat/acorn-backend/selector"
+	"github.com/sid0709/OpenSeat/acorn-backend/support"
 	"github.com/sid0709/OpenSeat/backend-core/google"
 	"github.com/sid0709/OpenSeat/backend-core/httpkit"
 	"github.com/sid0709/OpenSeat/backend-core/jobs"
@@ -75,6 +77,9 @@ type Server struct {
 	debug          *debugtrace.Recorder
 	selector       *selector.Gateway
 	usage          *aiusage.Store
+	claims         *support.Store
+	admins         *admin.Store
+	adminCookie    string
 	// sockets pushes each recorded AI call to the account's clients as it happens.
 	sockets accountEmitter
 }
@@ -106,6 +111,12 @@ type Options struct {
 	Selector *selector.Gateway
 	// Usage stores per-tab AI call history. Nil answers an empty list.
 	Usage *aiusage.Store
+	// Claims stores extension support reports. Nil disables POST /acorn/support/claims.
+	Claims *support.Store
+	// Admins is the support console. Nil disables /acorn/admin routes.
+	Admins *admin.Store
+	// AdminSessionCookie is the cookie acorn-admin keeps the admin token in.
+	AdminSessionCookie string
 }
 
 func New(accounts Accounts, listings *jobs.Store, brain *acorn.Service, opts Options) (http.Handler, *gateway.Gateway) {
@@ -115,7 +126,8 @@ func New(accounts Accounts, listings *jobs.Store, brain *acorn.Service, opts Opt
 		google: opts.Google, googleRedirect: opts.GoogleRedirectURL,
 		gmail: opts.Gmail, gmailRedirect: opts.GmailRedirectURL,
 		resumes: opts.Resumes, profiles: opts.Profiles, debug: opts.Debug,
-		selector: opts.Selector, usage: opts.Usage,
+		selector: opts.Selector, usage: opts.Usage, claims: opts.Claims,
+		admins: opts.Admins, adminCookie: opts.AdminSessionCookie,
 	}
 	if s.debug != nil {
 		brain.SetTracer(debugtrace.Tracer())
@@ -128,6 +140,9 @@ func New(accounts Accounts, listings *jobs.Store, brain *acorn.Service, opts Opt
 	}
 	if s.cookie == "" {
 		s.cookie = DefaultSessionCookie
+	}
+	if s.adminCookie == "" {
+		s.adminCookie = DefaultAdminSessionCookie
 	}
 	if s.gmail != nil && opts.GmailRedirectURL != "" && opts.Google != nil {
 		s.gmailGoogle = &mailbox.Google{OAuth: opts.Google, RedirectURL: opts.GmailRedirectURL}
@@ -161,6 +176,17 @@ func New(accounts Accounts, listings *jobs.Store, brain *acorn.Service, opts Opt
 
 	mux.HandleFunc("GET /acorn/ai-usage", s.listAIUsage)
 	mux.HandleFunc("GET /acorn/ai-usage/{id}", s.getAIUsage)
+	mux.HandleFunc("POST /acorn/support/claims", s.createSupportClaim)
+
+	mux.HandleFunc("POST /acorn/admin/auth/signin", s.adminSignIn)
+	mux.HandleFunc("GET /acorn/admin/auth/me", s.adminMe)
+	mux.HandleFunc("POST /acorn/admin/auth/signout", s.adminSignOut)
+	mux.HandleFunc("GET /acorn/admin/claims", s.adminListClaims)
+	mux.HandleFunc("GET /acorn/admin/claims/{id}", s.adminGetClaim)
+	mux.HandleFunc("PATCH /acorn/admin/claims/{id}", s.adminPatchClaim)
+	mux.HandleFunc("GET /acorn/admin/users", s.adminListUsers)
+	mux.HandleFunc("GET /acorn/admin/users/{id}", s.adminGetUser)
+	mux.HandleFunc("GET /acorn/admin/users/{id}/usage", s.adminListUserUsage)
 	mux.HandleFunc("GET /acorn/jobs/{jobId}", s.getJob)
 	mux.HandleFunc("POST /acorn/jobs/{jobId}/generate", s.requireAI(s.generateForJob))
 	mux.HandleFunc("POST /acorn/jobs/{jobId}/mark-applied", s.markApplied)

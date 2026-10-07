@@ -12,9 +12,13 @@ import (
 )
 
 const (
-	collectionName = "acorn_ai_usage"
-	listLimit      = 100
+	collectionName   = "acorn_ai_usage"
+	listLimit        = 100
+	adminListLimit   = 200
+	adminSummaryPage = 50
 )
+
+var noBodyProjection = bson.M{"request": 0, "response": 0}
 
 // Entry is one model call on one tab.
 type Entry struct {
@@ -33,6 +37,7 @@ type Entry struct {
 	Priced           bool      `bson:"priced"`
 	DurationMs       int64     `bson:"durationMs"`
 	Request          string    `bson:"request,omitempty"`
+	Response         string    `bson:"response,omitempty"`
 	Error            string    `bson:"error,omitempty"`
 	CreatedAt        time.Time `bson:"createdAt"`
 }
@@ -88,6 +93,7 @@ func (s *Store) Record(ctx context.Context, accountID, tabKey string, usage open
 		Priced:           usage.Priced,
 		DurationMs:       usage.Duration.Milliseconds(),
 		Request:          usage.Request,
+		Response:         usage.Response,
 		Error:            usage.Error,
 		CreatedAt:        time.Now().UTC(),
 	}
@@ -106,7 +112,7 @@ func (s *Store) List(ctx context.Context, accountID, tabKey string) ([]Entry, in
 	cursor, err := s.coll.Find(ctx, filter, options.Find().
 		SetSort(bson.D{{Key: "createdAt", Value: -1}}).
 		SetLimit(listLimit).
-		SetProjection(bson.M{"request": 0}))
+		SetProjection(bson.M{"request": 0, "response": 0}))
 	if err != nil {
 		return nil, 0, err
 	}
@@ -151,4 +157,116 @@ func (s *Store) Get(ctx context.Context, accountID, id string) (Entry, error) {
 	var entry Entry
 	err := s.coll.FindOne(ctx, bson.M{"_id": id, "accountId": accountID}).Decode(&entry)
 	return entry, err
+}
+
+// AccountSummary is token and cost totals for one account (admin views).
+type AccountSummary struct {
+	AccountID      string    `bson:"accountId"`
+	CallCount      int64     `bson:"callCount"`
+	TotalCostNanos int64     `bson:"totalCostNanos"`
+	TotalTokens    int64     `bson:"totalTokens"`
+	LastCallAt     time.Time `bson:"lastCallAt"`
+}
+
+// ListByAccount is recent calls for one account across tabs, without request/response bodies.
+func (s *Store) ListByAccount(ctx context.Context, accountID string, limit int) ([]Entry, error) {
+	if s == nil || s.coll == nil || accountID == "" {
+		return nil, nil
+	}
+	if limit <= 0 || limit > adminListLimit {
+		limit = adminListLimit
+	}
+	cursor, err := s.coll.Find(ctx, bson.M{"accountId": accountID}, options.Find().
+		SetSort(bson.D{{Key: "createdAt", Value: -1}}).
+		SetLimit(int64(limit)).
+		SetProjection(noBodyProjection))
+	if err != nil {
+		return nil, err
+	}
+	defer cursor.Close(ctx)
+	var entries []Entry
+	if err := cursor.All(ctx, &entries); err != nil {
+		return nil, err
+	}
+	return entries, nil
+}
+
+// SummarizeAccount totals priced calls for one account.
+func (s *Store) SummarizeAccount(ctx context.Context, accountID string) (AccountSummary, error) {
+	if s == nil || s.coll == nil || accountID == "" {
+		return AccountSummary{}, nil
+	}
+	cursor, err := s.coll.Aggregate(ctx, mongo.Pipeline{
+		{{Key: "$match", Value: bson.M{"accountId": accountID}}},
+		{{Key: "$group", Value: bson.M{
+			"_id":            "$accountId",
+			"callCount":      bson.M{"$sum": 1},
+			"totalCostNanos": bson.M{"$sum": "$costNanos"},
+			"totalTokens":    bson.M{"$sum": "$totalTokens"},
+			"lastCallAt":     bson.M{"$max": "$createdAt"},
+		}}},
+	})
+	if err != nil {
+		return AccountSummary{}, err
+	}
+	defer cursor.Close(ctx)
+	var rows []AccountSummary
+	if err := cursor.All(ctx, &rows); err != nil {
+		return AccountSummary{}, err
+	}
+	if len(rows) == 0 {
+		return AccountSummary{AccountID: accountID}, nil
+	}
+	rows[0].AccountID = accountID
+	return rows[0], nil
+}
+
+// ListAccountSummaries returns usage totals per account, newest activity first.
+func (s *Store) ListAccountSummaries(ctx context.Context, skip, limit int) ([]AccountSummary, error) {
+	if s == nil || s.coll == nil {
+		return nil, nil
+	}
+	if limit <= 0 || limit > adminSummaryPage {
+		limit = adminSummaryPage
+	}
+	if skip < 0 {
+		skip = 0
+	}
+	cursor, err := s.coll.Aggregate(ctx, mongo.Pipeline{
+		{{Key: "$group", Value: bson.M{
+			"_id":            "$accountId",
+			"callCount":      bson.M{"$sum": 1},
+			"totalCostNanos": bson.M{"$sum": "$costNanos"},
+			"totalTokens":    bson.M{"$sum": "$totalTokens"},
+			"lastCallAt":     bson.M{"$max": "$createdAt"},
+		}}},
+		{{Key: "$sort", Value: bson.D{{Key: "lastCallAt", Value: -1}}}},
+		{{Key: "$skip", Value: skip}},
+		{{Key: "$limit", Value: limit}},
+	})
+	if err != nil {
+		return nil, err
+	}
+	defer cursor.Close(ctx)
+	var rows []struct {
+		ID             string    `bson:"_id"`
+		CallCount      int64     `bson:"callCount"`
+		TotalCostNanos int64     `bson:"totalCostNanos"`
+		TotalTokens    int64     `bson:"totalTokens"`
+		LastCallAt     time.Time `bson:"lastCallAt"`
+	}
+	if err := cursor.All(ctx, &rows); err != nil {
+		return nil, err
+	}
+	out := make([]AccountSummary, 0, len(rows))
+	for _, row := range rows {
+		out = append(out, AccountSummary{
+			AccountID:      row.ID,
+			CallCount:      row.CallCount,
+			TotalCostNanos: row.TotalCostNanos,
+			TotalTokens:    row.TotalTokens,
+			LastCallAt:     row.LastCallAt,
+		})
+	}
+	return out, nil
 }

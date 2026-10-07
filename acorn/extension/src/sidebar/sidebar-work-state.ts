@@ -11,6 +11,9 @@ export const RUN_HINT =
 
 export const REFILL_HINT = "Fix the fields this page flagged. Click Submit or Next first.";
 
+/** Jobs tab Now card shows Run only; Fill, Refill, Generate, and Recommend stay wired but hidden. */
+export const JOBS_NOW_CARD_RUN_ONLY = true;
+
 /** Whether the active tab's Custom tab or attached Fill job has Generate / Recommend in flight. */
 export function isGenerateBusy(
   customTab: TabSession["customTab"],

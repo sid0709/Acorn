@@ -10,6 +10,7 @@ import (
 	"os"
 
 	"github.com/sid0709/OpenSeat/acorn-backend/account"
+	"github.com/sid0709/OpenSeat/acorn-backend/admin"
 	"github.com/sid0709/OpenSeat/acorn-backend/acorn"
 	"github.com/sid0709/OpenSeat/acorn-backend/acornapi"
 	"github.com/sid0709/OpenSeat/acorn-backend/aiusage"
@@ -17,6 +18,7 @@ import (
 	"github.com/sid0709/OpenSeat/acorn-backend/mailbox"
 	"github.com/sid0709/OpenSeat/acorn-backend/profile"
 	"github.com/sid0709/OpenSeat/acorn-backend/resume"
+	"github.com/sid0709/OpenSeat/acorn-backend/support"
 	"github.com/sid0709/OpenSeat/backend-core/config"
 	"github.com/sid0709/OpenSeat/backend-core/google"
 	"github.com/sid0709/OpenSeat/backend-core/httpkit"
@@ -38,6 +40,8 @@ var defaultOrigins = []string{
 	"http://localhost:6005",
 	"http://127.0.0.1:5173",
 	"http://localhost:5173",
+	"http://127.0.0.1:6010",
+	"http://localhost:6010",
 }
 
 func main() {
@@ -90,6 +94,12 @@ func main() {
 	resumes := resume.New(resume.NewStore(p.Mongo(), db.DestDB), nil)
 	profiles := profile.NewStore(p.Mongo(), db.DestDB, nil)
 	usage := aiusage.NewStore(p.Mongo(), db.DestDB)
+	claims := support.NewStore(p.Mongo(), db.DestDB)
+	adminStore := admin.NewStore(p.Mongo(), db.DestDB, admin.Config{
+		SessionSecret:     config.Env("ACORN_ADMIN_SESSION_SECRET", ""),
+		BootstrapEmail:    config.Env("ACORN_ADMIN_EMAIL", ""),
+		BootstrapPassword: config.Env("ACORN_ADMIN_PASSWORD", ""),
+	})
 	gmailGoogle := &mailbox.Google{OAuth: oauth, RedirectURL: googleConfig.GmailRedirectURL}
 	gmailStore := mailbox.NewStore(p.Mongo(), db.DestDB, gmailGoogle)
 
@@ -102,6 +112,8 @@ func main() {
 		{"acorn resumes", resumes},
 		{"acorn profiles", profiles},
 		{"acorn ai usage", usage},
+		{"acorn support claims", claims},
+		{"acorn admin", adminStore},
 		{"acorn gmail", gmailStore},
 	}
 	indexGroup, indexCtx := errgroup.WithContext(context.Background())
@@ -137,6 +149,9 @@ func main() {
 		GmailRedirectURL:  googleConfig.GmailRedirectURL,
 		Debug:             debug,
 		Usage:             usage,
+		Claims:            claims,
+		Admins:            adminStore,
+		AdminSessionCookie: acornapi.DefaultAdminSessionCookie,
 	})
 	defer gateway.Close()
 
