@@ -19,6 +19,8 @@ export type RunStage = (typeof RUN_STAGE)[keyof typeof RUN_STAGE];
 export const PAGE_KIND = {
   posting: "job_posting",
   form: "application_form",
+  /** Sign in, create an account, or go on without one. The run only ever goes on without one. */
+  accountStep: "account_step",
   confirmation: "confirmation",
   blocked: "blocked",
   other: "other",

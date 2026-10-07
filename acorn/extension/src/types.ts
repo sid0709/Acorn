@@ -37,6 +37,12 @@ export const PLAN_STEP_TIMEOUT_MS = 120_000;
 /** The page gives up first so its error, not a channel timeout, reaches the background. */
 export const PLAN_STEP_PAGE_TIMEOUT_MS = PLAN_STEP_TIMEOUT_MS - 5_000;
 
+/** Socket.IO events the server sends this extension (same strings as acornapi/gateway). */
+export const SOCKET_EVENT = {
+  /** One AI call was recorded: `{ tab, entry }`, tab being the usage key it belongs to. */
+  aiUsageRecorded: "ai-usage:recorded",
+} as const;
+
 export const MSG = {
   FETCH_DOM: "acorn:fetch-dom",
   FETCH_AND_EMIT_DOM: "acorn:fetch-and-emit-dom",
@@ -57,6 +63,8 @@ export const MSG = {
   REPAIR_DRIFT: "acorn:repair-drift",
   /** A cheap look at the page while a click settles (see PageProbe). */
   PAGE_PROBE: "acorn:page-probe",
+  /** Sidebar → service worker: reconcile one tab's AI usage with the server's list. */
+  REFRESH_TAB_USAGE: "acorn:refresh-tab-usage",
   /** Press one control the Run orchestrator picked from the tree. */
   CLICK_CONTROL: "acorn:click-control",
   START_PIPELINE: "acorn:start-pipeline",

@@ -3,6 +3,7 @@ package selector
 import (
 	"context"
 	"errors"
+	"regexp"
 	"strings"
 	"testing"
 
@@ -141,5 +142,41 @@ func TestReadPageNoFallbackOffAForm(t *testing.T) {
 	read, err := New(decider).ReadPage(context.Background(), PageQuery{Text: "Senior Go Engineer", Intent: IntentAdvance, Controls: formControls})
 	if err != nil || read.Fallback != nil {
 		t.Fatalf("read = %+v err = %v, want no fallback on a posting", read, err)
+	}
+}
+
+func TestReadPageAccountStepOffersAGuestPath(t *testing.T) {
+	decider := &scriptedDecider{answers: map[string]jev.Answer{
+		pageKindQuestion: {Choice: KindAccount},
+		controlQuestion:  {Choice: "control_1"},
+		finalQuestion:    {Noul: yes(0.9)},
+		guestQuestion:    {Noul: yes(0.95)},
+	}}
+	read, err := New(decider).ReadPage(context.Background(), PageQuery{Text: "Already have an account?", Intent: IntentStart, Controls: formControls})
+	if err != nil || read.Kind != KindAccount || !read.Guest || read.Control == nil || read.Control.Role != RoleNext {
+		t.Fatalf("read = %+v control = %+v err = %v, want a guest account step moving on with next", read, read.Control, err)
+	}
+}
+
+func TestReadPageAccountStepFallsBack(t *testing.T) {
+	decider := &scriptedDecider{answers: map[string]jev.Answer{
+		pageKindQuestion: {Choice: KindAccount},
+		controlQuestion:  {Choice: noControlKey, Probabilities: map[string]float64{"control_1": 0.3}},
+		guestQuestion:    {Noul: yes(0.1)},
+	}}
+	read, err := New(decider).ReadPage(context.Background(), PageQuery{Text: "Sign in", Intent: IntentStart, Controls: formControls})
+	if err != nil || read.Guest || read.Fallback == nil || read.Fallback.ID != 11 {
+		t.Fatalf("read = %+v err = %v, want no guest path and a fallback", read, err)
+	}
+}
+
+// The decision reads what a control does; no instruction quotes a control's wording,
+// since every site words its controls its own way.
+func TestControlInstructionsQuoteNoWording(t *testing.T) {
+	quoted := regexp.MustCompile(`"[^"]+"|\([A-Z][a-z]+(, [A-Z][a-z]+)+`)
+	for _, intent := range []string{IntentStart, IntentAdvance} {
+		if found := quoted.FindString(controlInstructions(intent)); found != "" {
+			t.Errorf("%s instructions quote wording %q", intent, found)
+		}
 	}
 }

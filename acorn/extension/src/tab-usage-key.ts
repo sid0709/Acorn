@@ -2,6 +2,12 @@
 export const ACORN_TAB_HEADER = "X-Acorn-Tab";
 
 const TAB_USAGE_KEYS = "acornTabUsageKeys";
+const TAB_USAGE_VIEW_PREFIX = "acornTabUsage:";
+
+/** Where a tab's AI usage view lives in chrome.storage.session (written by the service worker). */
+export function tabUsageStorageKey(usageKey: string): string {
+  return `${TAB_USAGE_VIEW_PREFIX}${usageKey}`;
+}
 
 type KeyMap = Record<string, string>;
 

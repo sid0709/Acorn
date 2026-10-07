@@ -71,6 +71,8 @@ type Server struct {
 	debug          *debugtrace.Recorder
 	selector       *selector.Gateway
 	usage          *aiusage.Store
+	// sockets pushes each recorded AI call to the account's clients as it happens.
+	sockets accountEmitter
 }
 
 // Options are the Acorn API's settings. CORS is the server's: see acorn-backend/cmd/server.
@@ -119,6 +121,7 @@ func New(accounts Accounts, listings *jobs.Store, brain *acorn.Service, opts Opt
 		s.cookie = DefaultSessionCookie
 	}
 	gw := gateway.New(s.authenticateSocket)
+	s.sockets = gw
 
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /acorn/health", s.health)

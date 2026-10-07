@@ -8,11 +8,13 @@ interface Props {
   nowCard: ReactNode;
   tabId: number | null;
   signedIn: boolean;
+  /** The service worker's socket: usage is pushed live only while it is connected. */
+  socketConnected: boolean;
 }
 
 /** The Jobs tab: the tab's job, and that tab's AI usage. */
-export function JobsPanel({ mainTab, nowCard, tabId, signedIn }: Props) {
-  const usage = useAiUsage(tabId, mainTab === "fill", signedIn);
+export function JobsPanel({ mainTab, nowCard, tabId, signedIn, socketConnected }: Props) {
+  const usage = useAiUsage(tabId, mainTab === "fill", signedIn, socketConnected);
   return (
     <section
       id="acorn-panel-fill"

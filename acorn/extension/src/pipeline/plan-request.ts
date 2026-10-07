@@ -4,7 +4,6 @@ import { FAST_PLAN_MODE, type FormField } from "@acorn/shared/form-fields";
 import { traceFromBackground } from "../background/debug-trace-sink";
 
 import { requestAiAnalyze, type AiAnalyzeRequest, type AiAnalyzeResponse } from "./api/analyze";
-import { addPipelineUsage } from "./usage-tracker";
 
 /**
  * Fill plans with the decision model first (Jev classifies and picks; the text
@@ -40,7 +39,6 @@ export async function requestPlan(
         }));
         return fast;
       }
-      addPipelineUsage(tabId, fast.usage);
       traceFromBackground("plan:fast-empty", () => ({ fields: formFields.length }));
     } catch (err) {
       traceFromBackground("plan:fast-failed", () => ({

@@ -25,6 +25,7 @@ import { handleStartRun } from "./messages/run";
 import { handleSelectionQa } from "./messages/selection-qa";
 import type { RuntimeMessage, SendResponse } from "./messages/shared";
 import { handleGetTabJob, handleMarkJobApplied, handleOpenWorkerJob } from "./messages/worker-jobs";
+import { refreshTabUsage } from "./tab-usage-store";
 
 /** Sends each sidebar/content message to its handler. Returns true to keep `sendResponse` open. */
 export function routeMessage(
@@ -125,6 +126,20 @@ export function routeMessage(
 
   if (message.type === MSG.MATCH_OPTION) {
     handleMatchOption(message, sender, sendResponse);
+    return true;
+  }
+
+  if (message.type === MSG.REFRESH_TAB_USAGE) {
+    const tabId = Number(message.tabId);
+    if (!Number.isInteger(tabId)) {
+      sendResponse({ ok: false, error: "tabId is required" });
+      return false;
+    }
+    refreshTabUsage(tabId)
+      .then(() => sendResponse({ ok: true }))
+      .catch((err: unknown) =>
+        sendResponse({ ok: false, error: err instanceof Error ? err.message : String(err) }),
+      );
     return true;
   }
 

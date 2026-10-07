@@ -17,9 +17,11 @@ import {
   type RunStage,
 } from "@acorn/shared/run-types";
 
+import { formatUsd } from "@acorn/shared/ai-usage";
 import { PhaseClock } from "@acorn/shared/phase-clock";
 
 import { getAcornSocket } from "../acorn-socket";
+import { markTabUsage, usageSince, type UsageMark } from "../background/tab-usage-store";
 import { rekeyCustomTab } from "../tab-custom-session";
 import { getTabJob, rekeyTabJob } from "../tab-job-session";
 
@@ -28,6 +30,7 @@ import { repairDriftInTab } from "./drift";
 import { clickControl, probePage, settleAfterClick, watchOpenedTabs } from "./run-click";
 import { failureEvidence } from "./run-evidence";
 import {
+  RUN_MAX_CLICK_RETRIES,
   RUN_MAX_NO_EFFECT,
   RUN_MAX_PAGES,
   RUN_MAX_REFILLS_PER_PAGE,
@@ -77,7 +80,14 @@ interface PageState {
   scanBeforeClick: FieldIssueScan | null;
   /** When this page's fill began; drift repair replays only answers given since. */
   fillStartedAt: number;
+  /** The last click never landed; the next look is a fresh read, not a click's outcome. */
+  retryClick: boolean;
 }
+
+/** A click either landed and settled, or never reached its control. */
+type ClickOutcome =
+  | { settled: Awaited<ReturnType<typeof settleAfterClick>>; missed?: undefined }
+  | { missed: string; settled?: undefined };
 
 class RunStop extends Error {
   constructor(
@@ -105,6 +115,8 @@ export async function runOrchestrator(args: RunOrchestratorArgs): Promise<RunRep
   let tabId = args.tabId;
   const tabs = [tabId];
   const runId = newRunId();
+  /** Where each tab's usage stood when the run reached it; the run's cost is everything since. */
+  const usageMarks: Promise<UsageMark | null>[] = [markTabUsage(tabId).catch(() => null)];
   const log = new RunLog(runId, tabId);
   const startedAt = Date.now();
 
@@ -117,6 +129,8 @@ export async function runOrchestrator(args: RunOrchestratorArgs): Promise<RunRep
   let current: PageState | null = null;
   let snapshot: PageSnapshot | null = null;
   let resumeChecked = false;
+  /** Clicks in a row that never reached their control. */
+  let clickFailures = 0;
   /** A résumé recommend in flight; it must settle before any click or fill. */
   let recommending: Promise<{ recommended: boolean; error?: string }> | null = null;
   const clock = new PhaseClock();
@@ -161,6 +175,7 @@ export async function runOrchestrator(args: RunOrchestratorArgs): Promise<RunRep
     await rekeyCustomTab(tabId, next);
     tabId = next;
     tabs.push(next);
+    usageMarks.push(markTabUsage(next).catch(() => null));
     args.claimTab(next);
   };
 
@@ -251,6 +266,7 @@ export async function runOrchestrator(args: RunOrchestratorArgs): Promise<RunRep
       picked,
       fallback: res.fallback ?? null,
       fallbackPicked,
+      guest: res.guest === true,
     };
   };
 
@@ -259,7 +275,7 @@ export async function runOrchestrator(args: RunOrchestratorArgs): Promise<RunRep
     on: PageSnapshot,
     picked: NonNullable<Awaited<ReturnType<typeof read>>["control"]>,
     label: string,
-  ) => {
+  ): Promise<ClickOutcome> => {
     control = label;
     const started = Date.now();
     const beforeProbe = await probePage(tabId, on.frameId);
@@ -267,11 +283,10 @@ export async function runOrchestrator(args: RunOrchestratorArgs): Promise<RunRep
     try {
       const result = await clickControl(tabId, on.frameId, picked.id);
       log.event("click", { role: picked.role, text: label, ok: result.ok, error: result.error });
-      if (!result.ok) {
-        throw new RunStop(stage, on, [
-          `Could not click "${label}": ${result.error ?? "no answer"}`,
-        ]);
-      }
+      // The page re-rendered since it was read (its node is gone) or held the
+      // control: the caller reads it again rather than giving up.
+      if (!result.ok) return { missed: result.error ?? "no answer" };
+      clickFailures = 0;
       const settled = await settleAfterClick({
         tabId,
         frameId: on.frameId,
@@ -281,12 +296,33 @@ export async function runOrchestrator(args: RunOrchestratorArgs): Promise<RunRep
       });
       log.event("settled", { how: settled.how, url: logUrl(settled.snapshot.url) });
       await adoptTab(settled.tabId);
-      return settled;
+      return { settled };
     } finally {
       watcher.stop();
       clock.add("click", Date.now() - started);
     }
   };
+
+  /** Count a click that never landed; the loop then reads the page again and picks again. */
+  const missedClick = (state: PageState, label: string, error: string) => {
+    state.clicks -= 1;
+    state.retryClick = true;
+    clickFailures += 1;
+    log.event("click:missed", { text: label, error, tries: clickFailures });
+    if (clickFailures > RUN_MAX_CLICK_RETRIES) {
+      throw new RunStop(stage, snapshot, [
+        `Could not click "${label}" after ${clickFailures} fresh reads of the page: ${error}`,
+      ]);
+    }
+  };
+
+  /** The control a read picked, or its fallback when it answered none. */
+  const pickOf = (r: Awaited<ReturnType<typeof read>>) =>
+    r.control && r.picked
+      ? { control: r.control, picked: r.picked, fallback: false }
+      : r.fallback && r.fallbackPicked
+        ? { control: r.fallback, picked: r.fallbackPicked, fallback: true }
+        : null;
 
   const diagnose = async (stop: RunStop): Promise<RunFailure> => {
     enter(RUN_STAGE.diagnosing);
@@ -349,6 +385,8 @@ export async function runOrchestrator(args: RunOrchestratorArgs): Promise<RunRep
   const finish = async (result: RunReport): Promise<RunReport> => {
     const failed = result.outcome === RUN_OUTCOME.failed;
     const seconds = Math.round((Date.now() - startedAt) / 1000);
+    const marks = (await Promise.all(usageMarks)).filter((mark): mark is UsageMark => mark != null);
+    const usage = await usageSince(marks).catch(() => null);
     log.event("run:end", {
       outcome: result.outcome,
       pages: result.pages,
@@ -357,10 +395,13 @@ export async function runOrchestrator(args: RunOrchestratorArgs): Promise<RunRep
       reason: result.failure?.reason,
       detail: result.failure?.detail,
       phases: clock.summary(),
+      calls: usage?.calls,
+      costUsd: usage?.costUsd,
     });
+    const cost = usage ? ` · ${formatUsd(usage.costUsd)}` : "";
     const message = failed
       ? `Stopped · ${result.failure?.label ?? UNKNOWN_FAILURE_LABEL}`
-      : `Done · ${result.pages} page${result.pages === 1 ? "" : "s"} · ${seconds}s`;
+      : `Done · ${result.pages} page${result.pages === 1 ? "" : "s"} · ${seconds}s${cost}`;
     const run: RunProgress = { ...runState(), report: result };
     args.emit(tabs, {
       phase: failed ? "error" : "done",
@@ -369,6 +410,7 @@ export async function runOrchestrator(args: RunOrchestratorArgs): Promise<RunRep
         ? [result.failure?.label, result.failure?.detail].filter(Boolean).join(": ")
         : undefined,
       durationMs: Date.now() - startedAt,
+      usage,
       run,
     });
     await log.flush();
@@ -414,14 +456,17 @@ export async function runOrchestrator(args: RunOrchestratorArgs): Promise<RunRep
           noEffect: 0,
           scanBeforeClick: null,
           fillStartedAt: 0,
+          retryClick: false,
         };
         refillsOnPage = 0;
         log.event("page", { page: pageCount, url: logUrl(page.url), flagged: page.flagged });
       }
       const state = current as PageState;
+      const retrying = state.retryClick;
+      state.retryClick = false;
 
       // 2. The same page after a click: the page rejected the answers, or nothing happened.
-      if (!moved && state.clicks > 0) {
+      if (!moved && state.clicks > 0 && !retrying) {
         // Only what the click flagged: a hint the page always shows is no rejection.
         const flagged = countFlaggedSince(state.scanBeforeClick, page.scan);
         const missing = countRequiredEmpty(page.scan);
@@ -487,26 +532,51 @@ export async function runOrchestrator(args: RunOrchestratorArgs): Promise<RunRep
             RUN_STAGE.applying,
             `Opening the application · ${first.picked.text || first.picked.label}`,
           );
-          pending = (await click(page, first.control, first.picked.text || first.picked.label))
-            .snapshot;
+          const label = first.picked.text || first.picked.label;
+          const clicked = await click(page, first.control, label);
+          if (clicked.missed != null) missedClick(state, label, clicked.missed);
+          else pending = clicked.settled.snapshot;
           continue;
         }
 
-        // An application form: fill it, then look again for the control that moves it on.
-        enter(RUN_STAGE.filling);
-        state.fillStartedAt = Date.now();
-        const filled = await fill(FILL_MODE.fill, page);
-        if (filled.failed) {
-          throw new RunStop(
-            RUN_STAGE.filling,
-            page,
-            [`Fill failed: ${filled.error ?? "unknown"}`],
-            filled.steps,
-          );
+        // An account step: go on without an account, never sign in or create one.
+        if (first.kind === PAGE_KIND.accountStep) {
+          const target = pickOf(first);
+          if (!first.guest || !target) {
+            throw new RunStop(RUN_STAGE.applying, page, [
+              "This step asks to sign in or create an account and offers no way to go on without one",
+            ]);
+          }
+          state.clicks += 1;
+          const label = target.picked.text || target.picked.label;
+          enter(RUN_STAGE.applying, `Going on without an account · ${label}`);
+          const clicked = await click(page, target.control, label);
+          if (clicked.missed != null) missedClick(state, label, clicked.missed);
+          else pending = clicked.settled.snapshot;
+          continue;
         }
-        state.filled = true;
-        page = await snap({ form: true, frameId: page.frameId });
-        snapshot = page;
+
+        // An application form: fill it, then look again for the control that moves it
+        // on. A page that asks for nothing goes straight to that control.
+        if (page.fields === 0) {
+          log.event("fill:skipped", { reason: "no fields on the page" });
+          state.filled = true;
+        } else {
+          enter(RUN_STAGE.filling);
+          state.fillStartedAt = Date.now();
+          const filled = await fill(FILL_MODE.fill, page);
+          if (filled.failed) {
+            throw new RunStop(
+              RUN_STAGE.filling,
+              page,
+              [`Fill failed: ${filled.error ?? "unknown"}`],
+              filled.steps,
+            );
+          }
+          state.filled = true;
+          page = await snap({ form: true, frameId: page.frameId });
+          snapshot = page;
+        }
       }
 
       // 4. A filled page: put back what the page cleared since the fill, then click
@@ -525,12 +595,12 @@ export async function runOrchestrator(args: RunOrchestratorArgs): Promise<RunRep
       if (next.kind === PAGE_KIND.confirmation) {
         return await finish(report(RUN_OUTCOME.completed));
       }
-      const target =
-        next.control && next.picked
-          ? { control: next.control, picked: next.picked, fallback: false }
-          : next.fallback && next.fallbackPicked
-            ? { control: next.fallback, picked: next.fallbackPicked, fallback: true }
-            : null;
+      if (next.kind === PAGE_KIND.accountStep && !next.guest) {
+        throw new RunStop(RUN_STAGE.advancing, page, [
+          "This step asks to sign in or create an account and offers no way to go on without one",
+        ]);
+      }
+      const target = pickOf(next);
       if (!target) {
         // After a click, a missing control is the page holding the click (busy,
         // disabled, waiting on a check), not a page that never had one.
@@ -552,7 +622,9 @@ export async function runOrchestrator(args: RunOrchestratorArgs): Promise<RunRep
         RUN_STAGE.advancing,
         `${target.control.role === CONTROL_ROLE.submit ? "Submitting" : "Next step"} · ${label}`,
       );
-      pending = (await click(page, target.control, label)).snapshot;
+      const clicked = await click(page, target.control, label);
+      if (clicked.missed != null) missedClick(state, label, clicked.missed);
+      else pending = clicked.settled.snapshot;
     }
     throw new RunStop(stage, snapshot, [`The run used ${RUN_MAX_STEPS} steps without finishing`]);
   } catch (err) {

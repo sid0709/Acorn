@@ -17,7 +17,10 @@ const (
 	KindForm         = "application_form"
 	KindConfirmation = "confirmation"
 	KindBlocked      = "blocked"
-	KindOther        = "other"
+	// KindAccount is a step that asks the applicant to sign in, create an account,
+	// or go on without one, before or during the form.
+	KindAccount = "account_step"
+	KindOther   = "other"
 )
 
 // Roles a picked control can have. Apply opens the application from a posting;
@@ -40,6 +43,7 @@ const (
 	pageKindQuestion = "page_kind"
 	controlQuestion  = "control"
 	finalQuestion    = "is_final_step"
+	guestQuestion    = "continues_without_account"
 	diagnoseQuestion = "failure"
 
 	controlKeyPrefix = "control"
@@ -105,14 +109,18 @@ type PageRead struct {
 	// stuck, since a page that looks blocked often reacts to the click itself (it
 	// shows which fields it still needs).
 	Fallback *ControlPick
-	Usage    jev.Usage
+	// Guest is true when the page offers a way to go on without signing in or
+	// creating an account; on an account step the run clicks only then.
+	Guest bool
+	Usage jev.Usage
 }
 
 var pageKinds = []struct{ key, description string }{
-	{KindPosting, "A job posting or job description page for one role (duties, requirements, qualifications) that has not opened an application form yet. It may have an Apply button or link."},
+	{KindPosting, "A job posting or job description page for one role (duties, requirements, qualifications) that has not opened an application form yet. It may have a control that opens the application."},
 	{KindForm, "An application form or one step of a multi-step application: the page asks the applicant for their details, questions, résumé, or a final review before submitting."},
-	{KindConfirmation, "The application is complete: a thank-you, confirmation, or \"application received/submitted\" page."},
-	{KindBlocked, "The page cannot be worked yet: a sign-in or account-creation wall, a CAPTCHA or bot check, an error page, or a page that says the job is closed."},
+	{KindAccount, "A step of the application that asks the applicant to sign in, create an account, or continue without one, rather than asking for their details."},
+	{KindConfirmation, "The application is complete: the page thanks the applicant or says the application was received or submitted."},
+	{KindBlocked, "The page cannot be worked yet: a sign-in wall with no way to continue without an account, a CAPTCHA or bot check, an error page, or a page that says the job is closed."},
 	{KindOther, "Not part of applying for a job: a search results list, a company page, or any unrelated site."},
 }
 
@@ -160,11 +168,19 @@ func (g *Gateway) ReadPage(ctx context.Context, q PageQuery) (PageRead, error) {
 			},
 			finalQuestion: {
 				Type: jev.TypeNoul,
-				Instructions: "Is this the last step of the application, so that the control which moves forward submits it " +
-					"(Submit, Submit application, Apply, Send) rather than opening another step (Next, Continue, Save and continue)?",
+				Instructions: "Is this the last step of the application, so that the control which moves forward sends the " +
+					"application rather than opening another page or step?",
 				Criteria: map[string]string{
 					"true":  "The last step: the forward control submits the application.",
 					"false": "Not the last step: the forward control opens another page or step.",
+				},
+			},
+			guestQuestion: {
+				Type:         jev.TypeNoul,
+				Instructions: "Does this page offer a way to go on with the application without signing in or creating an account?",
+				Criteria: map[string]string{
+					"true":  "A control continues the application without signing in or creating an account.",
+					"false": "Going on requires signing in or creating an account, or the page asks neither.",
 				},
 			},
 		},
@@ -187,6 +203,9 @@ func (g *Gateway) ReadPage(ctx context.Context, q PageQuery) (PageRead, error) {
 		read.Kind = KindOther
 	}
 
+	if guest := res.Answers[guestQuestion]; guest.Noul != nil {
+		read.Guest = *guest.Noul > checkThreshold
+	}
 	answer, ok := res.Answers[controlQuestion]
 	if !ok {
 		return read, nil
@@ -202,7 +221,7 @@ func (g *Gateway) ReadPage(ctx context.Context, q PageQuery) (PageRead, error) {
 		read.Control = &ControlPick{ID: id, Role: role, Confidence: answer.Confidence, Probabilities: probabilities}
 		return read, nil
 	}
-	if q.Intent == IntentAdvance && read.Kind == KindForm {
+	if (q.Intent == IntentAdvance && read.Kind == KindForm) || read.Kind == KindAccount {
 		controlKeys := make(map[string]string, len(keys))
 		for key := range keys {
 			controlKeys[key] = key
@@ -220,27 +239,38 @@ func controlRole(kind string, final jev.Answer) string {
 	if kind == KindPosting {
 		return RoleApply
 	}
+	// An account step never sends the application; its control only moves on.
+	if kind == KindAccount {
+		return RoleNext
+	}
 	if final.Noul != nil && *final.Noul > checkThreshold {
 		return RoleSubmit
 	}
 	return RoleNext
 }
 
+// withoutAccount steers every pick away from accounts the run must not create.
+const withoutAccount = "When the page offers a way to go on with the application without signing in or creating an account, " +
+	"pick that control over signing in or creating an account. "
+
+// controlInstructions describe controls only by what they do: sites word them
+// any way they like, so no wording is quoted here.
 func controlInstructions(intent string) string {
 	if intent == IntentAdvance {
 		return "The applicant has finished filling this page. Which control moves the application to its next step, " +
-			"or submits it on the last step? Judge by what the control does on this page, not only by its wording: " +
-			"a site may call it Next, Continue, Save and continue, Review, Submit, Apply, or use an arrow or an icon. " +
-			"Never pick Back, Previous, Cancel, Save draft, Sign out, a social login, or a link to another site. " +
+			"or sends it on the last step? Judge by what the control does on this page, whatever its wording, " +
+			"an arrow, or an icon. " + withoutAccount +
+			"Never pick a control that goes back, cancels, leaves the application, saves a draft, signs out, " +
+			"signs in through another service, or opens another site. " +
 			"Prefer an enabled control, but a forward control that looks disabled is still the forward control: " +
 			"many forms only grey it out until their fields are valid, and clicking it shows what they still need. " +
 			"Choose none only when nothing here moves the application forward."
 	}
-	return "Which control starts an application for this role? On a job posting that is the Apply control " +
-		"(Apply, Apply now, Easy Apply, Start application, or an apply link). " +
-		"When the page is already an application form, pick the control that moves the form forward instead. " +
-		"Never pick Save job, Share, Sign in, Create alert, a social login, or a control that is disabled. " +
-		"Choose none when the page has no way to apply or continue."
+	return "Which control starts or continues an application for this role? On a job posting it is the control " +
+		"that opens the application. When the page is already an application form or an account step, pick the " +
+		"control that moves it forward instead. " + withoutAccount +
+		"Never pick a control that saves the job, shares it, creates an alert, signs in through another service, " +
+		"or is disabled. Choose none when the page has no way to apply or continue."
 }
 
 func pageState(q PageQuery, controls []Control) string {

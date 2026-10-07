@@ -3,7 +3,6 @@ import { traceFromBackground } from "../background/debug-trace-sink";
 import { sendTabMessage } from "../tab-messaging";
 import { MSG } from "../types";
 import { requestChoicePicks, type ChoiceItem } from "./api/pick-options";
-import { addPipelineUsage } from "./usage-tracker";
 
 /** Steps whose value names an option the page may list. */
 const CHOICE_ACTIONS = new Set(["fill", "select_radio"]);
@@ -48,11 +47,7 @@ export async function decideChoicesInBatch(args: {
   const items = collected?.ok && Array.isArray(collected.items) ? collected.items : [];
   if (!items.length) return;
 
-  const { picks, usage } = await requestChoicePicks(items, apiUrl, tabId).catch(() => ({
-    picks: [],
-    usage: undefined,
-  }));
-  if (usage) addPipelineUsage(tabId, usage);
+  const { picks } = await requestChoicePicks(items, apiUrl, tabId).catch(() => ({ picks: [] }));
   for (const pick of picks) {
     const action = actions[pick.id];
     if (action && pick.options.length) action.value = pick.options.join(", ");

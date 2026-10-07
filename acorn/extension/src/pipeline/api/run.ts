@@ -35,6 +35,8 @@ export interface ReadPageResponse {
    * control anyway. The run clicks it before deciding the page is stuck.
    */
   fallback?: { id: number; role: ControlRole; confidence: number } | null;
+  /** The page offers a way to go on without signing in or creating an account. */
+  guest?: boolean;
   usage?: AiUsageSummary;
 }
 

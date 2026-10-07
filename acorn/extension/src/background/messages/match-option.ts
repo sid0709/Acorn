@@ -1,7 +1,5 @@
 import { authHeaders, getAcornApiUrl } from "../../auth/acorn-auth";
-import { addPipelineUsage } from "../../pipeline/usage-tracker";
 import type { MatchOptionRequest, MatchOptionResponse } from "../../types";
-import { pipelineRunningTabIds } from "../work-state";
 import type { RuntimeMessage, SendResponse } from "./shared";
 
 export function handleMatchOption(
@@ -45,9 +43,6 @@ export function handleMatchOption(
           error: data.error || `match-option failed: ${res.status}`,
         } satisfies MatchOptionResponse);
         return;
-      }
-      if (usageTabId != null && pipelineRunningTabIds.has(usageTabId) && data.usage) {
-        addPipelineUsage(usageTabId, data.usage);
       }
       // A null match (only with allowNotListed) means "search further"; fallback_option is the best listed pick.
       const reply: MatchOptionResponse = { ...data, ok: data.ok !== false };

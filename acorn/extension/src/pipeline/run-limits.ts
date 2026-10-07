@@ -2,6 +2,11 @@
 
 /** Refill rounds one page gets before the run stops and reports why. */
 export const RUN_MAX_REFILLS_PER_PAGE = 3;
+/**
+ * Clicks that could not land (the page re-rendered and the control's node is gone)
+ * in a row; each one is followed by a fresh read before the run stops.
+ */
+export const RUN_MAX_CLICK_RETRIES = 2;
 /** Clicks on a page that change nothing and flag nothing before the run stops. */
 export const RUN_MAX_NO_EFFECT = 2;
 /** Orchestrator iterations in one run; a page takes a few. */

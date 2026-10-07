@@ -30,11 +30,7 @@ import {
 } from "./refill";
 import { buildResumeUploadProgress } from "./resume-upload-status";
 import { autoPauseDecision, countDomNodes, mergeReports, shortLabel } from "./run-pipeline-helpers";
-import {
-  addPipelineUsage,
-  beginPipelineUsageTracking,
-  endPipelineUsageTracking,
-} from "./usage-tracker";
+import { beginPipelineUsageTracking, endPipelineUsageTracking } from "./usage-tracker";
 
 import type { PipelineProgress } from "@acorn/shared/pipeline-types";
 import type { ActionPlan, PlanStepPayload, RunStepRecord } from "@acorn/shared/plan-runner/types";
@@ -86,9 +82,9 @@ export async function runFabPipeline(args: RunPipelineArgs): Promise<void> {
     onProgress(progress);
   };
 
-  const finishMeta = () => {
+  const finishMeta = async () => {
     const durationMs = Date.now() - startedAt;
-    const usage = endPipelineUsageTracking(tabId);
+    const usage = await endPipelineUsageTracking(tabId);
     return { durationMs, usage, phases: clock.summary() };
   };
 
@@ -159,7 +155,7 @@ export async function runFabPipeline(args: RunPipelineArgs): Promise<void> {
       });
 
     if (refill && !fieldIssues?.issues.length) {
-      const { durationMs, usage, phases } = finishMeta();
+      const { durationMs, usage, phases } = await finishMeta();
       emit({
         phase: "done",
         message: REFILL_NOTHING_FLAGGED,
@@ -243,7 +239,6 @@ export async function runFabPipeline(args: RunPipelineArgs): Promise<void> {
         tabId,
       ),
     );
-    addPipelineUsage(tabId, analyze.usage);
     if (refill && analyze.mode !== FILL_MODE.refill) {
       throw new Error(REFILL_UNSUPPORTED);
     }
@@ -396,7 +391,7 @@ export async function runFabPipeline(args: RunPipelineArgs): Promise<void> {
       );
     }
 
-    const { durationMs, usage } = finishMeta();
+    const { durationMs, usage } = await finishMeta();
     const timeLabel = formatDuration(durationMs);
     const costLabel = formatUsd(usage?.costUsd);
 
@@ -445,7 +440,7 @@ export async function runFabPipeline(args: RunPipelineArgs): Promise<void> {
       resumeUpload: doneResume,
     });
   } catch (err) {
-    const { durationMs, usage } = finishMeta();
+    const { durationMs, usage } = await finishMeta();
     const error = err instanceof Error ? err.message : String(err);
     emit({
       phase: "error",

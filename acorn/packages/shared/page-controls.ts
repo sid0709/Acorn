@@ -112,6 +112,18 @@ export function shortHash(text: string): string {
   return (h >>> 0).toString(36);
 }
 
+/** Fields a page asks for, by the same walk as pageSignature; 0 on a page with nothing to fill. */
+export function countFormFields(root: DomTreeNode): number {
+  let count = 0;
+  const walk = (node: DomTreeNode) => {
+    const type = (node.attrs?.type ?? "").toLowerCase();
+    if (FIELD_TAGS.has(node.tag) && !NON_FIELD_INPUTS.has(type)) count += 1;
+    for (const child of node.children) walk(child);
+  };
+  walk(root);
+  return count;
+}
+
 /**
  * Which step of the application this is. Built from the fields the page asks for
  * (never their values, which Fill changes) and the address, so a validation error

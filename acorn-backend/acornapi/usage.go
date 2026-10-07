@@ -8,6 +8,7 @@ import (
 	"strings"
 	"unicode"
 
+	"github.com/sid0709/OpenSeat/acorn-backend/acornapi/gateway"
 	"github.com/sid0709/OpenSeat/acorn-backend/aiusage"
 	"github.com/sid0709/OpenSeat/backend-core/openai"
 	"go.mongodb.org/mongo-driver/v2/mongo"
@@ -40,9 +41,34 @@ func (s *Server) withUsage(r *http.Request, accountID string) context.Context {
 		return r.Context()
 	}
 	return openai.WithRecorder(r.Context(), func(usage openai.Usage) {
-		if err := s.usage.Record(context.Background(), accountID, key, usage); err != nil {
-			slog.Error("acorn ai usage", "error", err)
-		}
+		recordAndPush(s.usage, s.sockets, accountID, key, usage)
+	})
+}
+
+// usageRecorder keeps one AI call; aiusage.Store is the real one.
+type usageRecorder interface {
+	Record(ctx context.Context, accountID, tabKey string, usage openai.Usage) (aiusage.Entry, error)
+}
+
+// accountEmitter reaches every connected client of an account; the socket gateway is the real one.
+type accountEmitter interface {
+	EmitToAccount(accountID, event string, payload any)
+}
+
+// recordAndPush stores one call, then pushes it to the account's clients with
+// the tab it belongs to, so that tab's list updates the moment the call ends,
+// even for work that finishes after its request returned.
+func recordAndPush(store usageRecorder, push accountEmitter, accountID, key string, usage openai.Usage) {
+	entry, err := store.Record(context.Background(), accountID, key, usage)
+	if err != nil {
+		slog.Error("acorn ai usage", "error", err)
+		return
+	}
+	if entry.ID == "" || push == nil {
+		return
+	}
+	push.EmitToAccount(accountID, gateway.UsageRecordedEvent, map[string]any{
+		"tab": key, "entry": usageRow(entry, false),
 	})
 }
 
@@ -73,6 +99,7 @@ func (s *Server) listAIUsage(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, map[string]any{
 		"entries":    rows,
 		"totalPrice": openai.FormatUSD(total),
+		"totalNanos": total,
 	})
 }
 
@@ -112,6 +139,7 @@ func usageRow(entry aiusage.Entry, withRequest bool) map[string]any {
 		"cacheWriteTokens": entry.CacheWriteTokens,
 		"totalTokens":      entry.TotalTokens,
 		"price":            price,
+		"costNanos":        entry.CostNanos,
 		"priced":           entry.Priced,
 		"durationMs":       entry.DurationMs,
 		"error":            entry.Error,

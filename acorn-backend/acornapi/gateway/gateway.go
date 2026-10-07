@@ -105,6 +105,19 @@ var ErrUnauthorized = errors.New("unauthorized")
 
 func room(accountID string) socket.Room { return socket.Room("acorn:acct:" + accountID) }
 
+// UsageRecordedEvent tells every client of an account that one AI call was
+// recorded; the payload names the tab it belongs to. The same string is
+// SOCKET_EVENT.aiUsageRecorded in the extension.
+const UsageRecordedEvent = "ai-usage:recorded"
+
+// EmitToAccount sends one event to every connected client of the account.
+func (g *Gateway) EmitToAccount(accountID, event string, payload any) {
+	if g == nil || g.io == nil || accountID == "" {
+		return
+	}
+	_ = g.io.To(room(accountID)).Emit(event, payload)
+}
+
 func queryValue(sock *socket.Socket, key string) string {
 	return sock.Handshake().Query.Query().Get(key)
 }

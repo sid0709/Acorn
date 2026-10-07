@@ -6,7 +6,6 @@ import { traceFromBackground } from "../background/debug-trace-sink";
 
 import { requestAiAnalyze, type AiAnalyzeRequest } from "./api/analyze";
 import { fetchDomFromTab } from "./fetch-dom";
-import { addPipelineUsage } from "./usage-tracker";
 
 import type { ActionPlan } from "@acorn/shared/plan-runner/types";
 
@@ -41,7 +40,6 @@ export async function planLateFields(args: {
       apiUrl,
       tabId,
     );
-    addPipelineUsage(tabId, res.usage);
     const plan = res.mode === FAST_PLAN_MODE ? res.plan : undefined;
     traceFromBackground("late:plan", () => ({
       actions: plan?.actions?.length ?? 0,

@@ -1,5 +1,10 @@
 import { extractVisiblePageText } from "@acorn/shared/page-text";
-import { collectPageControls, pageSignature, type PageControl } from "@acorn/shared/page-controls";
+import {
+  collectPageControls,
+  countFormFields,
+  pageSignature,
+  type PageControl,
+} from "@acorn/shared/page-controls";
 import {
   EMPTY_FIELD_ISSUE_SCAN,
   countFlaggedFields,
@@ -26,6 +31,8 @@ export interface PageSnapshot {
   /** Fields the page marks invalid or ties an error message to. */
   flagged: number;
   signature: string;
+  /** Fields the page asks for; 0 on a page with nothing to fill (an account step, a gate). */
+  fields: number;
   /** Embedded frames outside the read frame, by title or address. */
   frames: string[];
 }
@@ -60,6 +67,7 @@ export async function snapshotPage(
     scan,
     flagged: countFlaggedFields(scan),
     signature: pageSignature(tree, url, text),
+    fields: countFormFields(tree),
     frames: await embeddedFrames(tabId, frameId, tree),
   };
 }

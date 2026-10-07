@@ -271,6 +271,7 @@ export default function SidebarApp() {
               nowCard={nowCard("fill")}
               tabId={activeTabId}
               signedIn={Boolean(session)}
+              socketConnected={connected}
             />
 
             <AskPanel

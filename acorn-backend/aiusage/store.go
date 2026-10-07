@@ -64,13 +64,15 @@ func (s *Store) EnsureIndexes(ctx context.Context) error {
 	return err
 }
 
-// Record inserts one call. An empty tab key is not a tab's history.
-func (s *Store) Record(ctx context.Context, accountID, tabKey string, usage openai.Usage) error {
+// Record inserts one call and returns it. An empty tab key is not a tab's
+// history, and a call with nothing to show is not kept: both return an Entry
+// with no ID.
+func (s *Store) Record(ctx context.Context, accountID, tabKey string, usage openai.Usage) (Entry, error) {
 	if s == nil || s.coll == nil || accountID == "" || tabKey == "" {
-		return nil
+		return Entry{}, nil
 	}
 	if usage.TotalTokens == 0 && !usage.Priced && usage.Request == "" && usage.Error == "" {
-		return nil
+		return Entry{}, nil
 	}
 	entry := Entry{
 		ID:               bson.NewObjectID().Hex(),
@@ -89,8 +91,10 @@ func (s *Store) Record(ctx context.Context, accountID, tabKey string, usage open
 		Error:            usage.Error,
 		CreatedAt:        time.Now().UTC(),
 	}
-	_, err := s.coll.InsertOne(ctx, entry)
-	return err
+	if _, err := s.coll.InsertOne(ctx, entry); err != nil {
+		return Entry{}, err
+	}
+	return entry, nil
 }
 
 // List is the newest calls for this account and tab, plus the sum of every priced call on that tab.
