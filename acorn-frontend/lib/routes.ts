@@ -8,6 +8,7 @@ export const ROUTES = {
   resumeLibrary: "/resume/library",
   resumeHistory: "/resume/history",
   gmail: "/gmail",
+  gmailConnect: "/gmail/connect",
   apps: "/apps",
   billing: "/billing",
 } as const;

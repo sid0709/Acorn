@@ -8,6 +8,7 @@ const nextConfig: NextConfig = {
     "@acorn/app-theme",
     "@acorn/shared",
     "sid-ui",
+    "@acorn/google-gmail",
     "@acorn/google-signin",
     "@astryxdesign/core",
     "@astryxdesign/theme-neutral",

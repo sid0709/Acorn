@@ -13,6 +13,7 @@ import (
 	"github.com/sid0709/OpenSeat/acorn-backend/acornapi"
 	"github.com/sid0709/OpenSeat/acorn-backend/aiusage"
 	"github.com/sid0709/OpenSeat/acorn-backend/debugtrace"
+	"github.com/sid0709/OpenSeat/acorn-backend/mailbox"
 	"github.com/sid0709/OpenSeat/acorn-backend/profile"
 	"github.com/sid0709/OpenSeat/acorn-backend/resume"
 	"github.com/sid0709/OpenSeat/backend-core/config"
@@ -67,6 +68,9 @@ func main() {
 	if !oauth.Configured() || googleConfig.SignInRedirectURL == "" {
 		slog.Warn("Google sign-in is off until GOOGLE_CLIENT_ID, GOOGLE_CLIENT_SECRET, and GOOGLE_SIGNIN_REDIRECT_URL are set")
 	}
+	if !oauth.Configured() || googleConfig.GmailRedirectURL == "" {
+		slog.Warn("Gmail is off until GOOGLE_CLIENT_ID, GOOGLE_CLIENT_SECRET, and GOOGLE_GMAIL_REDIRECT_URL are set")
+	}
 
 	p, err := platform.Open(context.Background(), db, platform.Options{})
 	if err != nil {
@@ -96,6 +100,12 @@ func main() {
 		slog.Error("acorn ai usage", "error", err)
 		os.Exit(1)
 	}
+	gmailGoogle := &mailbox.Google{OAuth: oauth, RedirectURL: googleConfig.GmailRedirectURL}
+	gmailStore := mailbox.NewStore(p.Mongo(), db.DestDB, gmailGoogle)
+	if err := gmailStore.EnsureIndexes(context.Background()); err != nil {
+		slog.Error("acorn gmail", "error", err)
+		os.Exit(1)
+	}
 	// Local debug capture: pages, profiles, prompts, and plans land on disk. Never set in production.
 	debug := debugtrace.New(config.Env("ACORN_DEBUG_DIR", ""))
 	if debug != nil {
@@ -112,6 +122,8 @@ func main() {
 		KillSwitches:      p.KillSwitches,
 		Google:            oauth,
 		GoogleRedirectURL: googleConfig.SignInRedirectURL,
+		Gmail:             gmailStore,
+		GmailRedirectURL:  googleConfig.GmailRedirectURL,
 		Debug:             debug,
 		Usage:             usage,
 	})

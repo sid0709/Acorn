@@ -29,6 +29,7 @@ export function MailboxSidebar({
   labelNames,
   unread,
   onManage,
+  onConnect,
 }: {
   name: string;
   mailboxes: Mailbox[];
@@ -39,6 +40,7 @@ export function MailboxSidebar({
   labelNames?: Record<MailLabel, string | null>;
   unread: number;
   onManage: () => void;
+  onConnect: () => void;
 }) {
   const primary = mailboxes.find((mailbox) => mailbox.isDefault) ?? mailboxes[0];
   return (
@@ -98,7 +100,7 @@ export function MailboxSidebar({
             endContent={mailbox.isDefault ? <Badge label="Default" variant="blue" /> : undefined}
           />
         ))}
-        <SideNavItem label="Connect a mailbox" icon={<Glyph name="plus" />} onClick={onManage} />
+        <SideNavItem label="Connect Gmail" icon={<Glyph name="plus" />} onClick={onConnect} />
       </SideNavSection>
     </SideNav>
   );

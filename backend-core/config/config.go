@@ -91,6 +91,7 @@ type Google struct {
 	ClientID          string
 	ClientSecret      string
 	SignInRedirectURL string
+	GmailRedirectURL  string
 }
 
 // HTTP is where a service listens and which browser origins may call it.
@@ -158,6 +159,7 @@ func LoadGoogle() Google {
 		ClientID:          Env("GOOGLE_CLIENT_ID", ""),
 		ClientSecret:      Env("GOOGLE_CLIENT_SECRET", ""),
 		SignInRedirectURL: Env("GOOGLE_SIGNIN_REDIRECT_URL", ""),
+		GmailRedirectURL:  Env("GOOGLE_GMAIL_REDIRECT_URL", ""),
 	}
 }
 
