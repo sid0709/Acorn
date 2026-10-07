@@ -12,8 +12,8 @@ function clip(text: string): string {
 
 /**
  * What the page and the fill say went wrong, as short lines for the diagnosis:
- * page alerts, each flagged field with the message tied to it, and steps that
- * failed. Field values are never included.
+ * page alerts, each flagged field with the message tied to it, steps that
+ * failed, then the frames the page embeds. Field values are never included.
  */
 export function failureEvidence(args: {
   snapshot: PageSnapshot | null;
@@ -23,7 +23,6 @@ export function failureEvidence(args: {
   const lines: string[] = [...(args.notes ?? [])];
   const scan = args.snapshot?.scan;
   for (const message of scan?.pageMessages ?? []) lines.push(`Page alert: ${message}`);
-  for (const frame of args.snapshot?.frames ?? []) lines.push(`Embedded frame: ${frame}`);
   for (const issue of scan?.issues ?? []) {
     const messages = [...issue.linkedMessages, ...issue.nearbyMessages].join(" / ");
     // Text beside a valid field is often help copy; only invalid or empty-required is a rejection.
@@ -41,5 +40,12 @@ export function failureEvidence(args: {
       );
     }
   }
-  return lines.map(clip).filter(Boolean).slice(0, RUN_EVIDENCE_MAX_LINES);
+  // Context last, but always kept: what the page says about its own fields leads,
+  // and the frames it embeds (a verification widget) still fit under the cap.
+  const frames = (args.snapshot?.frames ?? []).map((frame) => clip(`Embedded frame: ${frame}`));
+  const room = Math.max(0, RUN_EVIDENCE_MAX_LINES - frames.length);
+  return [...lines.map(clip).filter(Boolean).slice(0, room), ...frames].slice(
+    0,
+    RUN_EVIDENCE_MAX_LINES,
+  );
 }

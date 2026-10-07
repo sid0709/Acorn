@@ -8,6 +8,7 @@ import {
 import {
   CONTROL_ROLE,
   PAGE_KIND,
+  RUN_FAILURE_REASON,
   RUN_OUTCOME,
   RUN_STAGE,
   type PageKind,
@@ -38,8 +39,9 @@ import {
 } from "./run-limits";
 import { logUrl, RunLog } from "./run-log";
 import { snapshotPage, type PageSnapshot } from "./run-page";
+import { RESUME_NOT_CHOSEN, type ResumeGate } from "./resume-gate";
 import { ensureRecommendedResume } from "./run-resume";
-import { runFabPipeline } from "./run-pipeline";
+import { NO_RESUME_FILE, runFabPipeline } from "./run-pipeline";
 
 import type { PipelineProgress } from "@acorn/shared/pipeline-types";
 import type { RunStepRecord } from "@acorn/shared/plan-runner/types";
@@ -95,9 +97,20 @@ class RunStop extends Error {
     readonly snapshot: PageSnapshot | null,
     readonly notes: string[],
     readonly steps?: RunStepRecord[],
+    /** A reason the run already knows; the decision model is not asked. */
+    readonly known?: Omit<RunFailure, "stage">,
   ) {
     super(notes[0] ?? UNKNOWN_FAILURE_LABEL);
   }
+}
+
+/** The run stops before touching the page: no résumé to apply with. */
+function noResumeStop(stage: RunStage, snapshot: PageSnapshot | null, detail: string): RunStop {
+  return new RunStop(stage, snapshot, [detail], undefined, {
+    reason: RUN_FAILURE_REASON.resumeNotChosen,
+    label: RESUME_NOT_CHOSEN,
+    detail,
+  });
 }
 
 function newRunId(): string {
@@ -132,23 +145,24 @@ export async function runOrchestrator(args: RunOrchestratorArgs): Promise<RunRep
   /** Clicks in a row that never reached their control. */
   let clickFailures = 0;
   /** A résumé recommend in flight; it must settle before any click or fill. */
-  let recommending: Promise<{ recommended: boolean; error?: string }> | null = null;
+  let recommending: Promise<ResumeGate> | null = null;
   const clock = new PhaseClock();
   const snap = (opts: Parameters<typeof snapshotPage>[1]) =>
     clock.time("snapshot", () => snapshotPage(tabId, opts));
-  const recommend = (url: string, title: string, posting: boolean) => {
+  const recommend = (url: string, title: string) => {
     resumeChecked = true;
     recommending = clock.time("recommend", () =>
-      ensureRecommendedResume({ tabId, url, title, apiUrl, posting, log }),
+      ensureRecommendedResume({ tabId, url, title, apiUrl, log }),
     );
   };
   /** Wait for the recommend before the run touches the page or moves tabs. */
   const settleRecommend = async () => {
     if (!recommending) return;
     enter(RUN_STAGE.recommending);
-    const recommended = await recommending;
+    const gate = await recommending;
     recommending = null;
-    if (recommended.error) progress(`Résumé skipped · ${recommended.error}`);
+    // No résumé, no action: the page is left exactly as it was.
+    if (!gate.ok) throw noResumeStop(RUN_STAGE.recommending, snapshot, gate.reason);
   };
 
   const runState = (): RunProgress => ({
@@ -189,6 +203,7 @@ export async function runOrchestrator(args: RunOrchestratorArgs): Promise<RunRep
       aiServerUrl: apiUrl,
       source: "fill",
       mode,
+      requireResume: true,
       emitDomTree: (payload) => getAcornSocket()?.emit("dom:tree", payload),
       onProgress: (inner) => {
         last = inner;
@@ -208,7 +223,9 @@ export async function runOrchestrator(args: RunOrchestratorArgs): Promise<RunRep
       phases: last?.phases,
     });
     clock.add(mode === FILL_MODE.refill ? "refill" : "fill", Date.now() - started);
-    return { failed, error: last?.error, steps: last?.steps };
+    // The fill stopped before anything else for want of a résumé file.
+    const resumeMissing = failed && last?.message === NO_RESUME_FILE;
+    return { failed, resumeMissing, error: last?.error, steps: last?.steps };
   };
 
   const read = async (intent: ReadIntent, within: PageSnapshot) => {
@@ -507,7 +524,7 @@ export async function runOrchestrator(args: RunOrchestratorArgs): Promise<RunRep
       } else if (!state.filled) {
         // 3. A page seen for the first time: what is it? A tab bound to a job can
         // have its résumé recommended while the page is read.
-        if (!resumeChecked && (await getTabJob(tabId))) recommend(page.url, page.title, false);
+        if (!resumeChecked && (await getTabJob(tabId))) recommend(page.url, page.title);
         const first = await read(READ_INTENT.start, page);
         if (first.kind === PAGE_KIND.confirmation) {
           return await finish(report(RUN_OUTCOME.completed));
@@ -518,7 +535,7 @@ export async function runOrchestrator(args: RunOrchestratorArgs): Promise<RunRep
           ]);
         }
 
-        if (!resumeChecked) recommend(page.url, page.title, first.kind === PAGE_KIND.posting);
+        if (!resumeChecked) recommend(page.url, page.title);
         await settleRecommend();
 
         if (first.kind === PAGE_KIND.posting) {
@@ -565,6 +582,9 @@ export async function runOrchestrator(args: RunOrchestratorArgs): Promise<RunRep
           enter(RUN_STAGE.filling);
           state.fillStartedAt = Date.now();
           const filled = await fill(FILL_MODE.fill, page);
+          if (filled.resumeMissing) {
+            throw noResumeStop(RUN_STAGE.filling, page, filled.error ?? RESUME_NOT_CHOSEN);
+          }
           if (filled.failed) {
             throw new RunStop(
               RUN_STAGE.filling,
@@ -633,6 +653,7 @@ export async function runOrchestrator(args: RunOrchestratorArgs): Promise<RunRep
         ? err
         : new RunStop(stage, snapshot, [err instanceof Error ? err.message : String(err)]);
     log.event("run:stop", { stage: stop.stage, notes: stop.notes });
-    return finish(report(RUN_OUTCOME.failed, await diagnose(stop)));
+    const failure = stop.known ? { ...stop.known, stage: stop.stage } : await diagnose(stop);
+    return finish(report(RUN_OUTCOME.failed, failure));
   }
 }

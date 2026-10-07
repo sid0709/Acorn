@@ -4,6 +4,7 @@ import { getTabJob } from "../tab-job-session";
 
 import { runCustomRecommend } from "./custom-recommend";
 import { runJobRecommend } from "./job-recommend";
+import { resumeGate, type ResumeGate } from "./resume-gate";
 
 import type { RunLog } from "./run-log";
 
@@ -19,30 +20,25 @@ async function hasResume(tabId: number): Promise<boolean> {
 }
 
 /**
- * Recommend a Library résumé for this tab when it has none: for the Worker Pool job
- * bound to the tab, or, on any other page, for the posting on screen (the tab is
- * remembered so Fill finds the résumé). A failure is reported, not fatal: the run
- * goes on and Fill attaches no résumé.
+ * Choose a Library résumé for this tab when it has none: from the Worker Pool job
+ * bound to the tab, or else from the page on screen (a posting, or a form that
+ * carries the description; the SelectorGateway decides whether the text is a
+ * posting at all). A run acts on the page only when this returns ok.
  */
 export async function ensureRecommendedResume(args: {
   tabId: number;
   url: string;
   title: string;
   apiUrl: string;
-  /** The page on screen is a job posting, so a Recommend can read the posting from it. */
-  posting: boolean;
   log: RunLog;
-}): Promise<{ recommended: boolean; error?: string }> {
+}): Promise<ResumeGate> {
   const { tabId, apiUrl, log } = args;
   if (await hasResume(tabId)) {
     log.event("recommend:skipped", { reason: "resume already assigned" });
-    return { recommended: false };
+    return resumeGate(true);
   }
   const tabJob = await getTabJob(tabId);
-  if (!tabJob && !args.posting) {
-    log.event("recommend:skipped", { reason: "no job on this tab and the page is not a posting" });
-    return { recommended: false };
-  }
+  let error: string | null = null;
   try {
     if (tabJob) {
       log.event("recommend:start", { source: "job", jobId: tabJob.jobId });
@@ -57,14 +53,17 @@ export async function ensureRecommendedResume(args: {
       });
       await runCustomRecommend({ tabId, apiUrl });
     }
+  } catch (err) {
+    error = err instanceof Error ? err.message : String(err);
+  }
+  const gate = resumeGate(await hasResume(tabId), error);
+  if (gate.ok) {
     const stack =
       (await getCustomTab(tabId))?.recommendedResumeStack ??
       (tabJob ? (await getJobGenerate(tabJob.jobId))?.recommendedResumeStack : null);
     log.event("recommend:done", { stack: stack ?? null });
-    return { recommended: true };
-  } catch (err) {
-    const error = err instanceof Error ? err.message : String(err);
-    log.event("recommend:failed", { error });
-    return { recommended: false, error };
+  } else {
+    log.event("recommend:failed", { error: gate.reason });
   }
+  return gate;
 }

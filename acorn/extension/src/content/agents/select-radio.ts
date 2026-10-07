@@ -87,8 +87,37 @@ function optionSetRoot(el: HTMLElement): HTMLElement | null {
   return null;
 }
 
-/** The field a choice control belongs to: its nearest grouping container. */
+/**
+ * A native radio's group as the browser defines it: every input of its type that
+ * shares its name in the same form. Null when it shares its name with no other.
+ */
+function sameNameGroup(el: HTMLElement): HTMLInputElement[] | null {
+  if (!(el instanceof HTMLInputElement) || !el.name) return null;
+  if (el.type !== "radio" && el.type !== "checkbox") return null;
+  const scope: ParentNode = el.form ?? (el.getRootNode() as Document | ShadowRoot);
+  const members = Array.from(
+    scope.querySelectorAll(`input[type="${el.type}"][name="${CSS.escape(el.name)}"]`),
+  ).filter((node): node is HTMLInputElement => node instanceof HTMLInputElement);
+  return members.length > 1 ? members : null;
+}
+
+/** The deepest element holding every one of `nodes`. */
+function commonAncestor(nodes: Element[]): ParentNode | null {
+  let root: Element | null = nodes[0]?.parentElement ?? null;
+  while (root && !nodes.every((node) => root?.contains(node))) root = root.parentElement;
+  return root;
+}
+
+/**
+ * The field a choice control belongs to. Named native options are grouped by
+ * their name, rooted where they all meet, so another question's option with the
+ * same label ("No") can never answer for this one. Otherwise the nearest grouping
+ * container, or the nearest set of option buttons.
+ */
 export function groupRoot(el: HTMLElement): ParentNode {
+  const named = sameNameGroup(el);
+  const namedRoot = named ? commonAncestor(named) : null;
+  if (namedRoot) return namedRoot;
   const container = el.closest(GROUP_CONTAINER_SELECTOR);
   const optionSet = optionSetRoot(el);
   // The nearer one wins: a page-wide <form> is not one question's group.
@@ -124,7 +153,10 @@ function findButtonChoice(root: ParentNode, value: string): HTMLElement | null {
 
 function ensureChecked(el: HTMLInputElement, intended?: string): string {
   if (!el.checked) pointerActivate(el, intended);
-  return inputOptionLabel(el) || el.value || "checked";
+  const label = inputOptionLabel(el) || el.value;
+  // A click the page ignored (or undid) is a failed step, never a quiet success.
+  if (!el.checked) throw new Error(`The page did not keep "${label || intended}" selected`);
+  return label || "checked";
 }
 
 /** The field has options, but none carries the intended label. */

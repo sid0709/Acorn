@@ -35,6 +35,9 @@ import { beginPipelineUsageTracking, endPipelineUsageTracking } from "./usage-tr
 import type { PipelineProgress } from "@acorn/shared/pipeline-types";
 import type { ActionPlan, PlanStepPayload, RunStepRecord } from "@acorn/shared/plan-runner/types";
 
+/** Run requires a résumé file; a fill that has none stops here, before any model call or step. */
+export const NO_RESUME_FILE = "No résumé file to attach";
+
 /** The leftover dropdown pass, all of its rounds, answers within this. */
 const LEFTOVER_PASS_TIMEOUT_MS = 120_000;
 
@@ -49,6 +52,8 @@ export interface RunPipelineArgs {
   source?: PipelineSource;
   /** Fill every field (default), or Refill only the fields the page flagged. */
   mode?: FillMode;
+  /** Run: a fill with no résumé file stops before touching the page. Fill page leaves it off. */
+  requireResume?: boolean;
   /** Emit DOM tree to the backend (optional socket emit callback). */
   emitDomTree?: (payload: DomTreePayload) => void;
   /** Broadcast progress to the Chrome side panel + backend. */
@@ -62,6 +67,7 @@ export async function runFabPipeline(args: RunPipelineArgs): Promise<void> {
     aiServerUrl = DEFAULT_ACORN_API_URL,
     source = "fill",
     mode = FILL_MODE.fill,
+    requireResume = false,
     emitDomTree,
     onProgress,
   } = args;
@@ -153,6 +159,21 @@ export async function runFabPipeline(args: RunPipelineArgs): Promise<void> {
         skipReason: resumeSkipReason,
         steps: stepsSnapshot,
       });
+
+    if (requireResume && !refill && !resumeFile) {
+      const { durationMs, usage, phases } = await finishMeta();
+      emit({
+        phase: "error",
+        message: NO_RESUME_FILE,
+        error: resumeSkipReason ? `${NO_RESUME_FILE}: ${resumeSkipReason}` : NO_RESUME_FILE,
+        durationMs,
+        phases,
+        usage,
+        tree: treeSnapshot,
+        resumeUpload: resumeUpload(),
+      });
+      return;
+    }
 
     if (refill && !fieldIssues?.issues.length) {
       const { durationMs, usage, phases } = await finishMeta();

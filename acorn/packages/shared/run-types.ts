@@ -45,6 +45,12 @@ export const RUN_OUTCOME = {
 
 export type RunOutcome = (typeof RUN_OUTCOME)[keyof typeof RUN_OUTCOME];
 
+/** Reasons the run names itself, without asking the decision model. */
+export const RUN_FAILURE_REASON = {
+  /** No résumé was chosen for the job (no description found, or no Library résumé fits). */
+  resumeNotChosen: "resume_not_chosen",
+} as const;
+
 /** Why a run could not finish, in the decision model's words (mirrors the backend's reasons). */
 export interface RunFailure {
   reason: string;
