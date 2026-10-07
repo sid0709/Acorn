@@ -3,6 +3,7 @@ import type { PipelineProgress } from "@acorn/shared/pipeline-types";
 import type { RecommendedResumeRank } from "@acorn/shared/resume-library";
 import type { CustomUiProgress } from "../pipeline/custom-generate-progress";
 import { customTabResumeLine, hostOf } from "./custom-tab-resume";
+import { JOBS_NOW_CARD_RUN_ONLY } from "./sidebar-work-state";
 import { GenerateProgressBar } from "./GenerateProgressBar";
 import type { AcornMainTab } from "./SidebarNav";
 import type { useTabSession } from "./use-tab-session";
@@ -192,6 +193,7 @@ export function NowCard(props: NowCardProps) {
   const top = run ? [] : recommendedTop(props);
   const needsRemember = mainTab === "custom" && !customTab;
   const hasTarget = mainTab === "custom" ? Boolean(customTab) : Boolean(props.tabJob);
+  const jobsRunOnly = mainTab === "fill" && JOBS_NOW_CARD_RUN_ONLY;
 
   return (
     <Card padding={4} className="acorn-now" elevation="low">
@@ -250,51 +252,55 @@ export function NowCard(props: NowCardProps) {
               width="100%"
               onClick={runAction.onClick}
             />
-            <Button
-              variant="secondary"
-              icon={<Glyph name="edit" />}
-              label={fill.label}
-              tooltip={fill.title}
-              isDisabled={fill.disabled}
-              width="100%"
-              onClick={fill.onClick}
-            />
-            <Button
-              variant="secondary"
-              icon={<Glyph name="refresh" />}
-              label={refill.label}
-              tooltip={refill.title}
-              isDisabled={refill.disabled}
-              width="100%"
-              onClick={refill.onClick}
-            />
-            {hasTarget ? (
-              <HStack gap={2} className="acorn-now-row">
+            {!jobsRunOnly ? (
+              <>
                 <Button
                   variant="secondary"
-                  label={generate.label}
-                  tooltip={generate.title}
-                  isDisabled={generate.disabled}
-                  onClick={generate.onClick}
+                  icon={<Glyph name="edit" />}
+                  label={fill.label}
+                  tooltip={fill.title}
+                  isDisabled={fill.disabled}
+                  width="100%"
+                  onClick={fill.onClick}
                 />
                 <Button
                   variant="secondary"
-                  label={recommend.label}
-                  tooltip={recommend.title}
-                  isDisabled={recommend.disabled}
-                  onClick={recommend.onClick}
+                  icon={<Glyph name="refresh" />}
+                  label={refill.label}
+                  tooltip={refill.title}
+                  isDisabled={refill.disabled}
+                  width="100%"
+                  onClick={refill.onClick}
                 />
-              </HStack>
-            ) : (
-              <Button
-                variant="secondary"
-                label={recommend.label}
-                tooltip={recommend.title}
-                isDisabled={recommend.disabled}
-                width="100%"
-                onClick={recommend.onClick}
-              />
-            )}
+                {hasTarget ? (
+                  <HStack gap={2} className="acorn-now-row">
+                    <Button
+                      variant="secondary"
+                      label={generate.label}
+                      tooltip={generate.title}
+                      isDisabled={generate.disabled}
+                      onClick={generate.onClick}
+                    />
+                    <Button
+                      variant="secondary"
+                      label={recommend.label}
+                      tooltip={recommend.title}
+                      isDisabled={recommend.disabled}
+                      onClick={recommend.onClick}
+                    />
+                  </HStack>
+                ) : (
+                  <Button
+                    variant="secondary"
+                    label={recommend.label}
+                    tooltip={recommend.title}
+                    isDisabled={recommend.disabled}
+                    width="100%"
+                    onClick={recommend.onClick}
+                  />
+                )}
+              </>
+            ) : null}
           </VStack>
         )}
       </VStack>

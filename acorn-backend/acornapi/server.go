@@ -14,12 +14,15 @@ import (
 	"github.com/sid0709/OpenSeat/acorn-backend/account"
 	"github.com/sid0709/OpenSeat/acorn-backend/acorn"
 	"github.com/sid0709/OpenSeat/acorn-backend/acornapi/gateway"
+	"github.com/sid0709/OpenSeat/acorn-backend/admin"
 	"github.com/sid0709/OpenSeat/acorn-backend/aiusage"
 	"github.com/sid0709/OpenSeat/acorn-backend/debugtrace"
 	"github.com/sid0709/OpenSeat/acorn-backend/mailbox"
 	"github.com/sid0709/OpenSeat/acorn-backend/profile"
 	"github.com/sid0709/OpenSeat/acorn-backend/resume"
 	"github.com/sid0709/OpenSeat/acorn-backend/selector"
+	"github.com/sid0709/OpenSeat/acorn-backend/support"
+	"github.com/sid0709/OpenSeat/acorn-backend/supportaccess"
 	"github.com/sid0709/OpenSeat/backend-core/google"
 	"github.com/sid0709/OpenSeat/backend-core/httpkit"
 	"github.com/sid0709/OpenSeat/backend-core/jobs"
@@ -75,6 +78,11 @@ type Server struct {
 	debug          *debugtrace.Recorder
 	selector       *selector.Gateway
 	usage          *aiusage.Store
+	claims         *support.Store
+	admins         *admin.Store
+	adminCookie    string
+	supportAccess  *supportaccess.Store
+	webURL         string
 	// sockets pushes each recorded AI call to the account's clients as it happens.
 	sockets accountEmitter
 }
@@ -106,6 +114,17 @@ type Options struct {
 	Selector *selector.Gateway
 	// Usage stores per-tab AI call history. Nil answers an empty list.
 	Usage *aiusage.Store
+	// Claims stores extension support reports. Nil disables POST /acorn/support/claims.
+	Claims *support.Store
+	// Admins is the support console. Nil disables /acorn/admin routes.
+	Admins *admin.Store
+	// AdminSessionCookie is the cookie acorn-admin keeps the admin token in.
+	AdminSessionCookie string
+	// SupportAccess holds support-session handoff codes and the admin audit trail.
+	// Nil, or an empty WebURL, turns "sign in as user" off.
+	SupportAccess *supportaccess.Store
+	// WebURL is acorn-frontend's origin, where support sign-in links land.
+	WebURL string
 }
 
 func New(accounts Accounts, listings *jobs.Store, brain *acorn.Service, opts Options) (http.Handler, *gateway.Gateway) {
@@ -115,7 +134,9 @@ func New(accounts Accounts, listings *jobs.Store, brain *acorn.Service, opts Opt
 		google: opts.Google, googleRedirect: opts.GoogleRedirectURL,
 		gmail: opts.Gmail, gmailRedirect: opts.GmailRedirectURL,
 		resumes: opts.Resumes, profiles: opts.Profiles, debug: opts.Debug,
-		selector: opts.Selector, usage: opts.Usage,
+		selector: opts.Selector, usage: opts.Usage, claims: opts.Claims,
+		admins: opts.Admins, adminCookie: opts.AdminSessionCookie,
+		supportAccess: opts.SupportAccess, webURL: strings.TrimRight(strings.TrimSpace(opts.WebURL), "/"),
 	}
 	if s.debug != nil {
 		brain.SetTracer(debugtrace.Tracer())
@@ -128,6 +149,9 @@ func New(accounts Accounts, listings *jobs.Store, brain *acorn.Service, opts Opt
 	}
 	if s.cookie == "" {
 		s.cookie = DefaultSessionCookie
+	}
+	if s.adminCookie == "" {
+		s.adminCookie = DefaultAdminSessionCookie
 	}
 	if s.gmail != nil && opts.GmailRedirectURL != "" && opts.Google != nil {
 		s.gmailGoogle = &mailbox.Google{OAuth: opts.Google, RedirectURL: opts.GmailRedirectURL}
@@ -146,6 +170,8 @@ func New(accounts Accounts, listings *jobs.Store, brain *acorn.Service, opts Opt
 	mux.HandleFunc("POST /v1/auth/google/callback", s.finishGoogle)
 	mux.HandleFunc("POST /acorn/auth/google/start", s.startExtensionGoogle)
 	mux.HandleFunc("POST /acorn/auth/google/finish", s.finishExtensionGoogle)
+	mux.HandleFunc("POST /acorn/auth/support/redeem", s.redeemSupportCode)
+	mux.HandleFunc("POST /acorn/auth/support/extension-code", s.supportExtensionCode)
 
 	mux.HandleFunc("POST /acorn/ai-analyze", s.requireAI(s.aiAnalyze))
 	mux.HandleFunc("POST /acorn/match-option", s.requireAI(s.matchOption))
@@ -161,6 +187,28 @@ func New(accounts Accounts, listings *jobs.Store, brain *acorn.Service, opts Opt
 
 	mux.HandleFunc("GET /acorn/ai-usage", s.listAIUsage)
 	mux.HandleFunc("GET /acorn/ai-usage/{id}", s.getAIUsage)
+	mux.HandleFunc("POST /acorn/support/claims", s.createSupportClaim)
+	mux.HandleFunc("GET /acorn/support/claims", s.listMyClaims)
+	mux.HandleFunc("GET /acorn/support/claims/{id}", s.getMyClaim)
+	mux.HandleFunc("POST /acorn/support/claims/{id}/messages", s.postMyClaimMessage)
+	mux.HandleFunc("POST /acorn/support/claims/{id}/read", s.readMyClaim)
+
+	mux.HandleFunc("POST /acorn/admin/auth/signin", s.adminSignIn)
+	mux.HandleFunc("GET /acorn/admin/auth/me", s.adminMe)
+	mux.HandleFunc("POST /acorn/admin/auth/signout", s.adminSignOut)
+	mux.HandleFunc("GET /acorn/admin/claims", s.adminListClaims)
+	mux.HandleFunc("GET /acorn/admin/claims/{id}", s.adminGetClaim)
+	mux.HandleFunc("PATCH /acorn/admin/claims/{id}", s.adminPatchClaim)
+	mux.HandleFunc("GET /acorn/admin/claims/{id}/screenshot", s.adminClaimScreenshot)
+	mux.HandleFunc("POST /acorn/admin/claims/{id}/messages", s.adminPostClaimMessage)
+	mux.HandleFunc("POST /acorn/admin/claims/{id}/read", s.adminReadClaim)
+	mux.HandleFunc("GET /acorn/admin/users", s.adminListUsers)
+	mux.HandleFunc("GET /acorn/admin/users/{id}", s.adminGetUser)
+	mux.HandleFunc("GET /acorn/admin/users/{id}/usage", s.adminListUserUsage)
+	mux.HandleFunc("GET /acorn/admin/users/{id}/audit", s.adminUserAudit)
+	mux.HandleFunc("POST /acorn/admin/users/{id}/support-session", s.adminStartSupportSession)
+	mux.HandleFunc("DELETE /acorn/admin/users/{id}/support-sessions", s.adminEndSupportSessions)
+	mux.HandleFunc("GET /acorn/admin/statistics", s.adminStatistics)
 	mux.HandleFunc("GET /acorn/jobs/{jobId}", s.getJob)
 	mux.HandleFunc("POST /acorn/jobs/{jobId}/generate", s.requireAI(s.generateForJob))
 	mux.HandleFunc("POST /acorn/jobs/{jobId}/mark-applied", s.markApplied)
@@ -218,7 +266,7 @@ func New(accounts Accounts, listings *jobs.Store, brain *acorn.Service, opts Opt
 	socket := gw.Handler()
 	mux.Handle(gateway.Path, socket)
 	mux.Handle(gateway.Path+"/", socket)
-	return mux, gw
+	return withRequestSession(mux), gw
 }
 
 // token is the Acorn session token: a bearer header from the extension, or the
@@ -246,6 +294,9 @@ func (s *Server) session(w http.ResponseWriter, r *http.Request) (account.Sessio
 		return account.Session{}, false
 	}
 	httpkit.SetUserID(r.Context(), session.User.ID)
+	if held := requestSessionFrom(r.Context()); held != nil {
+		held.supportBy = session.SupportBy
+	}
 	return session, true
 }
 

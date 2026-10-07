@@ -167,7 +167,7 @@ func (s *Server) autolabelGmail(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusServiceUnavailable, openai.ErrMissingOpenRouterKey.Error())
 		return
 	}
-	ctx, cancel := context.WithTimeout(r.Context(), autolabelTimeout)
+	ctx, cancel := context.WithTimeout(s.withUsage(r, accountID), autolabelTimeout)
 	defer cancel()
 	summary, err := maillabel.Run(openai.WithCall(ctx, "gmail-autolabel"), decider, gmailApplier{
 		google: s.gmailGoogle, mailboxID: mailboxID, token: grant.RefreshToken,

@@ -27,7 +27,7 @@ func (s *Server) signUp(w http.ResponseWriter, r *http.Request) {
 		writeAccountError(w, err)
 		return
 	}
-	writeJSON(w, http.StatusCreated, sessionBody(token, user))
+	writeJSON(w, http.StatusCreated, sessionBody(token, account.Session{User: user}))
 }
 
 func (s *Server) signIn(w http.ResponseWriter, r *http.Request) {
@@ -43,7 +43,7 @@ func (s *Server) signIn(w http.ResponseWriter, r *http.Request) {
 		writeAccountError(w, err)
 		return
 	}
-	writeJSON(w, http.StatusOK, sessionBody(token, user))
+	writeJSON(w, http.StatusOK, sessionBody(token, account.Session{User: user}))
 }
 
 // me is how the extension and acorn-frontend learn who the Acorn session belongs to.
@@ -52,7 +52,7 @@ func (s *Server) me(w http.ResponseWriter, r *http.Request) {
 	if !ok {
 		return
 	}
-	writeJSON(w, http.StatusOK, sessionBody("", session.User))
+	writeJSON(w, http.StatusOK, sessionBody("", session))
 }
 
 // signOut ends this Acorn session. acorn-frontend and the extension both drop the cookie.
@@ -71,6 +71,10 @@ func (s *Server) signOut(w http.ResponseWriter, r *http.Request) {
 func (s *Server) deleteAccount(w http.ResponseWriter, r *http.Request) {
 	session, ok := s.session(w, r)
 	if !ok {
+		return
+	}
+	if session.SupportBy != "" {
+		writeError(w, http.StatusForbidden, "a support session cannot delete the account")
 		return
 	}
 	if err := s.resumes.DeleteAccount(r.Context(), session.User.ID); err != nil {
@@ -96,18 +100,23 @@ func (s *Server) deleteAccount(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, map[string]bool{"success": true})
 }
 
-func sessionBody(token string, user account.User) map[string]any {
-	body := map[string]any{
-		"success": true,
-		"session": map[string]any{
-			"accountId":   user.ID,
-			"profileId":   user.ID,
-			"applierName": user.Name,
-			"username":    user.Email,
-			"displayName": user.Name,
-			"email":       user.Email,
-		},
+// sessionBody is the session as the site and the extension read it. A support
+// session also says which admin opened it and when it ends.
+func sessionBody(token string, session account.Session) map[string]any {
+	user := session.User
+	info := map[string]any{
+		"accountId":   user.ID,
+		"profileId":   user.ID,
+		"applierName": user.Name,
+		"username":    user.Email,
+		"displayName": user.Name,
+		"email":       user.Email,
 	}
+	if session.SupportBy != "" {
+		info["supportBy"] = session.SupportBy
+		info["expiresAt"] = session.ExpiresAt
+	}
+	body := map[string]any{"success": true, "session": info}
 	if token != "" {
 		body["token"] = token
 	}

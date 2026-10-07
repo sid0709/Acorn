@@ -3,7 +3,6 @@ package acorn
 import (
 	"context"
 	"encoding/json"
-	"errors"
 	"fmt"
 	"regexp"
 	"strconv"
@@ -94,8 +93,8 @@ func (s *Service) DiscoverFields(ctx context.Context, pureTree string) ([]FormFi
 	var out struct {
 		Fields []discoveredField `json:"fields"`
 	}
-	if err := json.Unmarshal([]byte(text), &out); err != nil {
-		return nil, errors.New("discover fields: model returned non-JSON output")
+	if err := decodeModelJSON(text, &out); err != nil {
+		return nil, fmt.Errorf("discover fields: %w", err)
 	}
 	return toFormFields(out.Fields, treeNodeIDs(pureTree)), nil
 }

@@ -1,7 +1,36 @@
-import { useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { Dialog, DialogHeader } from "@astryxdesign/core";
-import { Banner, EmptyState, Glyph, HStack, IconButton, Spinner, Text, VStack } from "sid-ui";
-import { fetchUsageRequest, formatUsagePrice, type AiUsageEntry } from "./use-ai-usage";
+import {
+  Banner,
+  Button,
+  ChartLegend,
+  EmptyState,
+  Glyph,
+  HStack,
+  IconButton,
+  Spinner,
+  Text,
+  Tooltip,
+  VStack,
+  type ChartTone,
+} from "sid-ui";
+import {
+  fetchUsageDetail,
+  formatUsagePrice,
+  type AiUsageEntry,
+  type UsageDetail,
+} from "./use-ai-usage";
+import {
+  USAGE_FAILED_TONE,
+  chronological,
+  modelTones,
+  shortModel,
+  usageBarHeight,
+  usageBarLabel,
+  usageBarWidth,
+  usageScale,
+  type UsageScale,
+} from "./usage-chart";
 
 type UsageHistoryListProps = {
   entries: AiUsageEntry[];
@@ -12,15 +41,21 @@ type UsageHistoryListProps = {
   onRefresh: () => void;
 };
 
+type DetailTab = "request" | "response" | "error";
+
+const CALL_TIME_FORMAT: Intl.DateTimeFormatOptions = {
+  month: "short",
+  day: "numeric",
+  hour: "numeric",
+  minute: "2-digit",
+  second: "2-digit",
+  fractionalSecondDigits: 3,
+};
+
 function formatWhen(iso: string): string {
   const date = new Date(iso);
   if (Number.isNaN(date.getTime())) return "";
-  return date.toLocaleString(undefined, {
-    month: "short",
-    day: "numeric",
-    hour: "numeric",
-    minute: "2-digit",
-  });
+  return date.toLocaleString(undefined, CALL_TIME_FORMAT);
 }
 
 function formatDuration(ms: number): string {
@@ -42,14 +77,61 @@ function tokenLine(entry: AiUsageEntry): string {
   return `${total} tokens · ${entry.promptTokens.toLocaleString()} in${cached} · ${entry.completionTokens.toLocaleString()} out`;
 }
 
-function whenLine(entry: AiUsageEntry): string {
-  const duration = formatDuration(entry.durationMs);
-  const when = formatWhen(entry.createdAt);
-  if (duration && when) return `${duration} · ${when}`;
-  return duration || when;
+function prettyJson(text: string): string {
+  const trimmed = text.trim();
+  if (!trimmed) return "";
+  try {
+    return JSON.stringify(JSON.parse(trimmed), null, 2);
+  } catch {
+    return text;
+  }
 }
 
-/** AI calls made from the active Chrome tab, newest first. */
+/** One call: as wide as it was slow, as tall as it was costly, in its model's tone. */
+function UsageBar({
+  entry,
+  scale,
+  tone,
+  onSelect,
+}: {
+  entry: AiUsageEntry;
+  scale: UsageScale;
+  tone: ChartTone;
+  onSelect: () => void;
+}) {
+  const tip = [
+    shortModel(entry.model),
+    formatDuration(entry.durationMs),
+    entry.priced ? formatUsagePrice(entry.price) : "unpriced",
+    entry.error ? "failed" : "",
+  ]
+    .filter(Boolean)
+    .join(" · ");
+  return (
+    <Tooltip content={tip}>
+      <span
+        role="listitem"
+        tabIndex={0}
+        className="acorn-usage-mark"
+        data-tone={tone}
+        style={{
+          width: `${usageBarWidth(entry.durationMs, scale)}px`,
+          height: `${usageBarHeight(entry, scale)}%`,
+        }}
+        aria-label={`View ${usageBarLabel(entry)}`}
+        onClick={onSelect}
+        onKeyDown={(event) => {
+          if (event.key === "Enter" || event.key === " ") {
+            event.preventDefault();
+            onSelect();
+          }
+        }}
+      />
+    </Tooltip>
+  );
+}
+
+/** AI calls made from the active Chrome tab, oldest on the left and each new call added on the right. */
 export function UsageHistoryList({
   entries,
   totalPrice,
@@ -59,27 +141,48 @@ export function UsageHistoryList({
   onRefresh,
 }: UsageHistoryListProps) {
   const [open, setOpen] = useState<AiUsageEntry | null>(null);
-  const [request, setRequest] = useState("");
-  const [requestError, setRequestError] = useState<string | null>(null);
-  const [requestLoading, setRequestLoading] = useState(false);
+  const [detail, setDetail] = useState<UsageDetail | null>(null);
+  const [detailError, setDetailError] = useState<string | null>(null);
+  const [detailLoading, setDetailLoading] = useState(false);
+  const [detailTab, setDetailTab] = useState<DetailTab>("request");
 
-  async function showRequest(entry: AiUsageEntry) {
+  const sorted = useMemo(() => chronological(entries), [entries]);
+  const scale = useMemo(() => usageScale(sorted), [sorted]);
+  const tones = useMemo(() => modelTones(sorted), [sorted]);
+  const hasFailed = sorted.some((entry) => entry.error);
+  const plotRef = useRef<HTMLDivElement>(null);
+
+  // Keep the newest call in view as calls arrive.
+  useEffect(() => {
+    const plot = plotRef.current;
+    if (plot) plot.scrollLeft = plot.scrollWidth;
+  }, [sorted.length]);
+
+  async function showDetail(entry: AiUsageEntry) {
     setOpen(entry);
-    setRequest("");
-    setRequestError(null);
+    setDetail(null);
+    setDetailError(null);
+    setDetailTab(entry.error ? "error" : "request");
     if (tabId == null) {
-      setRequestError("This tab is not ready.");
+      setDetailError("This tab is not ready.");
       return;
     }
-    setRequestLoading(true);
+    setDetailLoading(true);
     try {
-      setRequest(await fetchUsageRequest(entry.id, tabId));
+      setDetail(await fetchUsageDetail(entry.id, tabId));
     } catch (err) {
-      setRequestError(err instanceof Error ? err.message : String(err));
+      setDetailError(err instanceof Error ? err.message : String(err));
     } finally {
-      setRequestLoading(false);
+      setDetailLoading(false);
     }
   }
+
+  const bodyText =
+    detailTab === "request"
+      ? detail?.request
+      : detailTab === "response"
+        ? detail?.response
+        : (open?.error ?? "");
 
   return (
     <VStack as="section" gap={3} aria-label="AI usage">
@@ -89,7 +192,9 @@ export function UsageHistoryList({
             AI usage
           </Text>
           <Text type="supporting">
-            {entries.length === 0 ? "This tab" : `Total ${formatUsagePrice(totalPrice)}`}
+            {entries.length === 0
+              ? "This tab"
+              : `Total ${formatUsagePrice(totalPrice)} · wider = slower · taller = costlier`}
           </Text>
         </VStack>
         <IconButton
@@ -110,39 +215,34 @@ export function UsageHistoryList({
           description="Fill, Generate, Recommend, and Ask on this tab show up here."
         />
       ) : null}
-      <VStack gap={2}>
-        {entries.map((entry) => (
-          <VStack key={entry.id} gap={0}>
-            <HStack gap={2} align="center" justify="between">
-              <Text weight="semibold" maxLines={1}>
-                {entry.model || "Model"}
-              </Text>
-              <HStack gap={1} align="center">
-                <Text weight="semibold">{entry.priced ? formatUsagePrice(entry.price) : "—"}</Text>
-                <IconButton
-                  variant="ghost"
-                  size="sm"
-                  icon={<Glyph name="eye" />}
-                  label={`View request for ${entry.model || "this call"}`}
-                  tooltip="View request"
-                  onClick={() => void showRequest(entry)}
-                />
-              </HStack>
-            </HStack>
-            <HStack gap={2} align="center" justify="between">
-              <Text type="supporting" maxLines={1}>
-                {tokenLine(entry)}
-              </Text>
-              <Text type="supporting">{whenLine(entry)}</Text>
-            </HStack>
-            {entry.error ? (
-              <Text type="supporting" className="acorn-usage-error">
-                {entry.error}
-              </Text>
-            ) : null}
-          </VStack>
-        ))}
-      </VStack>
+      {sorted.length > 0 ? (
+        <VStack gap={2}>
+          <div
+            ref={plotRef}
+            className="acorn-usage-plot"
+            role="list"
+            aria-label="AI calls on this tab"
+          >
+            {sorted.map((entry) => (
+              <UsageBar
+                key={entry.id}
+                entry={entry}
+                scale={scale}
+                tone={
+                  entry.error ? USAGE_FAILED_TONE : (tones.get(entry.model || "Model") ?? "neutral")
+                }
+                onSelect={() => void showDetail(entry)}
+              />
+            ))}
+          </div>
+          <ChartLegend
+            items={[
+              ...[...tones].map(([model, tone]) => ({ label: shortModel(model), tone })),
+              ...(hasFailed ? [{ label: "Failed", tone: USAGE_FAILED_TONE }] : []),
+            ]}
+          />
+        </VStack>
+      ) : null}
       <Dialog
         isOpen={open != null}
         purpose="info"
@@ -153,20 +253,52 @@ export function UsageHistoryList({
         }}
       >
         <DialogHeader
-          title={open?.model || "Request"}
+          title={open?.model || "AI call"}
           subtitle={
             open
-              ? [tokenLine(open), formatDuration(open.durationMs)].filter(Boolean).join(" · ")
+              ? [
+                  tokenLine(open),
+                  formatDuration(open.durationMs),
+                  formatWhen(open.createdAt),
+                  open.priced ? formatUsagePrice(open.price) : "—",
+                ]
+                  .filter(Boolean)
+                  .join(" · ")
               : undefined
           }
           onOpenChange={() => setOpen(null)}
         />
-        {requestLoading ? <Spinner label="Loading request" /> : null}
-        {requestError ? (
-          <Banner status="error" title="Couldn’t load the request" description={requestError} />
+        <HStack gap={1} className="acorn-usage-detail-tabs">
+          <Button
+            variant={detailTab === "request" ? "secondary" : "ghost"}
+            size="sm"
+            label="Request"
+            onClick={() => setDetailTab("request")}
+          />
+          <Button
+            variant={detailTab === "response" ? "secondary" : "ghost"}
+            size="sm"
+            label="Response"
+            onClick={() => setDetailTab("response")}
+          />
+          {open?.error ? (
+            <Button
+              variant={detailTab === "error" ? "secondary" : "ghost"}
+              size="sm"
+              label="Error"
+              onClick={() => setDetailTab("error")}
+            />
+          ) : null}
+        </HStack>
+        {detailLoading ? <Spinner label="Loading call details" /> : null}
+        {detailError ? (
+          <Banner status="error" title="Couldn’t load call details" description={detailError} />
         ) : null}
-        {!requestLoading && !requestError && request ? (
-          <pre className="acorn-usage-request">{request}</pre>
+        {!detailLoading && !detailError && bodyText ? (
+          <pre className="acorn-usage-request">{prettyJson(bodyText)}</pre>
+        ) : null}
+        {!detailLoading && !detailError && !bodyText && detailTab !== "error" ? (
+          <Text type="supporting">No {detailTab} body was stored for this call.</Text>
         ) : null}
       </Dialog>
     </VStack>

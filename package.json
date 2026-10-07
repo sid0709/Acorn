@@ -8,6 +8,7 @@
       "acorn/packages/*",
       "acorn/demo",
       "acorn-frontend",
+      "acorn-admin",
       "packages/*"
     ],
     "catalog": {
@@ -49,6 +50,7 @@
   },
   "scripts": {
     "dev:web": "bun --filter acorn-frontend dev",
+    "dev:admin": "bun --filter acorn-admin dev",
     "dev:acorn-api": "go run -C acorn-backend ./cmd/server",
     "dev:acorn": "bun --filter acorn-extension dev",
     "dev:acorn-face": "bun --filter @acorn/face dev",

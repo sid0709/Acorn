@@ -1,8 +1,14 @@
 import { getAccessToken, getAcornApiUrl } from "../../auth/acorn-auth";
 import { runOrchestrator } from "../../pipeline/run-orchestrator";
+import { syncAutoFocus } from "../auto-focus";
 import { broadcastPipelineProgress } from "../socket-connection";
 import { pinnedTabId } from "../tab-target";
-import { customGenerateTabIds, pipelineRunningTabIds, syncWorkKeepAlive } from "../work-state";
+import {
+  customGenerateTabIds,
+  pipelineRunningTabIds,
+  runTabIds,
+  syncWorkKeepAlive,
+} from "../work-state";
 import { SIGN_IN_FIRST, type RuntimeMessage, type SendResponse } from "./shared";
 
 /** Run: the whole application on this tab, in one click. */
@@ -28,7 +34,9 @@ export function handleStartRun(
 
     const claimed = new Set<number>([tabId]);
     pipelineRunningTabIds.add(tabId);
+    runTabIds.add(tabId);
     syncWorkKeepAlive();
+    void syncAutoFocus();
     sendResponse({ ok: true });
 
     try {
@@ -51,6 +59,8 @@ export function handleStartRun(
         claimTab: (id) => {
           claimed.add(id);
           pipelineRunningTabIds.add(id);
+          runTabIds.add(id);
+          void syncAutoFocus();
         },
       });
     } catch (err) {
@@ -60,8 +70,12 @@ export function handleStartRun(
         error: err instanceof Error ? err.message : String(err),
       });
     } finally {
-      for (const id of claimed) pipelineRunningTabIds.delete(id);
+      for (const id of claimed) {
+        pipelineRunningTabIds.delete(id);
+        runTabIds.delete(id);
+      }
       syncWorkKeepAlive();
+      void syncAutoFocus();
     }
   })();
 }

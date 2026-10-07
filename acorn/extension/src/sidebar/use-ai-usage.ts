@@ -20,15 +20,21 @@ const USAGE_OFFLINE_POLL_MS = 4_000;
 export type AiUsageEntry = UsageEntryRow;
 
 const EMPTY_REQUEST = "This call was recorded before request bodies were saved.";
+const EMPTY_RESPONSE = "This call was recorded before response bodies were saved.";
 
-/** The provider JSON for one call. The list poll does not include it. */
-export async function fetchUsageRequest(id: string, tabId: number): Promise<string> {
+export type UsageDetail = {
+  request: string;
+  response: string;
+};
+
+/** Request and response bodies for one call. The list poll does not include them. */
+export async function fetchUsageDetail(id: string, tabId: number): Promise<UsageDetail> {
   const base = (await getAcornApiUrl()).replace(/\/$/, "");
   const res = await fetch(`${base}/acorn/ai-usage/${encodeURIComponent(id)}`, {
     headers: await authHeaders(tabId),
   });
   const data = (await res.json().catch(() => ({}))) as {
-    entry?: { request?: string };
+    entry?: { request?: string; response?: string };
     error?: string;
     message?: string;
   };
@@ -36,7 +42,11 @@ export async function fetchUsageRequest(id: string, tabId: number): Promise<stri
     throw new Error(data.error || data.message || `Usage failed (${res.status})`);
   }
   const request = data.entry?.request?.trim() ?? "";
-  return request || EMPTY_REQUEST;
+  const response = data.entry?.response?.trim() ?? "";
+  return {
+    request: request || EMPTY_REQUEST,
+    response: response || EMPTY_RESPONSE,
+  };
 }
 
 export function formatUsagePrice(price: string | null | undefined): string {

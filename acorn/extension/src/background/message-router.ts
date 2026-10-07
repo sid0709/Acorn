@@ -25,6 +25,8 @@ import { handleStartRun } from "./messages/run";
 import { handleSelectionQa } from "./messages/selection-qa";
 import type { RuntimeMessage, SendResponse } from "./messages/shared";
 import { handleGetTabJob, handleMarkJobApplied, handleOpenWorkerJob } from "./messages/worker-jobs";
+import { handleSubmitSupportClaim } from "./messages/support-claim";
+import { handleSupportHandoff } from "./messages/support-session";
 import { refreshTabUsage } from "./tab-usage-store";
 
 /** Sends each sidebar/content message to its handler. Returns true to keep `sendResponse` open. */
@@ -126,6 +128,16 @@ export function routeMessage(
 
   if (message.type === MSG.MATCH_OPTION) {
     handleMatchOption(message, sender, sendResponse);
+    return true;
+  }
+
+  if (message.type === MSG.SUPPORT_HANDOFF) {
+    handleSupportHandoff(message, sender, sendResponse);
+    return true;
+  }
+
+  if (message.type === MSG.SUBMIT_SUPPORT_CLAIM) {
+    void handleSubmitSupportClaim(message, sender).then(sendResponse);
     return true;
   }
 

@@ -34,9 +34,9 @@ export function handleAuthSignIn(message: RuntimeMessage, sendResponse: SendResp
 export function handleAuthSignOut(sendResponse: SendResponse): void {
   void (async () => {
     try {
-      await acornSignOut();
+      const restored = await acornSignOut();
       await connectSocket().catch(() => undefined);
-      sendResponse({ ok: true });
+      sendResponse({ ok: true, session: restored });
     } catch (err) {
       sendResponse({
         ok: false,

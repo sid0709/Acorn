@@ -156,8 +156,8 @@ func (s *Service) Analyze(ctx context.Context, applicant, pureTree string, page 
 		return AnalyzeResult{}, err
 	}
 	var plan Plan
-	if err := json.Unmarshal([]byte(text), &plan); err != nil {
-		return AnalyzeResult{}, errors.New("model returned non-JSON output")
+	if err := decodeModelJSON(text, &plan); err != nil {
+		return AnalyzeResult{}, err
 	}
 	if err := validatePlan(plan); err != nil {
 		return AnalyzeResult{}, err

@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import {
   DEFAULT_ACORN_API_URL,
+  STORAGE_KEYS,
   getAcornApiUrl,
   getAcornSession,
   type AcornStoredSession,
@@ -20,6 +21,13 @@ export function useSidebarAuth({ onSignedOut }: { onSignedOut: () => void }) {
       setApiUrl(await getAcornApiUrl());
       setSession(await getAcornSession());
     })();
+    // A support sign-in from the Acorn site swaps the session while the sidebar is open.
+    const onChanged = (changes: Record<string, chrome.storage.StorageChange>, area: string) => {
+      if (area !== "local" || !(STORAGE_KEYS.session in changes)) return;
+      void getAcornSession().then(setSession);
+    };
+    chrome.storage.onChanged.addListener(onChanged);
+    return () => chrome.storage.onChanged.removeListener(onChanged);
   }, []);
 
   const handleSignIn = async () => {
@@ -61,7 +69,12 @@ export function useSidebarAuth({ onSignedOut }: { onSignedOut: () => void }) {
   const handleSignOut = async () => {
     setAuthBusy(true);
     try {
-      const res = await sendMessage<{ ok?: boolean; error?: string }>({
+      const wasSupport = Boolean(session?.supportBy);
+      const res = await sendMessage<{
+        ok?: boolean;
+        error?: string;
+        session?: AcornStoredSession | null;
+      }>({
         type: MSG.AUTH_SIGNOUT,
       });
       if (!res?.ok) {
@@ -72,9 +85,21 @@ export function useSidebarAuth({ onSignedOut }: { onSignedOut: () => void }) {
         });
         return;
       }
+      if (res.session) {
+        setSession(res.session);
+        pushAcornNotice({
+          kind: "success",
+          title: "Support session ended",
+          detail: `Back to ${res.session.displayName}.`,
+        });
+        return;
+      }
       setSession(null);
       onSignedOut();
-      pushAcornNotice({ kind: "success", title: "Signed out" });
+      pushAcornNotice({
+        kind: "success",
+        title: wasSupport ? "Support session ended" : "Signed out",
+      });
     } catch (err) {
       pushAcornNotice({
         kind: "error",

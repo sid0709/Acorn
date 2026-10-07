@@ -1,4 +1,10 @@
-import { ACORN_SOCKET_PATH, acornHosts } from "@acorn/shared/api";
+import {
+  ACORN_CLIENT,
+  ACORN_CLIENT_HEADER,
+  ACORN_SOCKET_PATH,
+  ACORN_SUPPORT_REDEEM_PATH,
+  acornHosts,
+} from "@acorn/shared/api";
 import { ACORN_TAB_HEADER, usageTabKey } from "../tab-usage-key";
 
 const hosts = acornHosts(import.meta.env.MODE);
@@ -16,12 +22,19 @@ export type AcornStoredSession = {
   displayName: string;
   profileId: string;
   expiresAt: string;
+  /** The admin who opened this session from the support console; empty for the user's own. */
+  supportBy?: string;
 };
 
-const STORAGE_KEYS = {
+export const STORAGE_KEYS = {
   apiUrl: "acornApiUrl",
   session: "acornSession",
+  /** The person's own session, kept while a support session stands in for it. */
+  sessionBeforeSupport: "acornSessionBeforeSupport",
 } as const;
+
+/** What every API call names this client as, for usage stats. */
+const CLIENT_NAME = `${ACORN_CLIENT.extension}/${import.meta.env.VITE_ACORN_VERSION ?? ""}`;
 
 const RETIRED_API_HOSTS = [["api", "joi", "nedhq", "com"].join(""), "acorn.remotepairnet.net"];
 
@@ -62,10 +75,24 @@ export async function getAcornSession(): Promise<AcornStoredSession | null> {
   const session = stored[STORAGE_KEYS.session] as AcornStoredSession | undefined;
   if (!session?.accessToken) return null;
   if (session.expiresAt && Date.parse(session.expiresAt) <= Date.now()) {
+    if (session.supportBy) return restoreSessionBeforeSupport();
     await clearAcornSession();
     return null;
   }
   return session;
+}
+
+/** Puts back the person's own session after a support session, or signs out when there was none. */
+async function restoreSessionBeforeSupport(): Promise<AcornStoredSession | null> {
+  const stored = await chrome.storage.local.get([STORAGE_KEYS.sessionBeforeSupport]);
+  const previous = stored[STORAGE_KEYS.sessionBeforeSupport] as AcornStoredSession | undefined;
+  await chrome.storage.local.remove([STORAGE_KEYS.sessionBeforeSupport]);
+  if (previous?.accessToken) {
+    await setAcornSession(previous);
+    return previous;
+  }
+  await clearAcornSession();
+  return null;
 }
 
 export async function setAcornSession(session: AcornStoredSession): Promise<void> {
@@ -170,17 +197,69 @@ async function postJSON<T extends { message?: string }>(
   return { ok: res.ok, status: res.status, data };
 }
 
-/** End this extension's Acorn session. The website sign-in is left as it is. */
-export async function acornSignOut(): Promise<void> {
-  const token = await getAccessToken();
+/**
+ * End this extension's Acorn session. The website sign-in is left as it is. Ending
+ * a support session brings back the person's own session when there was one.
+ */
+export async function acornSignOut(): Promise<AcornStoredSession | null> {
+  const session = await getAcornSession();
   const base = await getAcornApiUrl();
-  if (token) {
+  if (session?.accessToken) {
     await fetch(`${base}/acorn/auth/signout`, {
       method: "POST",
-      headers: { Authorization: `Bearer ${token}` },
+      headers: { Authorization: `Bearer ${session.accessToken}` },
     }).catch(() => undefined);
   }
+  if (session?.supportBy) return restoreSessionBeforeSupport();
   await clearAcornSession();
+  return null;
+}
+
+type SupportRedeem = {
+  token?: string;
+  error?: string;
+  message?: string;
+  session?: {
+    username?: string;
+    displayName?: string;
+    profileId?: string;
+    supportBy?: string;
+    expiresAt?: string;
+  };
+};
+
+/**
+ * Signs the extension in with a support handoff code from the Acorn site. The
+ * person's own session is kept aside and comes back when the support session ends.
+ */
+export async function acornSupportSignIn(code: string): Promise<AcornAuthResult> {
+  const base = (await getAcornApiUrl()).replace(/\/$/, "");
+  try {
+    const redeemed = await postJSON<SupportRedeem>(`${base}${ACORN_SUPPORT_REDEEM_PATH}`, { code });
+    const info = redeemed.data.session;
+    if (!redeemed.ok || !redeemed.data.token || !info?.supportBy) {
+      return {
+        ok: false,
+        error: redeemed.data.error || redeemed.data.message || "Couldn’t open the support session.",
+      };
+    }
+    const current = await getAcornSession();
+    if (current && !current.supportBy) {
+      await chrome.storage.local.set({ [STORAGE_KEYS.sessionBeforeSupport]: current });
+    }
+    const session: AcornStoredSession = {
+      accessToken: redeemed.data.token,
+      username: info.username || "",
+      displayName: info.displayName || info.username || "Acorn",
+      profileId: info.profileId || "",
+      expiresAt: info.expiresAt || "",
+      supportBy: info.supportBy,
+    };
+    await setAcornSession(session);
+    return { ok: true, session };
+  } catch (err) {
+    return { ok: false, error: err instanceof Error ? err.message : String(err) };
+  }
 }
 
 export async function authHeaders(tabId?: number | null): Promise<Record<string, string>> {
@@ -189,6 +268,7 @@ export async function authHeaders(tabId?: number | null): Promise<Record<string,
   const headers: Record<string, string> = {
     "Content-Type": "application/json",
     Authorization: `Bearer ${token}`,
+    [ACORN_CLIENT_HEADER]: CLIENT_NAME,
   };
   if (typeof tabId === "number") {
     headers[ACORN_TAB_HEADER] = await usageTabKey(tabId);

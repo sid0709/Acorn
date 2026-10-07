@@ -25,11 +25,16 @@ import { useSocketStatus } from "./use-socket-status";
 import { useTabSession } from "./use-tab-session";
 import { useTabUi } from "./use-tab-ui";
 import { useTabWork } from "./use-tab-work";
+import { sendMessage } from "./runtime";
+import { MSG } from "../types";
 import { AskPanel } from "./AskPanel";
 import { CustomPanel } from "./CustomPanel";
 import { JobsPanel } from "./JobsPanel";
 import { SidebarOverlays } from "./SidebarOverlays";
 import { SignedOutView } from "./SignedOutView";
+import { ReportDialog } from "./ReportDialog";
+import { SupportPanel } from "./SupportPanel";
+import { useSupportClaims } from "./use-support-claims";
 import type { JdPreview } from "./sidebar-panel-types";
 import "./SidebarApp.css";
 
@@ -43,11 +48,18 @@ export default function SidebarApp() {
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [qaStatus, setQaStatus] = useState({ busy: false, error: false });
   const [helpOpen, setHelpOpen] = useState(false);
+  const [reportOpen, setReportOpen] = useState(false);
+  const [reportSending, setReportSending] = useState(false);
 
   const { apiUrl, setApiUrl, session, authBusy, handleSignIn, handleSignOut } = useSidebarAuth({
     onSignedOut: () => setHelpOpen(false),
   });
   const connected = useSocketStatus(session, apiUrl);
+  const support = useSupportClaims({
+    signedIn: Boolean(session),
+    visible: mainTab === "support",
+    connected,
+  });
   const { ui, patchTabUi } = useTabUi(activeTabId, progress);
   const { preview, setPreview, openCustomResumePreview } = useResumePreview(jobGenerates);
 
@@ -227,6 +239,39 @@ export default function SidebarApp() {
       onClick: () => void rememberFocusedTab(),
     },
   };
+  // Report stays available while work runs: a stuck run is exactly what people report.
+  const reportDisabled = !session || activeTabId == null;
+  const submitReport = async (notes: string): Promise<boolean> => {
+    if (activeTabId == null) return false;
+    setReportSending(true);
+    try {
+      const res = await sendMessage<{ ok?: boolean; error?: string; claimId?: string }>({
+        type: MSG.SUBMIT_SUPPORT_CLAIM,
+        tabId: activeTabId,
+        notes,
+      });
+      if (!res?.ok) {
+        pushAcornNotice({
+          kind: "error",
+          title: "Couldn’t send report",
+          detail: res?.error ?? "Try again in a moment.",
+        });
+        return false;
+      }
+      setReportOpen(false);
+      pushAcornNotice({
+        kind: "success",
+        title: "Report sent",
+        detail: "Support has the page and your notes. Replies show in the Support tab.",
+      });
+      setMainTab("support");
+      await support.open(res.claimId ?? null);
+      return true;
+    } finally {
+      setReportSending(false);
+    }
+  };
+
   const nowCard = (tab: "fill" | "custom") => (
     <NowCard
       mainTab={tab}
@@ -255,6 +300,8 @@ export default function SidebarApp() {
               signOutDisabled={authBusy || anyTabWorking}
               onOpenGuide={() => setHelpOpen(true)}
               onOpenSettings={() => setSettingsOpen(true)}
+              onReport={() => setReportOpen(true)}
+              reportDisabled={reportDisabled}
               onSignOut={() => void handleSignOut()}
             />
             <SidebarNav
@@ -262,6 +309,7 @@ export default function SidebarApp() {
               onChange={setMainTab}
               busyJobs={busyTotal}
               rememberedTabs={customList.length}
+              unreadSupport={support.unread}
             />
           </div>
 
@@ -294,7 +342,21 @@ export default function SidebarApp() {
               openCustomResumePreview={openCustomResumePreview}
               setJdPreview={setJdPreview}
             />
+
+            <SupportPanel
+              mainTab={mainTab}
+              support={support}
+              onReport={() => setReportOpen(true)}
+              reportDisabled={reportDisabled}
+            />
           </main>
+          <ReportDialog
+            isOpen={reportOpen}
+            onOpenChange={setReportOpen}
+            pageLabel={headerContext}
+            sending={reportSending}
+            onSend={submitReport}
+          />
         </>
       ) : (
         <SignedOutView

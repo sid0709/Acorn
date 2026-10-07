@@ -100,6 +100,26 @@ function isValueTextHost(el: Element, control: Element, excluded: Element[]): bo
   return true;
 }
 
+/** CSS wrap values that lay one container's items over several rows. */
+const WRAPPING_FLEX = new Set(["wrap", "wrap-reverse"]);
+
+/**
+ * The vertical band the widget's value occupies. Usually the control's own row,
+ * but a multi-select lays its chosen items and the typing box out in a wrapping
+ * row: a long item pushes the typing box onto the next line, and the items above
+ * it are still the value. The nearest wrapping container inside the widget box
+ * is then the band.
+ */
+function valueBand(control: Element, root: Element): DOMRect {
+  const view = control.ownerDocument.defaultView;
+  for (let node = control.parentElement; node && root.contains(node); node = node.parentElement) {
+    const wrap = view?.getComputedStyle(node).flexWrap ?? "";
+    if (WRAPPING_FLEX.has(wrap)) return node.getBoundingClientRect();
+    if (node === root) break;
+  }
+  return control.getBoundingClientRect();
+}
+
 /**
  * Visible text the widget box renders for `control`, deduplicated in DOM order.
  * Callers decide which parts are placeholders.
@@ -122,7 +142,7 @@ export function readWidgetTextParts(control: Element): string[] {
     return allowed;
   };
 
-  const row = control.getBoundingClientRect();
+  const row = valueBand(control, root);
   const onControlRow = (host: Element): boolean => {
     if (row.height === 0) return true;
     const rect = host.getBoundingClientRect();

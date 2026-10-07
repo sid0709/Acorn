@@ -1,0 +1,40 @@
+@import "sid-ui/styles/astryx.css";
+@import "sid-ui/styles/components.css";
+
+html,
+body {
+  height: 100%;
+  font-family: var(--font-family-body);
+}
+
+body {
+  margin: 0;
+  background: var(--color-background-body);
+  color: var(--color-text-primary);
+}
+
+html {
+  scrollbar-gutter: stable;
+}
+
+/* The claims inbox fills the viewport under the admin bar. */
+.claims-inbox {
+  height: calc(100dvh - var(--claims-inbox-offset));
+  min-height: var(--claims-inbox-min-height);
+  --claims-inbox-offset: 9rem;
+  --claims-inbox-min-height: 32rem;
+}
+
+/* The sign-in card sits in the middle of the window. */
+.admin-login {
+  display: grid;
+  place-items: center;
+  min-height: 100dvh;
+  padding: var(--spacing-4);
+  box-sizing: border-box;
+}
+
+.admin-login-card {
+  --admin-login-width: 30rem;
+  width: min(100%, var(--admin-login-width));
+}

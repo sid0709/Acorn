@@ -11,6 +11,8 @@ export const ROUTES = {
   gmailConnect: "/gmail/connect",
   apps: "/apps",
   billing: "/billing",
+  supportLanding: "/auth/support",
+  supportSession: "/support-session",
 } as const;
 
 /** Only same-site paths. Anything else lands on the home page. */

@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"log/slog"
 	"math/big"
 	"strings"
 	"time"
@@ -26,7 +27,8 @@ const (
 )
 
 // Usage is one model call. CostNanos is USD × 1e9. Duration is from the send
-// until the response body, including the last token, has arrived.
+// until the response body, including the last token, has arrived. Tokens and cost
+// are summed over every attempt, since a failed attempt is still billed.
 type Usage struct {
 	Model            string
 	PromptTokens     int
@@ -37,9 +39,35 @@ type Usage struct {
 	CostNanos        int64
 	Priced           bool
 	Duration         time.Duration
+	// Attempts is how many requests the call sent; 0 when it never reached the provider.
+	Attempts int
+	// HTTPStatus is the last attempt's status; 0 when no response arrived.
+	HTTPStatus int
+	// FinishReason is the provider's finish_reason ("stop", "length", …), when it sends one.
+	FinishReason string
+	// Step is the product step named with WithCall, when the caller named one.
+	Step string
 	// Request is the JSON sent to the provider, without the API key.
 	Request string
-	Error   string
+	// Response is the provider response body, clipped for usage history detail views.
+	Response string
+	Error    string
+	// ErrorKind is one of the ErrorKind* values when Error is set.
+	ErrorKind string
+}
+
+// Add sums another attempt's tokens and cost into u.
+func (u *Usage) Add(other Usage) {
+	u.PromptTokens += other.PromptTokens
+	u.CompletionTokens += other.CompletionTokens
+	u.CachedTokens += other.CachedTokens
+	u.CacheWriteTokens += other.CacheWriteTokens
+	u.TotalTokens += other.TotalTokens
+	u.CostNanos += other.CostNanos
+	u.Priced = u.Priced || other.Priced
+	if other.Model != "" {
+		u.Model = other.Model
+	}
 }
 
 type recorderKey struct{}
@@ -55,8 +83,17 @@ func WithRecorder(ctx context.Context, record Recorder) context.Context {
 	return context.WithValue(ctx, recorderKey{}, record)
 }
 
+// StoredResponse is the provider response, pretty-printed and clipped, for the usage history.
+func StoredResponse(body []byte) string {
+	return storedBodyText(body)
+}
+
 // StoredRequest is the provider request, pretty-printed and clipped, for the usage history.
 func StoredRequest(body []byte) string {
+	return storedBodyText(body)
+}
+
+func storedBodyText(body []byte) string {
 	pretty := body
 	if len(body) > 0 && len(body) <= maxPrettyRequest {
 		var buf bytes.Buffer
@@ -71,13 +108,22 @@ func StoredRequest(body []byte) string {
 	return text[:maxStoredRequest] + "\n\n… truncated"
 }
 
-// Note reports a model call when the context has a recorder.
+// Note reports a model call when the context has a recorder. A call without one
+// is logged, so a handler that forgot its recorder shows up instead of vanishing
+// from usage history.
 func Note(ctx context.Context, usage Usage) {
 	if ctx == nil {
-		return
+		ctx = context.Background()
+	}
+	if usage.Step == "" {
+		usage.Step = callName(ctx)
+	}
+	if usage.Error != "" && usage.ErrorKind == "" {
+		usage.ErrorKind = ErrorKindProvider
 	}
 	record, _ := ctx.Value(recorderKey{}).(Recorder)
 	if record == nil {
+		slog.WarnContext(ctx, "model call not recorded", "model", usage.Model, "step", usage.Step)
 		return
 	}
 	record(usage)

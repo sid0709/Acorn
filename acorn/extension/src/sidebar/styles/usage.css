@@ -1,3 +1,46 @@
+/*
+ * The usage chart uses sid-ui's chart tones (data-tone sets --os-chart-tone) and its
+ * mark shape: rounded top corners on one baseline. Width is response time, height is
+ * cost; the plot scrolls sideways when calls outgrow it.
+ */
+.acorn-usage-plot {
+  --acorn-usage-plot-height: calc(var(--spacing-6) * 4);
+  display: flex;
+  height: var(--acorn-usage-plot-height);
+  align-items: flex-end;
+  gap: var(--spacing-1);
+  overflow-x: auto;
+  overflow-y: hidden;
+  border-bottom: var(--border-width) solid var(--color-border);
+  scrollbar-width: thin;
+}
+
+.acorn-usage-mark {
+  flex: 0 0 auto;
+  display: block;
+  border-radius: var(--radius-inner) var(--radius-inner) 0 0;
+  background: var(--os-chart-tone);
+  cursor: pointer;
+  outline: none;
+  transition:
+    filter var(--duration-fast) var(--ease-standard),
+    width var(--duration-slow) var(--ease-standard),
+    height var(--duration-slow) var(--ease-standard);
+}
+
+.acorn-usage-mark:hover {
+  filter: brightness(1.12);
+}
+
+.acorn-usage-mark:focus-visible {
+  outline: var(--focus-outline-width) var(--focus-outline-style) var(--focus-outline-color);
+  outline-offset: var(--spacing-0-5);
+}
+
+.acorn-usage-detail-tabs {
+  flex-wrap: wrap;
+}
+
 .acorn-usage-request {
   margin: 0;
   max-height: 60dvh;

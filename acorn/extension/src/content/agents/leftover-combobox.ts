@@ -20,6 +20,12 @@ const PROFILE_ANSWER = "Answer from the applicant profile";
 const MAX_LEFTOVER = 40;
 /** Look-again rounds for dropdowns that earlier answers revealed. */
 const MAX_LEFTOVER_ROUNDS = 3;
+/**
+ * Tries per dropdown. A pick that does not show afterwards (the click landed in a
+ * list that was not this dropdown's, or the widget dropped it) is tried once more
+ * from a freshly opened list before the dropdown counts as unfilled.
+ */
+const LEFTOVER_FILL_ATTEMPTS = 2;
 
 function isDisplayed(el: HTMLElement): boolean {
   if (el.getClientRects().length === 0) return false;
@@ -152,35 +158,53 @@ async function fillLeftover(
   label: string,
   answer: LeftoverAnswer,
 ): Promise<boolean> {
-  try {
-    if (answer.kind === "option") {
-      // An exact option label: the select path clicks it without asking again.
-      await fillElement(el, answer.label, label || null);
-    } else {
-      // PROFILE_ANSWER is an instruction for the matcher, never a search query: a long
-      // list types the writer's estimated answer instead.
-      await fillElement(el, PROFILE_ANSWER, label || null, {
-        estimateQuery: true,
-        estimate: answer.kind === "search" ? answer.estimate : undefined,
-        searchFirst: answer.kind === "search",
-      });
+  for (let attempt = 1; attempt <= LEFTOVER_FILL_ATTEMPTS; attempt += 1) {
+    try {
+      await applyLeftoverAnswer(el, label, answer);
+    } catch (err) {
+      traceFromPage("leftover:error", () => ({
+        id: el.id,
+        label,
+        by: answer.kind,
+        attempt,
+        error: String(err),
+      }));
+      continue;
     }
-    traceFromPage("leftover:filled", () => ({
-      id: el.id,
-      label,
-      by: answer.kind,
-      read: readControlValue(el),
-    }));
-    return Boolean(readControlValue(el));
-  } catch (err) {
-    traceFromPage("leftover:error", () => ({
-      id: el.id,
-      label,
-      by: answer.kind,
-      error: String(err),
-    }));
-    return false;
+    const read = readControlValue(el);
+    if (read) {
+      traceFromPage("leftover:filled", () => ({
+        id: el.id,
+        label,
+        by: answer.kind,
+        attempt,
+        read,
+      }));
+      return true;
+    }
+    traceFromPage("leftover:unfilled", () => ({ id: el.id, label, by: answer.kind, attempt }));
+    dismissOpenOverlays(el.ownerDocument || document, resolveDropdownInteractionTarget(el));
   }
+  return false;
+}
+
+async function applyLeftoverAnswer(
+  el: HTMLElement,
+  label: string,
+  answer: LeftoverAnswer,
+): Promise<void> {
+  if (answer.kind === "option") {
+    // An exact option label: the select path clicks it without asking again.
+    await fillElement(el, answer.label, label || null);
+    return;
+  }
+  // PROFILE_ANSWER is an instruction for the matcher, never a search query: a long
+  // list types the writer's estimated answer instead.
+  await fillElement(el, PROFILE_ANSWER, label || null, {
+    estimateQuery: true,
+    estimate: answer.kind === "search" ? answer.estimate : undefined,
+    searchFirst: answer.kind === "search",
+  });
 }
 
 /** Empty, enabled dropdowns no plan step answered and this pass has not tried. */

@@ -8,12 +8,14 @@ import { clearTabPipeline, rekeyTabPipeline } from "./tab-pipeline-session";
 import { MSG, ACORN_SIDEBAR_PORT } from "./types";
 import { routeMessage } from "./background/message-router";
 import { connectSocket, sidebarPorts, socketHandlers } from "./background/socket-connection";
+import { bindAutoFocusSetting } from "./background/auto-focus";
 import {
   KEEP_ALIVE_ALARM,
   WORK_KEEP_ALIVE_ALARM,
   anyTabWorking,
   customGenerateTabIds,
   pipelineRunningTabIds,
+  runTabIds,
 } from "./background/work-state";
 
 function enableSidePanelOnActionClick(): void {
@@ -54,6 +56,7 @@ chrome.runtime.onConnect.addListener((port) => {
 void connectSocket().catch(() => undefined);
 enableSidePanelOnActionClick();
 bindContentScriptInjection();
+bindAutoFocusSetting();
 void injectIntoOpenTabs();
 chrome.runtime.onInstalled.addListener(enableSidePanelOnActionClick);
 
@@ -66,6 +69,9 @@ chrome.tabs.onRemoved.addListener((tabId) => {
 chrome.tabs.onReplaced.addListener((addedTabId, removedTabId) => {
   if (pipelineRunningTabIds.delete(removedTabId)) {
     pipelineRunningTabIds.add(addedTabId);
+  }
+  if (runTabIds.delete(removedTabId)) {
+    runTabIds.add(addedTabId);
   }
   if (customGenerateTabIds.delete(removedTabId)) {
     customGenerateTabIds.add(addedTabId);

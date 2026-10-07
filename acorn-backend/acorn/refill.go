@@ -2,8 +2,6 @@ package acorn
 
 import (
 	"context"
-	"encoding/json"
-	"errors"
 	"fmt"
 	"strings"
 )
@@ -47,8 +45,8 @@ func (s *Service) Refill(ctx context.Context, applicant, pureTree string, scan F
 		return AnalyzeResult{}, err
 	}
 	var plan Plan
-	if err := json.Unmarshal([]byte(text), &plan); err != nil {
-		return AnalyzeResult{}, errors.New("model returned non-JSON output")
+	if err := decodeModelJSON(text, &plan); err != nil {
+		return AnalyzeResult{}, err
 	}
 	if err := validatePlan(plan); err != nil {
 		return AnalyzeResult{}, err

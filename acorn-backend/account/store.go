@@ -56,9 +56,21 @@ type User struct {
 	Email string
 }
 
-// Session is a live sign-in.
+// AccountRow is a user account for the support console list.
+type AccountRow struct {
+	ID        string
+	Name      string
+	Email     string
+	CreatedAt time.Time
+}
+
+// Session is a live sign-in. SupportBy is the admin email when an admin opened
+// this session to help the user; ExpiresAt is when it stops working.
 type Session struct {
-	User User
+	User          User
+	SupportBy     string
+	SupportReason string
+	ExpiresAt     time.Time
 }
 
 type storedAccount struct {
@@ -78,6 +90,9 @@ type storedSession struct {
 	UserID    string    `bson:"userId"`
 	ExpiresAt time.Time `bson:"expiresAt"`
 	CreatedAt time.Time `bson:"createdAt"`
+	// SupportBy and SupportReason are set on sessions an admin opened to help the user.
+	SupportBy     string `bson:"supportBy,omitempty"`
+	SupportReason string `bson:"supportReason,omitempty"`
 }
 
 // Store keeps Acorn accounts and sessions in their own collections.
@@ -205,7 +220,12 @@ func (s *Store) Session(ctx context.Context, token string, now time.Time) (Sessi
 	if err != nil {
 		return Session{}, err
 	}
-	return Session{User: User{ID: user.ID, Name: user.Name, Email: user.Email}}, nil
+	return Session{
+		User:          User{ID: user.ID, Name: user.Name, Email: user.Email},
+		SupportBy:     doc.SupportBy,
+		SupportReason: doc.SupportReason,
+		ExpiresAt:     doc.ExpiresAt,
+	}, nil
 }
 
 // Revoke ends the session behind token. A missing token is still success.
@@ -282,18 +302,36 @@ func (s *Store) jobIDs(ctx context.Context, userID, field string) ([]string, err
 	return doc.SavedJobIDs, nil
 }
 
+// GetAccount loads one account by id.
+func (s *Store) GetAccount(ctx context.Context, id string) (AccountRow, error) {
+	if s == nil || s.accounts == nil || id == "" {
+		return AccountRow{}, ErrNotFound
+	}
+	var doc storedAccount
+	err := s.accounts.FindOne(ctx, bson.M{"id": id}, options.FindOne().
+		SetProjection(bson.M{"id": 1, "name": 1, "email": 1, "createdAt": 1})).
+		Decode(&doc)
+	if errors.Is(err, mongo.ErrNoDocuments) {
+		return AccountRow{}, ErrNotFound
+	}
+	if err != nil {
+		return AccountRow{}, err
+	}
+	return AccountRow{ID: doc.ID, Name: doc.Name, Email: doc.Email, CreatedAt: doc.CreatedAt}, nil
+}
+
 func (s *Store) insertSession(ctx context.Context, userID string, now time.Time) (string, error) {
+	return s.storeSession(ctx, storedSession{UserID: userID, ExpiresAt: now.Add(SessionTTL).UTC(), CreatedAt: now.UTC()})
+}
+
+// storeSession saves row under a new token and returns the token.
+func (s *Store) storeSession(ctx context.Context, row storedSession) (string, error) {
 	token, err := newToken()
 	if err != nil {
 		return "", err
 	}
-	_, err = s.sessions.InsertOne(ctx, storedSession{
-		TokenHash: hashToken(token),
-		UserID:    userID,
-		ExpiresAt: now.Add(SessionTTL).UTC(),
-		CreatedAt: now.UTC(),
-	})
-	if err != nil {
+	row.TokenHash = hashToken(token)
+	if _, err := s.sessions.InsertOne(ctx, row); err != nil {
 		return "", err
 	}
 	return token, nil
