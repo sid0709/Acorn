@@ -86,8 +86,13 @@ func (s *Server) aiAnalyze(w http.ResponseWriter, r *http.Request) {
 		recordFieldIssues(ctx, body.FieldIssues)
 		result, err = brain.Refill(ctx, applicant, body.PureTree, body.FieldIssues, body.Page)
 	case acorn.ModeFast:
-		recordFormFields(ctx, body.FormFields)
-		result, err = brain.FastPlan(ctx, applicant, body.FormFields, body.Page)
+		if len(body.FormFields) > 0 {
+			recordFormFields(ctx, body.FormFields)
+			result, err = brain.FastPlan(ctx, applicant, body.FormFields, body.Page)
+		} else {
+			result, err = brain.FastPlanFromTree(ctx, applicant, body.PureTree, body.Page)
+			recordFormFields(ctx, result.Fields)
+		}
 	default:
 		result, err = brain.Analyze(ctx, applicant, body.PureTree, body.Page)
 	}

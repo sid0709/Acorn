@@ -65,16 +65,35 @@ function findDisplayedOption(listbox: Element | null, value: string): HTMLElemen
   return pickByLabel(nodes, value);
 }
 
+const GROUP_CONTAINER_SELECTOR =
+  'fieldset, [role="group"], [role="radiogroup"], [class*="Field"], [class*="field"], td, th, form';
+/** Option buttons: a field whose answers are buttons rather than native inputs. */
+const OPTION_BUTTON_SELECTOR = 'button, [role="button"], [role="radio"], [aria-pressed]';
+/** How far up from an option button to look for the set of options it belongs to. */
+const OPTION_SET_MAX_DEPTH = 4;
+
+/**
+ * The nearest ancestor holding this option button and another like it: one
+ * question's options (a <ul role="list"> of Yes / No buttons), found by structure
+ * when no grouping container names them.
+ */
+function optionSetRoot(el: HTMLElement): HTMLElement | null {
+  if (el instanceof HTMLInputElement || !el.matches(OPTION_BUTTON_SELECTOR)) return null;
+  let node = el.parentElement;
+  for (let depth = 0; node && depth < OPTION_SET_MAX_DEPTH; depth += 1) {
+    if (node.querySelectorAll(OPTION_BUTTON_SELECTOR).length > 1) return node;
+    node = node.parentElement;
+  }
+  return null;
+}
+
 /** The field a choice control belongs to: its nearest grouping container. */
 export function groupRoot(el: HTMLElement): ParentNode {
-  return (
-    el.closest(
-      'fieldset, [role="group"], [role="radiogroup"], [class*="Field"], [class*="field"], td, th, form',
-    ) ||
-    el.parentElement ||
-    el.ownerDocument ||
-    document
-  );
+  const container = el.closest(GROUP_CONTAINER_SELECTOR);
+  const optionSet = optionSetRoot(el);
+  // The nearer one wins: a page-wide <form> is not one question's group.
+  const root = optionSet && (!container || container.contains(optionSet)) ? optionSet : container;
+  return root || el.parentElement || el.ownerDocument || document;
 }
 
 function findChoiceInGroup(

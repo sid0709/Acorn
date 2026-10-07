@@ -16,7 +16,9 @@ const (
 	proseTimeout    = 20 * time.Second
 	identityTimeout = 8 * time.Second
 	extractTimeout  = 25 * time.Second
-	maxQuestion     = 8000
+	// fieldsTimeout bounds field discovery: one read of the whole planner tree.
+	fieldsTimeout = 45 * time.Second
+	maxQuestion   = 8000
 )
 
 // ErrModelUnavailable is returned when no model key is configured.
@@ -42,6 +44,7 @@ const (
 	PurposeAnswer    Purpose = "qa"
 	PurposeExtractJD Purpose = "extract-jd"
 	PurposeRefill    Purpose = "refill"
+	PurposeFields    Purpose = "fields"
 )
 
 // Call is one model request and what came back, handed to a Tracer.
@@ -130,6 +133,8 @@ type AnalyzeResult struct {
 	ResponseID *string `json:"responseId"`
 	// Mode echoes ModeRefill on a Refill plan, so the extension knows the backend honored it.
 	Mode string `json:"mode,omitempty"`
+	// Fields are the questions a fast plan found in the planner tree, answered or not.
+	Fields []FormField `json:"fields,omitempty"`
 }
 
 // Analyze plans a fill of every answerable control in the pure tree from the

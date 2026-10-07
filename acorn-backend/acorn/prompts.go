@@ -26,4 +26,5 @@ var (
 	proseSystem     = prompt("prose_system")
 	identitySystem  = prompt("identity_system")
 	extractJDSystem = prompt("extract_jd_system")
+	fieldsSystem    = prompt("fields_system")
 )

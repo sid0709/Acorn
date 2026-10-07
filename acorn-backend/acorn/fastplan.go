@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"log/slog"
+	"strconv"
 	"strings"
 	"sync"
 )
@@ -45,6 +46,11 @@ type FormField struct {
 	Name         string   `json:"name"`
 	Required     bool     `json:"required"`
 	Options      []string `json:"options"`
+	// OptionIndexes are the node ids of Options, in the same order, when known: a
+	// step then targets the chosen option itself.
+	OptionIndexes []int `json:"optionIndexes,omitempty"`
+	// Answered is true when the page already shows an answer.
+	Answered bool `json:"answered,omitempty"`
 }
 
 // ChoiceQuestion is one choice field the decision model answers from the profile.
@@ -422,6 +428,9 @@ func addChoiceFills(plan Plan, fields []FormField, picks map[int][]string) {
 		if len(chosen) == 0 {
 			continue
 		}
+		if addOptionSteps(plan, field, chosen) {
+			continue
+		}
 		value, role := strings.Join(chosen, ", "), field.Kind
 		if field.Kind == fieldToggle {
 			value = map[bool]string{true: "true", false: "false"}[chosen[0] == toggleCheck]
@@ -429,4 +438,45 @@ func addChoiceFills(plan Plan, fields []FormField, picks map[int][]string) {
 		}
 		addAction(plan, "select_radio", field, role, value, nil)
 	}
+}
+
+// addOptionSteps targets the chosen option's own node when the field knows its
+// options' nodes, so the runtime clicks that exact option instead of searching the
+// field for its label. A checkbox field gets one step per box to check, and one
+// per box to clear when the page already shows answers. False when the field's
+// option nodes are unknown (the runtime then finds the option by label).
+func addOptionSteps(plan Plan, field FormField, chosen []string) bool {
+	if field.Kind == fieldSelect || len(field.OptionIndexes) == 0 || len(field.OptionIndexes) != len(field.Options) {
+		return false
+	}
+	nodes := make(map[string]int, len(field.Options))
+	for i, label := range field.Options {
+		nodes[label] = field.OptionIndexes[i]
+	}
+	for _, label := range chosen {
+		if _, listed := nodes[label]; !listed {
+			return false
+		}
+	}
+	if field.Kind != fieldCheckbox {
+		addOptionAction(plan, field, nodes[chosen[0]], chosen[0], field.Label)
+		return true
+	}
+	picked := make(map[string]bool, len(chosen))
+	for _, label := range chosen {
+		picked[label] = true
+	}
+	for _, label := range field.Options {
+		if picked[label] || field.Answered {
+			addOptionAction(plan, field, nodes[label], strconv.FormatBool(picked[label]), label)
+		}
+	}
+	return true
+}
+
+// addOptionAction is one select_radio step on an option node of field.
+func addOptionAction(plan Plan, field FormField, node int, value, label string) {
+	option := field
+	option.ElementIndex, option.Label = node, label
+	addAction(plan, "select_radio", option, field.Kind, value, nil)
 }
