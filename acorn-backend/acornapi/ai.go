@@ -66,6 +66,8 @@ func (s *Server) aiAnalyze(w http.ResponseWriter, r *http.Request) {
 		FormFields  []acorn.FormField    `json:"formFields"`
 		Page        map[string]any       `json:"page"`
 		Debug       *analyzeDebug        `json:"debug"`
+		// VerificationCode is a code the run found in the applicant's mail for this page.
+		VerificationCode string `json:"verificationCode"`
 	}
 	if !decode(w, r, &body) {
 		return
@@ -78,9 +80,18 @@ func (s *Server) aiAnalyze(w http.ResponseWriter, r *http.Request) {
 	if !ok {
 		return
 	}
+	password, err := s.accountPassword(r.Context(), session.User.ID)
+	if err != nil {
+		s.writeProfileErr(w, err)
+		return
+	}
+	if len(body.VerificationCode) > maxVerificationCode {
+		writeError(w, http.StatusBadRequest, "verificationCode is too long")
+		return
+	}
+	brain = brain.WithCredentials(acorn.Credentials{Password: password, VerificationCode: body.VerificationCode})
 	ctx := s.startAnalyzeRun(r, session.User.ID, applicant, body.PureTree, body.Page, body.Debug)
 	var result acorn.AnalyzeResult
-	var err error
 	switch body.Mode {
 	case acorn.ModeRefill:
 		recordFieldIssues(ctx, body.FieldIssues)

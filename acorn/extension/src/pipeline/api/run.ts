@@ -2,7 +2,14 @@ import { authHeaders, getAcornApiUrl } from "../../auth/acorn-auth";
 
 import type { AiUsageSummary } from "@acorn/shared/ai-usage";
 import type { PageControl } from "@acorn/shared/page-controls";
-import type { ControlRole, PageKind } from "@acorn/shared/run-types";
+import type {
+  AccountAttempt,
+  AccountMode,
+  ControlRole,
+  MailVerificationStatus,
+  PageKind,
+  Verification,
+} from "@acorn/shared/run-types";
 
 export const READ_INTENT = {
   start: "start",
@@ -21,6 +28,8 @@ export interface ReadPageRequest {
   controls: PageControl[];
   flagged: number;
   pageMessages: string[];
+  /** Account steps the run already sent on this site, oldest first. */
+  account: AccountAttempt[];
 }
 
 export interface ReadPageResponse {
@@ -39,6 +48,35 @@ export interface ReadPageResponse {
   guest?: boolean;
   /** The page waits on something only the applicant can give (a code sent to them). */
   needsPerson?: boolean;
+  /** What the page asks to verify; an email code or link is read from the applicant's Gmail. */
+  verification?: Verification;
+  /** What an account step asks for. */
+  accountMode?: AccountMode;
+  /** On an account step: whether the profile holds a default account password. */
+  accountPassword?: boolean;
+  usage?: AiUsageSummary;
+}
+
+export interface MailVerificationRequest {
+  runId: string;
+  step: number;
+  kind: Verification;
+  url: string;
+  title: string;
+  text: string;
+  /** When the site was asked to send the email (ms since epoch); 0 reads every recent email. */
+  since: number;
+  /** Emails an earlier search judged unrelated; sent back unchanged from the last answer. */
+  ruledOut: string[];
+}
+
+export interface MailVerificationResponse {
+  ok: boolean;
+  error?: string;
+  status?: MailVerificationStatus;
+  /** The code to enter, or the link to open. Set only when found. */
+  value?: string;
+  ruledOut?: string[];
   usage?: AiUsageSummary;
 }
 
@@ -98,4 +136,13 @@ export function requestDiagnose(
   tabId: number,
 ): Promise<DiagnoseResponse> {
   return post<DiagnoseResponse>("diagnose", request, apiUrl, tabId);
+}
+
+/** The code or link a site emailed the applicant, found in their Gmail by Jev. */
+export function requestMailVerification(
+  request: MailVerificationRequest,
+  apiUrl: string,
+  tabId: number,
+): Promise<MailVerificationResponse> {
+  return post<MailVerificationResponse>("mail-verification", request, apiUrl, tabId);
 }

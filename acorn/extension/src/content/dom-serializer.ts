@@ -1,3 +1,5 @@
+import { HIDDEN_VALUE, isSecretControl } from "@acorn/shared/secret-value";
+
 import type { DomNode } from "../types";
 
 // Removed 'IFRAME' from SKIP_TAGS
@@ -264,6 +266,8 @@ function serializeNode(el: Element, depth: number): DomNode[] {
     const val = (el as HTMLInputElement).value;
     if (val) attrs["value"] = String(val).slice(0, 120);
   }
+  // A password never reaches the tree: the planner only learns the box is filled.
+  if (attrs["value"] && isSecretControl(el)) attrs["value"] = HIDDEN_VALUE;
 
   const text = getDirectText(el);
 

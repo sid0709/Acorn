@@ -5,6 +5,7 @@ import { applyApplicantIdentityToActions } from "@acorn/shared/plan-runner/appli
 import { runActionPlan } from "@acorn/shared/plan-runner/orchestrator";
 import { PhaseClock } from "@acorn/shared/phase-clock";
 import { formatPlannerTree } from "@acorn/shared/planner-tree";
+import { redactPlan } from "@acorn/shared/secret-value";
 import { formatAnalyzeTrees } from "@acorn/shared/tree-export";
 
 import { DEFAULT_ACORN_API_URL } from "../auth/acorn-auth";
@@ -66,6 +67,8 @@ export interface RunPipelineArgs {
   mode?: FillMode;
   /** Run: a fill with no résumé file stops before touching the page. Fill page leaves it off. */
   requireResume?: boolean;
+  /** Run: a code found in the applicant's mail, filled into the field that asks for it. */
+  verificationCode?: string;
   /**
    * Run, when the page holds its forward control disabled after a fill: plan only
    * what is still unanswered (boxes left off included), then put back anything
@@ -87,6 +90,7 @@ export async function runFabPipeline(args: RunPipelineArgs): Promise<void> {
     mode = FILL_MODE.fill,
     requireResume = false,
     pendingOnly = false,
+    verificationCode,
     emitDomTree,
     onProgress,
   } = args;
@@ -100,7 +104,9 @@ export async function runFabPipeline(args: RunPipelineArgs): Promise<void> {
   let planSnapshot: ActionPlan | undefined;
   let stepsSnapshot: RunStepRecord[] | undefined;
 
+  // Progress reaches the sidebar and the backend: a plan in it never carries a password.
   const emit: PipelineEmit = (progress) => {
+    if (progress.plan) progress = { ...progress, plan: redactPlan(progress.plan) };
     if (progress.tree) treeSnapshot = progress.tree;
     if (progress.plan) planSnapshot = progress.plan;
     if (progress.steps) stepsSnapshot = progress.steps;
@@ -274,6 +280,7 @@ export async function runFabPipeline(args: RunPipelineArgs): Promise<void> {
               mode,
               fieldIssues: refill ? fieldIssues : undefined,
               page,
+              verificationCode,
               debug: ACORN_DEBUG
                 ? { html: pageHtml, domTree: treePayload.tree, metaTree }
                 : undefined,
@@ -289,7 +296,7 @@ export async function runFabPipeline(args: RunPipelineArgs): Promise<void> {
 
     const plan = analyze.plan as ActionPlan;
     applyApplicantIdentityToActions(plan.actions);
-    planSnapshot = plan;
+    planSnapshot = redactPlan(plan);
     const stepTotal = plan.actions?.length ?? 0;
 
     emit({
@@ -304,7 +311,7 @@ export async function runFabPipeline(args: RunPipelineArgs): Promise<void> {
     const frameId = treePayload.frameId ?? preferredFrameId ?? null;
     traceFromBackground("plan", () => ({
       frameId,
-      actions: (plan.actions ?? []).map((a, i) => ({
+      actions: (redactPlan(plan).actions ?? []).map((a, i) => ({
         i,
         action: a.action,
         element_index: a.element_index,
@@ -406,7 +413,7 @@ export async function runFabPipeline(args: RunPipelineArgs): Promise<void> {
           )
         : null;
     if (late) {
-      planSnapshot = { ...plan, actions: [...(plan.actions ?? []), ...late.actions] };
+      planSnapshot = redactPlan({ ...plan, actions: [...(plan.actions ?? []), ...late.actions] });
       report = mergeReports(report, await runPlan(late, late.actions.length));
     }
 

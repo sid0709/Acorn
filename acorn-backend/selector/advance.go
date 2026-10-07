@@ -18,7 +18,7 @@ const (
 	KindConfirmation = "confirmation"
 	KindBlocked      = "blocked"
 	// KindAccount is a step that asks the applicant to sign in, create an account,
-	// or go on without one, before or during the form.
+	// recover the account, or go on without one, before or during the form.
 	KindAccount = "account_step"
 	KindOther   = "other"
 )
@@ -39,6 +39,55 @@ const (
 	IntentAdvance = "advance"
 )
 
+// Verifications a page can ask for. The email ones are read from the applicant's
+// connected mailbox; any other waits for the applicant.
+const (
+	VerifyNone      = "none"
+	VerifyEmailCode = "email_code"
+	VerifyEmailLink = "email_link"
+	VerifyOther     = "other"
+)
+
+var verifications = map[string]string{
+	VerifyNone:      "The page asks for no verification.",
+	VerifyEmailCode: "The page asks the applicant to enter a code that was sent to their email.",
+	VerifyEmailLink: "The page asks the applicant to open a link sent to their email (to verify the address, activate the account, or reset the password) before going on.",
+	VerifyOther:     "The page asks for something else only the applicant can give: a code sent to their phone, an authenticator app code, or a challenge to solve.",
+}
+
+// Account modes say what an account step asks for. The run fills the applicant's
+// email and the profile's default account password on any of them.
+const (
+	AccountNone   = "none"
+	AccountSignIn = "sign_in"
+	AccountCreate = "create_account"
+	AccountReset  = "reset_password"
+	AccountChoose = "choose"
+)
+
+var accountModes = map[string]string{
+	AccountNone:   "Not an account step.",
+	AccountSignIn: "A sign-in form for an existing account: an email or username and a password.",
+	AccountCreate: "A form that creates a new account: an email and a new password, often with the password repeated.",
+	AccountReset:  "A step that recovers the account: a form that asks for the email to send a password reset to, or a form that sets a new password.",
+	AccountChoose: "A choice between signing in, creating an account, or going on without one, with no account form to fill yet.",
+}
+
+// AccountAttempt is one account step the run already sent on this site, and how
+// the site answered it.
+type AccountAttempt struct {
+	Mode     string
+	Accepted bool
+	// Messages are the page's own words after a rejected attempt.
+	Messages []string
+}
+
+// IsAccountMode says whether mode is one ReadPage can return.
+func IsAccountMode(mode string) bool {
+	_, listed := accountModes[mode]
+	return listed
+}
+
 const (
 	pageKindQuestion = "page_kind"
 	controlQuestion  = "control"
@@ -46,6 +95,8 @@ const (
 	guestQuestion    = "continues_without_account"
 	personQuestion   = "waits_for_person"
 	diagnoseQuestion = "failure"
+	verifyQuestion   = "verification"
+	accountQuestion  = "account_mode"
 
 	controlKeyPrefix = "control"
 	noControlKey     = "none"
@@ -87,6 +138,8 @@ type PageQuery struct {
 	Flagged int
 	// PageMessages are page-level alerts, such as "Please fix the errors below".
 	PageMessages []string
+	// Account is what the run already tried on this site's account steps, oldest first.
+	Account []AccountAttempt
 }
 
 // ControlPick is the control to click and what it does.
@@ -116,15 +169,19 @@ type PageRead struct {
 	// NeedsPerson is true when the page waits on something only the applicant can
 	// give in the moment (a code sent to them, a challenge to solve): the run waits.
 	NeedsPerson bool
+	// Verification is what the page asks to verify (a Verify* key); VerifyNone when nothing.
+	Verification string
+	// AccountMode is what an account step asks for (an Account* key); AccountNone elsewhere.
+	AccountMode string
 	Usage       jev.Usage
 }
 
 var pageKinds = []struct{ key, description string }{
 	{KindPosting, "A job posting or job description page for one role (duties, requirements, qualifications) that has not opened an application form yet. It may have a control that opens the application."},
 	{KindForm, "An application form or one step of a multi-step application: the page asks the applicant for their details, questions, résumé, or a final review before submitting."},
-	{KindAccount, "A step of the application that asks the applicant to sign in, create an account, or continue without one, rather than asking for their details."},
+	{KindAccount, "A step of the application that asks the applicant to sign in, create an account, recover or reset the account's password, or continue without an account, rather than asking for their application details."},
 	{KindConfirmation, "The application is complete: the page thanks the applicant or says the application was received or submitted."},
-	{KindBlocked, "The page cannot be worked yet: a sign-in wall with no way to continue without an account, a CAPTCHA or bot check, an error page, or a page that says the job is closed."},
+	{KindBlocked, "The page cannot be worked yet: a CAPTCHA or bot check, an error page, or a page that says the job is closed. A sign-in or sign-up page is an account step, not blocked."},
 	{KindOther, "Not part of applying for a job: a search results list, a company page, or any unrelated site."},
 }
 
@@ -196,6 +253,16 @@ func (g *Gateway) ReadPage(ctx context.Context, q PageQuery) (PageRead, error) {
 					"false": "Going on requires signing in or creating an account, or the page asks neither.",
 				},
 			},
+			verifyQuestion: {
+				Type:         jev.TypeChoice,
+				Instructions: "Does this page ask the applicant to verify something before it can go on, and how?",
+				Criteria:     verifications,
+			},
+			accountQuestion: {
+				Type:         jev.TypeChoice,
+				Instructions: "When this page is an account step, what does it ask for?",
+				Criteria:     accountModes,
+			},
 		},
 	})
 	if err != nil {
@@ -221,6 +288,11 @@ func (g *Gateway) ReadPage(ctx context.Context, q PageQuery) (PageRead, error) {
 	}
 	if person := res.Answers[personQuestion]; person.Noul != nil {
 		read.NeedsPerson = *person.Noul > checkThreshold
+	}
+	read.Verification = listedChoice(res.Answers[verifyQuestion], verifications, VerifyNone)
+	read.AccountMode = AccountNone
+	if read.Kind == KindAccount {
+		read.AccountMode = listedChoice(res.Answers[accountQuestion], accountModes, AccountNone)
 	}
 	answer, ok := res.Answers[controlQuestion]
 	if !ok {
@@ -249,6 +321,14 @@ func (g *Gateway) ReadPage(ctx context.Context, q PageQuery) (PageRead, error) {
 	return read, nil
 }
 
+// listedChoice is a choice answer when it names a listed key, otherwise fallback.
+func listedChoice(answer jev.Answer, listed map[string]string, fallback string) string {
+	if _, ok := listed[answer.Choice]; ok {
+		return answer.Choice
+	}
+	return fallback
+}
+
 // controlRole names what the picked control does from the page kind and Jev's
 // "last step" answer.
 func controlRole(kind string, final jev.Answer) string {
@@ -265,9 +345,16 @@ func controlRole(kind string, final jev.Answer) string {
 	return RoleNext
 }
 
-// withoutAccount steers every pick away from accounts the run must not create.
-const withoutAccount = "When the page offers a way to go on with the application without signing in or creating an account, " +
-	"pick that control over signing in or creating an account. "
+// accountSteps steer every pick on a step that asks for an account: going on
+// without one comes first; otherwise the run signs in or creates the account with
+// the details on the page, and the account history says which to try next.
+const accountSteps = "When the page offers a way to go on with the application without signing in or creating an account, " +
+	"pick that control over signing in or creating an account. Otherwise, on a step that needs an account, pick the control that " +
+	"sends the account form on the page (signs in, creates the account, requests a password reset, or saves a new password). " +
+	"On a page that only offers the choice, pick creating an account unless the account history shows the account already exists. " +
+	"Follow the account history: after a sign-in was rejected, pick the control that creates an account; after creating an account " +
+	"was rejected because the account already exists, or a sign-in was rejected again, pick the control that recovers or resets the " +
+	"password; after a new password was saved, sign in. "
 
 // controlInstructions describe controls only by what they do: sites word them
 // any way they like, so no wording is quoted here.
@@ -275,7 +362,7 @@ func controlInstructions(intent string) string {
 	if intent == IntentAdvance {
 		return "The applicant has finished filling this page. Which control moves the application to its next step, " +
 			"or sends it on the last step? Judge by what the control does on this page, whatever its wording, " +
-			"an arrow, or an icon. " + withoutAccount +
+			"an arrow, or an icon. " + accountSteps +
 			"Never pick a control that goes back, cancels, leaves the application, saves a draft, signs out, " +
 			"signs in through another service, or opens another site. " +
 			"Prefer an enabled control, but a forward control that looks disabled is still the forward control: " +
@@ -284,7 +371,7 @@ func controlInstructions(intent string) string {
 	}
 	return "Which control starts or continues an application for this role? On a job posting it is the control " +
 		"that opens the application. When the page is already an application form or an account step, pick the " +
-		"control that moves it forward instead. " + withoutAccount +
+		"control that moves it forward instead. " + accountSteps +
 		"Never pick a control that saves the job, shares it, creates an alert, signs in through another service, " +
 		"or is disabled. Choose none when the page has no way to apply or continue."
 }
@@ -298,6 +385,7 @@ func pageState(q PageQuery, controls []Control) string {
 	for _, message := range q.PageMessages {
 		fmt.Fprintf(&b, "Page message: %s\n", clip(message, maxControlLine))
 	}
+	writeAccountHistory(&b, q.Account)
 	b.WriteString("\nPage text:\n")
 	b.WriteString(clip(q.Text, maxPageText))
 	b.WriteString("\n\nControls on the page:\n")
@@ -308,6 +396,25 @@ func pageState(q PageQuery, controls []Control) string {
 		fmt.Fprintf(&b, "%s_%d: %s\n", controlKeyPrefix, i, describeControl(control))
 	}
 	return b.String()
+}
+
+// writeAccountHistory lists the account steps the run already sent on this site.
+func writeAccountHistory(b *strings.Builder, attempts []AccountAttempt) {
+	if len(attempts) == 0 {
+		return
+	}
+	b.WriteString("Account history on this site (oldest first):\n")
+	for _, attempt := range attempts {
+		outcome := "accepted: the site went on"
+		if !attempt.Accepted {
+			outcome = "rejected: the site stayed on the same step"
+		}
+		fmt.Fprintf(b, "- %s, %s", attempt.Mode, outcome)
+		for _, message := range attempt.Messages {
+			fmt.Fprintf(b, "; page said %q", clip(message, maxControlLine))
+		}
+		b.WriteString("\n")
+	}
 }
 
 func describeControl(c Control) string {

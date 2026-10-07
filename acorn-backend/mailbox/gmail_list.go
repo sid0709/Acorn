@@ -27,6 +27,8 @@ const (
 	maxCachedPages = 2000
 	// LabelUnread marks unread mail in Gmail.
 	LabelUnread = "UNREAD"
+	// LabelInbox is mail in the inbox, whatever its category tab.
+	LabelInbox = "INBOX"
 )
 
 // Message is one inbox row for the Acorn Gmail view.

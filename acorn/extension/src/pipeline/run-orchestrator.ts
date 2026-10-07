@@ -8,16 +8,22 @@ import {
 } from "@acorn/shared/field-issues";
 import { PhaseClock } from "@acorn/shared/phase-clock";
 import {
+  ACCOUNT_MODE,
   CONTROL_ROLE,
+  MAIL_VERIFICATION_STATUS,
   PAGE_KIND,
   RUN_FAILURE_REASON,
   RUN_OUTCOME,
   RUN_STAGE,
+  VERIFICATION,
+  type AccountAttempt,
+  type AccountMode,
   type PageKind,
   type RunFailure,
   type RunProgress,
   type RunReport,
   type RunStage,
+  type Verification,
 } from "@acorn/shared/run-types";
 
 import { getAcornSocket } from "../acorn-socket";
@@ -25,13 +31,22 @@ import { markTabUsage, usageSince, type UsageMark } from "../background/tab-usag
 import { rekeyCustomTab } from "../tab-custom-session";
 import { getTabJob, rekeyTabJob } from "../tab-job-session";
 
-import { requestDiagnose, requestReadPage, READ_INTENT, type ReadIntent } from "./api/run";
+import {
+  requestDiagnose,
+  requestMailVerification,
+  requestReadPage,
+  READ_INTENT,
+  type ReadIntent,
+} from "./api/run";
 import { repairDriftInTab } from "./drift";
 import { fetchDomFromTab } from "./fetch-dom";
 import { RESUME_NOT_CHOSEN, type ResumeGate } from "./resume-gate";
 import {
   clickControl,
+  isOpenableLink,
+  openLinkInTab,
   probePage,
+  sleep,
   waitForPerson,
   settleAfterClick,
   watchOpenedTabs,
@@ -39,7 +54,13 @@ import {
 } from "./run-click";
 import { failureEvidence } from "./run-evidence";
 import {
+  RUN_ACCOUNT_MESSAGES_MAX,
+  RUN_MAIL_POLL_MS,
+  RUN_MAIL_WAIT_MAX_MS,
+  RUN_MAX_ACCOUNT_ATTEMPTS,
+  RUN_MAX_ACCOUNT_REJECTS,
   RUN_MAX_AI_CALLS,
+  RUN_MAX_MAIL_VERIFICATIONS,
   RUN_MAX_BLOCKED_PASSES,
   RUN_MAX_FILLS_PER_PAGE,
   RUN_MAX_CLICK_RETRIES,
@@ -68,8 +89,22 @@ const STAGE_MESSAGE: Record<RunStage, string> = {
   [RUN_STAGE.filling]: "Filling the page…",
   [RUN_STAGE.advancing]: "Moving to the next step…",
   [RUN_STAGE.refilling]: "Fixing the fields the page flagged…",
+  [RUN_STAGE.verifying]: "Reading your email for the verification…",
+  [RUN_STAGE.account]: "Working through the site's account step…",
   [RUN_STAGE.diagnosing]: "Working out what went wrong…",
 };
+
+/** What the run says while it sends an account step of each kind. */
+const ACCOUNT_MESSAGE: Record<AccountMode, string> = {
+  [ACCOUNT_MODE.none]: "Next step",
+  [ACCOUNT_MODE.signIn]: "Signing in",
+  [ACCOUNT_MODE.createAccount]: "Creating an account",
+  [ACCOUNT_MODE.resetPassword]: "Resetting the password",
+  [ACCOUNT_MODE.choose]: "Choosing how to go on",
+};
+
+/** Verifications the applicant's connected Gmail can answer. */
+const MAIL_VERIFICATIONS = new Set<Verification>([VERIFICATION.emailCode, VERIFICATION.emailLink]);
 
 export interface RunOrchestratorArgs {
   tabId: number;
@@ -101,6 +136,8 @@ interface PageState {
   blockedPasses: number;
   /** Fills of this step of any kind; capped by RUN_MAX_FILLS_PER_PAGE. */
   fills: number;
+  /** A code from the applicant's mail was entered here; the page is not searched for again. */
+  verified: boolean;
 }
 
 /** A click either landed and settled, or never reached its control. */
@@ -144,6 +181,23 @@ const WAITED_FOR_PERSON = "The page is waiting for a step only you can do";
 /** Why a run stopped on its own budget; shown as the stop's label. */
 const BUDGET_SPENT = "The run reached its limit on AI work";
 
+/** The emailed code or link could not be found. */
+const VERIFICATION_NOT_FOUND = "The code or link the site emailed was not found in your Gmail";
+/** The site kept refusing the account step. */
+const ACCOUNT_REJECTED = "The site kept rejecting the sign-in or sign-up";
+/** The site needs an account and the profile has no password to give it. */
+const NO_ACCOUNT_PASSWORD =
+  "This site needs an account: add a default account password to your Acorn profile";
+
+/** The site part of an address, so account history stays with the site it belongs to. */
+function siteOf(url: string): string {
+  try {
+    return new URL(url).host;
+  } catch {
+    return "";
+  }
+}
+
 /** The run stops before touching the page: no résumé to apply with. */
 function noResumeStop(stage: RunStage, snapshot: PageSnapshot | null, detail: string): RunStop {
   return new RunStop(stage, snapshot, [detail], undefined, {
@@ -186,6 +240,14 @@ export async function runOrchestrator(args: RunOrchestratorArgs): Promise<RunRep
   let clickFailures = 0;
   /** A résumé recommend in flight; it must settle before any click or fill. */
   let recommending: Promise<ResumeGate> | null = null;
+  /** Account steps sent so far, with the site each was sent on. */
+  const accountHistory: { site: string; attempt: AccountAttempt }[] = [];
+  /** The account step the last click sent; its outcome is the page that follows. */
+  let accountSent: { site: string; mode: AccountMode } | null = null;
+  /** When the run last clicked: an email the site sent for this step arrived after it. */
+  let lastClickAt = 0;
+  /** Codes and links taken from the applicant's mail so far. */
+  let mailVerifications = 0;
   const clock = new PhaseClock();
   const snap = (opts: Parameters<typeof snapshotPage>[1]) =>
     clock.time("snapshot", () => snapshotPage(tabId, opts));
@@ -256,7 +318,7 @@ export async function runOrchestrator(args: RunOrchestratorArgs): Promise<RunRep
   const fill = async (
     mode: FillMode,
     within: PageSnapshot,
-    opts: { pendingOnly?: boolean } = {},
+    opts: { pendingOnly?: boolean; verificationCode?: string } = {},
   ) => {
     await checkBudget(within);
     if (current) current.fills += 1;
@@ -270,6 +332,7 @@ export async function runOrchestrator(args: RunOrchestratorArgs): Promise<RunRep
       mode,
       requireResume: true,
       pendingOnly: opts.pendingOnly,
+      verificationCode: opts.verificationCode,
       emitDomTree: (payload) => getAcornSocket()?.emit("dom:tree", payload),
       onProgress: (inner) => {
         last = inner;
@@ -307,6 +370,9 @@ export async function runOrchestrator(args: RunOrchestratorArgs): Promise<RunRep
           controls: within.controls,
           flagged: within.flagged,
           pageMessages: within.scan.pageMessages,
+          account: accountHistory
+            .filter((entry) => entry.site === siteOf(within.url))
+            .map((entry) => entry.attempt),
         },
         apiUrl,
         tabId,
@@ -326,6 +392,8 @@ export async function runOrchestrator(args: RunOrchestratorArgs): Promise<RunRep
       intent,
       kind: res.kind,
       kindConfidence: res.kindConfidence,
+      verification: res.verification,
+      accountMode: res.accountMode,
       controls: within.controls.length,
       flagged: within.flagged,
       pick: res.control
@@ -351,6 +419,10 @@ export async function runOrchestrator(args: RunOrchestratorArgs): Promise<RunRep
       fallbackPicked,
       guest: res.guest === true,
       needsPerson: res.needsPerson === true,
+      verification: res.verification ?? VERIFICATION.none,
+      accountMode: res.accountMode ?? ACCOUNT_MODE.none,
+      /** False only when the backend says the profile has no default account password. */
+      accountPassword: res.accountPassword !== false,
     };
   };
 
@@ -362,6 +434,7 @@ export async function runOrchestrator(args: RunOrchestratorArgs): Promise<RunRep
   ): Promise<ClickOutcome> => {
     control = label;
     const started = Date.now();
+    lastClickAt = started;
     const beforeProbe = await probePage(tabId, on.frameId);
     const watcher = watchOpenedTabs(tabId);
     try {
@@ -420,6 +493,177 @@ export async function runOrchestrator(args: RunOrchestratorArgs): Promise<RunRep
     // The applicant moved the page on: what follows is the page's answer, as after a click.
     const after = await snap({ form: true, frameId: page.frameId });
     return { snapshot: after, how: "changed" as SettleHow };
+  };
+
+  /**
+   * The page that follows an account step is its answer: a new step means the
+   * site took it; the same step means it refused. A step refused too often stops
+   * the run. True when the last click's account step was refused.
+   */
+  const settleAccount = (moved: boolean, page: PageSnapshot): boolean => {
+    if (!accountSent) return false;
+    const sent = accountSent;
+    accountSent = null;
+    const attempt: AccountAttempt = {
+      mode: sent.mode,
+      accepted: moved,
+      messages: moved ? [] : page.scan.pageMessages.slice(0, RUN_ACCOUNT_MESSAGES_MAX),
+    };
+    accountHistory.push({ site: sent.site, attempt });
+    log.event(moved ? "account:accepted" : "account:rejected", { mode: sent.mode });
+    if (moved) return false;
+    const refused = accountHistory.filter(
+      (entry) =>
+        entry.site === sent.site && entry.attempt.mode === sent.mode && !entry.attempt.accepted,
+    ).length;
+    if (refused >= RUN_MAX_ACCOUNT_REJECTS) {
+      const detail =
+        attempt.messages[0] ?? `${ACCOUNT_MESSAGE[sent.mode]} was refused ${refused} times`;
+      throw new RunStop(RUN_STAGE.account, page, [detail], undefined, {
+        reason: RUN_FAILURE_REASON.accountRejected,
+        label: ACCOUNT_REJECTED,
+        detail,
+      });
+    }
+    return true;
+  };
+
+  /** Remember the account step a click is about to send, so its outcome is recorded. */
+  const sendAccount = (page: PageSnapshot, mode: AccountMode) => {
+    if (accountHistory.length >= RUN_MAX_ACCOUNT_ATTEMPTS) {
+      const detail = `${accountHistory.length} account steps without getting past the site's account`;
+      throw new RunStop(RUN_STAGE.account, page, [detail], undefined, {
+        reason: RUN_FAILURE_REASON.accountRejected,
+        label: ACCOUNT_REJECTED,
+        detail,
+      });
+    }
+    accountSent = { site: siteOf(page.url), mode };
+    log.event("account:send", { mode });
+  };
+
+  /** An account step the run cannot sign in to or sign up on: the profile has no password. */
+  const noAccountPassword = (page: PageSnapshot) =>
+    new RunStop(RUN_STAGE.account, page, [NO_ACCOUNT_PASSWORD], undefined, {
+      reason: RUN_FAILURE_REASON.noAccountPassword,
+      label: NO_ACCOUNT_PASSWORD,
+      detail: NO_ACCOUNT_PASSWORD,
+    });
+
+  const verificationNotFound = (page: PageSnapshot, detail: string) =>
+    new RunStop(RUN_STAGE.verifying, page, [detail], undefined, {
+      reason: RUN_FAILURE_REASON.verificationNotFound,
+      label: VERIFICATION_NOT_FOUND,
+      detail,
+    });
+
+  /**
+   * Look in the applicant's Gmail for the code or link the site emailed, until it
+   * arrives or the wait runs out. Jev ranks the newest emails and reads the best
+   * one, then the second best; when neither holds it, the run stops. Null when no
+   * Gmail is connected (the applicant does the step themselves).
+   */
+  const findInMail = async (kind: Verification, page: PageSnapshot): Promise<string | null> => {
+    enter(
+      RUN_STAGE.verifying,
+      kind === VERIFICATION.emailCode
+        ? "Looking in your Gmail for the code the site sent…"
+        : "Looking in your Gmail for the link the site sent…",
+    );
+    let ruledOut: string[] = [];
+    const started = Date.now();
+    for (;;) {
+      await checkBudget(page);
+      const res = await clock.time("mail", () =>
+        requestMailVerification(
+          {
+            runId,
+            step: log.step,
+            kind,
+            url: page.url,
+            title: page.title,
+            text: page.text,
+            since: lastClickAt,
+            ruledOut,
+          },
+          apiUrl,
+          tabId,
+        ),
+      );
+      // The code or link itself is never logged.
+      log.event("mail:look", { kind, ok: res.ok, status: res.status, error: res.error });
+      if (!res.ok) {
+        throw new RunStop(RUN_STAGE.verifying, page, [
+          `Reading your Gmail failed: ${res.error ?? "no answer"}`,
+        ]);
+      }
+      if (res.status === MAIL_VERIFICATION_STATUS.noMailbox) return null;
+      if (res.status === MAIL_VERIFICATION_STATUS.found && res.value) return res.value;
+      if (res.status === MAIL_VERIFICATION_STATUS.notFound) {
+        throw verificationNotFound(
+          page,
+          "The site's most likely emails hold no code or link for this step",
+        );
+      }
+      ruledOut = res.ruledOut ?? ruledOut;
+      if (Date.now() - started >= RUN_MAIL_WAIT_MAX_MS) {
+        throw verificationNotFound(
+          page,
+          `No email from the site arrived within ${Math.round(RUN_MAIL_WAIT_MAX_MS / 60_000)} minutes`,
+        );
+      }
+      await sleep(RUN_MAIL_POLL_MS);
+    }
+  };
+
+  /**
+   * A page that waits on an emailed code or link: enter the code through the fill
+   * engine, or open the link in this tab. Null when the page asks for neither;
+   * "wait" when no Gmail is connected, so the applicant does it themselves.
+   */
+  const verifyByMail = async (
+    r: Awaited<ReturnType<typeof read>>,
+    page: PageSnapshot,
+    state: PageState,
+  ): Promise<null | "wait" | { pending: { snapshot: PageSnapshot; how: SettleHow } | null }> => {
+    if (!MAIL_VERIFICATIONS.has(r.verification) || state.verified) return null;
+    if (mailVerifications >= RUN_MAX_MAIL_VERIFICATIONS) {
+      throw verificationNotFound(
+        page,
+        `The site asked for ${mailVerifications} emailed codes or links without going on`,
+      );
+    }
+    const value = await findInMail(r.verification, page);
+    if (value == null) return "wait";
+    mailVerifications += 1;
+
+    if (r.verification === VERIFICATION.emailLink) {
+      if (!isOpenableLink(value)) {
+        throw verificationNotFound(page, "The link in the email is not a web address");
+      }
+      enter(RUN_STAGE.verifying, "Opening the link from your email…");
+      const opened = await clock.time("click", () => openLinkInTab(tabId, value));
+      log.event("mail:link-opened", { url: logUrl(opened.snapshot.url) });
+      return { pending: { snapshot: opened.snapshot, how: opened.how } };
+    }
+
+    enter(RUN_STAGE.filling, "Entering the code from your email…");
+    state.fillStartedAt = Date.now();
+    const filled = await fill(FILL_MODE.fill, page, { verificationCode: value });
+    if (filled.failed) {
+      throw new RunStop(
+        RUN_STAGE.filling,
+        page,
+        [`Entering the emailed code failed: ${filled.error ?? "unknown"}`],
+        filled.steps,
+      );
+    }
+    log.event("mail:code-entered", {});
+    state.verified = true;
+    state.filled = true;
+    // The next look is a fresh read of this page, not the outcome of a click.
+    state.retryClick = true;
+    return { pending: null };
   };
 
   /** The control a read picked, or its fallback when it answered none. */
@@ -574,6 +818,7 @@ export async function runOrchestrator(args: RunOrchestratorArgs): Promise<RunRep
           retryClick: false,
           blockedPasses: 0,
           fills: 0,
+          verified: false,
         };
         refillsOnPage = 0;
         log.event("page", { page: pageCount, url: logUrl(page.url), flagged: page.flagged });
@@ -581,9 +826,11 @@ export async function runOrchestrator(args: RunOrchestratorArgs): Promise<RunRep
       const state = current as PageState;
       const retrying = state.retryClick;
       state.retryClick = false;
+      // An account step the site refused is answered by another account step, not a refill.
+      const accountRefused = settleAccount(moved, page);
 
       // 2. The same page after a click: the page rejected the answers, or nothing happened.
-      if (!moved && state.clicks > 0 && !retrying) {
+      if (!moved && state.clicks > 0 && !retrying && !accountRefused) {
         // Only what the click flagged: a hint the page always shows is no rejection.
         const flagged = countFlaggedSince(state.scanBeforeClick, page.scan);
         const missing = countRequiredEmpty(page.scan);
@@ -638,8 +885,13 @@ export async function runOrchestrator(args: RunOrchestratorArgs): Promise<RunRep
         if (!resumeChecked) recommend(page.url, page.title);
         await settleRecommend();
 
-        if (first.needsPerson) {
+        const mailed = await verifyByMail(first, page, state);
+        if (mailed === "wait" || (mailed == null && first.needsPerson)) {
           pending = await awaitPerson(page);
+          continue;
+        }
+        if (mailed) {
+          pending = mailed.pending;
           continue;
         }
 
@@ -661,21 +913,22 @@ export async function runOrchestrator(args: RunOrchestratorArgs): Promise<RunRep
           continue;
         }
 
-        // An account step: go on without an account, never sign in or create one.
+        // An account step: go on without an account when the page offers it.
         if (first.kind === PAGE_KIND.accountStep) {
           const target = pickOf(first);
-          if (!first.guest || !target) {
-            throw new RunStop(RUN_STAGE.applying, page, [
-              "This step asks to sign in or create an account and offers no way to go on without one",
-            ]);
+          if (first.guest && target) {
+            state.clicks += 1;
+            const label = target.picked.text || target.picked.label;
+            enter(RUN_STAGE.applying, `Going on without an account · ${label}`);
+            const clicked = await click(page, target.control, label);
+            if (clicked.missed != null) missedClick(state, label, clicked.missed);
+            else pending = { snapshot: clicked.settled.snapshot, how: clicked.settled.how };
+            continue;
           }
-          state.clicks += 1;
-          const label = target.picked.text || target.picked.label;
-          enter(RUN_STAGE.applying, `Going on without an account · ${label}`);
-          const clicked = await click(page, target.control, label);
-          if (clicked.missed != null) missedClick(state, label, clicked.missed);
-          else pending = { snapshot: clicked.settled.snapshot, how: clicked.settled.how };
-          continue;
+          // The account is mandatory: fill it like a form (the applicant's email and
+          // the profile's default account password), then send it below.
+          if (!first.accountPassword) throw noAccountPassword(page);
+          enter(RUN_STAGE.account, `${ACCOUNT_MESSAGE[first.accountMode]}…`);
         }
 
         // An application form: fill it, then look again for the control that moves it
@@ -720,15 +973,17 @@ export async function runOrchestrator(args: RunOrchestratorArgs): Promise<RunRep
       if (next.kind === PAGE_KIND.confirmation) {
         return await finish(report(RUN_OUTCOME.completed));
       }
-      if (next.needsPerson) {
+      const mailed = await verifyByMail(next, page, state);
+      if (mailed === "wait" || (mailed == null && next.needsPerson && !state.verified)) {
         pending = await awaitPerson(page);
         continue;
       }
-      if (next.kind === PAGE_KIND.accountStep && !next.guest) {
-        throw new RunStop(RUN_STAGE.advancing, page, [
-          "This step asks to sign in or create an account and offers no way to go on without one",
-        ]);
+      if (mailed) {
+        pending = mailed.pending;
+        continue;
       }
+      const sendsAccount = next.kind === PAGE_KIND.accountStep && !next.guest;
+      if (sendsAccount && !next.accountPassword) throw noAccountPassword(page);
       const target = pickOf(next);
       if (!target) {
         // After a click, a missing control is the page holding the click (busy,
@@ -747,11 +1002,18 @@ export async function runOrchestrator(args: RunOrchestratorArgs): Promise<RunRep
       if (target.fallback) {
         log.event("click:fallback", { text: label, disabled: target.picked.disabled });
       }
-      enter(
-        RUN_STAGE.advancing,
-        `${target.control.role === CONTROL_ROLE.submit ? "Submitting" : "Next step"} · ${label}`,
-      );
+      if (sendsAccount) {
+        sendAccount(page, next.accountMode);
+        enter(RUN_STAGE.account, `${ACCOUNT_MESSAGE[next.accountMode]} · ${label}`);
+      } else {
+        enter(
+          RUN_STAGE.advancing,
+          `${target.control.role === CONTROL_ROLE.submit ? "Submitting" : "Next step"} · ${label}`,
+        );
+      }
       const clicked = await click(page, target.control, label);
+      // A click that never landed sent no account step.
+      if (!clicked.settled) accountSent = null;
       if (clicked.settled) {
         pending = { snapshot: clicked.settled.snapshot, how: clicked.settled.how };
       } else if (clicked.disabled) {

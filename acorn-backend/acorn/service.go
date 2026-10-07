@@ -80,6 +80,8 @@ type Service struct {
 	tracer     Tracer
 	classifier Classifier
 	picker     ChoicePicker
+	// credentials fill password boxes and emailed codes; no model reads them.
+	credentials Credentials
 }
 
 func New(model Model) *Service { return &Service{model: model} }
@@ -163,7 +165,7 @@ func (s *Service) Analyze(ctx context.Context, applicant, pureTree string, page 
 		return AnalyzeResult{}, err
 	}
 
-	plan = s.finishPlan(ctx, plan, applicant, page, nil)
+	plan = s.fillPasswords(s.finishPlan(ctx, plan, applicant, page, nil), nil)
 	return AnalyzeResult{OK: true, Plan: plan, Model: s.model.Model()}, nil
 }
 

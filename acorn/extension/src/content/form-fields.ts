@@ -6,6 +6,8 @@
  * exist once opened); the runtime's leftover pass answers them.
  */
 
+import { PASSWORD_INPUT_TYPE } from "@acorn/shared/secret-value";
+
 import { choiceOptionLabel, hasClickableBox, inputOptionLabel } from "./agents/choice-group";
 import { optionLabel, realOptions } from "./agents/native-select";
 import { groupRoot } from "./agents/select-radio";
@@ -38,9 +40,10 @@ const MAX_FORM_FIELDS = 150;
 const TEXT_FIELD_NOTES = 2;
 /** Short texts beside a file input that describe what it takes. */
 const FILE_HINT_TEXTS = 3;
-/** Native input types a person types into. */
+/** Native input types a person types into. A password box takes the account password. */
 const TEXT_INPUT_TYPES = new Set([
   "text",
+  PASSWORD_INPUT_TYPE,
   "email",
   "tel",
   "url",

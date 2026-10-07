@@ -64,7 +64,7 @@ export async function waitForPerson(tabId: number, frameId: number | null): Prom
   return false;
 }
 
-const sleep = (ms: number) => new Promise<void>((resolve) => setTimeout(resolve, ms));
+export const sleep = (ms: number) => new Promise<void>((resolve) => setTimeout(resolve, ms));
 
 /** Tabs the page opens while a click is in flight; "Apply" links often open one. */
 export function watchOpenedTabs(openerTabId: number): {
@@ -96,6 +96,30 @@ async function waitForTabComplete(tabId: number): Promise<void> {
 }
 
 export type SettleHow = "new-tab" | "navigated" | "changed" | "unchanged";
+
+/** Schemes an emailed link may use; anything else is never opened. */
+const OPENABLE_LINK_SCHEMES = new Set(["http:", "https:"]);
+
+/** Whether an emailed link is a web address the run may open. */
+export function isOpenableLink(link: string): boolean {
+  try {
+    return OPENABLE_LINK_SCHEMES.has(new URL(link).protocol);
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * Open a link the site emailed (verify, activate, reset) in the run's own tab,
+ * then read the page it lands on. The run never opens a tab of its own.
+ */
+export async function openLinkInTab(tabId: number, link: string): Promise<SettleResult> {
+  await chrome.tabs.update(tabId, { url: link });
+  await sleep(RUN_SETTLE_MIN_MS);
+  await waitForTabComplete(tabId);
+  const snapshot = await snapshotPage(tabId, { form: true });
+  return { tabId, how: "navigated", snapshot };
+}
 
 export interface SettleResult {
   tabId: number;

@@ -1,6 +1,7 @@
 import type { PlanStepPayload, PlanStepResult } from "../types";
 import { rewriteApplicantIdentityValue } from "@acorn/shared/plan-runner/applicant-identity";
 import { isCustomResumeFile } from "@acorn/shared/plan-runner/step-file";
+import { shownValue } from "@acorn/shared/secret-value";
 import { controlAlreadyMatches } from "./agents/already-filled";
 import { clearElement } from "./agents/clear";
 import { fillElement } from "./agents/fill";
@@ -213,9 +214,9 @@ export async function actOnVerified(
     });
     traceFromPage("step:already-check", () => ({
       element_index: step.element_index,
-      intended,
+      intended: shownValue(el, intended),
       matched: prior.matched,
-      current: prior.current,
+      current: shownValue(el, prior.current),
     }));
     if (prior.matched) {
       rememberPlanFilled(el, step);
@@ -228,7 +229,7 @@ export async function actOnVerified(
           nodeId,
           matchedLabel: verified.matchedLabel,
           matchedRole: verified.matchedRole,
-          valueAfter: prior.current,
+          valueAfter: shownValue(el, prior.current),
         },
       };
     }
@@ -279,9 +280,9 @@ export async function actOnVerified(
     rememberPlanFilled(el, step);
     traceFromPage("step:acted", () => ({
       element_index: step.element_index,
-      intended,
-      valueAfter,
-      readAfter: readControlValue(el),
+      intended: shownValue(el, intended),
+      valueAfter: shownValue(el, valueAfter),
+      readAfter: shownValue(el, readControlValue(el)),
       ms: Date.now() - startedAt,
     }));
     return {
@@ -292,16 +293,16 @@ export async function actOnVerified(
         nodeId,
         matchedLabel: verified.matchedLabel,
         matchedRole: verified.matchedRole,
-        valueAfter: after,
+        valueAfter: shownValue(el, after),
       },
     };
   } catch (err) {
     const error = err instanceof Error ? err.message : String(err);
     traceFromPage("step:error", () => ({
       element_index: step.element_index,
-      intended,
+      intended: shownValue(el, intended),
       error,
-      readAfter: readControlValue(el),
+      readAfter: shownValue(el, readControlValue(el)),
       ms: Date.now() - startedAt,
     }));
     return {

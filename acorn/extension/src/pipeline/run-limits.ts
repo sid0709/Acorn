@@ -35,6 +35,18 @@ export const RUN_SETTLE_POLL_MS = 400;
 export const RUN_PERSON_WAIT_MAX_MS = 10 * 60_000;
 /** How often the run looks whether the applicant has moved the page on. */
 export const RUN_PERSON_POLL_MS = 1_500;
+/** How often the run looks in the applicant's mail for a code or link a site sent. */
+export const RUN_MAIL_POLL_MS = 8_000;
+/** How long the run waits for that email to arrive before it stops. */
+export const RUN_MAIL_WAIT_MAX_MS = 3 * 60_000;
+/** Codes or links one run takes from the applicant's mail before it stops. */
+export const RUN_MAX_MAIL_VERIFICATIONS = 4;
+/** Page messages kept with a rejected account step, for the next decision. */
+export const RUN_ACCOUNT_MESSAGES_MAX = 3;
+/** Times the site may reject the same kind of account step (sign in, sign up, reset) before the run stops. */
+export const RUN_MAX_ACCOUNT_REJECTS = 2;
+/** Account steps one run may send in all. */
+export const RUN_MAX_ACCOUNT_ATTEMPTS = 8;
 /** A probe is a single DOM pass; a frame that takes longer is treated as having moved. */
 export const RUN_PROBE_TIMEOUT_MS = 2_000;
 /** A tab that has not finished loading by this point is read anyway. */

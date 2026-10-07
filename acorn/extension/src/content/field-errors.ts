@@ -8,6 +8,8 @@
  * planner reads the collected text and decides what is actually an error.
  */
 
+import { shownValue } from "@acorn/shared/secret-value";
+
 import { choiceOptionLabel } from "./agents/choice-group";
 import { readControlValue } from "./agents/read-control-value";
 import {
@@ -88,7 +90,7 @@ function describeControl(control: Element): FieldIssue | null {
   if (!Number.isFinite(elementIndex) || elementIndex <= 0) return null;
 
   const members = groupMembers(control);
-  const value = clip(currentValue(control, members), MAX_VALUE_CHARS);
+  const value = clip(shownValue(control, currentValue(control, members)), MAX_VALUE_CHARS);
   const required = isRequired(members);
   const invalid = members.some(
     (el) => el.getAttribute("aria-invalid") === "true" || isUserInvalid(el),
