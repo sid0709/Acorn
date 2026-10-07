@@ -18,3 +18,11 @@ export function extensionDownloadUrl(): string | null {
   const url = process.env.ACORN_EXTENSION_DOWNLOAD_URL?.trim();
   return url || null;
 }
+
+/** Gmail on the web, for "Open in Gmail". */
+export const GMAIL_WEB_URL = "https://mail.google.com/mail";
+
+/** A message in Gmail on the web, opened as the account that received it. */
+export function gmailWebLink(accountEmail: string, messageId: string) {
+  return `${GMAIL_WEB_URL}/u/${encodeURIComponent(accountEmail)}/#all/${encodeURIComponent(messageId)}`;
+}

@@ -15,7 +15,7 @@ import (
 )
 
 const (
-	mailboxesCollection = "acorn_gmail_mailboxes"
+	mailboxesCollection   = "acorn_gmail_mailboxes"
 	oauthStatesCollection = "acorn_gmail_oauth_states"
 	oauthStateTTL         = 10 * time.Minute
 	maxEmailLength        = 254
@@ -33,8 +33,11 @@ var (
 
 // Mailbox is one connected Gmail account for an Acorn user.
 type Mailbox struct {
-	ID                  string
-	Email               string
+	ID    string
+	Email string
+	// Name and Picture are the Google account's, saved when it connected.
+	Name                string
+	Picture             string
 	Label               string
 	IsDefault           bool
 	WatchesApplications bool
@@ -45,6 +48,8 @@ type storedMailbox struct {
 	ID                  string    `bson:"id"`
 	UserID              string    `bson:"userId"`
 	Email               string    `bson:"email"`
+	Name                string    `bson:"name,omitempty"`
+	Picture             string    `bson:"picture,omitempty"`
 	GoogleSubject       string    `bson:"googleSubject"`
 	Label               string    `bson:"label"`
 	IsDefault           bool      `bson:"isDefault"`
@@ -68,12 +73,13 @@ type Provider interface {
 	Configured() bool
 	AuthURL(state, loginHint, codeChallenge string) string
 	Exchange(ctx context.Context, code, redirect, verifier string) (GoogleGrant, error)
-	ListInbox(ctx context.Context, refreshToken string, limit int) ([]Message, error)
 }
 
 type GoogleGrant struct {
 	Subject      string
 	Email        string
+	Name         string
+	Picture      string
 	RefreshToken string
 }
 
@@ -210,6 +216,8 @@ func (s *Store) FinishConnect(ctx context.Context, userID, state, code string, n
 		ID:                  id,
 		UserID:              userID,
 		Email:               grant.Email,
+		Name:                grant.Name,
+		Picture:             grant.Picture,
 		GoogleSubject:       grant.Subject,
 		Label:               label,
 		IsDefault:           hasDefault == 0,
@@ -304,6 +312,8 @@ func mailboxFromStored(doc storedMailbox) Mailbox {
 	return Mailbox{
 		ID:                  doc.ID,
 		Email:               doc.Email,
+		Name:                doc.Name,
+		Picture:             doc.Picture,
 		Label:               doc.Label,
 		IsDefault:           doc.IsDefault,
 		WatchesApplications: doc.WatchesApplications,

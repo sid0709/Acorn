@@ -8,7 +8,6 @@ export type Day = string;
 
 const MONTHS = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
 export const WEEKDAYS = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
-const MINUTES_PER_HOUR = 60;
 const NOON = 12;
 
 export function dayKey(date: Date): Day {
@@ -46,19 +45,4 @@ export function weekStart(day: Day): Day {
 export function formatDay(day: Day): string {
   const [, month, date] = day.split("-").map(Number);
   return `${MONTHS[(month ?? 1) - 1]} ${date ?? 1}`;
-}
-
-/** "1:19 PM". */
-export function formatClock(minutes: number): string {
-  const hours = Math.floor(minutes / MINUTES_PER_HOUR);
-  const mins = String(minutes % MINUTES_PER_HOUR).padStart(2, "0");
-  const twelve = hours % NOON === 0 ? NOON : hours % NOON;
-  return `${twelve}:${mins} ${hours < NOON ? "AM" : "PM"}`;
-}
-
-/** Inbox style: the time for today, "Yesterday", then the date. */
-export function formatReceived(day: Day, minutes: number, today: Day): string {
-  if (day === today) return formatClock(minutes);
-  if (daysBetween(day, today) === 1) return "Yesterday";
-  return formatDay(day);
 }

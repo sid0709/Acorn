@@ -209,6 +209,8 @@ func New(accounts Accounts, listings *jobs.Store, brain *acorn.Service, opts Opt
 	mux.HandleFunc("DELETE /acorn/gmail/mailboxes/{mailboxId}", s.deleteGmailMailbox)
 	mux.HandleFunc("PATCH /acorn/gmail/mailboxes/{mailboxId}", s.patchGmailMailbox)
 	mux.HandleFunc("GET /acorn/gmail/messages", s.listGmailMessages)
+	mux.HandleFunc("GET /acorn/gmail/messages/{messageId}", s.getGmailMessage)
+	mux.HandleFunc("GET /acorn/gmail/overview", s.getGmailOverview)
 
 	socket := gw.Handler()
 	mux.Handle(gateway.Path, socket)

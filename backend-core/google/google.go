@@ -116,6 +116,8 @@ type Token struct {
 	RefreshToken string `json:"refresh_token"`
 	// Scope lists what the person actually granted; they can untick scopes.
 	Scope string `json:"scope"`
+	// ExpiresIn is how many seconds the access token stays valid.
+	ExpiresIn int `json:"expires_in"`
 }
 
 // Granted reports whether the person granted scope.
@@ -141,16 +143,22 @@ func (c *Client) Exchange(ctx context.Context, code, redirectURL, verifier strin
 
 // AccessToken uses a stored refresh token to get a short-lived access token.
 func (c *Client) AccessToken(ctx context.Context, refreshToken string) (string, error) {
-	token, err := c.token(ctx, url.Values{
+	token, err := c.Refresh(ctx, refreshToken)
+	if err != nil {
+		return "", err
+	}
+	return token.AccessToken, nil
+}
+
+// Refresh trades a stored refresh token for an access token and its lifetime,
+// so callers can reuse the access token until it expires.
+func (c *Client) Refresh(ctx context.Context, refreshToken string) (Token, error) {
+	return c.token(ctx, url.Values{
 		"refresh_token": {refreshToken},
 		"client_id":     {c.ClientID},
 		"client_secret": {c.ClientSecret},
 		"grant_type":    {"refresh_token"},
 	})
-	if err != nil {
-		return "", err
-	}
-	return token.AccessToken, nil
 }
 
 // Profile is the signed-in Google account.
@@ -160,6 +168,8 @@ type Profile struct {
 	Email         string `json:"email"`
 	EmailVerified bool   `json:"email_verified"`
 	Name          string `json:"name"`
+	// Picture is the account photo URL; it needs the profile scope.
+	Picture string `json:"picture"`
 	// HostedDomain is the Google Workspace domain that manages the account, or ""
 	// for a personal Google account.
 	HostedDomain string `json:"hd"`
@@ -185,6 +195,7 @@ func (c *Client) Profile(ctx context.Context, accessToken string) (Profile, erro
 	}
 	profile.Email = strings.ToLower(strings.TrimSpace(profile.Email))
 	profile.Name = strings.TrimSpace(profile.Name)
+	profile.Picture = strings.TrimSpace(profile.Picture)
 	profile.HostedDomain = strings.ToLower(strings.TrimSpace(profile.HostedDomain))
 	return profile, nil
 }

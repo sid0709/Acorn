@@ -5,6 +5,8 @@ import (
 	"errors"
 	"log/slog"
 	"net/http"
+	"slices"
+	"strconv"
 	"strings"
 	"time"
 
@@ -136,34 +138,99 @@ func (s *Server) patchGmailMailbox(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, map[string]any{"mailbox": mailboxPayload([]mailbox.Mailbox{box})[0]})
 }
 
-func (s *Server) listGmailMessages(w http.ResponseWriter, r *http.Request) {
+// Limits on what the Gmail read routes accept from the query string.
+const (
+	maxGmailQuery     = 500
+	maxGmailPageToken = 512
+	maxGmailLabelID   = 256
+)
+
+// gmailAccess resolves the request's mailbox to its refresh token, so a person
+// only ever reads mailboxes they connected.
+func (s *Server) gmailAccess(w http.ResponseWriter, r *http.Request) (mailboxID, token string, ok bool) {
 	session, ok := s.session(w, r)
 	if !ok {
-		return
+		return "", "", false
 	}
 	if !s.gmailReady() {
 		writeError(w, http.StatusServiceUnavailable, "Gmail is not set up")
-		return
+		return "", "", false
 	}
-	mailboxID := strings.TrimSpace(r.URL.Query().Get("mailboxId"))
+	mailboxID = strings.TrimSpace(r.URL.Query().Get("mailboxId"))
 	if mailboxID == "" {
 		writeError(w, http.StatusBadRequest, "mailboxId is required")
-		return
+		return "", "", false
 	}
 	token, err := s.gmail.RefreshToken(r.Context(), session.User.ID, mailboxID)
 	if err != nil {
 		writeGmailError(w, err)
+		return "", "", false
+	}
+	return mailboxID, token, true
+}
+
+func (s *Server) listGmailMessages(w http.ResponseWriter, r *http.Request) {
+	mailboxID, token, ok := s.gmailAccess(w, r)
+	if !ok {
+		return
+	}
+	params := r.URL.Query()
+	query := mailbox.ListQuery{
+		LabelID:   strings.TrimSpace(params.Get("labelId")),
+		Query:     strings.TrimSpace(params.Get("q")),
+		PageToken: strings.TrimSpace(params.Get("pageToken")),
+		Fresh:     params.Get("fresh") == "1",
+	}
+	if len(query.LabelID) > maxGmailLabelID || len(query.Query) > maxGmailQuery || len(query.PageToken) > maxGmailPageToken {
+		writeError(w, http.StatusBadRequest, "query is too long")
+		return
+	}
+	if size, err := strconv.Atoi(params.Get("pageSize")); err == nil {
+		query.PageSize = size
+	}
+	ctx, cancel := contextWithGmailTimeout(r.Context())
+	defer cancel()
+	page, err := s.gmailGoogle.ListMessages(ctx, mailboxID, token, query)
+	if err != nil {
+		writeGmailReadError(w, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, gmailPagePayload(page))
+}
+
+func (s *Server) getGmailOverview(w http.ResponseWriter, r *http.Request) {
+	mailboxID, token, ok := s.gmailAccess(w, r)
+	if !ok {
 		return
 	}
 	ctx, cancel := contextWithGmailTimeout(r.Context())
 	defer cancel()
-	messages, err := s.gmailGoogle.ListInbox(ctx, token, 0)
+	overview, err := s.gmailGoogle.Overview(ctx, mailboxID, token, r.URL.Query().Get("fresh") == "1")
 	if err != nil {
-		slog.Error("gmail inbox", "user", session.User.ID, "error", err)
-		writeError(w, http.StatusBadGateway, "could not read Gmail; try reconnecting")
+		writeGmailReadError(w, err)
 		return
 	}
-	writeJSON(w, http.StatusOK, map[string]any{"messages": gmailMessagesPayload(messages)})
+	writeJSON(w, http.StatusOK, gmailOverviewPayload(overview))
+}
+
+func (s *Server) getGmailMessage(w http.ResponseWriter, r *http.Request) {
+	mailboxID, token, ok := s.gmailAccess(w, r)
+	if !ok {
+		return
+	}
+	id := strings.TrimSpace(r.PathValue("messageId"))
+	if id == "" || len(id) > maxGmailLabelID {
+		writeError(w, http.StatusBadRequest, "messageId is required")
+		return
+	}
+	ctx, cancel := contextWithGmailTimeout(r.Context())
+	defer cancel()
+	message, err := s.gmailGoogle.Message(ctx, mailboxID, token, id)
+	if err != nil {
+		writeGmailReadError(w, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"message": gmailFullMessagePayload(message)})
 }
 
 func contextWithGmailTimeout(ctx context.Context) (context.Context, func()) {
@@ -173,6 +240,8 @@ func contextWithGmailTimeout(ctx context.Context) (context.Context, func()) {
 type gmailMailboxJSON struct {
 	ID                  string `json:"id"`
 	Email               string `json:"email"`
+	Name                string `json:"name"`
+	Picture             string `json:"picture"`
 	Label               string `json:"label"`
 	IsDefault           bool   `json:"isDefault"`
 	WatchesApplications bool   `json:"watchesApplications"`
@@ -185,6 +254,8 @@ func mailboxPayload(boxes []mailbox.Mailbox) []gmailMailboxJSON {
 		out[i] = gmailMailboxJSON{
 			ID:                  box.ID,
 			Email:               box.Email,
+			Name:                box.Name,
+			Picture:             box.Picture,
 			Label:               box.Label,
 			IsDefault:           box.IsDefault,
 			WatchesApplications: box.WatchesApplications,
@@ -195,39 +266,117 @@ func mailboxPayload(boxes []mailbox.Mailbox) []gmailMailboxJSON {
 }
 
 type gmailMessageJSON struct {
-	ID            string   `json:"id"`
-	ApplicationID string   `json:"applicationId"`
-	Sender        string   `json:"sender"`
-	SenderEmail   string   `json:"senderEmail"`
-	Company       string   `json:"company"`
-	Role          string   `json:"role"`
-	Subject       string   `json:"subject"`
-	Snippet       string   `json:"snippet"`
-	Body          []string `json:"body"`
-	Label         string   `json:"label"`
-	ReceivedOn    string   `json:"receivedOn"`
-	ReceivedAt    int      `json:"receivedAt"`
+	ID          string   `json:"id"`
+	ThreadID    string   `json:"threadId"`
+	Sender      string   `json:"sender"`
+	SenderEmail string   `json:"senderEmail"`
+	Subject     string   `json:"subject"`
+	Snippet     string   `json:"snippet"`
+	LabelIDs    []string `json:"labelIds"`
+	IsUnread    bool     `json:"isUnread"`
+	ReceivedAt  string   `json:"receivedAt"`
 }
 
-func gmailMessagesPayload(messages []mailbox.Message) []gmailMessageJSON {
-	out := make([]gmailMessageJSON, len(messages))
-	for i, message := range messages {
-		out[i] = gmailMessageJSON{
-			ID:            message.ID,
-			ApplicationID: "",
-			Sender:        message.Sender,
-			SenderEmail:   message.SenderEmail,
-			Company:       message.Sender,
-			Role:          "",
-			Subject:       message.Subject,
-			Snippet:       message.Snippet,
-			Body:          message.Body,
-			Label:         "received",
-			ReceivedOn:    message.ReceivedOn,
-			ReceivedAt:    message.ReceivedAt,
+type gmailPageJSON struct {
+	Messages           []gmailMessageJSON `json:"messages"`
+	NextPageToken      string             `json:"nextPageToken"`
+	ResultSizeEstimate int                `json:"resultSizeEstimate"`
+}
+
+func gmailPagePayload(page mailbox.Page) gmailPageJSON {
+	out := gmailPageJSON{
+		Messages:           make([]gmailMessageJSON, len(page.Messages)),
+		NextPageToken:      page.NextPageToken,
+		ResultSizeEstimate: page.ResultSizeEstimate,
+	}
+	for i, message := range page.Messages {
+		out.Messages[i] = gmailMessageJSON{
+			ID:          message.ID,
+			ThreadID:    message.ThreadID,
+			Sender:      message.Sender,
+			SenderEmail: message.SenderEmail,
+			Subject:     message.Subject,
+			Snippet:     message.Snippet,
+			LabelIDs:    nonNil(message.LabelIDs),
+			IsUnread:    slices.Contains(message.LabelIDs, mailbox.LabelUnread),
+			ReceivedAt:  message.ReceivedAt.UTC().Format(time.RFC3339),
 		}
 	}
 	return out
+}
+
+type gmailLabelJSON struct {
+	ID     string `json:"id"`
+	Name   string `json:"name"`
+	Type   string `json:"type"`
+	Unread int    `json:"unread"`
+	Total  int    `json:"total"`
+	Color  string `json:"color"`
+}
+
+func gmailOverviewPayload(overview mailbox.Overview) map[string]any {
+	labels := make([]gmailLabelJSON, len(overview.Labels))
+	for i, label := range overview.Labels {
+		labels[i] = gmailLabelJSON(label)
+	}
+	return map[string]any{
+		"profile": map[string]string{
+			"email":   overview.Profile.Email,
+			"name":    overview.Profile.Name,
+			"picture": overview.Profile.Picture,
+		},
+		"labels": labels,
+	}
+}
+
+type gmailAttachmentJSON struct {
+	Filename string `json:"filename"`
+	MimeType string `json:"mimeType"`
+	Size     int    `json:"size"`
+}
+
+func gmailFullMessagePayload(message mailbox.FullMessage) map[string]any {
+	attachments := make([]gmailAttachmentJSON, len(message.Attachments))
+	for i, file := range message.Attachments {
+		attachments[i] = gmailAttachmentJSON(file)
+	}
+	return map[string]any{
+		"id":          message.ID,
+		"threadId":    message.ThreadID,
+		"subject":     message.Subject,
+		"from":        map[string]string{"name": message.From.Name, "email": message.From.Email},
+		"to":          message.To,
+		"cc":          message.Cc,
+		"replyTo":     message.ReplyTo,
+		"labelIds":    nonNil(message.LabelIDs),
+		"isUnread":    slices.Contains(message.LabelIDs, mailbox.LabelUnread),
+		"receivedAt":  message.ReceivedAt.UTC().Format(time.RFC3339),
+		"html":        message.HTML,
+		"text":        message.Text,
+		"attachments": attachments,
+	}
+}
+
+func nonNil(values []string) []string {
+	if values == nil {
+		return []string{}
+	}
+	return values
+}
+
+// writeGmailReadError answers a failed read from Gmail itself.
+func writeGmailReadError(w http.ResponseWriter, err error) {
+	switch {
+	case errors.Is(err, mailbox.ErrGmailAuth):
+		writeError(w, http.StatusForbidden, err.Error())
+	case errors.Is(err, mailbox.ErrNotFound):
+		writeError(w, http.StatusNotFound, "message not found")
+	case errors.Is(err, context.DeadlineExceeded):
+		writeError(w, http.StatusGatewayTimeout, "Gmail took too long; try again")
+	default:
+		slog.Error("gmail read", "error", err)
+		writeError(w, http.StatusBadGateway, "could not read Gmail; try reconnecting")
+	}
 }
 
 func writeGmailError(w http.ResponseWriter, err error) {

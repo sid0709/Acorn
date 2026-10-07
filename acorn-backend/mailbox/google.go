@@ -1,34 +1,71 @@
 package mailbox
 
 import (
+	"bytes"
 	"context"
-	"encoding/base64"
-	"encoding/json"
+	"crypto/sha256"
+	"encoding/hex"
+	"errors"
 	"fmt"
+	"io"
 	"net/http"
 	"net/url"
-	"strings"
+	"sync"
 	"time"
 
 	"github.com/sid0709/OpenSeat/backend-core/google"
+	"golang.org/x/sync/singleflight"
 )
 
 const (
-	gmailAPIBase   = "https://gmail.googleapis.com/gmail/v1"
-	defaultInboxLimit = 50
+	gmailAPIBase = "https://gmail.googleapis.com/gmail/v1/users/me"
+	// accessTokenMargin refreshes an access token this long before Google expires it.
+	accessTokenMargin = time.Minute
+	// fallbackTokenLifetime is used when Google omits expires_in.
+	fallbackTokenLifetime = 30 * time.Minute
+	maxCachedTokens       = 512
+	// maxGmailBody caps one Gmail API reply; full HTML messages can be large.
+	maxGmailBody = 16 << 20
+	// gmailRetries is how many times a rate-limited Gmail call is retried.
+	gmailRetries   = 3
+	gmailRetryBase = 200 * time.Millisecond
 )
 
-// Google reads a job hunter's Gmail through the shared OAuth client.
+// ErrGmailAuth is a refresh token Google no longer accepts; the mailbox must reconnect.
+var ErrGmailAuth = errors.New("Gmail access was revoked; reconnect this mailbox")
+
+// Google reads a job hunter's Gmail through the shared OAuth client. It keeps
+// access tokens and recent reads in memory so a page of mail costs one round
+// of parallel Gmail calls instead of a token refresh plus one call per row.
 type Google struct {
 	OAuth       *google.Client
 	RedirectURL string
+
+	once     sync.Once
+	tokens   *ttlCache[string]
+	refresh  singleflight.Group
+	inflight singleflight.Group
+	rows     *ttlCache[Message]
+	pages    *ttlCache[Page]
+	labels   *ttlCache[Overview]
+	messages *ttlCache[FullMessage]
+}
+
+func (g *Google) init() {
+	g.once.Do(func() {
+		g.tokens = newTTLCache[string](fallbackTokenLifetime, maxCachedTokens)
+		g.rows = newTTLCache[Message](rowCacheTTL, maxCachedRows)
+		g.pages = newTTLCache[Page](pageCacheTTL, maxCachedPages)
+		g.labels = newTTLCache[Overview](overviewCacheTTL, maxCachedOverviews)
+		g.messages = newTTLCache[FullMessage](messageCacheTTL, maxCachedMessages)
+	})
 }
 
 func (g *Google) Configured() bool {
 	return g != nil && g.OAuth.Configured() && g.RedirectURL != ""
 }
 
-var gmailScopes = []string{google.ScopeOpenID, google.ScopeEmail, google.ScopeGmailReadonly}
+var gmailScopes = []string{google.ScopeOpenID, google.ScopeEmail, google.ScopeProfile, google.ScopeGmailReadonly}
 
 func (g *Google) AuthURL(state, loginHint, codeChallenge string) string {
 	return g.OAuth.AuthURL(google.AuthRequest{
@@ -57,126 +94,109 @@ func (g *Google) Exchange(ctx context.Context, code, redirect, verifier string) 
 	return GoogleGrant{
 		Subject:      profile.Subject,
 		Email:        profile.Email,
+		Name:         profile.Name,
+		Picture:      profile.Picture,
 		RefreshToken: token.RefreshToken,
 	}, nil
 }
 
-// Message is one inbox row for the Acorn Gmail view.
-type Message struct {
-	ID          string
-	Sender      string
-	SenderEmail string
-	Subject     string
-	Snippet     string
-	Body        []string
-	ReceivedOn  string
-	ReceivedAt  int
+// accessToken returns a cached access token for refreshToken, refreshing it at
+// most once at a time no matter how many requests ask together.
+func (g *Google) accessToken(ctx context.Context, refreshToken string) (string, error) {
+	g.init()
+	key := tokenKey(refreshToken)
+	if token, ok := g.tokens.get(key, time.Now()); ok {
+		return token, nil
+	}
+	value, err, _ := g.refresh.Do(key, func() (any, error) {
+		if token, ok := g.tokens.get(key, time.Now()); ok {
+			return token, nil
+		}
+		token, err := g.OAuth.Refresh(ctx, refreshToken)
+		if errors.Is(err, google.ErrInvalidGrant) {
+			return "", ErrGmailAuth
+		}
+		if err != nil {
+			return "", fmt.Errorf("refresh gmail token: %w", err)
+		}
+		lifetime := fallbackTokenLifetime
+		if token.ExpiresIn > 0 {
+			lifetime = time.Duration(token.ExpiresIn) * time.Second
+		}
+		g.tokens.setFor(key, token.AccessToken, time.Now(), lifetime-accessTokenMargin)
+		return token.AccessToken, nil
+	})
+	if err != nil {
+		return "", err
+	}
+	return value.(string), nil
 }
 
-func (g *Google) ListInbox(ctx context.Context, refreshToken string, limit int) ([]Message, error) {
-	if limit <= 0 || limit > defaultInboxLimit {
-		limit = defaultInboxLimit
+// tokenKey keeps raw refresh tokens out of map keys.
+func tokenKey(refreshToken string) string {
+	sum := sha256.Sum256([]byte(refreshToken))
+	return hex.EncodeToString(sum[:])
+}
+
+// get calls a Gmail endpoint (relative to gmailAPIBase) and returns the body.
+func (g *Google) get(ctx context.Context, accessToken, path string, query url.Values) ([]byte, error) {
+	endpoint := gmailAPIBase + path
+	if len(query) > 0 {
+		endpoint += "?" + query.Encode()
 	}
-	access, err := g.OAuth.AccessToken(ctx, refreshToken)
-	if err != nil {
-		return nil, err
-	}
-	listURL, err := url.Parse(gmailAPIBase + "/users/me/messages")
-	if err != nil {
-		return nil, err
-	}
-	query := listURL.Query()
-	query.Set("maxResults", fmt.Sprintf("%d", limit))
-	query.Set("labelIds", "INBOX")
-	listURL.RawQuery = query.Encode()
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, listURL.String(), nil)
-	if err != nil {
-		return nil, err
-	}
-	req.Header.Set("Authorization", "Bearer "+access)
-	body, status, err := g.do(req)
-	if err != nil {
-		return nil, err
-	}
-	if status >= 300 {
-		return nil, fmt.Errorf("gmail list: status %d", status)
-	}
-	var listed struct {
-		Messages []struct {
-			ID string `json:"id"`
-		} `json:"messages"`
-	}
-	if err := json.Unmarshal(body, &listed); err != nil {
-		return nil, err
-	}
-	out := make([]Message, 0, len(listed.Messages))
-	for _, row := range listed.Messages {
-		if row.ID == "" {
-			continue
-		}
-		msg, err := g.loadMessage(ctx, access, row.ID)
+	for attempt := 0; ; attempt++ {
+		req, err := http.NewRequestWithContext(ctx, http.MethodGet, endpoint, nil)
 		if err != nil {
 			return nil, err
 		}
-		out = append(out, msg)
+		req.Header.Set("Authorization", "Bearer "+accessToken)
+		body, status, err := g.do(req)
+		if err != nil {
+			return nil, err
+		}
+		if status < 300 {
+			return body, nil
+		}
+		if status == http.StatusUnauthorized {
+			return nil, ErrGmailAuth
+		}
+		if retryable(status, body) && attempt < gmailRetries {
+			select {
+			case <-ctx.Done():
+				return nil, ctx.Err()
+			case <-time.After(gmailRetryBase << attempt):
+			}
+			continue
+		}
+		return nil, &gmailStatusError{path: path, status: status}
 	}
-	return out, nil
 }
 
-func (g *Google) loadMessage(ctx context.Context, accessToken, id string) (Message, error) {
-	endpoint := gmailAPIBase + "/users/me/messages/" + url.PathEscape(id)
-	reqURL, err := url.Parse(endpoint)
-	if err != nil {
-		return Message{}, err
+// retryable is a rate limit or a server hiccup. Gmail answers per-user rate
+// limits with 403 too, so a 403 only retries when it names one.
+func retryable(status int, body []byte) bool {
+	switch {
+	case status == http.StatusTooManyRequests || status >= http.StatusInternalServerError:
+		return true
+	case status == http.StatusForbidden:
+		return bytes.Contains(body, []byte("RateLimitExceeded")) || bytes.Contains(body, []byte("rateLimitExceeded"))
 	}
-	query := reqURL.Query()
-	query.Set("format", "metadata")
-	query.Set("metadataHeaders", "From")
-	query.Add("metadataHeaders", "Subject")
-	query.Add("metadataHeaders", "Date")
-	reqURL.RawQuery = query.Encode()
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, reqURL.String(), nil)
-	if err != nil {
-		return Message{}, err
-	}
-	req.Header.Set("Authorization", "Bearer "+accessToken)
-	body, status, err := g.do(req)
-	if err != nil {
-		return Message{}, err
-	}
-	if status >= 300 {
-		return Message{}, fmt.Errorf("gmail message: status %d", status)
-	}
-	var raw struct {
-		ID           string `json:"id"`
-		Snippet      string `json:"snippet"`
-		InternalDate string `json:"internalDate"`
-		Payload      struct {
-			Headers []gmailHeader `json:"headers"`
-		} `json:"payload"`
-	}
-	if err := json.Unmarshal(body, &raw); err != nil {
-		return Message{}, err
-	}
-	from := headerValue(raw.Payload.Headers, "From")
-	subject := headerValue(raw.Payload.Headers, "Subject")
-	when := parseInternalDate(raw.InternalDate)
-	sender, senderEmail := parseFrom(from)
-	snippet := strings.TrimSpace(raw.Snippet)
-	paragraphs := []string{snippet}
-	if snippet == "" {
-		paragraphs = []string{"(No preview)"}
-	}
-	return Message{
-		ID:          raw.ID,
-		Sender:      sender,
-		SenderEmail: senderEmail,
-		Subject:     subject,
-		Snippet:     snippet,
-		Body:        paragraphs,
-		ReceivedOn:  when.Format("2006-01-02"),
-		ReceivedAt:  when.Hour()*60 + when.Minute(),
-	}, nil
+	return false
+}
+
+// gmailStatusError is a Gmail reply that was not a success.
+type gmailStatusError struct {
+	path   string
+	status int
+}
+
+func (e *gmailStatusError) Error() string {
+	return fmt.Sprintf("gmail %s: status %d", e.path, e.status)
+}
+
+func isNotFound(err error) bool {
+	var status *gmailStatusError
+	return errors.As(err, &status) && status.status == http.StatusNotFound
 }
 
 func (g *Google) do(req *http.Request) ([]byte, int, error) {
@@ -185,65 +205,10 @@ func (g *Google) do(req *http.Request) ([]byte, int, error) {
 		return nil, 0, err
 	}
 	defer res.Body.Close()
-	body, err := google.ReadBody(res)
+	// The transport asks for gzip and inflates it, so replies cross the wire compressed.
+	body, err := io.ReadAll(io.LimitReader(res.Body, maxGmailBody))
 	if err != nil {
 		return nil, 0, err
 	}
 	return body, res.StatusCode, nil
-}
-
-type gmailHeader struct {
-	Name  string `json:"name"`
-	Value string `json:"value"`
-}
-
-func headerValue(headers []gmailHeader, name string) string {
-	for _, header := range headers {
-		if strings.EqualFold(header.Name, name) {
-			return strings.TrimSpace(header.Value)
-		}
-	}
-	return ""
-}
-
-func parseInternalDate(raw string) time.Time {
-	ms, err := json.Number(raw).Int64()
-	if err != nil {
-		return time.Now().UTC()
-	}
-	return time.UnixMilli(ms).UTC()
-}
-
-func parseFrom(raw string) (name, email string) {
-	raw = strings.TrimSpace(raw)
-	if raw == "" {
-		return "Unknown", ""
-	}
-	if start := strings.LastIndex(raw, "<"); start >= 0 {
-		end := strings.Index(raw[start:], ">")
-		if end > 0 {
-			email = strings.TrimSpace(raw[start+1 : start+end])
-			name = strings.TrimSpace(strings.Trim(raw[:start], `"`))
-			if name == "" {
-				name = email
-			}
-			return name, strings.ToLower(email)
-		}
-	}
-	if strings.Contains(raw, "@") {
-		return raw, strings.ToLower(raw)
-	}
-	return raw, ""
-}
-
-// DecodeBody decodes a Gmail API base64url body chunk (exported for tests).
-func DecodeBody(encoded string) string {
-	if encoded == "" {
-		return ""
-	}
-	raw, err := base64.RawURLEncoding.DecodeString(encoded)
-	if err != nil {
-		return ""
-	}
-	return string(raw)
 }

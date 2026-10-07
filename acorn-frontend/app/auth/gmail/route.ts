@@ -1,6 +1,5 @@
 import { cookies } from "next/headers";
 import {
-  GMAIL_AUTH_ROUTE,
   GMAIL_STATE_COOKIE,
   encodeGmailState,
   gmailStateCookie,

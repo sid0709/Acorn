@@ -67,3 +67,13 @@ html {
     overflow-y: auto;
   }
 }
+
+/* A Gmail message body: the sender's HTML in a sandboxed frame sized to its content. */
+.gmail-message-frame {
+  display: block;
+  width: 100%;
+  min-height: 12rem;
+  border: 0;
+  border-radius: var(--radius-inner);
+  background: var(--color-background-surface);
+}

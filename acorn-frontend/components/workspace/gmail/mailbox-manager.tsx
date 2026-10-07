@@ -79,10 +79,15 @@ export function MailboxManager({
               {index > 0 ? <Divider /> : null}
               <HStack hAlign="between" vAlign="center" wrap="wrap" gap={3}>
                 <HStack gap={3} vAlign="center">
-                  <Avatar name={mailbox.email} size={36} />
+                  <Avatar
+                    name={mailbox.name || mailbox.email}
+                    src={mailbox.picture || undefined}
+                    size={36}
+                  />
                   <Stack gap={0}>
-                    <Text weight="semibold">{mailbox.email}</Text>
+                    <Text weight="semibold">{mailbox.name || mailbox.email}</Text>
                     <Text type="supporting" color="secondary">
+                      {mailbox.name ? `${mailbox.email} · ` : ""}
                       {mailbox.label}
                       {formatWhen(mailbox.connectedAt)
                         ? ` · since ${formatWhen(mailbox.connectedAt)}`
