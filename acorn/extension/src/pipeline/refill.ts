@@ -3,6 +3,7 @@ import {
   countFlaggedFields,
   type FieldIssueScan,
 } from "@acorn/shared/field-issues";
+
 import { sendTabMessage } from "../tab-messaging";
 import { MSG } from "../types";
 

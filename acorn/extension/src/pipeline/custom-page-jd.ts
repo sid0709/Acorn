@@ -1,5 +1,6 @@
 import { PAGE_TEXT_MAX_CHARS, extractVisiblePageText } from "@acorn/shared/page-text";
 import { formatAnalyzeTrees, type DomTreeNode } from "@acorn/shared/tree-export";
+
 import { extractCustomJd } from "./api/custom-generate";
 import { fetchDomFromTab } from "./fetch-dom";
 import { fetchPostingDomFromTab } from "./fetch-posting";

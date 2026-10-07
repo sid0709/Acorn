@@ -1,8 +1,10 @@
-import type { ActionPlan } from "@acorn/shared/plan-runner/types";
 import { traceFromBackground } from "../background/debug-trace-sink";
 import { sendTabMessage } from "../tab-messaging";
 import { MSG } from "../types";
+
 import { requestChoicePicks, type ChoiceItem } from "./api/pick-options";
+
+import type { ActionPlan } from "@acorn/shared/plan-runner/types";
 
 /** Steps whose value names an option the page may list. */
 const CHOICE_ACTIONS = new Set(["fill", "select_radio"]);

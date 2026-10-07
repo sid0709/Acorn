@@ -8,7 +8,7 @@ const MESSAGES: Record<GmailConnectError, string> = {
   expired: "This Gmail connection expired. Try again.",
   wrong_account:
     "Google signed in with a different address than you entered, or that Gmail is already connected.",
-  unavailable: "Gmail is not available right now. Try again later.",
+  unavailable: "Gmail is not set up on this server yet.",
   failed: "Could not connect Gmail. Try again.",
 };
 

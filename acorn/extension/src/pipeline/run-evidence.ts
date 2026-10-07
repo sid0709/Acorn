@@ -1,7 +1,7 @@
 import { RUN_EVIDENCE_LINE_MAX_CHARS, RUN_EVIDENCE_MAX_LINES } from "./run-limits";
 
-import type { RunStepRecord } from "@acorn/shared/plan-runner/types";
 import type { PageSnapshot } from "./run-page";
+import type { RunStepRecord } from "@acorn/shared/plan-runner/types";
 
 function clip(text: string): string {
   const line = text.replace(/\s+/g, " ").trim();

@@ -1,3 +1,4 @@
+import { formatUsd } from "@acorn/shared/ai-usage";
 import {
   FILL_MODE,
   countFlaggedSince,
@@ -5,6 +6,7 @@ import {
   type FieldIssueScan,
   type FillMode,
 } from "@acorn/shared/field-issues";
+import { PhaseClock } from "@acorn/shared/phase-clock";
 import {
   CONTROL_ROLE,
   PAGE_KIND,
@@ -18,9 +20,6 @@ import {
   type RunStage,
 } from "@acorn/shared/run-types";
 
-import { formatUsd } from "@acorn/shared/ai-usage";
-import { PhaseClock } from "@acorn/shared/phase-clock";
-
 import { getAcornSocket } from "../acorn-socket";
 import { markTabUsage, usageSince, type UsageMark } from "../background/tab-usage-store";
 import { rekeyCustomTab } from "../tab-custom-session";
@@ -28,6 +27,7 @@ import { getTabJob, rekeyTabJob } from "../tab-job-session";
 
 import { requestDiagnose, requestReadPage, READ_INTENT, type ReadIntent } from "./api/run";
 import { repairDriftInTab } from "./drift";
+import { RESUME_NOT_CHOSEN, type ResumeGate } from "./resume-gate";
 import { clickControl, probePage, settleAfterClick, watchOpenedTabs } from "./run-click";
 import { failureEvidence } from "./run-evidence";
 import {
@@ -40,9 +40,8 @@ import {
 } from "./run-limits";
 import { logUrl, RunLog } from "./run-log";
 import { snapshotPage, type PageSnapshot } from "./run-page";
-import { RESUME_NOT_CHOSEN, type ResumeGate } from "./resume-gate";
-import { ensureRecommendedResume } from "./run-resume";
 import { NO_RESUME_FILE, runFabPipeline } from "./run-pipeline";
+import { ensureRecommendedResume } from "./run-resume";
 
 import type { PipelineProgress } from "@acorn/shared/pipeline-types";
 import type { RunStepRecord } from "@acorn/shared/plan-runner/types";

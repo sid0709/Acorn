@@ -155,12 +155,27 @@ func LoadDeepSeek() DeepSeek {
 }
 
 func LoadGoogle() Google {
+	signIn := Env("GOOGLE_SIGNIN_REDIRECT_URL", "")
+	gmail := Env("GOOGLE_GMAIL_REDIRECT_URL", "")
+	if gmail == "" {
+		gmail = GmailRedirectFromSignIn(signIn)
+	}
 	return Google{
 		ClientID:          Env("GOOGLE_CLIENT_ID", ""),
 		ClientSecret:      Env("GOOGLE_CLIENT_SECRET", ""),
-		SignInRedirectURL: Env("GOOGLE_SIGNIN_REDIRECT_URL", ""),
-		GmailRedirectURL:  Env("GOOGLE_GMAIL_REDIRECT_URL", ""),
+		SignInRedirectURL: signIn,
+		GmailRedirectURL:  gmail,
 	}
+}
+
+// GmailRedirectFromSignIn is the Gmail OAuth callback on the same host as sign-in.
+func GmailRedirectFromSignIn(signInRedirectURL string) string {
+	const signInSuffix = "/auth/google/callback"
+	const gmailSuffix = "/auth/gmail/callback"
+	if !strings.HasSuffix(signInRedirectURL, signInSuffix) {
+		return ""
+	}
+	return strings.TrimSuffix(signInRedirectURL, signInSuffix) + gmailSuffix
 }
 
 // LoadHTTP reads HTTP_ADDR and CORS_ORIGINS, falling back to the service's defaults.
