@@ -52,6 +52,8 @@ export function pointerActivate(el: HTMLElement, intended?: string | null): void
   rememberLookBeforeClick(el);
   rememberLookBeforeClick(target);
   const view = target.ownerDocument?.defaultView || window;
+  // Scroll first: the pointer lands where the control is once it is in view.
+  target.scrollIntoView({ block: "center", behavior: "auto" });
   const rect = target.getBoundingClientRect();
   const clientX = rect.width ? rect.left + rect.width / 2 : 0;
   const clientY = rect.height ? rect.top + rect.height / 2 : 0;
@@ -64,7 +66,6 @@ export function pointerActivate(el: HTMLElement, intended?: string | null): void
     button: 0,
     buttons: 1,
   };
-  target.scrollIntoView({ block: "center", behavior: "auto" });
   target.focus?.();
   target.dispatchEvent(
     new PointerEvent("pointerdown", { ...opts, pointerId: 1, pointerType: "mouse" }),

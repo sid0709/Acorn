@@ -69,6 +69,8 @@ export interface RunPipelineArgs {
   requireResume?: boolean;
   /** Run: a code found in the applicant's mail, filled into the field that asks for it. */
   verificationCode?: string;
+  /** Run: aborted when the person stops the run; no further step touches the page. */
+  signal?: AbortSignal;
   /**
    * Run, when the page holds its forward control disabled after a fill: plan only
    * what is still unanswered (boxes left off included), then put back anything
@@ -91,6 +93,7 @@ export async function runFabPipeline(args: RunPipelineArgs): Promise<void> {
     requireResume = false,
     pendingOnly = false,
     verificationCode,
+    signal,
     emitDomTree,
     onProgress,
   } = args;
@@ -360,6 +363,7 @@ export async function runFabPipeline(args: RunPipelineArgs): Promise<void> {
             };
           },
           hooks: {
+            shouldAbort: () => signal?.aborted === true,
             beforeFills: () =>
               decideChoicesInBatch({ tabId, frameId, plan: target, apiUrl: aiServerUrl }),
             onSteps: (steps) => {

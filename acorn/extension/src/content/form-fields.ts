@@ -23,7 +23,7 @@ import {
   groupMembers,
   groupQuestion,
   isRequired,
-  isVisible,
+  isPersonFacing,
   normalize,
   queryDeep,
   sectionTitle,
@@ -209,8 +209,9 @@ function describeControl(control: Element, seenGroups: Set<string>): FormField |
       }
       return choiceField(control);
     }
-    // aria-hidden marks a control no person reads or fills (a widget's mirror input).
-    if (!isVisible(control) || control.closest('[aria-hidden="true"]')) return null;
+    // aria-hidden marks a control no person reads or fills (a widget's mirror input); a
+    // field no person could see or reach is a trap for robots. Neither is filled.
+    if (!isPersonFacing(control) || control.closest('[aria-hidden="true"]')) return null;
     if (inferRole(control) === "combobox" || !TEXT_INPUT_TYPES.has(type)) return null;
     const text = label();
     return {
@@ -228,7 +229,7 @@ function describeControl(control: Element, seenGroups: Set<string>): FormField |
     (control as HTMLElement).isContentEditable ||
     role === "textbox"
   ) {
-    if (!isVisible(control)) return null;
+    if (!isPersonFacing(control)) return null;
     const text = label();
     return {
       elementIndex: nodeId(control),

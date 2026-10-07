@@ -1,4 +1,7 @@
+import { LAYER_ATTR } from "@acorn/shared/page-controls";
 import { HIDDEN_VALUE, isSecretControl } from "@acorn/shared/secret-value";
+
+import { pageLayers, type PageLayers } from "./page-layers";
 
 import type { DomNode } from "../types";
 
@@ -52,6 +55,8 @@ let acornIdCounter = 0;
 let childCapHits = 0;
 let depthCapHits = 0;
 let fillableHits = 0;
+/** The open dialogs of the documents being serialized, read once per pass. */
+let layersOf: ((el: Element) => PageLayers) | null = null;
 
 function tn(el: Element): string {
   return el.tagName.toUpperCase();
@@ -97,6 +102,7 @@ export function serializeDom(root?: Element): DomNode {
   childCapHits = 0;
   depthCapHits = 0;
   fillableHits = 0;
+  layersOf = pageLayers();
 
   // Clean up old Acorn IDs across the whole document (including iframes)
   document.querySelectorAll("[data-acorn-id]").forEach((el) => el.removeAttribute("data-acorn-id"));
@@ -123,6 +129,22 @@ function isInteractive(el: Element): boolean {
   const tabIndex = el.getAttribute("tabindex");
   if (tabIndex !== null && tabIndex !== "-1") return true;
   return false;
+}
+
+/** A control a person clicks: the only nodes the Run reads layers for. */
+function isClickable(el: Element): boolean {
+  const tag = tn(el);
+  const role = el.getAttribute("role");
+  return tag === "A" || tag === "BUTTON" || tag === "INPUT" || role === "button" || role === "link";
+}
+
+/** Which open dialog the control sits in, and whether one covers it. */
+function markLayers(el: Element, attrs: Record<string, string>): void {
+  const layers = layersOf?.(el);
+  if (!layers) return;
+  const dialog = layers.dialogOf(el);
+  if (dialog != null) attrs[LAYER_ATTR.dialog] = (dialog || "dialog").slice(0, MAX_TEXT);
+  else if (layers.covered(el)) attrs[LAYER_ATTR.covered] = "true";
 }
 
 function isHeadNoise(el: Element): boolean {
@@ -268,6 +290,7 @@ function serializeNode(el: Element, depth: number): DomNode[] {
   }
   // A password never reaches the tree: the planner only learns the box is filled.
   if (attrs["value"] && isSecretControl(el)) attrs["value"] = HIDDEN_VALUE;
+  if (isClickable(el)) markLayers(el, attrs);
 
   const text = getDirectText(el);
 

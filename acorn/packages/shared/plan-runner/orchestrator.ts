@@ -33,6 +33,8 @@ export interface OrchestratorHooks {
    * start before the upload completes) goes here.
    */
   beforeFills?: () => Promise<void>;
+  /** True once the person stopped the run: no further step touches the page. */
+  shouldAbort?: () => boolean;
 }
 
 export interface RunPlanOptions {
@@ -113,6 +115,7 @@ export async function runActionPlan(options: RunPlanOptions): Promise<RunReport>
   let fillsStarted = false;
 
   for (const i of order) {
+    if (!aborted && hooks.shouldAbort?.()) aborted = true;
     if (!fillsStarted && !aborted && !isFileUploadAction(actions[i])) {
       fillsStarted = true;
       await hooks.beforeFills?.();
@@ -262,6 +265,12 @@ export async function runActionPlan(options: RunPlanOptions): Promise<RunReport>
 
     let done = false;
     while (!done && !aborted) {
+      if (hooks.shouldAbort?.()) {
+        steps[i].status = "aborted";
+        aborted = true;
+        publish();
+        break;
+      }
       try {
         if (missingFile) {
           throw new Error(missingFile);

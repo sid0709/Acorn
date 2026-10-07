@@ -94,6 +94,8 @@ export type ControlRole = (typeof CONTROL_ROLE)[keyof typeof CONTROL_ROLE];
 export const RUN_OUTCOME = {
   completed: "completed",
   failed: "failed",
+  /** The person pressed Stop. */
+  stopped: "stopped",
 } as const;
 
 export type RunOutcome = (typeof RUN_OUTCOME)[keyof typeof RUN_OUTCOME];
@@ -112,6 +114,8 @@ export const RUN_FAILURE_REASON = {
   accountRejected: "account_rejected",
   /** The site needs an account and the profile has no default account password. */
   noAccountPassword: "no_account_password",
+  /** The person pressed Stop. */
+  stoppedByUser: "stopped_by_user",
 } as const;
 
 /** Why a run could not finish, in the decision model's words (mirrors the backend's reasons). */
@@ -138,6 +142,10 @@ export interface RunReport {
 export interface RunProgress {
   runId: string;
   stage: RunStage;
+  /** When the run started (ms since epoch); the sidebar's run clock counts from it. */
+  startedAt: number;
+  /** When the run ended; set once it has, so the clock holds the final time. */
+  endedAt?: number;
   /** 1-based count of pages visited. */
   page: number;
   /** Refill rounds spent on the current page, and the most a page gets. */

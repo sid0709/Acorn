@@ -49,10 +49,12 @@ const (
 )
 
 var verifications = map[string]string{
-	VerifyNone:      "The page asks for no verification.",
+	VerifyNone: "The page asks for no verification. A sign-in, sign-up, or password form is not a verification " +
+		"(the run fills those from the applicant's profile), and neither is a field the page tells people to leave empty.",
 	VerifyEmailCode: "The page asks the applicant to enter a code that was sent to their email.",
 	VerifyEmailLink: "The page asks the applicant to open a link sent to their email (to verify the address, activate the account, or reset the password) before going on.",
-	VerifyOther:     "The page asks for something else only the applicant can give: a code sent to their phone, an authenticator app code, or a challenge to solve.",
+	VerifyOther: "The page waits for something only the applicant can give in the moment: a code sent to their phone, " +
+		"an authenticator app code, or a challenge they must solve themselves.",
 }
 
 // Account modes say what an account step asks for. The run fills the applicant's
@@ -67,10 +69,11 @@ const (
 
 var accountModes = map[string]string{
 	AccountNone:   "Not an account step.",
-	AccountSignIn: "A sign-in form for an existing account: an email or username and a password.",
-	AccountCreate: "A form that creates a new account: an email and a new password, often with the password repeated.",
+	AccountSignIn: "A sign-in form for an existing account, with the email or username and password fields on the page.",
+	AccountCreate: "A form that creates a new account, with the email and new password fields on the page (the password often repeated).",
 	AccountReset:  "A step that recovers the account: a form that asks for the email to send a password reset to, or a form that sets a new password.",
-	AccountChoose: "A choice between signing in, creating an account, or going on without one, with no account form to fill yet.",
+	AccountChoose: "A choice of how to go on (signing in, creating an account, a way to sign in, or going on without one), " +
+		"with no email and password fields on the page yet.",
 }
 
 // AccountAttempt is one account step the run already sent on this site, and how
@@ -93,7 +96,6 @@ const (
 	controlQuestion  = "control"
 	finalQuestion    = "is_final_step"
 	guestQuestion    = "continues_without_account"
-	personQuestion   = "waits_for_person"
 	diagnoseQuestion = "failure"
 	verifyQuestion   = "verification"
 	accountQuestion  = "account_mode"
@@ -125,6 +127,10 @@ type Control struct {
 	Disabled bool
 	// InForm is true when the control sits inside a <form>.
 	InForm bool
+	// Dialog is the name of the open dialog the control sits in; "" outside every dialog.
+	Dialog string
+	// Covered is true when an open dialog is over the control, so a person could not click it.
+	Covered bool
 }
 
 // PageQuery is what Jev reads to say what a page is and what to click on it.
@@ -167,7 +173,8 @@ type PageRead struct {
 	// creating an account; on an account step the run clicks only then.
 	Guest bool
 	// NeedsPerson is true when the page waits on something only the applicant can
-	// give in the moment (a code sent to them, a challenge to solve): the run waits.
+	// give in the moment (a phone code, a challenge to solve): the run waits. It is
+	// the VerifyOther answer, so the two can never disagree.
 	NeedsPerson bool
 	// Verification is what the page asks to verify (a Verify* key); VerifyNone when nothing.
 	Verification string
@@ -236,15 +243,6 @@ func (g *Gateway) ReadPage(ctx context.Context, q PageQuery) (PageRead, error) {
 					"false": "Not the last step: the forward control opens another page or step.",
 				},
 			},
-			personQuestion: {
-				Type: jev.TypeNoul,
-				Instructions: "Is the page waiting for something only the applicant can give in the moment before it can go on, " +
-					"such as a code that was sent to them or a challenge they must solve themselves?",
-				Criteria: map[string]string{
-					"true":  "The page waits for the applicant to enter or solve something only they can.",
-					"false": "Nothing on the page needs the applicant personally; it can be filled and sent.",
-				},
-			},
 			guestQuestion: {
 				Type:         jev.TypeNoul,
 				Instructions: "Does this page offer a way to go on with the application without signing in or creating an account?",
@@ -286,10 +284,8 @@ func (g *Gateway) ReadPage(ctx context.Context, q PageQuery) (PageRead, error) {
 	if guest := res.Answers[guestQuestion]; guest.Noul != nil {
 		read.Guest = *guest.Noul > checkThreshold
 	}
-	if person := res.Answers[personQuestion]; person.Noul != nil {
-		read.NeedsPerson = *person.Noul > checkThreshold
-	}
 	read.Verification = listedChoice(res.Answers[verifyQuestion], verifications, VerifyNone)
+	read.NeedsPerson = read.Verification == VerifyOther
 	read.AccountMode = AccountNone
 	if read.Kind == KindAccount {
 		read.AccountMode = listedChoice(res.Answers[accountQuestion], accountModes, AccountNone)
@@ -350,11 +346,22 @@ func controlRole(kind string, final jev.Answer) string {
 // the details on the page, and the account history says which to try next.
 const accountSteps = "When the page offers a way to go on with the application without signing in or creating an account, " +
 	"pick that control over signing in or creating an account. Otherwise, on a step that needs an account, pick the control that " +
-	"sends the account form on the page (signs in, creates the account, requests a password reset, or saves a new password). " +
-	"On a page that only offers the choice, pick creating an account unless the account history shows the account already exists. " +
-	"Follow the account history: after a sign-in was rejected, pick the control that creates an account; after creating an account " +
-	"was rejected because the account already exists, or a sign-in was rejected again, pick the control that recovers or resets the " +
-	"password; after a new password was saved, sign in. "
+	"sends the account form on the page (signs in, creates the account, requests a password reset, or saves a new password), " +
+	"never one that signs in through another service. With no account history on this site, sign in first: on a page that only " +
+	"offers choices, pick the way to sign in with an email and password. Then follow the account history and the page's own " +
+	"words: after a sign-in was rejected because no account exists for that email (or the page does not say why), pick the " +
+	"control that creates an account; after a sign-in was rejected for a wrong password, or creating an account was rejected " +
+	"because the account already exists, pick the control that recovers or resets the password; after a new password was saved " +
+	"or the account was verified, sign in again. "
+
+// dialogSteps steer every pick when a dialog is open over the page: the dialog is
+// the step, and what it covers cannot be clicked. A dialog that asks how to start
+// is answered by starting on this site, never through another service.
+const dialogSteps = "When a dialog is open over the page, that dialog is the current step: pick only among the controls " +
+	"inside it, never a control marked covered (it sits behind the dialog, and clicking it does nothing). " +
+	"When the dialog asks how to start the application, pick the way that starts it on this site with the applicant " +
+	"entering their details: applying manually first, else starting from an uploaded résumé. Never pick one that " +
+	"reuses a previous application or applies through another service's account. "
 
 // controlInstructions describe controls only by what they do: sites word them
 // any way they like, so no wording is quoted here.
@@ -362,7 +369,7 @@ func controlInstructions(intent string) string {
 	if intent == IntentAdvance {
 		return "The applicant has finished filling this page. Which control moves the application to its next step, " +
 			"or sends it on the last step? Judge by what the control does on this page, whatever its wording, " +
-			"an arrow, or an icon. " + accountSteps +
+			"an arrow, or an icon. " + dialogSteps + accountSteps +
 			"Never pick a control that goes back, cancels, leaves the application, saves a draft, signs out, " +
 			"signs in through another service, or opens another site. " +
 			"Prefer an enabled control, but a forward control that looks disabled is still the forward control: " +
@@ -371,7 +378,7 @@ func controlInstructions(intent string) string {
 	}
 	return "Which control starts or continues an application for this role? On a job posting it is the control " +
 		"that opens the application. When the page is already an application form or an account step, pick the " +
-		"control that moves it forward instead. " + accountSteps +
+		"control that moves it forward instead. " + dialogSteps + accountSteps +
 		"Never pick a control that saves the job, shares it, creates an alert, signs in through another service, " +
 		"or is disabled. Choose none when the page has no way to apply or continue."
 }
@@ -385,6 +392,9 @@ func pageState(q PageQuery, controls []Control) string {
 	for _, message := range q.PageMessages {
 		fmt.Fprintf(&b, "Page message: %s\n", clip(message, maxControlLine))
 	}
+	if dialog := openDialog(controls); dialog != "" {
+		fmt.Fprintf(&b, "An open dialog is over the page: %q. The page text below includes what it covers.\n", clip(dialog, maxControlLine))
+	}
 	writeAccountHistory(&b, q.Account)
 	b.WriteString("\nPage text:\n")
 	b.WriteString(clip(q.Text, maxPageText))
@@ -396,6 +406,16 @@ func pageState(q PageQuery, controls []Control) string {
 		fmt.Fprintf(&b, "%s_%d: %s\n", controlKeyPrefix, i, describeControl(control))
 	}
 	return b.String()
+}
+
+// openDialog is the name of the dialog the page's controls sit in, when one is open.
+func openDialog(controls []Control) string {
+	for _, control := range controls {
+		if control.Dialog != "" {
+			return control.Dialog
+		}
+	}
+	return ""
 }
 
 // writeAccountHistory lists the account steps the run already sent on this site.
@@ -436,8 +456,14 @@ func describeControl(c Control) string {
 	if c.Context != "" {
 		line += " under \"" + clip(c.Context, 60) + "\""
 	}
+	if c.Dialog != "" {
+		line += " in dialog \"" + clip(c.Dialog, 60) + "\""
+	}
 	if c.InForm {
 		line += " in-form"
+	}
+	if c.Covered {
+		line += " COVERED by an open dialog"
 	}
 	if c.Disabled {
 		line += " DISABLED"

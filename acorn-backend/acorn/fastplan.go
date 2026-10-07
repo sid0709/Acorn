@@ -491,9 +491,11 @@ func writeFields(fields []FormField) []typingField {
 // field the profile cannot answer). Neither means it stays blank; another
 // person's details are never made up.
 func textAnswer(profile applicantFacts, field FormField, kind string) (fact string, write bool) {
-	// A password box takes the account password and nothing else; no model writes into it.
-	if isPasswordField(field) && kind != FactAccountPassword {
-		return "", false
+	// A password box (the browser's own input type, not its wording) takes the
+	// account password and nothing else, whatever the field was classified as; no
+	// model writes into it. Blank only when the profile has no password.
+	if isPasswordField(field) {
+		return profile.credentials.Password, false
 	}
 	if kind != FactWrite && !blankKinds[kind] && kind != "" {
 		if value := factValue(profile, kind); value != "" {

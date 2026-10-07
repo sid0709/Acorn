@@ -107,6 +107,7 @@ export default function SidebarApp() {
     remembering,
     startPipeline,
     startRun,
+    stopRun,
     rememberFocusedTab,
     forgetCustomTab,
     focusCustomTab,
@@ -196,6 +197,16 @@ export default function SidebarApp() {
       disabled: tabWorkBusy || !session || activeTabId == null,
       onClick: () => void startRun(),
     },
+    // Shown only while a Run works on this tab.
+    stop:
+      fillBusy && progress.run
+        ? {
+            label: "Stop",
+            title: "Stop the run now; the page is left as it is",
+            disabled: false,
+            onClick: () => void stopRun(),
+          }
+        : null,
     fill: {
       label: fillLabel,
       title: customLocked ? rememberFirst : fillLabel,

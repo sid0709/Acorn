@@ -51,10 +51,14 @@ export async function probePage(tabId: number, frameId: number | null): Promise<
  * its set of fields changes (they entered the code and sent it), or the tab is
  * gone. False when the wait ran out.
  */
-export async function waitForPerson(tabId: number, frameId: number | null): Promise<boolean> {
+export async function waitForPerson(
+  tabId: number,
+  frameId: number | null,
+  signal?: AbortSignal,
+): Promise<boolean> {
   const before = await probePage(tabId, frameId);
   const started = Date.now();
-  while (Date.now() - started < RUN_PERSON_WAIT_MAX_MS) {
+  while (Date.now() - started < RUN_PERSON_WAIT_MAX_MS && !signal?.aborted) {
     await sleep(RUN_PERSON_POLL_MS);
     const tab = await chrome.tabs.get(tabId).catch(() => null);
     if (!tab) return true;

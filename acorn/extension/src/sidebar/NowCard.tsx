@@ -5,6 +5,7 @@ import type { CustomUiProgress } from "../pipeline/custom-generate-progress";
 import { customTabResumeLine, hostOf } from "./custom-tab-resume";
 import { JOBS_NOW_CARD_RUN_ONLY } from "./sidebar-work-state";
 import { GenerateProgressBar } from "./GenerateProgressBar";
+import { RunTimer } from "./RunTimer";
 import type { AcornMainTab } from "./SidebarNav";
 import type { useTabSession } from "./use-tab-session";
 
@@ -26,6 +27,8 @@ type NowCardProps = {
   fillBusy: boolean;
   /** Recommend, fill, and advance until the application is done. */
   run: NowAction;
+  /** Stops the Run working on this tab; null when none is. */
+  stop: NowAction | null;
   fill: NowAction;
   /** Fixes only the fields the page flagged after Submit / Next. */
   refill: NowAction;
@@ -144,10 +147,12 @@ function RecommendTop({ top }: { top: RecommendedResumeRank[] }) {
 function RunStatus({ progress }: { progress: PipelineProgress }) {
   const run = progress.run;
   if (!run) return null;
+  const timer = run.startedAt ? <RunTimer startedAt={run.startedAt} endedAt={run.endedAt} /> : null;
   const failure = run.report?.failure;
   if (failure) {
     return (
       <VStack gap={1}>
+        {timer}
         <HStack gap={2} align="center">
           <Badge variant="error" label="Run stopped" />
         </HStack>
@@ -160,7 +165,12 @@ function RunStatus({ progress }: { progress: PipelineProgress }) {
   }
   const parts = [`Page ${Math.max(run.page, 1)}`];
   if (run.refills > 0) parts.push(`refill ${run.refills}/${run.maxRefills}`);
-  return <Text type="supporting">{parts.join(" · ")}</Text>;
+  return (
+    <VStack gap={1}>
+      {timer}
+      <Text type="supporting">{parts.join(" · ")}</Text>
+    </VStack>
+  );
 }
 
 function RunProgress({ run }: { run: CustomUiProgress }) {
@@ -183,6 +193,7 @@ export function NowCard(props: NowCardProps) {
     progress,
     fillBusy,
     run: runAction,
+    stop,
     fill,
     refill,
     generate,
@@ -252,6 +263,17 @@ export function NowCard(props: NowCardProps) {
               width="100%"
               onClick={runAction.onClick}
             />
+            {stop ? (
+              <Button
+                variant="destructive"
+                icon={<Glyph name="close" />}
+                label={stop.label}
+                tooltip={stop.title}
+                isDisabled={stop.disabled}
+                width="100%"
+                onClick={stop.onClick}
+              />
+            ) : null}
             {!jobsRunOnly ? (
               <>
                 <Button

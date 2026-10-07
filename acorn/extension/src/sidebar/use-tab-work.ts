@@ -139,6 +139,27 @@ export function useTabWork({
     }
   }, [activeTabId, tabWorkBusy, setTabProgress]);
 
+  /** Stop the Run on the active tab at once; the page is left as it is. */
+  const stopRun = useCallback(async () => {
+    const tabId = activeTabId;
+    if (tabId == null) return;
+    try {
+      const res = await sendMessage<{ ok?: boolean; error?: string }>({
+        type: MSG.STOP_RUN,
+        tabId,
+      });
+      if (res?.error) {
+        pushAcornNotice({ kind: "error", title: "Couldn’t stop", detail: String(res.error) });
+      }
+    } catch (err) {
+      pushAcornNotice({
+        kind: "error",
+        title: "Couldn’t stop",
+        detail: err instanceof Error ? err.message : String(err),
+      });
+    }
+  }, [activeTabId]);
+
   const rememberFocusedTab = useCallback(async () => {
     const tabId = activeTabId;
     if (tabId == null) return;
@@ -322,6 +343,7 @@ export function useTabWork({
     remembering,
     startPipeline,
     startRun,
+    stopRun,
     rememberFocusedTab,
     forgetCustomTab,
     focusCustomTab,

@@ -40,6 +40,8 @@ type runControl struct {
 	Context  string `json:"context"`
 	Disabled bool   `json:"disabled"`
 	InForm   bool   `json:"inForm"`
+	Dialog   string `json:"dialog"`
+	Covered  bool   `json:"covered"`
 }
 
 // runAccountAttempt is one account step the run already sent on this site.
@@ -133,6 +135,7 @@ func (s *Server) runReadPage(w http.ResponseWriter, r *http.Request) {
 		controls = append(controls, selector.Control{
 			ID: c.ID, Tag: c.Tag, Text: c.Text, Label: c.Label, Type: c.Type, Href: c.Href,
 			Context: c.Context, Disabled: c.Disabled, InForm: c.InForm,
+			Dialog: c.Dialog, Covered: c.Covered,
 		})
 	}
 	log.Info("acorn run read-page", "controls", len(controls), "textChars", len([]rune(body.Text)),
