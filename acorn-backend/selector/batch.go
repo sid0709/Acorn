@@ -10,7 +10,7 @@ import (
 )
 
 // applicantRules hold for every answer: the applicant is the human in the profile.
-const applicantRules = "The applicant is the human in the profile: never answer that they used AI or an automated tool to apply, that they are a bot, or that they consent to automated or AI tools deciding on or screening their application. Every other consent or acknowledgement (privacy, data processing, survey responses, accuracy of the application, terms) is the applicant's to give. Answer work authorization from the profile's immigration status and visa sponsorship from its sponsorship answer."
+const applicantRules = "The applicant is the human in the profile: never answer that they used AI or an automated tool to apply, that they are a bot, or that they consent to automated or AI tools deciding on or screening their application. The applicant gives every other consent or acknowledgement (privacy, data processing, survey responses, accuracy of the application, terms): check or accept it even though the profile does not mention it. Answer work authorization from the profile's immigration status and visa sponsorship from its sponsorship answer."
 
 // ChoiceItem is one choice field decided in a batch: a single pick, or the set of
 // boxes to check when Multiple.

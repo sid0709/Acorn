@@ -1,5 +1,7 @@
 /** Tabs with an in-flight FAB pipeline (parallel across tabs; one per tab). */
 export const pipelineRunningTabIds = new Set<number>();
+/** Tabs a Run is working on (its start tab and any tab it claimed), in start order. */
+export const runTabIds = new Set<number>();
 export const customGenerateTabIds = new Set<number>();
 export const jobGenerateJobIds = new Set<string>();
 

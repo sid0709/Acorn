@@ -108,7 +108,25 @@ function nearestComboboxTo(listbox: HTMLElement, doc: Document): HTMLElement | n
   return best;
 }
 
+/**
+ * True when another control names this listbox as its own (aria-controls /
+ * aria-owns / list). An open menu that belongs to a different dropdown is never
+ * this control's list, however close it sits on screen.
+ */
+function claimedByOtherControl(listbox: HTMLElement, control: HTMLElement, doc: Document): boolean {
+  const id = listbox.id;
+  if (!id) return false;
+  const quoted = CSS.escape(id);
+  const claimers = doc.querySelectorAll(
+    `[aria-controls~="${quoted}"], [aria-owns~="${quoted}"], [list="${quoted}"]`,
+  );
+  return Array.from(claimers).some(
+    (node) => node !== control && !control.contains(node) && !node.contains(control),
+  );
+}
+
 function listboxServesControl(listbox: HTMLElement, control: HTMLElement, doc: Document): boolean {
+  if (claimedByOtherControl(listbox, control, doc)) return false;
   const nearest = nearestComboboxTo(listbox, doc);
   if (!nearest) return true;
   return nearest === control || control.contains(nearest) || nearest.contains(control);

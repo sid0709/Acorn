@@ -34,6 +34,16 @@ const (
 	toggleLeave = "Leave this box unchecked"
 )
 
+// toggleLeaveHeld is the "leave" answer for a box the form needs (required, or
+// holding the submit control): leaving it means not applying, so the option says so.
+const toggleLeaveHeld = "Leave this box unchecked and do not submit the application"
+
+// heldToggleIntent is the intended answer for a box the form needs. A profile
+// rarely mentions an acknowledgement or a consent; with "answer from the profile"
+// the decision model reads that silence as "leave", and the application can never
+// go on. Checking is the default; only a false statement or AI consent leaves it.
+const heldToggleIntent = "Check it: the application cannot go on while it is unchecked. Leave it unchecked only when checking it would state something the applicant profile says is untrue, or would consent to AI or automated tools deciding on or screening the application."
+
 // FormField is one control the extension found on the page.
 type FormField struct {
 	ElementIndex int    `json:"elementIndex"`
@@ -66,6 +76,9 @@ type ChoiceQuestion struct {
 	Field        string
 	Options      []string
 	Multiple     bool
+	// Intended is the answer the applicant wants when the field itself sets it (a
+	// box the form needs); empty means the picker answers from the profile.
+	Intended string
 }
 
 // ChoicePicker answers choice fields straight from their options. The
@@ -319,14 +332,18 @@ func describeAll(fields []FormField) map[int]string {
 func choiceQuestions(fields []FormField) []ChoiceQuestion {
 	out := make([]ChoiceQuestion, 0, len(fields))
 	for _, field := range fields {
-		options := field.Options
-		if field.Kind == fieldToggle {
-			options = []string{toggleCheck, toggleLeave}
-		}
-		out = append(out, ChoiceQuestion{
-			ElementIndex: field.ElementIndex, Field: choiceField(field), Options: options,
+		question := ChoiceQuestion{
+			ElementIndex: field.ElementIndex, Field: choiceField(field), Options: field.Options,
 			Multiple: field.Kind == fieldCheckbox,
-		})
+		}
+		if field.Kind == fieldToggle {
+			question.Options = []string{toggleCheck, toggleLeave}
+			if field.Required || field.Blocking {
+				question.Options = []string{toggleCheck, toggleLeaveHeld}
+				question.Intended = heldToggleIntent
+			}
+		}
+		out = append(out, question)
 	}
 	return out
 }

@@ -12,15 +12,20 @@ type UsageHistoryListProps = {
   onRefresh: () => void;
 };
 
+/** When a call was recorded, down to the millisecond, so calls in one burst stay apart. */
+const CALL_TIME_FORMAT: Intl.DateTimeFormatOptions = {
+  month: "short",
+  day: "numeric",
+  hour: "numeric",
+  minute: "2-digit",
+  second: "2-digit",
+  fractionalSecondDigits: 3,
+};
+
 function formatWhen(iso: string): string {
   const date = new Date(iso);
   if (Number.isNaN(date.getTime())) return "";
-  return date.toLocaleString(undefined, {
-    month: "short",
-    day: "numeric",
-    hour: "numeric",
-    minute: "2-digit",
-  });
+  return date.toLocaleString(undefined, CALL_TIME_FORMAT);
 }
 
 function formatDuration(ms: number): string {
@@ -129,12 +134,10 @@ export function UsageHistoryList({
                 />
               </HStack>
             </HStack>
-            <HStack gap={2} align="center" justify="between">
-              <Text type="supporting" maxLines={1}>
-                {tokenLine(entry)}
-              </Text>
-              <Text type="supporting">{whenLine(entry)}</Text>
-            </HStack>
+            <Text type="supporting" maxLines={1}>
+              {tokenLine(entry)}
+            </Text>
+            <Text type="supporting">{whenLine(entry)}</Text>
             {entry.error ? (
               <Text type="supporting" className="acorn-usage-error">
                 {entry.error}
