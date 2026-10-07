@@ -24,6 +24,7 @@
       "version": "0.1.0",
       "dependencies": {
         "@acorn/app-theme": "workspace:*",
+        "@acorn/google-gmail": "workspace:*",
         "@acorn/google-signin": "workspace:*",
         "@acorn/shared": "workspace:*",
         "next": "catalog:",
@@ -54,7 +55,7 @@
     },
     "acorn/extension": {
       "name": "acorn-extension",
-      "version": "1.11.2",
+      "version": "1.21.0",
       "dependencies": {
         "@acorn/app-theme": "workspace:*",
         "@acorn/face": "workspace:*",
@@ -100,6 +101,13 @@
       },
       "peerDependencies": {
         "react": ">=19",
+      },
+    },
+    "packages/google-gmail": {
+      "name": "@acorn/google-gmail",
+      "version": "0.1.0",
+      "devDependencies": {
+        "typescript": "catalog:",
       },
     },
     "packages/google-signin": {
@@ -156,6 +164,8 @@
     "@acorn/demo": ["@acorn/demo@workspace:acorn/demo"],
 
     "@acorn/face": ["@acorn/face@workspace:acorn/packages/acorn-face"],
+
+    "@acorn/google-gmail": ["@acorn/google-gmail@workspace:packages/google-gmail"],
 
     "@acorn/google-signin": ["@acorn/google-signin@workspace:packages/google-signin"],
 

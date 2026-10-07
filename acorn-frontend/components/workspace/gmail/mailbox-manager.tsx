@@ -1,10 +1,8 @@
 "use client";
 
-import { useState } from "react";
 import {
   Avatar,
   Badge,
-  Banner,
   Button,
   Divider,
   Drawer,
@@ -14,58 +12,23 @@ import {
   Stack,
   Switch,
   Text,
-  TextInput,
 } from "sid-ui";
-import { MAILBOX_LABEL_MAX, formatWhen, isEmail, type Mailbox } from "@/lib/workspace/model";
+import { formatWhen, type Mailbox } from "@/lib/workspace/model";
 
-/** Connect, set the default, choose which mailboxes count replies, and disconnect. */
+/** Set the default mailbox, choose which mailboxes count replies, and disconnect. */
 export function MailboxManager({
   isOpen,
   onOpenChange,
-  accountEmail,
   mailboxes,
-  isSample,
+  onConnect,
   onChange,
 }: {
   isOpen: boolean;
   onOpenChange: (open: boolean) => void;
-  accountEmail: string;
   mailboxes: Mailbox[];
-  /** The list is the starter pair, not something the person saved. */
-  isSample: boolean;
+  onConnect: () => void;
   onChange: (mailboxes: Mailbox[]) => void;
 }) {
-  const [email, setEmail] = useState("");
-  const [label, setLabel] = useState("");
-  const [error, setError] = useState("");
-  const saved = isSample ? [] : mailboxes;
-
-  const connect = (address: string, mailboxLabel: string) => {
-    const nextEmail = address.trim().toLowerCase();
-    if (!isEmail(nextEmail)) {
-      setError("Enter a full email address.");
-      return;
-    }
-    if (saved.some((mailbox) => mailbox.email === nextEmail)) {
-      setError("That mailbox is already connected.");
-      return;
-    }
-    onChange([
-      ...saved,
-      {
-        id: crypto.randomUUID(),
-        email: nextEmail,
-        label: mailboxLabel.trim() || "Gmail",
-        isDefault: saved.length === 0,
-        watchesApplications: true,
-        connectedAt: new Date().toISOString(),
-      },
-    ]);
-    setEmail("");
-    setLabel("");
-    setError("");
-  };
-
   const patch = (id: string, change: Partial<Mailbox>) => {
     onChange(
       mailboxes.map((mailbox) => {
@@ -83,66 +46,34 @@ export function MailboxManager({
     onChange(remaining);
   };
 
-  const accountIsGmail = accountEmail.toLowerCase().endsWith("@gmail.com");
-  const accountConnected = saved.some((mailbox) => mailbox.email === accountEmail.toLowerCase());
-
   return (
     <Drawer
       isOpen={isOpen}
       onOpenChange={onOpenChange}
       title="Mailboxes"
-      subtitle="Where application replies arrive"
+      subtitle="Gmail inboxes Acorn can read"
       size="md"
     >
       <Stack gap={6}>
-        {isSample ? (
-          <Banner
-            status="info"
-            title="Starter mailboxes"
-            description="Connect your own address below and these placeholders go away."
-          />
-        ) : null}
         <Stack gap={4}>
-          <Heading level={3}>Connect a mailbox</Heading>
-          {accountIsGmail && !accountConnected ? (
-            <HStack gap={3} wrap="wrap" vAlign="center" hAlign="between">
-              <Text>{accountEmail}</Text>
-              <Button
-                label="Connect this Gmail"
-                variant="secondary"
-                size="sm"
-                onClick={() => connect(accountEmail, "Personal")}
-              />
-            </HStack>
-          ) : null}
-          <TextInput
-            label="Email"
-            type="email"
-            value={email}
-            onChange={setEmail}
-            placeholder="you@gmail.com"
-            autoComplete="email"
-          />
-          <TextInput
-            label="Label"
-            value={label}
-            onChange={(value) => setLabel(value.slice(0, MAILBOX_LABEL_MAX))}
-            placeholder="Applications"
-            isOptional
-          />
-          {error ? <Banner status="error" title={error} /> : null}
+          <Heading level={3}>Connect another Gmail</Heading>
+          <Text color="secondary">
+            Each connection uses Google sign-in for that inbox. It is not tied to your Acorn account
+            email.
+          </Text>
           <HStack>
             <Button
-              label="Connect"
+              label="Connect Gmail"
               variant="primary"
               icon={<Glyph name="plus" />}
-              onClick={() => connect(email, label)}
+              onClick={onConnect}
             />
           </HStack>
         </Stack>
         <Divider />
         <Stack gap={5}>
           <Heading level={3}>{`Connected · ${mailboxes.length}`}</Heading>
+          {mailboxes.length === 0 ? <Text color="secondary">No Gmail connected yet.</Text> : null}
           {mailboxes.map((mailbox, index) => (
             <Stack key={mailbox.id} gap={4}>
               {index > 0 ? <Divider /> : null}
@@ -166,33 +97,29 @@ export function MailboxManager({
                   ) : null}
                 </HStack>
               </HStack>
-              {isSample ? null : (
-                <>
-                  <Switch
-                    label="Default mailbox"
-                    description="New applications use this address."
-                    value={mailbox.isDefault}
-                    onChange={(checked) => {
-                      if (checked) patch(mailbox.id, { isDefault: true });
-                    }}
-                  />
-                  <Switch
-                    label="Watch for replies"
-                    description="Count recruiter replies toward your statistics."
-                    value={mailbox.watchesApplications}
-                    onChange={(checked) => patch(mailbox.id, { watchesApplications: checked })}
-                  />
-                  <HStack>
-                    <Button
-                      label="Disconnect"
-                      variant="secondary"
-                      size="sm"
-                      icon={<Glyph name="trash" />}
-                      onClick={() => disconnect(mailbox.id)}
-                    />
-                  </HStack>
-                </>
-              )}
+              <Switch
+                label="Default mailbox"
+                description="New applications use this address."
+                value={mailbox.isDefault}
+                onChange={(checked) => {
+                  if (checked) patch(mailbox.id, { isDefault: true });
+                }}
+              />
+              <Switch
+                label="Watch for replies"
+                description="Count recruiter replies toward your statistics."
+                value={mailbox.watchesApplications}
+                onChange={(checked) => patch(mailbox.id, { watchesApplications: checked })}
+              />
+              <HStack>
+                <Button
+                  label="Disconnect"
+                  variant="secondary"
+                  size="sm"
+                  icon={<Glyph name="trash" />}
+                  onClick={() => disconnect(mailbox.id)}
+                />
+              </HStack>
             </Stack>
           ))}
         </Stack>

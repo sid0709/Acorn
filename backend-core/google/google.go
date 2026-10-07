@@ -33,6 +33,7 @@ const (
 	ScopeEmail          = "email"
 	ScopeProfile        = "profile"
 	ScopeCalendarEvents = "https://www.googleapis.com/auth/calendar.events"
+	ScopeGmailReadonly  = "https://www.googleapis.com/auth/gmail.readonly"
 )
 
 // ErrInvalidGrant is a code or refresh token Google no longer accepts: used,
@@ -73,6 +74,9 @@ type AuthRequest struct {
 	// HostedDomain asks Google to offer only accounts of this Workspace domain. It
 	// is a hint for the account picker: check Profile.HostedDomain after sign-in.
 	HostedDomain string
+	// LoginHint pre-fills the account picker with this address. The signed-in Google
+	// account can still differ; verify Profile.Email after the redirect.
+	LoginHint string
 }
 
 // AuthURL is where to send the browser to sign in and grant scopes.
@@ -97,6 +101,9 @@ func (c *Client) AuthURL(req AuthRequest) string {
 	}
 	if req.HostedDomain != "" {
 		values.Set("hd", req.HostedDomain)
+	}
+	if hint := strings.TrimSpace(req.LoginHint); hint != "" {
+		values.Set("login_hint", strings.ToLower(hint))
 	}
 	return authURL + "?" + values.Encode()
 }

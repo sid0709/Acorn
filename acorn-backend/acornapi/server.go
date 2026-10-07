@@ -16,6 +16,7 @@ import (
 	"github.com/sid0709/OpenSeat/acorn-backend/acornapi/gateway"
 	"github.com/sid0709/OpenSeat/acorn-backend/aiusage"
 	"github.com/sid0709/OpenSeat/acorn-backend/debugtrace"
+	"github.com/sid0709/OpenSeat/acorn-backend/mailbox"
 	"github.com/sid0709/OpenSeat/acorn-backend/profile"
 	"github.com/sid0709/OpenSeat/acorn-backend/resume"
 	"github.com/sid0709/OpenSeat/acorn-backend/selector"
@@ -66,6 +67,9 @@ type Server struct {
 	switches       killswitch.Switches
 	google         *google.Client
 	googleRedirect string
+	gmail          *mailbox.Store
+	gmailGoogle    *mailbox.Google
+	gmailRedirect  string
 	resumes        *resume.Service
 	profiles       *profile.Store
 	debug          *debugtrace.Recorder
@@ -85,6 +89,10 @@ type Options struct {
 	Google *google.Client
 	// GoogleRedirectURL is acorn-frontend's callback, registered in Google Cloud.
 	GoogleRedirectURL string
+	// Gmail is connected Gmail mailboxes. Nil leaves Gmail routes empty until configured.
+	Gmail *mailbox.Store
+	// GmailRedirectURL is acorn-frontend's Gmail OAuth callback.
+	GmailRedirectURL string
 	// Resumes is the template, generation, library, and history engine. Nil uses an in-memory store.
 	Resumes *resume.Service
 	// Profiles is the account profile. Nil uses an in-memory store.
@@ -103,6 +111,7 @@ func New(accounts Accounts, listings *jobs.Store, brain *acorn.Service, opts Opt
 		accounts: accounts, listings: listings, acorn: brain, files: opts.Runtime,
 		cookie: opts.SessionCookie, switches: opts.KillSwitches,
 		google: opts.Google, googleRedirect: opts.GoogleRedirectURL,
+		gmail: opts.Gmail, gmailRedirect: opts.GmailRedirectURL,
 		resumes: opts.Resumes, profiles: opts.Profiles, debug: opts.Debug,
 		selector: opts.Selector, usage: opts.Usage,
 	}
@@ -117,6 +126,9 @@ func New(accounts Accounts, listings *jobs.Store, brain *acorn.Service, opts Opt
 	}
 	if s.cookie == "" {
 		s.cookie = DefaultSessionCookie
+	}
+	if s.gmail != nil && opts.GmailRedirectURL != "" && opts.Google != nil {
+		s.gmailGoogle = &mailbox.Google{OAuth: opts.Google, RedirectURL: opts.GmailRedirectURL}
 	}
 	gw := gateway.New(s.authenticateSocket)
 
@@ -187,6 +199,13 @@ func New(accounts Accounts, listings *jobs.Store, brain *acorn.Service, opts Opt
 	mux.HandleFunc("GET /acorn/profile", s.getProfile)
 	mux.HandleFunc("PUT /acorn/profile", s.putProfile)
 	mux.HandleFunc("POST /acorn/profile/from-resume", s.fillProfile)
+
+	mux.HandleFunc("GET /acorn/gmail/mailboxes", s.listGmailMailboxes)
+	mux.HandleFunc("POST /acorn/gmail/connect/start", s.startGmailConnect)
+	mux.HandleFunc("POST /acorn/gmail/connect/finish", s.finishGmailConnect)
+	mux.HandleFunc("DELETE /acorn/gmail/mailboxes/{mailboxId}", s.deleteGmailMailbox)
+	mux.HandleFunc("PATCH /acorn/gmail/mailboxes/{mailboxId}", s.patchGmailMailbox)
+	mux.HandleFunc("GET /acorn/gmail/messages", s.listGmailMessages)
 
 	socket := gw.Handler()
 	mux.Handle(gateway.Path, socket)
