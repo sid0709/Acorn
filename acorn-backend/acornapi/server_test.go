@@ -3,6 +3,7 @@ package acornapi
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -12,6 +13,8 @@ import (
 	"github.com/sid0709/OpenSeat/acorn-backend/account"
 	"github.com/sid0709/OpenSeat/acorn-backend/acorn"
 	"github.com/sid0709/OpenSeat/acorn-backend/resume"
+	"github.com/sid0709/OpenSeat/acorn-backend/selector"
+	"github.com/sid0709/OpenSeat/backend-core/jev"
 	"github.com/sid0709/OpenSeat/backend-core/killswitch"
 )
 
@@ -93,14 +96,44 @@ func (f fakeModel) JSON(context.Context, string, string, json.RawMessage) ([]byt
 func (fakeModel) Model() string { return "fake" }
 func (fakeModel) Ready() bool   { return true }
 
+// fakeDecider stands in for Jev: it picks the first listed key and calls every text a posting.
+type fakeDecider struct{ err error }
+
+func (f fakeDecider) Decide(_ context.Context, req jev.Request) (jev.Response, error) {
+	if f.err != nil {
+		return jev.Response{}, f.err
+	}
+	answers := map[string]jev.Answer{}
+	for key, q := range req.Questions {
+		if q.Type == jev.TypeNoul {
+			yes := 0.9
+			answers[key] = jev.Answer{Type: q.Type, Noul: &yes}
+			continue
+		}
+		first := ""
+		for option := range q.Criteria {
+			if strings.HasSuffix(option, "_0") {
+				first = option
+			}
+		}
+		answers[key] = jev.Answer{Type: q.Type, Choice: first, Confidence: 0.9, Probabilities: map[string]float64{first: 0.9}}
+	}
+	return jev.Response{Answers: answers}, nil
+}
+func (fakeDecider) Model() string { return "fake-jev" }
+
 func newTestServer(t *testing.T, model fakeModel) (http.Handler, *fakeAccounts) {
+	return newTestServerWith(t, model, fakeDecider{})
+}
+
+func newTestServerWith(t *testing.T, model fakeModel, decider fakeDecider) (http.Handler, *fakeAccounts) {
 	t.Helper()
 	accounts := &fakeAccounts{users: map[string]account.User{
 		"hunter": {ID: "u1", Name: "Jordan Lee", Email: "j@example.com"},
 	}}
 	engine := resume.New(resume.NewMemory(), model)
 	engine.RunInline()
-	handler, gw := New(accounts, nil, acorn.New(model), Options{Resumes: engine})
+	handler, gw := New(accounts, nil, acorn.New(model), Options{Resumes: engine, Selector: selector.New(decider)})
 	t.Cleanup(gw.Close)
 	return handler, accounts
 }
@@ -203,8 +236,18 @@ func TestResumeGenerateLibraryAndHistory(t *testing.T) {
 	if !strings.Contains(jdOnly.Body.String(), `"total":0`) {
 		t.Fatalf("jd search = %s", jdOnly.Body)
 	}
+	// Recommend ranks uploaded Library résumés only, never generated ones.
+	upload := call(handler, "POST", "/acorn/resume/library", `{"fileName":"go.txt","title":"Go","contentBase64":"R28gSFRUUCBzZXJ2aWNlcw=="}`, bearer("hunter"), "")
+	var uploaded struct {
+		Resume struct {
+			ID string `json:"id"`
+		} `json:"resume"`
+	}
+	if err := json.Unmarshal(upload.Body.Bytes(), &uploaded); err != nil || upload.Code != http.StatusCreated {
+		t.Fatalf("upload = %d %s", upload.Code, upload.Body)
+	}
 	recommend := call(handler, "POST", "/acorn/custom/recommend", `{"jobDescription":"Need a Go HTTP engineer"}`, bearer("hunter"), "")
-	if recommend.Code != http.StatusOK || !strings.Contains(recommend.Body.String(), done.ResumeID) {
+	if recommend.Code != http.StatusOK || !strings.Contains(recommend.Body.String(), uploaded.Resume.ID) || !strings.Contains(recommend.Body.String(), `"recommendedTop"`) {
 		t.Fatalf("recommend = %d %s", recommend.Code, recommend.Body)
 	}
 	if got := call(handler, "GET", "/acorn/jobs/missing/recommended-resume", "", bearer("hunter"), ""); got.Code != http.StatusOK || !strings.Contains(got.Body.String(), `"resumeId":null`) {
@@ -231,7 +274,7 @@ func TestAnalyzeUsesProfileAndNeverReturnsResumeGate(t *testing.T) {
 }
 
 func TestMatchOptionFailureIsData(t *testing.T) {
-	handler, _ := newTestServer(t, fakeModel{reply: "not json"})
+	handler, _ := newTestServerWith(t, fakeModel{}, fakeDecider{err: errors.New("jev down")})
 	rec := call(handler, "POST", "/acorn/match-option", `{"intendedValue":"No","options":["Yes","No"]}`, bearer("hunter"), "")
 	if rec.Code != http.StatusOK || !strings.Contains(rec.Body.String(), `"ok":false`) {
 		t.Fatalf("got %d %s", rec.Code, rec.Body)
@@ -310,7 +353,7 @@ func TestProfileSaveFillAndAnalyze(t *testing.T) {
 	if rec := call(handler, "POST", "/acorn/ai-analyze", `{"pureTree":"input[1]"}`, bearer("hunter"), ""); rec.Code != http.StatusOK {
 		t.Fatalf("analyze = %d %s", rec.Code, rec.Body)
 	}
-	if !strings.Contains(prompt, "jordan@example.com") || strings.Contains(prompt, "openaiApiKey") {
+	if !strings.Contains(prompt, "jordan@example.com") || strings.Contains(prompt, "openrouterApiKey") {
 		t.Fatalf("planner prompt = %s", prompt)
 	}
 }
@@ -334,5 +377,41 @@ func TestSignOutRevokesTheAcornSession(t *testing.T) {
 	}
 	if rec := call(handler, "GET", "/acorn/auth/me", "", bearer("hunter"), ""); rec.Code != http.StatusUnauthorized {
 		t.Fatalf("signed-out session = %d, want 401", rec.Code)
+	}
+}
+
+func TestRunReadPageAndDiagnose(t *testing.T) {
+	handler, _ := newTestServer(t, fakeModel{})
+	page := `{"runId":"r 1!","step":2,"intent":"advance","url":"https://jobs.example.com/apply?token=secret","text":"Your details",` +
+		`"controls":[{"id":7,"tag":"button","text":"Continue"}]}`
+	rec := call(handler, "POST", "/acorn/run/read-page", page, bearer("hunter"), "")
+	if rec.Code != http.StatusOK || !strings.Contains(rec.Body.String(), `"ok":true`) || !strings.Contains(rec.Body.String(), `"id":7`) {
+		t.Fatalf("read-page got %d %s", rec.Code, rec.Body)
+	}
+	if got := call(handler, "POST", "/acorn/run/read-page", `{}`, bearer("hunter"), "").Code; got != http.StatusBadRequest {
+		t.Errorf("empty read-page status %d, want 400", got)
+	}
+	rec = call(handler, "POST", "/acorn/run/diagnose", `{"stage":"advance","evidence":["Email is required"]}`, bearer("hunter"), "")
+	if rec.Code != http.StatusOK || !strings.Contains(rec.Body.String(), `"reason"`) || !strings.Contains(rec.Body.String(), "Email is required") {
+		t.Fatalf("diagnose got %d %s", rec.Code, rec.Body)
+	}
+}
+
+func TestRunReadPageFailureIsData(t *testing.T) {
+	handler, _ := newTestServerWith(t, fakeModel{}, fakeDecider{err: errors.New("jev down")})
+	rec := call(handler, "POST", "/acorn/run/read-page", `{"text":"x"}`, bearer("hunter"), "")
+	if rec.Code != http.StatusOK || !strings.Contains(rec.Body.String(), `"ok":false`) {
+		t.Fatalf("got %d %s", rec.Code, rec.Body)
+	}
+}
+
+func TestRunLogAcceptsEvents(t *testing.T) {
+	handler, _ := newTestServer(t, fakeModel{})
+	body := `{"runId":"abc","events":[{"t":1700000000000,"step":1,"event":"click","data":{"text":"Next"}}]}`
+	if got := call(handler, "POST", "/acorn/run/log", body, bearer("hunter"), "").Code; got != http.StatusNoContent {
+		t.Fatalf("status %d, want 204", got)
+	}
+	if got := call(handler, "POST", "/acorn/run/log", body, nil, "").Code; got != http.StatusUnauthorized {
+		t.Errorf("signed-out status %d, want 401", got)
 	}
 }

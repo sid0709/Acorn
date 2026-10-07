@@ -8,7 +8,7 @@ import { fetchGeneratedResumePreview, fetchRecommendedResume } from "../pipeline
 import type { AcornCustomTabBinding } from "../tab-custom-session";
 import type { ResumePreviewDownload } from "./ResumePreviewPanel";
 import type { useTabSession } from "./use-tab-session";
-import type { AcornWorkerJob } from "./WorkerPoolList";
+import type { AcornWorkerJob } from "../worker-job";
 
 type JobGenerates = ReturnType<typeof useTabSession>["jobGenerates"];
 

@@ -1,5 +1,6 @@
 import type { GenerateCheckpoint } from "@acorn/shared/generate-checkpoint";
 import { normalizeGenerateCheckpoint } from "@acorn/shared/generate-checkpoint";
+import type { RecommendedResumeRank } from "@acorn/shared/resume-library";
 import type { CustomUiProgress } from "./pipeline/custom-generate-progress";
 
 export type CustomGenerateStatus = "idle" | "queued" | "running" | "completed" | "failed";
@@ -23,6 +24,8 @@ export type AcornCustomTabBinding = {
   recommendedResumeId: string | null;
   recommendedResumeStack: string | null;
   recommendedResumeReason: string | null;
+  /** Recommend's best-ranked Library résumés, most probable first. */
+  recommendedTop: RecommendedResumeRank[];
   generateStatus: CustomGenerateStatus;
   generateError: string | null;
   generateProgress?: CustomUiProgress | null;
@@ -58,6 +61,7 @@ function normalizeBinding(row: AcornCustomTabBinding): AcornCustomTabBinding {
     recommendedResumeId: row.recommendedResumeId ?? null,
     recommendedResumeStack: row.recommendedResumeStack ?? null,
     recommendedResumeReason: row.recommendedResumeReason ?? null,
+    recommendedTop: row.recommendedTop ?? [],
     checkpoint: normalizeGenerateCheckpoint(row.checkpoint),
     jobDescription: row.jobDescription ?? row.checkpoint?.outputs.jobDescription ?? null,
   };
@@ -128,6 +132,7 @@ export async function rememberCustomTab(input: {
         recommendedResumeId: null,
         recommendedResumeStack: null,
         recommendedResumeReason: null,
+        recommendedTop: [],
         generateStatus: "idle",
         generateError: null,
         generateProgress: null,

@@ -1,10 +1,15 @@
+import { FILL_MODE } from "@acorn/shared/field-issues";
 import { canContinueGenerate } from "@acorn/shared/generate-checkpoint";
 import { isFillPhaseBusy, type PipelineProgress } from "@acorn/shared/pipeline-types";
 import type { AcornMainTab } from "./SidebarNav";
 import type { useTabSession } from "./use-tab-session";
-import type { AcornWorkerJob } from "./WorkerPoolList";
 
 type TabSession = ReturnType<typeof useTabSession>;
+
+export const RUN_HINT =
+  "Recommend a résumé, fill each page, and click Next or Submit until the application is done.";
+
+export const REFILL_HINT = "Fix the fields this page flagged. Click Submit or Next first.";
 
 /** Whether the active tab's Custom tab or attached Fill job has Generate / Recommend in flight. */
 export function isGenerateBusy(
@@ -42,7 +47,6 @@ export function actionBarState({
   tabJob,
   customTab,
   jobGenerates,
-  workerJobs,
   progress,
   fillBusy,
   generateBusy,
@@ -51,7 +55,6 @@ export function actionBarState({
   tabJob: TabSession["tabJob"];
   customTab: TabSession["customTab"];
   jobGenerates: TabSession["jobGenerates"];
-  workerJobs: AcornWorkerJob[];
   progress: PipelineProgress;
   fillBusy: boolean;
   generateBusy: boolean;
@@ -71,9 +74,7 @@ export function actionBarState({
         ? "Generating…"
         : fillCanContinue && attachedJobGenerate?.workKind !== "recommend"
           ? "Continue"
-          : attachedJobGenerate?.generationId ||
-              (tabJob != null &&
-                Boolean(workerJobs.find((job) => job.id === tabJob.jobId)?.generatedResume))
+          : attachedJobGenerate?.generationId
             ? "Generate again"
             : "Generate"
       : generateBusy && customTab?.workKind !== "recommend"
@@ -89,8 +90,7 @@ export function actionBarState({
         ? "Recommending…"
         : fillCanContinue && attachedJobGenerate?.workKind === "recommend"
           ? "Continue"
-          : attachedJobGenerate?.recommendedResumeId ||
-              (tabJob && workerJobs.find((job) => job.id === tabJob.jobId)?.recommendedResumeId)
+          : attachedJobGenerate?.recommendedResumeId
             ? "Recommend again"
             : "Recommend Resume"
       : generateBusy && customTab?.workKind === "recommend"
@@ -100,11 +100,20 @@ export function actionBarState({
           : customTab?.recommendedResumeId
             ? "Recommend again"
             : "Recommend Resume";
-  const fillLabel = fillBusy
-    ? progress.message
-    : progress.phase === "done"
-      ? "Fill again"
-      : "Fill page";
+  const running = progress.run != null;
+  const refilling = progress.mode === FILL_MODE.refill;
+  // While Run drives the tab it owns the progress text; Fill and Refill keep their names.
+  const fillLabel = running
+    ? "Fill page"
+    : fillBusy && !refilling
+      ? progress.message
+      : progress.phase === "done"
+        ? "Fill again"
+        : "Fill page";
+  const refillLabel =
+    !running && fillBusy && refilling ? progress.message : "Refill flagged fields";
+  const runLabel =
+    running && fillBusy ? progress.message : progress.run?.report ? "Run again" : "Run";
 
   return {
     attachedJobGenerate,
@@ -113,5 +122,7 @@ export function actionBarState({
     generateLabel,
     recommendLabel,
     fillLabel,
+    refillLabel,
+    runLabel,
   };
 }

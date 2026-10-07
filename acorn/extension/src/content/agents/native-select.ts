@@ -1,3 +1,4 @@
+import { JEV_LIST_MAX } from "./combobox/choose-option";
 import { askAiMatchOption } from "./match-option-client";
 import { stripChoiceMarker } from "./string-similarity";
 
@@ -5,7 +6,7 @@ function normalize(text: string): string {
   return text.replace(/\s+/g, " ").replace(/[–—]/g, "-").trim().toLowerCase();
 }
 
-function optionLabel(option: HTMLOptionElement): string {
+export function optionLabel(option: HTMLOptionElement): string {
   return (option.textContent || option.label || option.value || "").replace(/\s+/g, " ").trim();
 }
 
@@ -17,7 +18,8 @@ function isPlaceholderOption(text: string): boolean {
   return /^(select(\s|$)|choose(\s|$)|pick(\s|$)|make a selection|please select)/i.test(stripped);
 }
 
-function realOptions(select: HTMLSelectElement): HTMLOptionElement[] {
+/** A native select's answer options, without "Select…" placeholders. */
+export function realOptions(select: HTMLSelectElement): HTMLOptionElement[] {
   return Array.from(select.options).filter((option) => !isPlaceholderOption(optionLabel(option)));
 }
 
@@ -53,6 +55,23 @@ function applySelectOption(select: HTMLSelectElement, option: HTMLOptionElement)
   return optionLabel(option) || option.value;
 }
 
+/**
+ * Narrow a long native list the way typing narrows a search box: keep the options
+ * containing the value's first words, adding a word while more than JEV_LIST_MAX
+ * remain. A word that empties the list is backed out.
+ */
+function narrowByWords(options: HTMLOptionElement[], value: string): HTMLOptionElement[] {
+  const words = normalize(value).split(" ").filter(Boolean);
+  let shown = options;
+  for (let i = 0; i < words.length && shown.length > JEV_LIST_MAX; i += 1) {
+    const typed = words.slice(0, i + 1).join(" ");
+    const next = shown.filter((option) => normalize(optionLabel(option)).includes(typed));
+    if (!next.length) break;
+    shown = next;
+  }
+  return shown;
+}
+
 /** Fill a native <select> from its <option> list — not via ARIA listbox scraping. */
 export async function fillNativeSelect(select: HTMLSelectElement, value: string): Promise<string> {
   const intended = value.trim();
@@ -61,15 +80,16 @@ export async function fillNativeSelect(select: HTMLSelectElement, value: string)
   if (local) return applySelectOption(select, local);
 
   if (options.length) {
-    const labels = options.map(optionLabel);
+    const labels = narrowByWords(options, intended).map(optionLabel);
+    // A native list is complete, so the SelectorGateway always picks one: the option
+    // that means the value, or the closest one an applicant would choose.
     const ai = await askAiMatchOption({
       intendedValue: intended,
       options: labels,
       fieldLabel: fieldLabelFor(select),
       typedQuery: null,
     });
-    // null: the intended answer is not among these options.
-    const matched = ai.matched_option;
+    const matched = ai.matched_option ?? ai.fallback_option;
     const picked = matched
       ? options.find(
           (option) =>

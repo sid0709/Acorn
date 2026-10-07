@@ -1,12 +1,11 @@
 import { Badge, Button, Card, Glyph, HStack, ProgressBar, Text, VStack } from "sid-ui";
 import type { PipelineProgress } from "@acorn/shared/pipeline-types";
+import type { RecommendedResumeRank } from "@acorn/shared/resume-library";
 import type { CustomUiProgress } from "../pipeline/custom-generate-progress";
 import { customTabResumeLine, hostOf } from "./custom-tab-resume";
 import { GenerateProgressBar } from "./GenerateProgressBar";
-import { hasAssignedResume, resumeMetaText } from "./JobResumeActions";
 import type { AcornMainTab } from "./SidebarNav";
 import type { useTabSession } from "./use-tab-session";
-import type { AcornWorkerJob } from "./WorkerPoolList";
 
 type TabSession = ReturnType<typeof useTabSession>;
 
@@ -20,13 +19,15 @@ export type NowAction = {
 type NowCardProps = {
   mainTab: Exclude<AcornMainTab, "qa">;
   tabJob: TabSession["tabJob"];
-  /** The Worker pool row for tabJob, when the list has loaded it. */
-  job: AcornWorkerJob | null;
   jobGenerate: TabSession["jobGenerates"][string] | null;
   customTab: TabSession["customTab"];
   progress: PipelineProgress;
   fillBusy: boolean;
+  /** Recommend, fill, and advance until the application is done. */
+  run: NowAction;
   fill: NowAction;
+  /** Fixes only the fields the page flagged after Submit / Next. */
+  refill: NowAction;
   generate: NowAction;
   recommend: NowAction;
   remember: NowAction;
@@ -36,11 +37,10 @@ type NowCardProps = {
 function describe({
   mainTab,
   tabJob,
-  job,
   jobGenerate,
   customTab,
   fillBusy,
-}: Pick<NowCardProps, "mainTab" | "tabJob" | "job" | "jobGenerate" | "customTab" | "fillBusy">) {
+}: Pick<NowCardProps, "mainTab" | "tabJob" | "jobGenerate" | "customTab" | "fillBusy">) {
   if (mainTab === "custom") {
     if (!customTab) {
       return {
@@ -85,25 +85,81 @@ function describe({
   }
   const generating =
     jobGenerate?.generateStatus === "queued" || jobGenerate?.generateStatus === "running";
+  const recommended = Boolean(jobGenerate?.recommendedResumeId);
+  const generated = Boolean(jobGenerate?.generationId);
   const text = generating
     ? jobGenerate?.generateProgress?.label || "Generating…"
-    : jobGenerate?.generationId
+    : generated
       ? "Generated"
-      : job
-        ? resumeMetaText(job)
-        : "Résumé status loading…";
+      : recommended
+        ? "Recommended"
+        : "";
   return {
     title: tabJob.title,
     subtitle: tabJob.company,
-    status: {
-      text,
-      ready:
-        !generating &&
-        (Boolean(jobGenerate?.generationId) || (job ? hasAssignedResume(job) : false)),
-      failed: false,
-    },
+    status: text
+      ? {
+          text,
+          ready: !generating && (generated || recommended),
+          failed: false,
+        }
+      : null,
     run: generating ? (jobGenerate?.generateProgress ?? null) : null,
   };
+}
+
+/** Recommend's ranked Library résumés for the active tab (Custom, or the attached Fill job). */
+function recommendedTop({
+  mainTab,
+  customTab,
+  jobGenerate,
+}: Pick<NowCardProps, "mainTab" | "customTab" | "jobGenerate">): RecommendedResumeRank[] {
+  if (mainTab === "custom") return customTab?.recommendedTop ?? [];
+  if (jobGenerate?.recommendedTop?.length) return jobGenerate.recommendedTop;
+  return customTab?.recommendedTop ?? [];
+}
+
+function RecommendTop({ top }: { top: RecommendedResumeRank[] }) {
+  return (
+    <VStack gap={1}>
+      <Text type="supporting" weight="semibold">
+        Top matches
+      </Text>
+      {top.map((row, i) => (
+        <HStack key={row.resumeId} gap={2} align="center" justify="between">
+          <Text type="supporting" maxLines={1}>
+            {`${i + 1}. ${row.stack}`}
+          </Text>
+          <Badge
+            variant={i === 0 ? "green" : "neutral"}
+            label={`${Math.round(row.probability * 100)}%`}
+          />
+        </HStack>
+      ))}
+    </VStack>
+  );
+}
+
+function RunStatus({ progress }: { progress: PipelineProgress }) {
+  const run = progress.run;
+  if (!run) return null;
+  const failure = run.report?.failure;
+  if (failure) {
+    return (
+      <VStack gap={1}>
+        <HStack gap={2} align="center">
+          <Badge variant="error" label="Run stopped" />
+        </HStack>
+        <Text type="supporting" weight="semibold">
+          {failure.label}
+        </Text>
+        {failure.detail ? <Text type="supporting">{failure.detail}</Text> : null}
+      </VStack>
+    );
+  }
+  const parts = [`Page ${Math.max(run.page, 1)}`];
+  if (run.refills > 0) parts.push(`refill ${run.refills}/${run.maxRefills}`);
+  return <Text type="supporting">{parts.join(" · ")}</Text>;
 }
 
 function RunProgress({ run }: { run: CustomUiProgress }) {
@@ -120,8 +176,20 @@ function RunProgress({ run }: { run: CustomUiProgress }) {
  * its résumé, any run in flight, and the actions that work on it.
  */
 export function NowCard(props: NowCardProps) {
-  const { mainTab, customTab, progress, fillBusy, fill, generate, recommend, remember } = props;
+  const {
+    mainTab,
+    customTab,
+    progress,
+    fillBusy,
+    run: runAction,
+    fill,
+    refill,
+    generate,
+    recommend,
+    remember,
+  } = props;
   const { title, subtitle, status, run } = describe(props);
+  const top = run ? [] : recommendedTop(props);
   const needsRemember = mainTab === "custom" && !customTab;
   const hasTarget = mainTab === "custom" ? Boolean(customTab) : Boolean(props.tabJob);
 
@@ -148,7 +216,9 @@ export function NowCard(props: NowCardProps) {
           </Text>
         </VStack>
         {run ? <RunProgress run={run} /> : null}
+        {top.length ? <RecommendTop top={top} /> : null}
         {fillBusy ? <ProgressBar label={progress.message || "Filling…"} isIndeterminate /> : null}
+        <RunStatus progress={progress} />
         {needsRemember ? (
           <VStack gap={2}>
             <Button
@@ -173,12 +243,30 @@ export function NowCard(props: NowCardProps) {
           <VStack gap={2}>
             <Button
               variant="primary"
+              icon={<Glyph name="play" />}
+              label={runAction.label}
+              tooltip={runAction.title}
+              isDisabled={runAction.disabled}
+              width="100%"
+              onClick={runAction.onClick}
+            />
+            <Button
+              variant="secondary"
               icon={<Glyph name="edit" />}
               label={fill.label}
               tooltip={fill.title}
               isDisabled={fill.disabled}
               width="100%"
               onClick={fill.onClick}
+            />
+            <Button
+              variant="secondary"
+              icon={<Glyph name="refresh" />}
+              label={refill.label}
+              tooltip={refill.title}
+              isDisabled={refill.disabled}
+              width="100%"
+              onClick={refill.onClick}
             />
             {hasTarget ? (
               <HStack gap={2} className="acorn-now-row">

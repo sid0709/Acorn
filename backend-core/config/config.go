@@ -27,9 +27,19 @@ const (
 	defaultOpenAIModel         = "gpt-4o-mini"
 	defaultOpenAIBaseURL       = "https://api.openai.com/v1"
 	defaultDeepSeekModel       = "deepseek-flash"
-	defaultDeepSeekBaseURL     = "https://api.deepseek.com"
-	defaultDeepSeekSearchURL   = "https://api.deepseek.com/anthropic"
-	envFileName                = ".env"
+
+	// OpenRouter is the only model Acorn calls. The key lives on the account profile,
+	// not in the environment.
+	OpenRouterProvider = "openrouter"
+	OpenRouterModel    = "openai/gpt-6-luna"
+	OpenRouterBaseURL  = "https://openrouter.ai/api/v1"
+	// JevModel is TypeSafe's decision model. Acorn's SelectorGateway sends it every
+	// pick-one decision (dropdown option, Library résumé) on the same OpenRouter key.
+	JevModel                 = "typesafe/jev-1.13"
+	OpenRouterDecisionsURL   = "https://openrouter.ai/api/alpha/decisions"
+	defaultDeepSeekBaseURL   = "https://api.deepseek.com"
+	defaultDeepSeekSearchURL = "https://api.deepseek.com/anthropic"
+	envFileName              = ".env"
 )
 
 // Database is the MongoDB every service shares: one set of accounts, jobs, and companies.
@@ -81,6 +91,7 @@ type Google struct {
 	ClientID          string
 	ClientSecret      string
 	SignInRedirectURL string
+	GmailRedirectURL  string
 }
 
 // HTTP is where a service listens and which browser origins may call it.
@@ -144,11 +155,27 @@ func LoadDeepSeek() DeepSeek {
 }
 
 func LoadGoogle() Google {
+	signIn := Env("GOOGLE_SIGNIN_REDIRECT_URL", "")
+	gmail := Env("GOOGLE_GMAIL_REDIRECT_URL", "")
+	if gmail == "" {
+		gmail = GmailRedirectFromSignIn(signIn)
+	}
 	return Google{
 		ClientID:          Env("GOOGLE_CLIENT_ID", ""),
 		ClientSecret:      Env("GOOGLE_CLIENT_SECRET", ""),
-		SignInRedirectURL: Env("GOOGLE_SIGNIN_REDIRECT_URL", ""),
+		SignInRedirectURL: signIn,
+		GmailRedirectURL:  gmail,
 	}
+}
+
+// GmailRedirectFromSignIn is the Gmail OAuth callback on the same host as sign-in.
+func GmailRedirectFromSignIn(signInRedirectURL string) string {
+	const signInSuffix = "/auth/google/callback"
+	const gmailSuffix = "/auth/gmail/callback"
+	if !strings.HasSuffix(signInRedirectURL, signInSuffix) {
+		return ""
+	}
+	return strings.TrimSuffix(signInRedirectURL, signInSuffix) + gmailSuffix
 }
 
 // LoadHTTP reads HTTP_ADDR and CORS_ORIGINS, falling back to the service's defaults.

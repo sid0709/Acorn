@@ -3,6 +3,7 @@ import {
   isEnhancedSelect,
   resolveDropdownInteractionTarget,
 } from "./enhanced-select";
+import { formatForInputType } from "./input-format";
 import { fillNativeSelect } from "./native-select";
 import { selectComboboxOption, type ComboboxFillOptions } from "./select-combobox";
 import { selectRadioElement } from "./select-radio";
@@ -18,7 +19,7 @@ function looksLikeCombobox(el: HTMLElement): boolean {
   return false;
 }
 
-async function setNativeValue(
+export async function setNativeValue(
   el: HTMLInputElement | HTMLTextAreaElement,
   text: string,
 ): Promise<void> {
@@ -89,7 +90,7 @@ export async function fillElement(
     if (type === "checkbox" || type === "radio") {
       // Option labels ("None/Not applicable") must resolve via group matching —
       // boolean-only toggling left required checkbox groups unchecked.
-      return selectRadioElement(el, value);
+      return selectRadioElement(el, value, fieldHint);
     }
     if (type === "password" || type === "hidden" || type === "file") {
       await setNativeValue(el, value);
@@ -99,7 +100,12 @@ export async function fillElement(
       const target = resolveDropdownInteractionTarget(html);
       return selectComboboxOption(target, value, fieldHint, comboboxOptions);
     }
-    await setNativeValue(el, value);
+    const formatted = formatForInputType(type, value);
+    await setNativeValue(el, formatted);
+    // The browser drops a value its input type cannot hold; that is a failed fill, not a blank answer.
+    if (formatted.trim() && !el.value) {
+      throw new Error(`The ${type} field rejected "${value}"`);
+    }
     return el.value;
   }
 
@@ -124,7 +130,7 @@ export async function fillElement(
     role === "group" ||
     role === "switch"
   ) {
-    return selectRadioElement(el, value);
+    return selectRadioElement(el, value, fieldHint);
   }
 
   if (looksLikeCombobox(html)) {

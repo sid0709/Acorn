@@ -191,6 +191,10 @@ type typingField struct {
 	Question     string
 	Role         string
 	Draft        string
+	// Note is the page's validation message for the previous answer (Refill only).
+	Note string
+	// Limits bound the answer: a maxlength, or the page's counter or hint under the field.
+	Limits string
 }
 
 func roleToken(role string) string {
@@ -232,6 +236,23 @@ func typingFields(plan Plan) []typingField {
 		fields = append(fields, typingField{ElementIndex: index, Question: question, Role: roleToken(str(row, "expected_role")), Draft: str(row, "value")})
 	}
 	return fields
+}
+
+// proseDraftMinWords marks a one-line field as prose: a planner draft this long is a
+// written answer, not a fact.
+const proseDraftMinWords = 8
+
+// proseFields keeps the fields that need a written answer: a textarea, or a draft
+// long enough to be prose. Short facts (names, dates, phone numbers) stay as the
+// planner wrote them, so the writer only runs when there is prose to write.
+func proseFields(fields []typingField) []typingField {
+	out := fields[:0:0]
+	for _, field := range fields {
+		if field.Role == "textarea" || len(strings.Fields(field.Draft)) >= proseDraftMinWords {
+			out = append(out, field)
+		}
+	}
+	return out
 }
 
 func overlayTypingFills(plan Plan, values map[int]string) Plan {
@@ -295,33 +316,54 @@ func jobContext(page map[string]any) string {
 	return strings.Join(parts, "\n")
 }
 
-func proseUserPrompt(applicant string, fields []typingField, page map[string]any) string {
+// proseUserPrompt keeps the profile first, the prefix every writer call shares,
+// so the provider's prompt cache serves it across a form's parallel calls.
+func proseUserPrompt(applicant string, fields []typingField, page map[string]any, others ...string) string {
 	blocks := make([]string, 0, len(fields))
 	for _, field := range fields {
 		draft := strings.TrimSpace(field.Draft)
 		if draft == "" {
 			draft = "(none)"
 		}
-		blocks = append(blocks, fmt.Sprintf("element_index: %d\nrole: %s\nquestion: %s\ndraft: %s", field.ElementIndex, field.Role, field.Question, draft))
+		block := fmt.Sprintf("element_index: %d\nrole: %s\nquestion: %s\ndraft: %s", field.ElementIndex, field.Role, field.Question, draft)
+		if limits := strings.TrimSpace(field.Limits); limits != "" {
+			block += "\nfield limits: " + limits
+		}
+		if note := strings.TrimSpace(field.Note); note != "" {
+			block += "\npage error: " + note
+		}
+		blocks = append(blocks, block)
 	}
 	job := ""
 	if context := jobContext(page); context != "" {
 		job = "Job context:\n" + context + "\n\n"
 	}
+	elsewhere := ""
+	if len(others) > 0 {
+		elsewhere = "\n\nOther questions on this form, answered separately (do not repeat their content):\n- " +
+			strings.Join(others, "\n- ")
+	}
 	return strings.TrimSpace("PROFILE JSON:\n" + applicant + "\n\n" + job +
-		"Typing fields (answer every element_index):\n" + strings.Join(blocks, "\n\n") +
+		"Typing fields (answer every element_index):\n" + strings.Join(blocks, "\n\n") + elsewhere +
 		"\n\nReturn json with one answers[].value per field.")
 }
 
 // qaFieldIndex is the single field a Q&A question is written as.
 const qaFieldIndex = 1
 
+// analyzeUserPrompt orders the request for the provider's prompt cache: the
+// applicant (the same on every call for this account) comes right after the
+// fixed system prompt, then the page tree, and the page details that change on
+// every call (URL, capture time) come last.
 func analyzeUserPrompt(applicant, pureTree string, page map[string]any) string {
-	pageBlock := ""
-	if len(page) > 0 {
-		pageBlock = "Page:\n" + indentedJSON(page) + "\n\n"
+	return strings.TrimSpace("Applicant data:\n" + applicant + "\n\nPure Tree:\n" + pureTree + "\n\n" + pageBlock(page) + analyzeUserTail)
+}
+
+func pageBlock(page map[string]any) string {
+	if len(page) == 0 {
+		return ""
 	}
-	return strings.TrimSpace(pageBlock + "Applicant data:\n" + applicant + "\n\nPure Tree:\n" + pureTree + "\n\n" + analyzeUserTail)
+	return "Page:\n" + indentedJSON(page) + "\n\n"
 }
 
 // indentedJSON is JSON.stringify(value, null, 2): readable, with no HTML escaping.

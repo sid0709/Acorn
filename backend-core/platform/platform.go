@@ -20,6 +20,7 @@ import (
 	"github.com/sid0709/OpenSeat/backend-core/scout"
 	"github.com/sid0709/OpenSeat/backend-core/staff"
 	"go.mongodb.org/mongo-driver/v2/mongo"
+	"golang.org/x/sync/errgroup"
 )
 
 // Platform is a database connection and the stores built over it.
@@ -124,12 +125,18 @@ func (p *Platform) ensureIndexes(ctx context.Context) error {
 		{"scout", p.Scouts},
 		{"jobscam", p.ScamHolds},
 	}
+	// Each store owns its own collections, so the builds run side by side
+	// instead of paying one network round trip after another.
+	group, ctx := errgroup.WithContext(ctx)
 	for _, item := range indexed {
-		if err := item.store.EnsureIndexes(ctx); err != nil {
-			return fmt.Errorf("%s indexes: %w", item.name, err)
-		}
+		group.Go(func() error {
+			if err := item.store.EnsureIndexes(ctx); err != nil {
+				return fmt.Errorf("%s indexes: %w", item.name, err)
+			}
+			return nil
+		})
 	}
-	return nil
+	return group.Wait()
 }
 
 // Mongo returns the shared database client.

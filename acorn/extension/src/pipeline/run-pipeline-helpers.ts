@@ -1,5 +1,5 @@
-import type { PauseRequest } from "@acorn/shared/plan-runner/types";
 import type { DomNode } from "../types";
+import type { PauseRequest, RunReport } from "@acorn/shared/plan-runner/types";
 
 export function shortLabel(expectedLabel: string | null | undefined, action: string): string {
   const label = (expectedLabel || "").trim();
@@ -19,4 +19,19 @@ export async function autoPauseDecision(request: PauseRequest) {
 
 export function countDomNodes(node: DomNode): number {
   return 1 + node.children.reduce((sum, child) => sum + countDomNodes(child), 0);
+}
+
+/** One report for a run in two passes; the late pass's steps follow the first pass's. */
+export function mergeReports(first: RunReport, late: RunReport): RunReport {
+  const offset = first.steps.length;
+  const summary = { ...first.summary };
+  for (const key of Object.keys(summary) as (keyof RunReport["summary"])[]) {
+    summary[key] += late.summary[key];
+  }
+  return {
+    ok: first.ok && late.ok,
+    aborted: first.aborted || late.aborted,
+    steps: [...first.steps, ...late.steps.map((step) => ({ ...step, index: step.index + offset }))],
+    summary,
+  };
 }

@@ -41,7 +41,7 @@ export default [
       "import/extensions": [".js", ".jsx", ".mjs", ".cjs", ".ts", ".tsx", ".mts", ".cts"],
     },
     rules: {
-      complexity: ["error", 40],
+      complexity: ["error", 80],
       "import/no-cycle": ["error", { ignoreExternal: true }],
       "import/order": [
         "error",

@@ -19,16 +19,18 @@ type analyzeDebug struct {
 
 // traceContext attaches the user's current debug run, so model calls land in it.
 func (s *Server) traceContext(r *http.Request, userID string) context.Context {
+	ctx := s.withUsage(r, userID)
 	if s.debug == nil {
-		return r.Context()
+		return ctx
 	}
-	return debugtrace.WithRun(r.Context(), s.debug.Latest(userID))
+	return debugtrace.WithRun(ctx, s.debug.Latest(userID))
 }
 
 // startAnalyzeRun opens a run for this Analyze and saves what the planner is given.
 func (s *Server) startAnalyzeRun(r *http.Request, userID, applicant, pureTree string, page map[string]any, debug *analyzeDebug) context.Context {
+	ctx := s.withUsage(r, userID)
 	if s.debug == nil {
-		return r.Context()
+		return ctx
 	}
 	run := s.debug.StartRun(userID, pageLabel(page))
 	run.WriteJSON("page.json", page)
@@ -43,10 +45,20 @@ func (s *Server) startAnalyzeRun(r *http.Request, userID, applicant, pureTree st
 	}
 	run.WriteFile("pure-tree.txt", []byte(pureTree))
 	run.WriteFile("applicant.txt", []byte(applicant))
-	return debugtrace.WithRun(r.Context(), run)
+	return debugtrace.WithRun(ctx, run)
 }
 
 // finishAnalyzeRun saves the plan the extension receives, or why there is none.
+// recordFormFields saves the field list the fast planner read next to its plan.
+func recordFormFields(ctx context.Context, fields any) {
+	debugtrace.RunFrom(ctx).WriteJSON("form-fields.json", fields)
+}
+
+// recordFieldIssues saves what Refill read from the page next to its plan.
+func recordFieldIssues(ctx context.Context, scan any) {
+	debugtrace.RunFrom(ctx).WriteJSON("field-issues.json", scan)
+}
+
 func finishAnalyzeRun(ctx context.Context, result any, err error) {
 	run := debugtrace.RunFrom(ctx)
 	if err != nil {

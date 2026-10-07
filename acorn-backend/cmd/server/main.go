@@ -5,20 +5,24 @@ package main
 
 import (
 	"context"
+	"fmt"
 	"log/slog"
 	"os"
 
 	"github.com/sid0709/OpenSeat/acorn-backend/account"
 	"github.com/sid0709/OpenSeat/acorn-backend/acorn"
 	"github.com/sid0709/OpenSeat/acorn-backend/acornapi"
+	"github.com/sid0709/OpenSeat/acorn-backend/aiusage"
 	"github.com/sid0709/OpenSeat/acorn-backend/debugtrace"
+	"github.com/sid0709/OpenSeat/acorn-backend/mailbox"
 	"github.com/sid0709/OpenSeat/acorn-backend/profile"
 	"github.com/sid0709/OpenSeat/acorn-backend/resume"
-	"github.com/sid0709/OpenSeat/backend-core/aisettings"
 	"github.com/sid0709/OpenSeat/backend-core/config"
 	"github.com/sid0709/OpenSeat/backend-core/google"
 	"github.com/sid0709/OpenSeat/backend-core/httpkit"
+	"github.com/sid0709/OpenSeat/backend-core/jev"
 	"github.com/sid0709/OpenSeat/backend-core/platform"
+	"golang.org/x/sync/errgroup"
 )
 
 const (
@@ -61,39 +65,56 @@ func main() {
 		slog.Error("config", "error", err)
 		os.Exit(1)
 	}
-	ai := config.LoadOpenAI()
 	googleConfig := config.LoadGoogle()
 	oauth := &google.Client{ClientID: googleConfig.ClientID, ClientSecret: googleConfig.ClientSecret}
 	if !oauth.Configured() || googleConfig.SignInRedirectURL == "" {
 		slog.Warn("Google sign-in is off until GOOGLE_CLIENT_ID, GOOGLE_CLIENT_SECRET, and GOOGLE_SIGNIN_REDIRECT_URL are set")
 	}
+	if !oauth.Configured() || googleConfig.GmailRedirectURL == "" {
+		slog.Warn("Gmail is off until GOOGLE_CLIENT_ID, GOOGLE_CLIENT_SECRET, and a Gmail redirect are set (GOOGLE_GMAIL_REDIRECT_URL, or GOOGLE_SIGNIN_REDIRECT_URL ending in /auth/google/callback)")
+	}
 
-	p, err := platform.Open(context.Background(), db, platform.Options{SettingsKey: config.Env("SETTINGS_ENCRYPTION_KEY", "")})
+	p, err := platform.Open(context.Background(), db, platform.Options{})
 	if err != nil {
 		slog.Error("platform", "error", config.Redact(err, db.MongoURI))
 		os.Exit(1)
 	}
 	defer p.Close()
 
-	// Staff save the key in the admin console; OPENAI_API_KEY is the fallback.
-	model := aisettings.NewModel(p.AISettings, ai)
-	if !model.Ready() {
-		slog.Warn("No AI key yet: Acorn's AI routes answer 503 until staff save one in the admin console or OPENAI_API_KEY is set")
-	}
 	reporter := httpkit.NewReporter(config.LoadErrorReporting().SentryDSN)
 	accounts := account.NewStore(p.Mongo(), db.DestDB)
 	if err := accounts.EnsureIndexes(context.Background()); err != nil {
 		slog.Error("acorn accounts", "error", err)
 		os.Exit(1)
 	}
-	resumes := resume.New(resume.NewStore(p.Mongo(), db.DestDB), model)
-	if err := resumes.EnsureIndexes(context.Background()); err != nil {
-		slog.Error("acorn resumes", "error", err)
-		os.Exit(1)
+	resumes := resume.New(resume.NewStore(p.Mongo(), db.DestDB), nil)
+	profiles := profile.NewStore(p.Mongo(), db.DestDB, nil)
+	usage := aiusage.NewStore(p.Mongo(), db.DestDB)
+	gmailGoogle := &mailbox.Google{OAuth: oauth, RedirectURL: googleConfig.GmailRedirectURL}
+	gmailStore := mailbox.NewStore(p.Mongo(), db.DestDB, gmailGoogle)
+
+	// Each store owns its own collections, so the index builds run side by side.
+	indexed := []struct {
+		name  string
+		store interface{ EnsureIndexes(context.Context) error }
+	}{
+		{"acorn accounts", accounts},
+		{"acorn resumes", resumes},
+		{"acorn profiles", profiles},
+		{"acorn ai usage", usage},
+		{"acorn gmail", gmailStore},
 	}
-	profiles := profile.NewStore(p.Mongo(), db.DestDB, model)
-	if err := profiles.EnsureIndexes(context.Background()); err != nil {
-		slog.Error("acorn profiles", "error", err)
+	indexGroup, indexCtx := errgroup.WithContext(context.Background())
+	for _, item := range indexed {
+		indexGroup.Go(func() error {
+			if err := item.store.EnsureIndexes(indexCtx); err != nil {
+				return fmt.Errorf("%s: %w", item.name, err)
+			}
+			return nil
+		})
+	}
+	if err := indexGroup.Wait(); err != nil {
+		slog.Error("acorn indexes", "error", err)
 		os.Exit(1)
 	}
 	// Local debug capture: pages, profiles, prompts, and plans land on disk. Never set in production.
@@ -101,7 +122,7 @@ func main() {
 	if debug != nil {
 		slog.Warn("Acorn debug capture is on: page HTML, applicant profiles, and AI prompts are written to disk", "dir", debug.Dir())
 	}
-	acornHandler, gateway := acornapi.New(accounts, p.Jobs, acorn.New(model), acornapi.Options{
+	acornHandler, gateway := acornapi.New(accounts, p.Jobs, acorn.New(nil), acornapi.Options{
 		Resumes:       resumes,
 		Profiles:      profiles,
 		SessionCookie: config.Env("ACORN_SESSION_COOKIE", acornapi.DefaultSessionCookie),
@@ -112,9 +133,15 @@ func main() {
 		KillSwitches:      p.KillSwitches,
 		Google:            oauth,
 		GoogleRedirectURL: googleConfig.SignInRedirectURL,
+		Gmail:             gmailStore,
+		GmailRedirectURL:  googleConfig.GmailRedirectURL,
 		Debug:             debug,
+		Usage:             usage,
 	})
 	defer gateway.Close()
+
+	// The SelectorGateway's first Jev decision would otherwise open the TLS connection.
+	go jev.Warm(context.Background())
 
 	handler := routes(server.Origins, httpkit.Health(p.Jobs), acornHandler, slog.Default(), reporter)
 	if err := httpkit.Serve("acorn api", server.Addr, handler); err != nil {

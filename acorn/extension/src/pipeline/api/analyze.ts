@@ -1,7 +1,11 @@
-import type { AiUsageSummary } from "@acorn/shared/ai-usage";
-import type { ActionPlan } from "@acorn/shared/plan-runner/types";
 import { authHeaders, getAcornApiUrl } from "../../auth/acorn-auth";
+
 import { extractError } from "./http";
+
+import type { AiUsageSummary } from "@acorn/shared/ai-usage";
+import type { FieldIssueScan, FillMode } from "@acorn/shared/field-issues";
+import type { FAST_PLAN_MODE, FormField } from "@acorn/shared/form-fields";
+import type { ActionPlan } from "@acorn/shared/plan-runner/types";
 
 export interface AiAnalyzePage {
   title?: string;
@@ -22,6 +26,10 @@ export interface AiAnalyzePage {
 export interface AiAnalyzeRequest {
   /** Sole tree the planner reads; control attrs ride on each node's `detail`. */
   pureTree: string;
+  /** Refill plans fixes for `fieldIssues` only; fast plans from `formFields`; Fill (default) plans every field. */
+  mode?: FillMode | typeof FAST_PLAN_MODE;
+  fieldIssues?: FieldIssueScan;
+  formFields?: FormField[];
   page?: AiAnalyzePage | null;
   /** Debug builds only: saved by a backend running with ACORN_DEBUG_DIR, never sent to the model. */
   debug?: { html?: string; domTree?: unknown; metaTree?: string };
@@ -34,16 +42,19 @@ export interface AiAnalyzeResponse {
   responseId?: string | null;
   error?: string;
   usage?: AiUsageSummary;
+  /** Echoed by a backend that planned a Refill or a fast plan; absent on a full Fill plan. */
+  mode?: FillMode | typeof FAST_PLAN_MODE;
 }
 
 export async function requestAiAnalyze(
   payload: AiAnalyzeRequest,
   _apiUrl?: string,
+  tabId?: number | null,
 ): Promise<AiAnalyzeResponse> {
   const base = (_apiUrl || (await getAcornApiUrl())).replace(/\/$/, "");
   const res = await fetch(`${base}/acorn/ai-analyze`, {
     method: "POST",
-    headers: await authHeaders(),
+    headers: await authHeaders(tabId),
     body: JSON.stringify(payload),
   });
 

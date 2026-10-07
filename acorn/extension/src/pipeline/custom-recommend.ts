@@ -1,5 +1,6 @@
 import { getCustomTab, patchCustomTab } from "../tab-custom-session";
-import { extractRememberedTabJd } from "./custom-page-jd";
+
+import { readRememberedTabPosting } from "./custom-page-jd";
 import { runResumeRecommend } from "./run-recommend";
 
 export async function runCustomRecommend(args: {
@@ -11,8 +12,9 @@ export async function runCustomRecommend(args: {
   await runResumeRecommend({
     source: "custom",
     apiUrl,
+    tabId,
     continue: Boolean(args.continue),
-    loadJd: () => extractRememberedTabJd(tabId, apiUrl),
+    loadJd: () => readRememberedTabPosting(tabId),
     store: {
       patch: async (partial) => {
         await patchCustomTab(tabId, partial);
@@ -30,6 +32,7 @@ export async function runCustomRecommend(args: {
           recommendedResumeId: result.recommendedResumeId,
           recommendedResumeStack: result.recommendedResumeStack,
           recommendedResumeReason: result.recommendedResumeReason,
+          recommendedTop: result.recommendedTop,
           generateStatus: "completed",
           generateError: null,
           generateProgress: null,

@@ -2,6 +2,7 @@ import { isAcornSocketConnected, scheduleConnectAcornSocket } from "./acorn-sock
 import { rekeyPipelineUsage } from "./pipeline/usage-tracker";
 import { bindContentScriptInjection, injectIntoOpenTabs } from "./inject-content";
 import { rekeyTabJob, unbindTabJob } from "./tab-job-session";
+import { rekeyUsageTab } from "./tab-usage-key";
 import { rekeyCustomTab, refreshCustomTabMeta, unbindCustomTab } from "./tab-custom-session";
 import { clearTabPipeline, rekeyTabPipeline } from "./tab-pipeline-session";
 import { MSG, ACORN_SIDEBAR_PORT } from "./types";
@@ -71,6 +72,7 @@ chrome.tabs.onReplaced.addListener((addedTabId, removedTabId) => {
   }
   rekeyPipelineUsage(removedTabId, addedTabId);
   void rekeyTabJob(removedTabId, addedTabId);
+  void rekeyUsageTab(removedTabId, addedTabId);
   void rekeyCustomTab(removedTabId, addedTabId);
   void rekeyTabPipeline(removedTabId, addedTabId);
 });

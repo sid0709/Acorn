@@ -26,6 +26,7 @@ export function isCustomResumeFile(
 export function isExecutableStep(action: PlanAction["action"]): boolean {
   return (
     action === "fill" ||
+    action === "clear" ||
     action === "upload" ||
     action === "resume_upload" ||
     action === "select_radio" ||

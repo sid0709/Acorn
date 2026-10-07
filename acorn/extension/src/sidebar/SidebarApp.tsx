@@ -1,5 +1,7 @@
 import { useEffect, useMemo, useState } from "react";
+import { FILL_MODE } from "@acorn/shared/field-issues";
 import { isFillPhaseBusy } from "@acorn/shared/pipeline-types";
+import { RUN_OUTCOME } from "@acorn/shared/run-types";
 import { customTabHasResume } from "../tab-custom-session";
 import { countBusyWorkers, tabInputFromProgress } from "../acorn-face/director";
 import { useCompanionFace } from "../acorn-face/use-companion-face";
@@ -8,7 +10,13 @@ import { hostOf } from "./custom-tab-resume";
 import { NowCard } from "./NowCard";
 import { SidebarHeader } from "./SidebarHeader";
 import { SidebarNav, type AcornMainTab } from "./SidebarNav";
-import { actionBarState, isAnyTabWorking, isGenerateBusy } from "./sidebar-work-state";
+import {
+  REFILL_HINT,
+  RUN_HINT,
+  actionBarState,
+  isAnyTabWorking,
+  isGenerateBusy,
+} from "./sidebar-work-state";
 import { useActiveTabId } from "./use-active-tab";
 import { usePlanInspect } from "./use-plan-inspect";
 import { useResumePreview } from "./use-resume-preview";
@@ -17,7 +25,6 @@ import { useSocketStatus } from "./use-socket-status";
 import { useTabSession } from "./use-tab-session";
 import { useTabUi } from "./use-tab-ui";
 import { useTabWork } from "./use-tab-work";
-import { useWorkerJobs } from "./use-worker-jobs";
 import { AskPanel } from "./AskPanel";
 import { CustomPanel } from "./CustomPanel";
 import { JobsPanel } from "./JobsPanel";
@@ -28,16 +35,8 @@ import "./SidebarApp.css";
 
 export default function SidebarApp() {
   const activeTabId = useActiveTabId();
-  const {
-    tabJob,
-    customTab,
-    customList,
-    jobGenerates,
-    pipelines,
-    progress,
-    attachments,
-    setPipelines,
-  } = useTabSession(activeTabId);
+  const { tabJob, customTab, customList, jobGenerates, pipelines, progress, setPipelines } =
+    useTabSession(activeTabId);
 
   const [jdPreview, setJdPreview] = useState<JdPreview | null>(null);
   const [mainTab, setMainTab] = useState<AcornMainTab>("fill");
@@ -50,19 +49,7 @@ export default function SidebarApp() {
   });
   const connected = useSocketStatus(session, apiUrl);
   const { ui, patchTabUi } = useTabUi(activeTabId, progress);
-  const {
-    workerJobs,
-    workerJobsLoading,
-    workerJobsError,
-    openingJobId,
-    markingJobId,
-    jobsListKey,
-    fetchWorkerJobs,
-    openWorkerJob,
-    markJobApplied,
-  } = useWorkerJobs({ session, activeTabId, attachments });
-  const { preview, setPreview, openJobResumePreview, openCustomResumePreview } =
-    useResumePreview(jobGenerates);
+  const { preview, setPreview, openCustomResumePreview } = useResumePreview(jobGenerates);
 
   const fillBusy = isFillPhaseBusy(progress.phase);
   const generateBusy = isGenerateBusy(customTab, tabJob, jobGenerates);
@@ -77,23 +64,40 @@ export default function SidebarApp() {
     busyCounts.working > 0 ? "working" : busyCounts.thinking > 0 ? "thinking" : "waiting";
   const fillErrorText =
     progress.phase === "error" ? progress.error || progress.message || "Fill failed" : null;
+  const runErrored = progress.run?.report?.outcome === RUN_OUTCOME.failed;
 
   useEffect(() => {
     if (!fillErrorText) return;
     pushAcornNotice({
       kind: "error",
-      title: "Fill couldn’t finish",
+      title: runErrored ? "Run stopped" : "Fill couldn’t finish",
       detail: fillErrorText,
     });
-  }, [fillErrorText]);
+  }, [fillErrorText, runErrored]);
+
+  const runDoneText =
+    progress.phase === "done" && progress.run?.report?.outcome === RUN_OUTCOME.completed
+      ? progress.message
+      : null;
+  useEffect(() => {
+    if (!runDoneText) return;
+    pushAcornNotice({ kind: "success", title: "Run finished", detail: runDoneText });
+  }, [runDoneText]);
+
+  const refillDoneText =
+    progress.phase === "done" && progress.mode === FILL_MODE.refill ? progress.message : null;
+  useEffect(() => {
+    if (!refillDoneText) return;
+    pushAcornNotice({ kind: "info", title: "Refill finished", detail: refillDoneText });
+  }, [refillDoneText]);
 
   const {
     remembering,
     startPipeline,
+    startRun,
     rememberFocusedTab,
     forgetCustomTab,
     focusCustomTab,
-    startJobWork,
     startCustomWork,
   } = useTabWork({
     activeTabId,
@@ -102,7 +106,6 @@ export default function SidebarApp() {
     customTab,
     setPipelines,
     tabWorkBusy,
-    workerJobs,
   });
 
   const {
@@ -136,23 +139,18 @@ export default function SidebarApp() {
     qaError: qaStatus.error,
     inspectOpen: Boolean(ui.inspect || preview || helpOpen),
     connectionOpen: settingsOpen,
-    jobsLoading: workerJobsLoading,
-    jobsEmpty:
-      Boolean(session) &&
-      mainTab === "fill" &&
-      !workerJobsLoading &&
-      !workerJobsError &&
-      workerJobs.length === 0,
-    jobsError: Boolean(workerJobsError),
+    jobsLoading: false,
+    jobsEmpty: false,
+    jobsError: false,
     customEmpty: Boolean(session) && mainTab === "custom" && customList.length === 0,
-    opening: Boolean(openingJobId) || remembering,
-    marking: Boolean(markingJobId),
+    opening: remembering,
+    marking: false,
   });
 
   const customLocked = mainTab === "custom" && !customTab;
   const fillLocked = mainTab === "fill" && !tabJob;
   const rememberFirst = "Remember this tab first";
-  const openJobFirst = "Open a Worker pool job first";
+  const openJobFirst = "No job on this tab";
   const actionsOff = tabWorkBusy || !session || activeTabId == null || customLocked;
   const {
     attachedJobGenerate,
@@ -161,18 +159,18 @@ export default function SidebarApp() {
     generateLabel,
     recommendLabel,
     fillLabel,
+    refillLabel,
+    runLabel,
   } = actionBarState({
     mainTab,
     tabJob,
     customTab,
     jobGenerates,
-    workerJobs,
     progress,
     fillBusy,
     generateBusy,
   });
 
-  const tabWorkJob = tabJob ? (workerJobs.find((job) => job.id === tabJob.jobId) ?? null) : null;
   const headerContext =
     mainTab === "custom" && customTab
       ? hostOf(customTab.url)
@@ -180,11 +178,23 @@ export default function SidebarApp() {
         ? `${tabJob.company} · ${tabJob.title}`
         : "No job on this tab";
   const nowActions = {
+    run: {
+      label: runLabel,
+      title: RUN_HINT,
+      disabled: tabWorkBusy || !session || activeTabId == null,
+      onClick: () => void startRun(),
+    },
     fill: {
       label: fillLabel,
       title: customLocked ? rememberFirst : fillLabel,
       disabled: actionsOff,
       onClick: () => void startPipeline(mainTab === "custom" ? "custom" : "fill"),
+    },
+    refill: {
+      label: refillLabel,
+      title: customLocked ? rememberFirst : REFILL_HINT,
+      disabled: actionsOff,
+      onClick: () => void startPipeline(mainTab === "custom" ? "custom" : "fill", FILL_MODE.refill),
     },
     generate: {
       label: generateLabel,
@@ -221,7 +231,6 @@ export default function SidebarApp() {
     <NowCard
       mainTab={tab}
       tabJob={tabJob}
-      job={tabWorkJob}
       jobGenerate={attachedJobGenerate}
       customTab={customTab}
       progress={progress}
@@ -260,22 +269,9 @@ export default function SidebarApp() {
             <JobsPanel
               mainTab={mainTab}
               nowCard={nowCard("fill")}
-              workerJobs={workerJobs}
-              workerJobsLoading={workerJobsLoading}
-              workerJobsError={workerJobsError}
-              openingJobId={openingJobId}
-              markingJobId={markingJobId}
-              jobsListKey={jobsListKey}
-              fetchWorkerJobs={fetchWorkerJobs}
-              openWorkerJob={openWorkerJob}
-              markJobApplied={markJobApplied}
-              tabJob={tabJob}
-              attachments={attachments}
-              pipelines={pipelines}
-              jobGenerates={jobGenerates}
-              openJobResumePreview={openJobResumePreview}
-              startJobWork={startJobWork}
-              setJdPreview={setJdPreview}
+              tabId={activeTabId}
+              signedIn={Boolean(session)}
+              socketConnected={connected}
             />
 
             <AskPanel
@@ -283,6 +279,7 @@ export default function SidebarApp() {
               fillBusy={fillBusy}
               setQaStatus={setQaStatus}
               tabJob={tabJob}
+              tabId={activeTabId}
             />
 
             <CustomPanel

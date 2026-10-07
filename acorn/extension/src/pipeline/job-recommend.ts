@@ -1,4 +1,5 @@
 import { getJobGenerate, patchJobGenerate } from "../tab-job-generate-session";
+
 import { loadFillJobJd } from "./job-generate";
 import { runResumeRecommend } from "./run-recommend";
 
@@ -16,6 +17,7 @@ export async function runJobRecommend(args: {
   await runResumeRecommend({
     source: "fill",
     apiUrl,
+    tabId: args.tabId,
     continue: Boolean(args.continue),
     loadJd: () =>
       loadFillJobJd({
@@ -40,6 +42,7 @@ export async function runJobRecommend(args: {
         await patchJobGenerate(jobId, {
           recommendedResumeId: result.recommendedResumeId,
           recommendedResumeStack: result.recommendedResumeStack,
+          recommendedTop: result.recommendedTop,
           generateStatus: "completed",
           generateError: null,
           generateProgress: null,

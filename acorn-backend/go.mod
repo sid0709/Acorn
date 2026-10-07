@@ -8,6 +8,8 @@ require (
 	github.com/zishang520/socket.io/v3 v3.0.6
 	go.mongodb.org/mongo-driver/v2 v2.9.1
 	golang.org/x/crypto v0.57.0
+	golang.org/x/sync v0.23.0
+	golang.org/x/text v0.42.0
 )
 
 require (
@@ -30,9 +32,7 @@ require (
 	github.com/zishang520/socket.io/parsers/socket/v3 v3.0.6 // indirect
 	github.com/zishang520/socket.io/servers/engine/v3 v3.0.6 // indirect
 	golang.org/x/net v0.59.0 // indirect
-	golang.org/x/sync v0.23.0 // indirect
 	golang.org/x/sys v0.48.0 // indirect
-	golang.org/x/text v0.42.0 // indirect
 )
 
 replace github.com/sid0709/OpenSeat/backend-core => ../backend-core

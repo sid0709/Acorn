@@ -31,22 +31,37 @@ function resolveOptionElement(options: HTMLElement[], label: string): HTMLElemen
   );
 }
 
+export type OptionDecision = {
+  /** The option to select; null only when "not listed" was allowed and chosen. */
+  match: HTMLElement | null;
+  /** The best listed option, usable when the list cannot be searched further. */
+  fallback: HTMLElement | null;
+};
+
+const NO_DECISION: OptionDecision = { match: null, fallback: null };
+
 /**
- * One AI decision over exactly these candidates. The matcher returns null when the
- * intended answer is not among them, and that is final for this list.
+ * One SelectorGateway (Jev) decision over exactly these options. Without
+ * `allowNotListed` it always picks one: the option that means the value, or the
+ * closest one an applicant would choose (a broader category, or "Other").
  */
 export async function decideAmongOptions(
   options: HTMLElement[],
   value: string,
   fieldLabel: string | null,
   typedQuery: string | null,
-): Promise<HTMLElement | null> {
-  if (!options.length || !value.trim()) return null;
+  allowNotListed: boolean,
+): Promise<OptionDecision> {
+  if (!options.length || !value.trim()) return NO_DECISION;
   const ai = await askAiMatchOption({
     intendedValue: value,
     options: options.map(optionText),
     fieldLabel,
     typedQuery,
+    allowNotListed,
   });
-  return ai.matched_option ? resolveOptionElement(options, ai.matched_option) : null;
+  return {
+    match: ai.matched_option ? resolveOptionElement(options, ai.matched_option) : null,
+    fallback: ai.fallback_option ? resolveOptionElement(options, ai.fallback_option) : null,
+  };
 }

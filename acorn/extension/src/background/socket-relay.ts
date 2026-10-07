@@ -1,7 +1,10 @@
 import type { Socket } from "socket.io-client";
+
+import { recordPushedUsage } from "./tab-usage-store";
 import { sendPlanStepToTab } from "../tab-messaging";
 import {
   MSG,
+  SOCKET_EVENT,
   type ExecuteActionsPayload,
   type GetContentPayload,
   type HighlightPayload,
@@ -9,6 +12,10 @@ import {
 } from "../types";
 
 export function bindSocketRelay(socket: Socket): void {
+  socket.on(SOCKET_EVENT.aiUsageRecorded, (payload: unknown) => {
+    void recordPushedUsage(payload).catch(() => undefined);
+  });
+
   socket.on("dom:highlight", async (payload: HighlightPayload) => {
     const { tabId, nodeId } = payload;
     if (!tabId || nodeId == null) return;

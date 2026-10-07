@@ -10,8 +10,9 @@ import {
   toGenerateEnqueueCheckpoint,
   type GenerateCheckpoint,
 } from "@acorn/shared/generate-checkpoint";
-import type { CustomGenerateStatus, CustomWorkKind } from "../tab-custom-session";
+
 import { broadcastOperatorNotice } from "../operator-notice";
+
 import { fetchCustomResume } from "./api/custom-files";
 import {
   continueCustomGenerate,
@@ -24,6 +25,8 @@ import {
   type CustomGeneratePhase,
   type CustomUiProgress,
 } from "./custom-generate-progress";
+
+import type { CustomGenerateStatus, CustomWorkKind } from "../tab-custom-session";
 
 const POLL_MS = 400;
 const GENERATE_TIMEOUT_MS = 5 * 60_000;
@@ -81,10 +84,11 @@ export async function runResumeGenerate(args: {
   apiUrl: string;
   continue?: boolean;
   jobId?: string | null;
+  tabId?: number | null;
   loadJd: () => Promise<{ jobDescription: string; title?: string; url?: string }>;
   store: ResumeGenerateStore;
 }): Promise<void> {
-  const { source, apiUrl, jobId, loadJd, store } = args;
+  const { source, apiUrl, jobId, tabId, loadJd, store } = args;
   const existing = args.continue ? await store.readCheckpoint() : null;
   const resumable = args.continue && existing && canContinueGenerate("failed", existing);
 
@@ -172,6 +176,7 @@ export async function runResumeGenerate(args: {
                 checkpoint: enqueueCheckpoint,
               },
               apiUrl,
+              tabId,
             )
           : enqueueCustomGenerate(
               {
@@ -180,6 +185,7 @@ export async function runResumeGenerate(args: {
                 checkpoint: resumable ? enqueueCheckpoint : null,
               },
               apiUrl,
+              tabId,
             );
       const { inputId } = await enqueue;
       checkpoint = {

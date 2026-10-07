@@ -2,6 +2,7 @@ import type { PlanStepPayload, PlanStepResult } from "../types";
 import { rewriteApplicantIdentityValue } from "@acorn/shared/plan-runner/applicant-identity";
 import { isCustomResumeFile } from "@acorn/shared/plan-runner/step-file";
 import { controlAlreadyMatches } from "./agents/already-filled";
+import { clearElement } from "./agents/clear";
 import { fillElement } from "./agents/fill";
 import { rememberPlanFilled } from "./agents/plan-fill-registry";
 import { readControlValue } from "./agents/read-control-value";
@@ -11,7 +12,7 @@ import { uploadFileToElement } from "./agents/upload";
 import { validateElementIndexes } from "./agents/validate";
 import { waitMs } from "./agents/wait";
 import { highlightElement } from "./highlighter";
-import { verifyElementByPlan } from "./verify-element";
+import { verifyElementByPlan, type VerifyResult } from "./verify-element";
 import { relocateElementByPlan } from "./verify/relocate";
 import { traceFromPage } from "../debug-trace";
 import { comboSnapshot, describeEl, describeWidget } from "./debug-snapshot";
@@ -122,7 +123,20 @@ export async function runPlanStep(step: PlanStepPayload): Promise<PlanStepResult
     }
   }
 
+  return actOnVerified(step, verified);
+}
+
+/**
+ * Run one step on the control it resolved to. A repair calls this directly with
+ * the control it recorded, since node ids from an earlier read no longer hold.
+ */
+export async function actOnVerified(
+  step: PlanStepPayload,
+  verified: VerifyResult,
+): Promise<PlanStepResult> {
   const el = verified.element;
+  // A replayed step has no node id from this read; its control was resolved already.
+  const nodeId = step.element_index ?? undefined;
   if (!el) {
     return {
       ok: false,
@@ -162,20 +176,37 @@ export async function runPlanStep(step: PlanStepPayload): Promise<PlanStepResult
       verified: true,
       acted: false,
       details: {
-        nodeId: step.element_index,
+        nodeId,
         matchedLabel: verified.matchedLabel,
         matchedRole: verified.matchedRole,
       },
     };
   }
 
+  if (step.action === "clear" && !readControlValue(el)) {
+    return {
+      ok: true,
+      verified: true,
+      acted: false,
+      alreadyFilled: true,
+      details: {
+        nodeId,
+        matchedLabel: verified.matchedLabel,
+        matchedRole: verified.matchedRole,
+        valueAfter: "",
+      },
+    };
+  }
+
   // Resume / browser autofill may already populate the control — don't overwrite
-  // when the live value already matches the planned answer.
+  // when the live value already matches the planned answer. Refill forces the
+  // write: the page rejected what the control shows.
   if (
-    step.action === "fill" ||
-    step.action === "select_radio" ||
-    step.action === "upload" ||
-    step.action === "resume_upload"
+    !step.force &&
+    (step.action === "fill" ||
+      step.action === "select_radio" ||
+      step.action === "upload" ||
+      step.action === "resume_upload")
   ) {
     const prior = controlAlreadyMatches(el, intended, {
       fileName: step.file?.name ?? null,
@@ -187,14 +218,14 @@ export async function runPlanStep(step: PlanStepPayload): Promise<PlanStepResult
       current: prior.current,
     }));
     if (prior.matched) {
-      rememberPlanFilled(el);
+      rememberPlanFilled(el, step);
       return {
         ok: true,
         verified: true,
         acted: false,
         alreadyFilled: true,
         details: {
-          nodeId: step.element_index,
+          nodeId,
           matchedLabel: verified.matchedLabel,
           matchedRole: verified.matchedRole,
           valueAfter: prior.current,
@@ -212,6 +243,10 @@ export async function runPlanStep(step: PlanStepPayload): Promise<PlanStepResult
           throw new Error("fill requires value");
         }
         valueAfter = await fillElement(el, intended, step.expected_label);
+        break;
+      }
+      case "clear": {
+        valueAfter = await clearElement(el);
         break;
       }
       case "upload": {
@@ -233,7 +268,7 @@ export async function runPlanStep(step: PlanStepPayload): Promise<PlanStepResult
         break;
       }
       case "select_radio": {
-        valueAfter = await selectRadioElement(el, intended);
+        valueAfter = await selectRadioElement(el, intended, step.expected_label);
         break;
       }
       default:
@@ -241,7 +276,7 @@ export async function runPlanStep(step: PlanStepPayload): Promise<PlanStepResult
     }
 
     const after = valueAfter ?? readControlValue(el);
-    rememberPlanFilled(el);
+    rememberPlanFilled(el, step);
     traceFromPage("step:acted", () => ({
       element_index: step.element_index,
       intended,
@@ -254,7 +289,7 @@ export async function runPlanStep(step: PlanStepPayload): Promise<PlanStepResult
       verified: true,
       acted: true,
       details: {
-        nodeId: step.element_index,
+        nodeId,
         matchedLabel: verified.matchedLabel,
         matchedRole: verified.matchedRole,
         valueAfter: after,
@@ -275,7 +310,7 @@ export async function runPlanStep(step: PlanStepPayload): Promise<PlanStepResult
       acted: false,
       error,
       details: {
-        nodeId: step.element_index,
+        nodeId,
         matchedLabel: verified.matchedLabel,
         matchedRole: verified.matchedRole,
       },

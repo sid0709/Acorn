@@ -9,6 +9,7 @@ import (
 
 	"github.com/sid0709/OpenSeat/acorn-backend/resume"
 	"github.com/sid0709/OpenSeat/backend-core/candidate"
+	"github.com/sid0709/OpenSeat/backend-core/openai"
 )
 
 // Filled is a profile after a résumé fill, and which reader read the résumé.
@@ -30,8 +31,8 @@ func (s *Store) FillText(ctx context.Context, accountID, accountName, accountEma
 		return Filled{}, err
 	}
 	reader := ReaderLayout
-	if s.model != nil && s.model.Ready() {
-		found, err := readResume(ctx, s.model, text)
+	if model := s.reader(next); model != nil {
+		found, err := readResume(ctx, model, text)
 		if err != nil {
 			slog.Warn("acorn profile: résumé read by layout only", "error", err)
 		} else {
@@ -52,6 +53,19 @@ func (s *Store) FillFile(ctx context.Context, accountID, accountName, accountEma
 		return Filled{}, ErrInvalid
 	}
 	return s.FillText(ctx, accountID, accountName, accountEmail, fileText(fileName, data), current)
+}
+
+// reader is the model for this fill. A bound model (tests) wins. Otherwise the
+// key already on the profile is used. No key leaves the layout parser in charge.
+func (s *Store) reader(doc Document) Model {
+	if s.model != nil && s.model.Ready() {
+		return s.model
+	}
+	client := openai.OpenRouter(doc.OpenrouterApiKey)
+	if !client.Ready() {
+		return nil
+	}
+	return client
 }
 
 func (s *Store) base(ctx context.Context, accountID, accountName, accountEmail string, current *Document) (Document, error) {

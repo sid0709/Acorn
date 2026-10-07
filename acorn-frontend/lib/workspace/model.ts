@@ -1,5 +1,4 @@
 import type { AcornAccount } from "@/lib/auth/session";
-import { isLabeling, type Labeling } from "./labels";
 import { isApplicantProfile, withDefaults, type ApplicantProfile } from "./profile";
 
 export const WORKSPACE_STORAGE_KEY = "acorn.workspace.v2";
@@ -11,8 +10,6 @@ const EMPTY_WORKSPACE: Workspace = {
   library: [],
   mailboxes: [],
   readMail: [],
-  gmailLabels: [],
-  labeling: null,
 };
 
 export const HEADLINE_MAX = 80;
@@ -62,9 +59,14 @@ function uploadsOnly(items: unknown[]): LibraryResume[] {
 export type Mailbox = {
   id: string;
   email: string;
+  /** The Google account's name and photo, saved when it connected. */
+  name: string;
+  picture: string;
   label: string;
   isDefault: boolean;
   watchesApplications: boolean;
+  /** The Gmail grant can apply labels. Older connections need to allow it again. */
+  canModify: boolean;
   connectedAt: string;
 };
 
@@ -73,12 +75,8 @@ export type Workspace = {
   resumes: ResumeDraft[];
   library: LibraryResume[];
   mailboxes: Mailbox[];
-  /** Message ids opened in the Gmail view. */
+  /** Gmail message ids opened in Acorn. This only changes how Acorn draws the row. */
   readMail: string[];
-  /** Your own Gmail labels; empty until you add one. */
-  gmailLabels: string[];
-  /** The last auto-label run, or null if it never ran. */
-  labeling: Labeling | null;
 };
 
 export function emptyWorkspace(): Workspace {
@@ -94,8 +92,6 @@ function parseWorkspace(raw: string): Workspace {
       library: Array.isArray(parsed.library) ? uploadsOnly(parsed.library) : [],
       mailboxes: Array.isArray(parsed.mailboxes) ? parsed.mailboxes : [],
       readMail: Array.isArray(parsed.readMail) ? parsed.readMail : [],
-      gmailLabels: Array.isArray(parsed.gmailLabels) ? parsed.gmailLabels : [],
-      labeling: isLabeling(parsed.labeling) ? parsed.labeling : null,
     };
   } catch {
     return EMPTY_WORKSPACE;

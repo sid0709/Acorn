@@ -8,6 +8,8 @@ import (
 	"net/http/httptest"
 	"strings"
 	"testing"
+
+	"github.com/sid0709/OpenSeat/backend-core/config"
 )
 
 const chatReply = `{"choices":[{"message":{"content":"{\"ok\":true}"}}]}`
@@ -53,6 +55,40 @@ func TestJSONObjectModePutsSchemaInPromptAndDisablesThinking(t *testing.T) {
 	}
 	if (*got)["thinking"].(map[string]any)["type"] != "disabled" {
 		t.Fatalf("thinking = %v", (*got)["thinking"])
+	}
+}
+
+func TestOpenRouterDisablesReasoning(t *testing.T) {
+	server, got := captureChat(t)
+	client := OpenRouter("key")
+	client.baseURL = server.URL
+	if client.Model() != config.OpenRouterModel || !client.Ready() {
+		t.Fatalf("model = %q ready = %v", client.Model(), client.Ready())
+	}
+	if _, err := client.JSON(context.Background(), "sys", "user", json.RawMessage(`{"type":"object"}`)); err != nil {
+		t.Fatal(err)
+	}
+	if (*got)["model"] != config.OpenRouterModel || (*got)["thinking"] != nil {
+		t.Fatalf("request = %v", *got)
+	}
+	reasoning := (*got)["reasoning"].(map[string]any)
+	if reasoning["effort"] != reasoningEffortNone {
+		t.Fatalf("reasoning = %v", reasoning)
+	}
+	format := (*got)["response_format"].(map[string]any)
+	if format["type"] != "json_schema" {
+		t.Fatalf("format = %v", format)
+	}
+}
+
+func TestOpenRouterWithoutKeyNamesTheProfile(t *testing.T) {
+	client := OpenRouter("  ")
+	if client.Ready() {
+		t.Fatal("blank key should not be ready")
+	}
+	_, err := client.JSON(context.Background(), "s", "u", nil)
+	if !errors.Is(err, ErrMissingOpenRouterKey) {
+		t.Fatalf("err = %v", err)
 	}
 }
 

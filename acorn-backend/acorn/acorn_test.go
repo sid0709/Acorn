@@ -4,18 +4,23 @@ import (
 	"context"
 	"encoding/json"
 	"strings"
+	"sync"
 	"testing"
 
 	"github.com/sid0709/OpenSeat/backend-core/candidate"
 )
 
-// fakeModel answers each call from a queue of replies, in order.
+// fakeModel answers each call from a queue of replies, in order. Calls may come
+// from parallel writers, so the queue is guarded.
 type fakeModel struct {
+	mu      sync.Mutex
 	replies []string
 	calls   []string
 }
 
 func (f *fakeModel) JSON(_ context.Context, system, user string, _ json.RawMessage) ([]byte, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
 	f.calls = append(f.calls, system[:20]+"|"+user)
 	if len(f.replies) == 0 {
 		return nil, context.DeadlineExceeded
@@ -51,8 +56,9 @@ func TestAnalyzePipeline(t *testing.T) {
 	if values[2] != "No" {
 		t.Errorf("AI-use answer = %q, want No", values[2])
 	}
-	if values[1] != "Because of the Heroku migration." || values[3] != "Jordan Lee" {
-		t.Errorf("typed answers not rewritten: %v", values)
+	// The writer rewrites prose (the textarea); a short fact keeps the planner's value.
+	if values[1] != "Because of the Heroku migration." || values[3] != "Jordan" {
+		t.Errorf("typed answers = %v, want prose rewritten and the name kept", values)
 	}
 	if !strings.Contains(model.calls[0], `"recommendedResumeAvailable": true`) {
 		t.Errorf("planner was not told a résumé can be attached:\n%s", model.calls[0])
@@ -79,56 +85,6 @@ func TestAnalyzeRejectsBadPlanAndEmptyTree(t *testing.T) {
 	}
 	if _, err := New(&fakeModel{}).Analyze(context.Background(), "P", "  ", nil); err == nil {
 		t.Error("empty tree should fail")
-	}
-}
-
-func TestMatchOptionRecoversListedString(t *testing.T) {
-	model := &fakeModel{replies: []string{`{"matched_option":"b. no, i am not a veteran","confidence":0.9,"reason":"r"}`}}
-	got, err := New(model).MatchOption(context.Background(), "No", []string{"A. Yes", "B. No, I am not a veteran"}, "Veteran", "")
-	if err != nil {
-		t.Fatal(err)
-	}
-	if got.MatchedOption == nil || *got.MatchedOption != "B. No, I am not a veteran" {
-		t.Fatalf("matched = %v", got.MatchedOption)
-	}
-}
-
-func TestMatchOptionAbsentIsNull(t *testing.T) {
-	model := &fakeModel{replies: []string{`{"matched_option":null,"confidence":0.9,"reason":"No option means no suffix"}`}}
-	got, err := New(model).MatchOption(context.Background(), "None", []string{"II", "III", "Jr."}, "Suffix", "")
-	if err != nil {
-		t.Fatal(err)
-	}
-	if got.MatchedOption != nil {
-		t.Fatalf("absent answer should be nil, got %q", *got.MatchedOption)
-	}
-	if !strings.Contains(model.calls[0], "or null if none of them") {
-		t.Fatalf("user prompt should allow null: %s", model.calls[0])
-	}
-}
-
-func TestMatchOptionSchemaAllowsNull(t *testing.T) {
-	var schema struct {
-		Properties struct {
-			MatchedOption struct {
-				Type []string `json:"type"`
-				Enum []any    `json:"enum"`
-			} `json:"matched_option"`
-		} `json:"properties"`
-	}
-	if err := json.Unmarshal(matchOptionSchema([]string{"II", "III"}), &schema); err != nil {
-		t.Fatal(err)
-	}
-	got := schema.Properties.MatchedOption
-	if strings.Join(got.Type, ",") != "string,null" || len(got.Enum) != 3 || got.Enum[2] != nil {
-		t.Fatalf("matched_option schema = %+v", got)
-	}
-}
-
-func TestMatchOptionMissingInput(t *testing.T) {
-	got, err := New(&fakeModel{}).MatchOption(context.Background(), "", []string{"x"}, "", "")
-	if err != nil || got.MatchedOption != nil || got.Reason != "Missing value or options" {
-		t.Fatalf("got %+v err %v", got, err)
 	}
 }
 

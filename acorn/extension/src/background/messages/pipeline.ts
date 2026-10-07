@@ -1,3 +1,4 @@
+import { FILL_MODE } from "@acorn/shared/field-issues";
 import { getAcornSocket } from "../../acorn-socket";
 import { getAccessToken, getAcornApiUrl } from "../../auth/acorn-auth";
 import { runFabPipeline } from "../../pipeline/run-pipeline";
@@ -29,6 +30,7 @@ export function handleStartPipeline(
     }
 
     const source = message.source === "custom" ? "custom" : "fill";
+    const mode = message.mode === FILL_MODE.refill ? FILL_MODE.refill : FILL_MODE.fill;
     if (source === "custom") {
       const customTab = await getCustomTab(tabId);
       if (!customTab) {
@@ -56,6 +58,7 @@ export function handleStartPipeline(
       await runFabPipeline({
         tabId,
         source,
+        mode,
         preferredFrameId: sender.tab ? (sender.frameId ?? null) : null,
         aiServerUrl: apiUrl,
         emitDomTree: (payload) => {

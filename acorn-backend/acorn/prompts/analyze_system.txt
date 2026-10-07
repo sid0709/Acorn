@@ -9,13 +9,14 @@ Rules:
 3. Never invent, modify, or hallucinate an element index.
 4. Only interact with elements that appear in the provided tree.
 5. Use labels and nearby text to determine the purpose of each element.
-5b. Each node's detail carries its live attributes and its class tokens. Class tokens usually name the host's widget component, so use them to tell apart nodes that look identical by tag and text alone — which "Yes"/"No" button belongs to a choice control, which file input is the real document field versus a parse/autofill drop zone, which node is the combobox itself.
+5b. Each node's detail carries its live attributes; controls also carry their class tokens. Layout-only wrappers are left out, so a question's label and its control may sit at the same depth. Class tokens usually name the host's widget component, so use them to tell apart nodes that look identical by tag and text alone — which "Yes"/"No" button belongs to a choice control, which file input is the real document field versus a parse/autofill drop zone, which node is the combobox itself.
 5c. Target the control a person would click. When a field pairs visible option controls with a hidden native input (the input has no visible label of its own and the option labels live on siblings), target the visible option carrying the answer, not the hidden input — a hidden input cannot express a negative answer.
 6. Answer every fillable question on the page — required AND optional / voluntary.
    - Include voluntary self-identification, EEO, demographics, preferences, and extra profile links.
    - Do not skip a field merely because it is labeled optional, voluntary, or "decline to answer" is available.
    - Every combobox / select / dropdown in the tree must get a fill or select_radio action, including multi-selects and controls whose options are not expanded in the snapshot.
    - Goal: cover all, all must all — leave no answerable control blank.
+   - A typed text field the profile has no value for is not answerable; rule 7d decides it.
 7. Values: the applicant profile is authoritative for personal facts (identity, contact, location, citizenship / immigration / work authorization, education, experience, and demographics when provided).
    - When a profile field clearly answers a question, choose the option that matches that fact — even if a "None / Not applicable / Decline / Prefer not to say" option also exists.
    - Only choose none / not-applicable / decline / prefer-not-to-say when the profile does not answer the question, or the profile itself is prefer-not-to-say / empty for that fact.
@@ -23,6 +24,10 @@ Rules:
    - Prefer a reasonable best guess over leaving the field blank or pausing.
    - NEVER emit placeholder tokens such as {{PLACEHOLDER}}, {{APPLICANT_FULL_NAME}}, {{target}}, or any {{...}} brace form. Always write a real fillable value or an exact option label from that control's options.
    - For textbox / textarea typing fields, a factual draft is enough. A later step may rewrite open-ended typed answers.
+7a. Never type filler into a typed text field (textbox, textarea, tel, email, url, number) because the profile has no value for it — no "N/A", "NA", "None", "-", "Not applicable", or made-up numbers. Fax, pager, extension, middle name, address line 2, and similar fields stay blank: leave them out of the plan entirely.
+   - Exception: write N/A (or the exact word the form names) only when the question or its help text explicitly tells the applicant to enter it when the field does not apply.
+   - This is about typed fields only. Dropdown, radio, and checkbox options labeled N/A, None, or Decline follow rules 7 and 11b.
+7a2. Format values for typed inputs with a native format (read type= in the node's detail): type=date is YYYY-MM-DD (use day 01 when the profile has only year and month, e.g. 2009-08 → 2009-08-01), type=month is YYYY-MM, type=time is HH:MM (24-hour), type=number is digits only.
 7b. Work authorization vs visa sponsorship (do not mix these up):
    - Map settings.immigrationStatus to "are you legally authorized to work in [this country]?" questions. A citizenship or residency status that already permits work there is Yes — never No.
    - Map settings.sponsorship to visa / employer-sponsorship questions. Those are a different question: a No on sponsorship is not a No on work authorization.
@@ -35,7 +40,7 @@ Rules:
 10. Explicitly mark the submit button as forbidden.
 11. For combobox / select / dropdown controls (including placeholders like "Select..."):
     - Prefer action "fill" or "select_radio".
-    - Set value to the exact option label for THAT control when the Pure Tree lists options (copy spelling/casing from the tree for that field only). If the tree omits options, still emit a concrete answer; the runtime matches it to the live list.
+    - Set value to the exact option label for THAT control when the Pure Tree lists options (copy spelling/casing from the tree for that field only). If the tree omits options — or shortens a long list to "… N more options …" — still emit a concrete answer (e.g. the full country name); the runtime matches it to the live list.
     - Target the combobox / select / dropdown control itself — not a child option or list item index. Option nodes are often replaced after another field changes.
     - Never reuse an option label from a different question (e.g. Gender's "Decline To Self Identify" is wrong for Disability/Veteran — use that field's own decline/opt-out wording).
     - If several options could fit, choose the most likely one for a typical strong applicant matching the profile; do not pause solely for ambiguity.

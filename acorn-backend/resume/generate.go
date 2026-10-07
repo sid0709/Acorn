@@ -6,11 +6,13 @@ import (
 	"fmt"
 	"strings"
 	"time"
+
+	"github.com/sid0709/OpenSeat/backend-core/openai"
 )
 
 var generateSteps = []string{"load-jd", "summary", "skills", "experience", "finalize"}
 
-func (s *Service) enqueue(accountID string, identity Identity, jobDescription, jobID string, checkpoint map[string]any) (Task, error) {
+func (s *Service) enqueue(ctx context.Context, accountID string, identity Identity, jobDescription, jobID string, checkpoint map[string]any, model Model) (Task, error) {
 	jobDescription = strings.TrimSpace(jobDescription)
 	if jobDescription == "" {
 		return Task{}, fmt.Errorf("%w: job description is required", ErrInvalid)
@@ -18,7 +20,7 @@ func (s *Service) enqueue(accountID string, identity Identity, jobDescription, j
 	if len(jobDescription) > maxJobDescription {
 		return Task{}, fmt.Errorf("%w: job description is too long", ErrInvalid)
 	}
-	if s.model == nil || !s.model.Ready() {
+	if model == nil || !model.Ready() {
 		return Task{}, ErrUnavailable
 	}
 	cfg := s.Config(accountID)
@@ -50,15 +52,19 @@ func (s *Service) enqueue(accountID string, identity Identity, jobDescription, j
 		StartedAt:      now,
 	}
 	s.store.putTask(task)
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	parent := context.WithoutCancel(ctx)
 	if s.syncRun {
-		s.runTask(task)
+		s.runTask(parent, task, model)
 		done, ok := s.store.task(accountID, task.ID)
 		if ok {
 			return done, nil
 		}
 		return task, nil
 	}
-	go s.runTask(task)
+	go s.runTask(parent, task, model)
 	return task, nil
 }
 
@@ -70,8 +76,11 @@ func newProgress() Progress {
 	return Progress{Steps: steps}
 }
 
-func (s *Service) runTask(task Task) {
-	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
+func (s *Service) runTask(parent context.Context, task Task, model Model) {
+	if parent == nil {
+		parent = context.Background()
+	}
+	ctx, cancel := context.WithTimeout(parent, 2*time.Minute)
 	defer cancel()
 	mark := func(name, status string) {
 		for i := range task.Progress.Steps {
@@ -87,7 +96,7 @@ func (s *Service) runTask(task Task) {
 		mark(step, "done")
 		task.FinishedAt = ptrTime(time.Now().UTC())
 		s.store.putTask(task)
-		s.persistFailed(task)
+		s.persistFailed(task, model)
 	}
 
 	mark("load-jd", "running")
@@ -118,7 +127,7 @@ func (s *Service) runTask(task Task) {
 			continue
 		}
 		mark(purpose, "running")
-		raw, err := s.model.JSON(ctx, systemWriter, replacer.Replace(purposePrompt[purpose]), json.RawMessage(purposeSchema[purpose]))
+		raw, err := model.JSON(openai.WithCall(ctx, purpose), systemWriter, replacer.Replace(purposePrompt[purpose]), json.RawMessage(purposeSchema[purpose]))
 		if err != nil {
 			fail(purpose, err.Error())
 			return
@@ -151,7 +160,7 @@ func (s *Service) runTask(task Task) {
 		InputID:        task.ID,
 		Status:         "completed",
 		Provider:       asString(task.Config["provider"]),
-		Model:          s.model.Model(),
+		Model:          model.Model(),
 		JobDescription: task.JobDescription,
 		TechStack:      stackFromSections(sections),
 		TemplateID:     task.TemplateID,
@@ -180,7 +189,7 @@ func (s *Service) runTask(task Task) {
 	mark("finalize", "done")
 }
 
-func (s *Service) persistFailed(task Task) {
+func (s *Service) persistFailed(task Task, model Model) {
 	genID, err := newID()
 	if err != nil {
 		return
@@ -192,7 +201,7 @@ func (s *Service) persistFailed(task Task) {
 		InputID:        task.ID,
 		Status:         "failed",
 		Provider:       asString(task.Config["provider"]),
-		Model:          s.modelName(),
+		Model:          modelName(model),
 		JobDescription: task.JobDescription,
 		TemplateID:     task.TemplateID,
 		JobID:          task.JobID,
@@ -250,11 +259,11 @@ func (s *Service) saveGeneratedLibrary(accountID string, gen Generation, docx []
 	return row, nil
 }
 
-func (s *Service) modelName() string {
-	if s.model == nil {
+func modelName(model Model) string {
+	if model == nil {
 		return ""
 	}
-	return s.model.Model()
+	return model.Model()
 }
 
 func stackFromSections(sections map[string]any) string {

@@ -1,14 +1,28 @@
+import { ACORN_DEBUG, DEBUG_HTML_MAX_CHARS, traceFromPage } from "../debug-trace";
 import { MSG, PLAN_STEP_PAGE_TIMEOUT_MS, type PlanStepPayload } from "../types";
+
+import { executeActions, getElementContent } from "./action-runner";
+import { CLICK_AFTER_REPLY_MS, prepareControlClick } from "./click-control";
+import { fillLeftoverComboboxes } from "./agents/leftover-combobox";
+import { waitForDomQuiet } from "./agents/wait";
+import { collectChoiceItems, type ChoiceBatchStep } from "./choice-batch";
+import { comboSnapshot } from "./debug-snapshot";
+import { repairDrift } from "./drift-repair";
+import { probePage } from "./page-probe";
 import { serializeDom } from "./dom-serializer";
 import { resolveElementByNodeId } from "./element-resolver";
-import { executeActions, getElementContent } from "./action-runner";
-import { MIN_CHILD_FORM_CONTROLS, isAcornDomFrame, waitForFormSurface } from "./form-frame";
+import { scanFieldIssues } from "./field-errors";
+import { scanFormFields } from "./form-fields";
+import {
+  MIN_CHILD_FORM_CONTROLS,
+  formControlScore,
+  isAcornDomFrame,
+  waitForFormSurface,
+} from "./form-frame";
 import { clearHighlight, highlightElement } from "./highlighter";
-import { fillLeftoverComboboxes } from "./agents/leftover-combobox";
+import { scanPendingFormFields } from "./pending-fields";
 import { runPlanStep } from "./plan-step-runner";
 import { initSelectionQa } from "./selection-qa";
-import { ACORN_DEBUG, DEBUG_HTML_MAX_CHARS, traceFromPage } from "../debug-trace";
-import { comboSnapshot } from "./debug-snapshot";
 
 const CONTENT_BOOT = "__acornContentBoot";
 
@@ -34,9 +48,11 @@ if (!contentWindow[CONTENT_BOOT]) {
     if (message.type === MSG.FETCH_DOM) {
       void (async () => {
         const isTop = window === window.top;
+        // A posting read wants the page's text now, not a form that may still hydrate.
+        const posting = message.posting === true;
         const minScore = isTop ? 1 : MIN_CHILD_FORM_CONTROLS;
-        const score = await waitForFormSurface(minScore);
-        const acornFrame = isTop || score >= MIN_CHILD_FORM_CONTROLS;
+        const score = posting ? formControlScore() : await waitForFormSurface(minScore);
+        const acornFrame = posting || isTop || score >= MIN_CHILD_FORM_CONTROLS;
         if (!acornFrame) {
           sendResponse({
             skipped: true,
@@ -55,6 +71,13 @@ if (!contentWindow[CONTENT_BOOT]) {
             url: window.location.href,
             title: document.title,
             tree,
+            fieldIssues: message.fieldIssues === true ? scanFieldIssues() : undefined,
+            formFields:
+              message.formFields !== true
+                ? undefined
+                : message.pendingFields === true
+                  ? scanPendingFormFields({ blocked: message.blockedFields === true })
+                  : scanFormFields(),
             formScore: score,
             fetchedAt: new Date().toISOString(),
             frameId: sender.frameId ?? null,
@@ -175,6 +198,82 @@ if (!contentWindow[CONTENT_BOOT]) {
             ok: false,
             error: err instanceof Error ? err.message : String(err),
           }),
+        );
+      return true;
+    }
+
+    if (message.type === MSG.COLLECT_CHOICES) {
+      if (!isAcornDomFrame()) {
+        sendResponse({ ok: false, skipped: true, error: "Not a form frame" });
+        return false;
+      }
+      try {
+        sendResponse({ ok: true, items: collectChoiceItems(message.steps as ChoiceBatchStep[]) });
+      } catch (err) {
+        sendResponse({ ok: false, error: err instanceof Error ? err.message : String(err) });
+      }
+      return false;
+    }
+
+    if (message.type === MSG.SCAN_FIELD_ISSUES) {
+      if (!isAcornDomFrame()) {
+        sendResponse({ ok: false, skipped: true, error: "Not a form frame" });
+        return false;
+      }
+      // Let the page re-validate the fields Refill just changed before reading errors again.
+      void runExclusive(async () => {
+        await waitForDomQuiet();
+        return scanFieldIssues();
+      })
+        .then((scan) => sendResponse({ ok: true, scan }))
+        .catch((err) =>
+          sendResponse({
+            ok: false,
+            error: err instanceof Error ? err.message : String(err),
+          }),
+        );
+      return true;
+    }
+
+    if (message.type === MSG.PAGE_PROBE) {
+      if (!isAcornDomFrame()) {
+        sendResponse({ ok: false, skipped: true, error: "Not a form frame" });
+        return false;
+      }
+      try {
+        sendResponse({ ok: true, probe: probePage() });
+      } catch (err) {
+        sendResponse({ ok: false, error: err instanceof Error ? err.message : String(err) });
+      }
+      return false;
+    }
+
+    if (message.type === MSG.REPAIR_DRIFT) {
+      if (!isAcornDomFrame()) {
+        sendResponse({ ok: false, skipped: true, error: "Not a form frame" });
+        return false;
+      }
+      void runExclusive(() => repairDrift(Number(message.since) || 0))
+        .then((result) => sendResponse({ ok: true, ...result }))
+        .catch((err) =>
+          sendResponse({ ok: false, error: err instanceof Error ? err.message : String(err) }),
+        );
+      return true;
+    }
+
+    if (message.type === MSG.CLICK_CONTROL) {
+      if (!isAcornDomFrame()) {
+        sendResponse({ ok: false, skipped: true, error: "Not a form frame" });
+        return false;
+      }
+      void runExclusive(async () =>
+        prepareControlClick(message.nodeId as number, (click) => {
+          setTimeout(click, CLICK_AFTER_REPLY_MS);
+        }),
+      )
+        .then((result) => sendResponse(result))
+        .catch((err) =>
+          sendResponse({ ok: false, error: err instanceof Error ? err.message : String(err) }),
         );
       return true;
     }

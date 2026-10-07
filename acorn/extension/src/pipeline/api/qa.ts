@@ -13,13 +13,14 @@ export type AcornQaPage = {
 export async function requestQaAnswer(
   input: { question: string; page?: AcornQaPage | null },
   _apiUrl?: string,
+  tabId?: number | null,
 ): Promise<string> {
   const question = input.question.trim();
   if (!question) throw new Error("Enter a question");
   const base = (_apiUrl || (await getAcornApiUrl())).replace(/\/$/, "");
   const res = await fetch(`${base}/acorn/qa`, {
     method: "POST",
-    headers: await authHeaders(),
+    headers: await authHeaders(tabId),
     body: JSON.stringify({
       question,
       page: input.page ?? null,

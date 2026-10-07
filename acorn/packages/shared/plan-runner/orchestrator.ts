@@ -4,6 +4,7 @@ import { labelLooksLikeOtherDocument } from "./resume-field";
 import {
   executionIndexOrder,
   isExecutableStep,
+  isFileUploadAction,
   missingUploadReason,
   resolveStepFile,
   resumeFileLabel,
@@ -26,6 +27,12 @@ import type {
 export interface OrchestratorHooks {
   onSteps: (steps: RunStepRecord[]) => void;
   onPause: (request: PauseRequest) => Promise<PauseDecision>;
+  /**
+   * Runs once, after every file upload step has finished and before the first
+   * other step: work that must see the form after résumé parsing (and must not
+   * start before the upload completes) goes here.
+   */
+  beforeFills?: () => Promise<void>;
 }
 
 export interface RunPlanOptions {
@@ -38,10 +45,12 @@ export interface RunPlanOptions {
   /** Custom-tab editor-generated résumé. */
   customResume?: RuntimeAttachedFile | null;
   resumeFileKind?: "library" | "custom";
+  /** Refill: re-apply a planned value even when the control already shows it. */
+  force?: boolean;
   hooks: OrchestratorHooks;
 }
 
-function toStepPayload(action: PlanAction, files: PlanStepFiles): PlanStepPayload {
+function toStepPayload(action: PlanAction, files: PlanStepFiles, force: boolean): PlanStepPayload {
   return {
     action: action.action as PlanStepActionType,
     element_index: action.element_index,
@@ -51,6 +60,7 @@ function toStepPayload(action: PlanAction, files: PlanStepFiles): PlanStepPayloa
     value: action.value,
     file: resolveStepFile(action, files),
     ms: action.ms,
+    ...(force ? { force } : {}),
   };
 }
 
@@ -72,6 +82,7 @@ export async function runActionPlan(options: RunPlanOptions): Promise<RunReport>
     recommendedResume = null,
     customResume = null,
     resumeFileKind,
+    force = false,
     hooks,
   } = options;
   const files: PlanStepFiles = {
@@ -99,8 +110,13 @@ export async function runActionPlan(options: RunPlanOptions): Promise<RunReport>
 
   const actions = plan.actions ?? [];
   const order = executionIndexOrder(actions);
+  let fillsStarted = false;
 
   for (const i of order) {
+    if (!fillsStarted && !aborted && !isFileUploadAction(actions[i])) {
+      fillsStarted = true;
+      await hooks.beforeFills?.();
+    }
     if (aborted) {
       steps[i].status = "aborted";
       publish();
@@ -251,7 +267,7 @@ export async function runActionPlan(options: RunPlanOptions): Promise<RunReport>
           throw new Error(missingFile);
         }
 
-        const result = await executeStep(toStepPayload(action, files));
+        const result = await executeStep(toStepPayload(action, files, force));
 
         if (result.ok) {
           if (result.alreadyFilled) {

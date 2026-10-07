@@ -1,12 +1,15 @@
 import { sameApplySite } from "@acorn/shared/apply-site";
-import type { RuntimeAttachedFile } from "@acorn/shared/plan-runner/types";
+
 import { customTabHasResume, type AcornCustomTabBinding } from "../tab-custom-session";
 import { getJobGenerate } from "../tab-job-generate-session";
-import type { AcornTabJobBinding } from "../tab-job-session";
-import type { PipelineSource } from "../types";
+
 import { fetchCustomResume } from "./api/custom-files";
 import { fetchCustomLibraryResume } from "./api/custom-library";
 import { fetchRecommendedResume } from "./api/job-files";
+
+import type { AcornTabJobBinding } from "../tab-job-session";
+import type { PipelineSource } from "../types";
+import type { RuntimeAttachedFile } from "@acorn/shared/plan-runner/types";
 
 const WRONG_SITE = "Page is not this job's apply site — skipped resume upload";
 

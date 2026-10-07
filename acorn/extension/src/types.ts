@@ -1,3 +1,6 @@
+import type { FieldIssueScan } from "@acorn/shared/field-issues";
+import type { FormField } from "@acorn/shared/form-fields";
+
 export interface DomNode {
   nodeId: number;
   tag: string;
@@ -20,6 +23,10 @@ export interface DomTreePayload {
   formScore?: number;
   /** Debug builds only: the form frame's HTML, for the backend debug run. */
   html?: string;
+  /** Refill only: fields the page flags, keyed by this tree's node ids. */
+  fieldIssues?: FieldIssueScan;
+  /** Fast fill only: the page's fields, keyed by this tree's node ids. */
+  formFields?: FormField[];
 }
 
 /** Long-lived side-panel port. Keeps the MV3 worker (and `/acorn/socket.io` socket) alive. */
@@ -30,6 +37,12 @@ export const PLAN_STEP_TIMEOUT_MS = 120_000;
 /** The page gives up first so its error, not a channel timeout, reaches the background. */
 export const PLAN_STEP_PAGE_TIMEOUT_MS = PLAN_STEP_TIMEOUT_MS - 5_000;
 
+/** Socket.IO events the server sends this extension (same strings as acornapi/gateway). */
+export const SOCKET_EVENT = {
+  /** One AI call was recorded: `{ tab, entry }`, tab being the usage key it belongs to. */
+  aiUsageRecorded: "ai-usage:recorded",
+} as const;
+
 export const MSG = {
   FETCH_DOM: "acorn:fetch-dom",
   FETCH_AND_EMIT_DOM: "acorn:fetch-and-emit-dom",
@@ -39,8 +52,24 @@ export const MSG = {
   EXECUTE_ACTIONS: "acorn:execute-actions",
   PLAN_STEP: "acorn:plan-step",
   MATCH_OPTION: "acorn:match-option",
+  /** A long dropdown with no planned answer: ask the writer for one to type as a search. */
+  ESTIMATE_OPTION: "acorn:estimate-option",
   FILL_LEFTOVER_COMBOS: "acorn:fill-leftover-combos",
+  /** List planned choice fields that still need a decision (after uploads finish). */
+  COLLECT_CHOICES: "acorn:collect-choices",
+  /** Re-read field errors on the last serialized tree (Refill's after-check). */
+  SCAN_FIELD_ISSUES: "acorn:scan-field-issues",
+  /** Put back answers the page cleared after a fill (an import, a reset), with no model call. */
+  REPAIR_DRIFT: "acorn:repair-drift",
+  /** A cheap look at the page while a click settles (see PageProbe). */
+  PAGE_PROBE: "acorn:page-probe",
+  /** Sidebar → service worker: reconcile one tab's AI usage with the server's list. */
+  REFRESH_TAB_USAGE: "acorn:refresh-tab-usage",
+  /** Press one control the Run orchestrator picked from the tree. */
+  CLICK_CONTROL: "acorn:click-control",
   START_PIPELINE: "acorn:start-pipeline",
+  /** Run: recommend, fill, advance, and refill until the application is done. */
+  START_RUN: "acorn:start-run",
   PIPELINE_PROGRESS: "acorn:pipeline-progress",
   SOCKET_STATUS: "acorn:socket-status",
   OPERATOR_NOTICE: "acorn:operator-notice",
@@ -78,11 +107,21 @@ export interface MatchOptionRequest {
   options: string[];
   fieldLabel?: string | null;
   typedQuery?: string | null;
+  /** The list may be partial (a search box can show more), so "not listed" is a valid answer. */
+  allowNotListed?: boolean;
+  /** A checkbox group: the answer is every option to check. */
+  multiple?: boolean;
 }
 
+/** SelectorGateway (TypeSafe Jev) pick for one dropdown. */
 export interface MatchOptionResponse {
   ok?: boolean;
+  /** null only when allowNotListed was set and the answer is not in this list. */
   matched_option?: string | null;
+  /** The best listed option even when matched_option is null. */
+  fallback_option?: string | null;
+  /** `multiple` requests: every option to check. */
+  matched_options?: string[];
   confidence?: number;
   reason?: string;
   error?: string;
@@ -91,7 +130,14 @@ export interface MatchOptionResponse {
 }
 
 export type PlanStepActionType =
-  "fill" | "upload" | "resume_upload" | "select_radio" | "wait" | "validate" | "verify_only";
+  | "fill"
+  | "clear"
+  | "upload"
+  | "resume_upload"
+  | "select_radio"
+  | "wait"
+  | "validate"
+  | "verify_only";
 
 export interface RuntimeAttachedFile {
   key: string;
@@ -103,6 +149,15 @@ export interface RuntimeAttachedFile {
   jobId?: string | null;
 }
 
+/** What a click's settle loop compares between polls, without serializing the page. */
+export interface PageProbe {
+  url: string;
+  /** Hash of the fields the page asks for (never their values). */
+  fields: string;
+  /** Visible fields marked invalid plus visible alerts. */
+  refusals: number;
+}
+
 export interface PlanStepPayload {
   action: PlanStepActionType;
   element_index: number | null;
@@ -112,6 +167,8 @@ export interface PlanStepPayload {
   value: string | null;
   file?: RuntimeAttachedFile | null;
   ms: number | null;
+  /** Refill: act even when the control already shows the value, since the page rejected it. */
+  force?: boolean;
 }
 
 export interface PlanStepSocketPayload {

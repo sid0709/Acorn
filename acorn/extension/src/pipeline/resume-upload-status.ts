@@ -1,5 +1,5 @@
-import type { RunStepRecord, RuntimeAttachedFile } from "@acorn/shared/plan-runner/types";
 import type { PipelineProgress } from "@acorn/shared/pipeline-types";
+import type { RunStepRecord, RuntimeAttachedFile } from "@acorn/shared/plan-runner/types";
 
 export function buildResumeUploadProgress(args: {
   recommendedResume: RuntimeAttachedFile | null;

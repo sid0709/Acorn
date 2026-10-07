@@ -21,6 +21,7 @@ export type ExtractCustomJdInput = {
 export async function extractCustomJd(
   input: ExtractCustomJdInput | string,
   _apiUrl?: string,
+  tabId?: number | null,
 ): Promise<ExtractCustomJdResult> {
   const pageText = typeof input === "string" ? input.trim() : String(input.pageText || "").trim();
   if (!pageText) throw new Error("No readable text on this tab");
@@ -28,7 +29,7 @@ export async function extractCustomJd(
   const extractBody = { pageText };
   const res = await fetch(`${base}/acorn/custom/extract-jd`, {
     method: "POST",
-    headers: await authHeaders(),
+    headers: await authHeaders(tabId),
     body: JSON.stringify(extractBody),
   });
   const data = (await res.json().catch(() => ({}))) as {
@@ -70,6 +71,7 @@ export async function enqueueCustomGenerate(
       }
     | string,
   _apiUrl?: string,
+  tabId?: number | null,
 ): Promise<{ inputId: string }> {
   const description =
     typeof input === "string" ? input.trim() : String(input.jobDescription || "").trim();
@@ -79,7 +81,7 @@ export async function enqueueCustomGenerate(
   const base = (_apiUrl || (await getAcornApiUrl())).replace(/\/$/, "");
   const res = await fetch(`${base}/acorn/custom/generate`, {
     method: "POST",
-    headers: await authHeaders(),
+    headers: await authHeaders(tabId),
     body: JSON.stringify({
       jobDescription: description,
       jobId: jobId || undefined,
@@ -117,6 +119,7 @@ export async function continueCustomGenerate(
     checkpoint: GenerateEnqueueCheckpoint;
   },
   _apiUrl?: string,
+  tabId?: number | null,
 ): Promise<{ inputId: string }> {
   const existingId = String(input.inputId || "").trim();
   const description = String(input.jobDescription || "").trim();
@@ -127,7 +130,7 @@ export async function continueCustomGenerate(
       `${base}/acorn/custom/generate/${encodeURIComponent(existingId)}/continue`,
       {
         method: "POST",
-        headers: await authHeaders(),
+        headers: await authHeaders(tabId),
         body: JSON.stringify({
           jobDescription: description,
           jobId: input.jobId || undefined,
@@ -157,6 +160,7 @@ export async function continueCustomGenerate(
       checkpoint: input.checkpoint,
     },
     _apiUrl,
+    tabId,
   );
 }
 

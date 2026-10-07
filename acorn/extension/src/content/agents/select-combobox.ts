@@ -9,8 +9,14 @@ import { findLiveOption } from "./combobox/options-wait";
 import { dismissOpenOverlays, settlePopupClosed } from "./combobox/typing";
 
 export interface ComboboxFillOptions {
-  /** Type `value` into the search box to narrow a long list (default true). */
+  /** Type into the search box to narrow a long list (default true). */
   allowTypeahead?: boolean;
+  /** `value` is an instruction, not a search: a long list types the writer's estimate instead. */
+  estimateQuery?: boolean;
+  /** See ChooseOptions: a writer estimate already requested. */
+  estimate?: Promise<string | null>;
+  /** See ChooseOptions: the list was read already; type the query right away. */
+  searchFirst?: boolean;
 }
 
 /** Choose the option for `value` (see chooseOption), click it, and leave the popup closed. */
@@ -18,7 +24,7 @@ export async function selectComboboxOption(
   el: Element,
   value: string,
   fieldHint?: string | null,
-  { allowTypeahead = true }: ComboboxFillOptions = {},
+  { allowTypeahead = true, estimateQuery = false, estimate, searchFirst }: ComboboxFillOptions = {},
 ): Promise<string> {
   const requested = el as HTMLElement;
   if (requested instanceof HTMLSelectElement) {
@@ -53,7 +59,12 @@ export async function selectComboboxOption(
       )
       .join(" ") || null;
 
-  const { match, options } = await chooseOption(html, doc, value, fieldLabel, allowTypeahead);
+  const { match, options } = await chooseOption(html, doc, value, fieldLabel, {
+    allowTypeahead,
+    estimateQuery,
+    estimate,
+    searchFirst,
+  });
   if (!match) {
     dismissOpenOverlays(doc, html);
     throw new Error(
@@ -66,6 +77,7 @@ export async function selectComboboxOption(
 
   const label = optionText(match);
   traceFromPage("combo:click", () => ({ value, label, connected: match.isConnected }));
+  const clickStarted = Date.now();
   const live = match.isConnected ? match : await findLiveOption(html, doc, label);
   const clickTarget = live || match;
   clickTarget.scrollIntoView({ block: "nearest", behavior: "auto" });
@@ -74,6 +86,7 @@ export async function selectComboboxOption(
 
   const displayed = readControlValue(html);
   traceFromPage("combo:after-click", () => ({
+    ms: Date.now() - clickStarted,
     value,
     label,
     closed,

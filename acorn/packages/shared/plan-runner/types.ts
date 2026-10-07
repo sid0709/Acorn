@@ -2,6 +2,7 @@
 
 export type PlanActionType =
   | "fill"
+  | "clear"
   | "upload"
   | "resume_upload"
   | "select_radio"
@@ -11,7 +12,14 @@ export type PlanActionType =
   | "forbidden";
 
 export type PlanStepActionType =
-  "fill" | "upload" | "resume_upload" | "select_radio" | "wait" | "validate" | "verify_only";
+  | "fill"
+  | "clear"
+  | "upload"
+  | "resume_upload"
+  | "select_radio"
+  | "wait"
+  | "validate"
+  | "verify_only";
 
 export interface PlanAction {
   action: PlanActionType;
@@ -58,6 +66,8 @@ export interface PlanStepPayload {
   value: string | null;
   file?: RuntimeAttachedFile | null;
   ms: number | null;
+  /** Refill: act even when the control already shows the value, since the page rejected it. */
+  force?: boolean;
 }
 
 export interface PlanStepResult {

@@ -1,3 +1,5 @@
+import { POPUP_SELECTOR } from "./popup-roles";
+
 /**
  * Virtualized menus keep an invisible ARIA mirror (role=option, zero size) for screen
  * readers while the rows people see carry no role. Clicking the mirror does nothing,
@@ -34,7 +36,7 @@ function visiblePopup(mirror: Element): Element | null {
 /** The options to read and click: the collected ones, or their visible rows when all are mirrors. */
 export function visibleOptions(options: HTMLElement[]): HTMLElement[] {
   if (!options.length || options.some(hasVisibleBox)) return options;
-  const mirrorList = options[0].closest('[role="listbox"]') ?? options[0];
+  const mirrorList = options[0].closest(POPUP_SELECTOR) ?? options[0];
   const popup = visiblePopup(mirrorList);
   if (!popup) return [];
   return Array.from(popup.querySelectorAll<HTMLElement>("*")).filter(

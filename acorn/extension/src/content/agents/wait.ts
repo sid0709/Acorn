@@ -2,8 +2,12 @@
 export const DOM_QUIET_WINDOW_MS = 700;
 /** Form values must stay unchanged this long before parse is treated as done. */
 export const FORM_STABLE_MS = 1500;
-/** If values never change, wait at least this long after attach (slow parse). */
-export const FORM_IDLE_BEFORE_FILL_MS = 8000;
+/**
+ * If values never change, wait this long after attach before filling. Short on
+ * purpose: a parse that lands later and clears answers is undone by drift repair
+ * (content/drift-repair.ts) before the run clicks forward.
+ */
+export const FORM_IDLE_BEFORE_FILL_MS = 2500;
 /** Cap so a chatty page cannot block fills forever. */
 export const FORM_STABLE_MAX_MS = 20_000;
 /** Cap for aria-busy / progress. */

@@ -54,6 +54,44 @@ function ancestorFieldLabels(el: Element): string[] {
   return labels;
 }
 
+/** The one element with this id in el's own tree; null when none or several share it. */
+export function uniqueById(el: Element, id: string): Element | null {
+  const root = el.getRootNode() as Document | ShadowRoot;
+  if (typeof root.querySelectorAll !== "function") return null;
+  const found = root.querySelectorAll(`#${CSS.escape(id)}`);
+  return found.length === 1 ? found[0] : null;
+}
+
+/**
+ * The label a `for` attribute ties to this control. A page that reuses one id on
+ * several controls points every `for` at the first of them, so a label counts only
+ * when the id names this control alone.
+ */
+export function forLabelOf(el: Element): string | null | undefined {
+  if (!el.id) return null;
+  const root = el.getRootNode() as Document | ShadowRoot;
+  if (typeof root.querySelectorAll !== "function") return null;
+  const selector = `label[for="${CSS.escape(el.id)}"]`;
+  if (uniqueById(el, el.id) === el) return root.querySelector(selector)?.textContent;
+  return nearestSharedLabel(el, selector)?.textContent;
+}
+
+/**
+ * With an id reused across fields, the label meant for this control is the one in
+ * its own part of the page: the first ancestor holding a matching label must hold
+ * exactly one, and no other control carrying the same id.
+ */
+function nearestSharedLabel(el: Element, selector: string): Element | null {
+  const idSelector = `#${CSS.escape(el.id)}`;
+  for (let node = el.parentElement; node; node = node.parentElement) {
+    const labels = node.querySelectorAll(selector);
+    if (!labels.length) continue;
+    const others = Array.from(node.querySelectorAll(idSelector)).filter((other) => other !== el);
+    return labels.length === 1 && !others.length ? labels[0] : null;
+  }
+  return null;
+}
+
 export function labelCandidates(el: Element): string[] {
   const html = el as HTMLElement;
   const primary: string[] = [];
@@ -61,18 +99,15 @@ export function labelCandidates(el: Element): string[] {
 
   pushLabel(primary, html.getAttribute?.("aria-label"));
 
+  // A reused id resolves to another field's text, so it names nothing here.
   const labelledBy = html.getAttribute?.("aria-labelledby");
   if (labelledBy) {
-    for (const id of labelledBy.split(/\s+/)) {
-      const ref = el.ownerDocument?.getElementById(id);
-      pushLabel(primary, ref?.textContent);
+    for (const id of labelledBy.split(/\s+/).filter(Boolean)) {
+      pushLabel(primary, uniqueById(el, id)?.textContent);
     }
   }
 
-  if (html.id) {
-    const forLabel = el.ownerDocument?.querySelector(`label[for="${CSS.escape(html.id)}"]`);
-    pushLabel(primary, forLabel?.textContent);
-  }
+  pushLabel(primary, forLabelOf(el));
 
   const wrappingLabel = html.closest?.("label");
   if (wrappingLabel) {

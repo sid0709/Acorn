@@ -1,0 +1,51 @@
+import { RUN_EVIDENCE_LINE_MAX_CHARS, RUN_EVIDENCE_MAX_LINES } from "./run-limits";
+
+import type { PageSnapshot } from "./run-page";
+import type { RunStepRecord } from "@acorn/shared/plan-runner/types";
+
+function clip(text: string): string {
+  const line = text.replace(/\s+/g, " ").trim();
+  return line.length > RUN_EVIDENCE_LINE_MAX_CHARS
+    ? `${line.slice(0, RUN_EVIDENCE_LINE_MAX_CHARS - 1)}…`
+    : line;
+}
+
+/**
+ * What the page and the fill say went wrong, as short lines for the diagnosis:
+ * page alerts, each flagged field with the message tied to it, steps that
+ * failed, then the frames the page embeds. Field values are never included.
+ */
+export function failureEvidence(args: {
+  snapshot: PageSnapshot | null;
+  steps?: RunStepRecord[];
+  notes?: string[];
+}): string[] {
+  const lines: string[] = [...(args.notes ?? [])];
+  const scan = args.snapshot?.scan;
+  for (const message of scan?.pageMessages ?? []) lines.push(`Page alert: ${message}`);
+  for (const issue of scan?.issues ?? []) {
+    const messages = [...issue.linkedMessages, ...issue.nearbyMessages].join(" / ");
+    // Text beside a valid field is often help copy; only invalid or empty-required is a rejection.
+    const state = issue.invalid
+      ? "is marked invalid"
+      : issue.required && !issue.value
+        ? "is required and empty"
+        : "shows page text (not marked invalid)";
+    lines.push(`Field "${issue.label || issue.role}" ${state}${messages ? `: ${messages}` : ""}`);
+  }
+  for (const step of args.steps ?? []) {
+    if (step.status === "failed" || step.status === "blocked") {
+      lines.push(
+        `Step ${step.action} on "${step.expected_label ?? "?"}" ${step.status}${step.message ? `: ${step.message}` : ""}`,
+      );
+    }
+  }
+  // Context last, but always kept: what the page says about its own fields leads,
+  // and the frames it embeds (a verification widget) still fit under the cap.
+  const frames = (args.snapshot?.frames ?? []).map((frame) => clip(`Embedded frame: ${frame}`));
+  const room = Math.max(0, RUN_EVIDENCE_MAX_LINES - frames.length);
+  return [...lines.map(clip).filter(Boolean).slice(0, room), ...frames].slice(
+    0,
+    RUN_EVIDENCE_MAX_LINES,
+  );
+}

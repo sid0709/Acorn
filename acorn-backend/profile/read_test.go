@@ -69,6 +69,17 @@ func TestFillFallsBackToLayout(t *testing.T) {
 	}
 }
 
+func TestFillWithoutKeyStaysOnLayout(t *testing.T) {
+	store := &Store{rows: map[string]Document{}}
+	filled, err := store.FillText(context.Background(), "acct", "Account", "account@example.com", titleThenCompany, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if filled.Reader != ReaderLayout || filled.Profile.OpenrouterApiKey != "" {
+		t.Fatalf("filled = %s key=%q", filled.Reader, filled.Profile.OpenrouterApiKey)
+	}
+}
+
 func TestDefaultAnswersStayEditable(t *testing.T) {
 	doc := normalize(Document{})
 	if doc.Citizenship != "U.S. Citizen" || doc.Over18 != "Yes" || doc.VeteranStatus != "I am not a protected veteran" || doc.WillingToRelocate != "Yes" {

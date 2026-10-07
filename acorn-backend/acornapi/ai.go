@@ -10,7 +10,9 @@ import (
 
 	"github.com/sid0709/OpenSeat/acorn-backend/account"
 	"github.com/sid0709/OpenSeat/acorn-backend/acorn"
+	"github.com/sid0709/OpenSeat/acorn-backend/selector"
 	"github.com/sid0709/OpenSeat/backend-core/candidate"
+	"github.com/sid0709/OpenSeat/backend-core/jev"
 )
 
 func decode(w http.ResponseWriter, r *http.Request, dest any) bool {
@@ -25,15 +27,15 @@ func decode(w http.ResponseWriter, r *http.Request, dest any) bool {
 // writeAcornError answers a failed model call: the caller's mistake, a missing
 // model key, or the model itself failing.
 func writeAcornError(w http.ResponseWriter, route string, err error) {
+	status := http.StatusBadGateway
 	switch {
 	case errors.Is(err, acorn.ErrInvalid):
-		writeError(w, http.StatusBadRequest, err.Error())
+		status = http.StatusBadRequest
 	case errors.Is(err, acorn.ErrModelUnavailable):
-		writeError(w, http.StatusServiceUnavailable, err.Error())
-	default:
-		slog.Warn("acorn route failed", "route", route, "error", err)
-		writeError(w, http.StatusBadGateway, err.Error())
+		status = http.StatusServiceUnavailable
 	}
+	slog.Warn("acorn route failed", "route", route, "status", status, "error", err)
+	writeError(w, status, err.Error())
 }
 
 // applicant renders the signed-in account for the model. A saved profile supplies
@@ -57,10 +59,13 @@ func (s *Server) aiAnalyze(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	var body struct {
-		PureTree string         `json:"pureTree"`
-		MetaTree string         `json:"metaTree"` // accepted from older extensions, never sent to the model
-		Page     map[string]any `json:"page"`
-		Debug    *analyzeDebug  `json:"debug"`
+		PureTree    string               `json:"pureTree"`
+		MetaTree    string               `json:"metaTree"` // accepted from older extensions, never sent to the model
+		Mode        string               `json:"mode"`
+		FieldIssues acorn.FieldIssueScan `json:"fieldIssues"`
+		FormFields  []acorn.FormField    `json:"formFields"`
+		Page        map[string]any       `json:"page"`
+		Debug       *analyzeDebug        `json:"debug"`
 	}
 	if !decode(w, r, &body) {
 		return
@@ -69,8 +74,28 @@ func (s *Server) aiAnalyze(w http.ResponseWriter, r *http.Request) {
 	if !ok {
 		return
 	}
+	brain, ok := s.acornFor(w, r, session.User.ID)
+	if !ok {
+		return
+	}
 	ctx := s.startAnalyzeRun(r, session.User.ID, applicant, body.PureTree, body.Page, body.Debug)
-	result, err := s.acorn.Analyze(ctx, applicant, body.PureTree, body.Page)
+	var result acorn.AnalyzeResult
+	var err error
+	switch body.Mode {
+	case acorn.ModeRefill:
+		recordFieldIssues(ctx, body.FieldIssues)
+		result, err = brain.Refill(ctx, applicant, body.PureTree, body.FieldIssues, body.Page)
+	case acorn.ModeFast:
+		if len(body.FormFields) > 0 {
+			recordFormFields(ctx, body.FormFields)
+			result, err = brain.FastPlan(ctx, applicant, body.FormFields, body.Page)
+		} else {
+			result, err = brain.FastPlanFromTree(ctx, applicant, body.PureTree, body.Page)
+			recordFormFields(ctx, result.Fields)
+		}
+	default:
+		result, err = brain.Analyze(ctx, applicant, body.PureTree, body.Page)
+	}
 	finishAnalyzeRun(ctx, result, err)
 	if err != nil {
 		writeAcornError(w, "ai-analyze", err)
@@ -79,16 +104,21 @@ func (s *Server) aiAnalyze(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, result)
 }
 
+// matchOption picks a dropdown option through the SelectorGateway (TypeSafe Jev).
+// A failed decision is data, not an HTTP error: the extension falls back to its own matching.
 func (s *Server) matchOption(w http.ResponseWriter, r *http.Request) {
 	session, ok := s.session(w, r)
 	if !ok {
 		return
 	}
 	var body struct {
-		IntendedValue string   `json:"intendedValue"`
-		Options       []string `json:"options"`
-		FieldLabel    string   `json:"fieldLabel"`
-		TypedQuery    string   `json:"typedQuery"`
+		IntendedValue  string   `json:"intendedValue"`
+		Options        []string `json:"options"`
+		FieldLabel     string   `json:"fieldLabel"`
+		TypedQuery     string   `json:"typedQuery"`
+		AllowNotListed bool     `json:"allowNotListed"`
+		// Multiple is a checkbox group: the answer is the set of options to check.
+		Multiple bool `json:"multiple"`
 	}
 	if !decode(w, r, &body) {
 		return
@@ -97,14 +127,50 @@ func (s *Server) matchOption(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, "intendedValue and options are required")
 		return
 	}
-	result, err := s.acorn.MatchOption(s.traceContext(r, session.User.ID), body.IntendedValue, body.Options, body.FieldLabel, body.TypedQuery)
-	if err != nil {
-		// The extension falls back to its own matching, so a failure is data, not an HTTP error.
-		slog.Warn("acorn match-option failed", "error", err)
-		writeJSON(w, http.StatusOK, map[string]any{"ok": false, "matched_option": nil, "confidence": 0, "error": err.Error()})
+	applicant, ok := s.applicant(w, r, session)
+	if !ok {
 		return
 	}
-	writeJSON(w, http.StatusOK, result)
+	gateway, ok := s.selectorFor(w, r, session.User.ID)
+	if !ok {
+		return
+	}
+	ctx := s.withUsage(r, session.User.ID)
+	query := selector.OptionQuery{
+		Field: body.FieldLabel, Intended: body.IntendedValue, Typed: body.TypedQuery,
+		Options: body.Options, AllowNotListed: body.AllowNotListed, Applicant: applicant,
+	}
+	if body.Multiple {
+		many, err := gateway.PickMany(ctx, query)
+		if err != nil {
+			slog.Warn("acorn match-option failed", "error", err)
+			writeJSON(w, http.StatusOK, map[string]any{"ok": false, "matched_options": []string{}, "error": err.Error()})
+			return
+		}
+		writeJSON(w, http.StatusOK, map[string]any{
+			"ok": true, "matched_options": many.Options, "model": gateway.Model(), "usage": decisionUsage(gateway.Model(), many.Usage),
+		})
+		return
+	}
+	pick, err := gateway.PickOption(ctx, query)
+	if err != nil {
+		slog.Warn("acorn match-option failed", "error", err)
+		writeJSON(w, http.StatusOK, map[string]any{"ok": false, "matched_option": nil, "fallback_option": nil, "confidence": 0, "error": err.Error()})
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{
+		"ok": true, "matched_option": emptyNil(pick.Option), "fallback_option": emptyNil(pick.Fallback),
+		"confidence": pick.Confidence, "model": gateway.Model(), "usage": decisionUsage(gateway.Model(), pick.Usage),
+	})
+}
+
+// decisionUsage is a Jev call in the extension's AiUsageSummary shape.
+func decisionUsage(model string, usage jev.Usage) map[string]any {
+	return map[string]any{
+		"model": model, "inputTokens": usage.InputTokens, "outputTokens": usage.OutputTokens,
+		"cachedInputTokens": 0, "totalTokens": usage.InputTokens + usage.OutputTokens,
+		"costUsd": usage.Cost, "priced": true, "calls": 1,
+	}
 }
 
 func (s *Server) qa(w http.ResponseWriter, r *http.Request) {
@@ -123,7 +189,11 @@ func (s *Server) qa(w http.ResponseWriter, r *http.Request) {
 	if !ok {
 		return
 	}
-	result, err := s.acorn.Answer(s.traceContext(r, session.User.ID), applicant, body.Question, body.Page)
+	brain, ok := s.acornFor(w, r, session.User.ID)
+	if !ok {
+		return
+	}
+	result, err := brain.Answer(s.traceContext(r, session.User.ID), applicant, body.Question, body.Page)
 	if err != nil {
 		writeAcornError(w, "qa", err)
 		return
@@ -132,7 +202,8 @@ func (s *Server) qa(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) extractJD(w http.ResponseWriter, r *http.Request) {
-	if _, ok := s.session(w, r); !ok {
+	session, ok := s.session(w, r)
+	if !ok {
 		return
 	}
 	var body struct {
@@ -142,11 +213,12 @@ func (s *Server) extractJD(w http.ResponseWriter, r *http.Request) {
 	if !decode(w, r, &body) {
 		return
 	}
-	s.writeJD(w, r, body.PageText, body.Meta)
+	s.writeJD(w, r, session.User.ID, body.PageText, body.Meta)
 }
 
 func (s *Server) analyzeMeta(w http.ResponseWriter, r *http.Request) {
-	if _, ok := s.session(w, r); !ok {
+	session, ok := s.session(w, r)
+	if !ok {
 		return
 	}
 	var body struct {
@@ -155,15 +227,19 @@ func (s *Server) analyzeMeta(w http.ResponseWriter, r *http.Request) {
 	if !decode(w, r, &body) {
 		return
 	}
-	s.writeJD(w, r, "", body.Meta)
+	s.writeJD(w, r, session.User.ID, "", body.Meta)
 }
 
-func (s *Server) writeJD(w http.ResponseWriter, r *http.Request, pageText string, meta any) {
+func (s *Server) writeJD(w http.ResponseWriter, r *http.Request, accountID, pageText string, meta any) {
 	if len([]rune(pageText)) > acorn.PageTextMaxChars {
 		writeError(w, http.StatusBadRequest, "pageText is too long")
 		return
 	}
-	result, err := s.acorn.ExtractJD(r.Context(), pageText, meta)
+	brain, ok := s.acornFor(w, r, accountID)
+	if !ok {
+		return
+	}
+	result, err := brain.ExtractJD(s.withUsage(r, accountID), pageText, meta)
 	if err != nil {
 		writeAcornError(w, "extract-jd", err)
 		return

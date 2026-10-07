@@ -19,15 +19,13 @@ import {
   handleStartJobWork,
 } from "./messages/generate";
 import { handleMatchOption } from "./messages/match-option";
+import { handleEstimateOption } from "./messages/estimate-option";
 import { handleFetchDom, handleStartPipeline } from "./messages/pipeline";
+import { handleStartRun } from "./messages/run";
 import { handleSelectionQa } from "./messages/selection-qa";
 import type { RuntimeMessage, SendResponse } from "./messages/shared";
-import {
-  handleGetTabJob,
-  handleListWorkerJobs,
-  handleMarkJobApplied,
-  handleOpenWorkerJob,
-} from "./messages/worker-jobs";
+import { handleGetTabJob, handleMarkJobApplied, handleOpenWorkerJob } from "./messages/worker-jobs";
+import { refreshTabUsage } from "./tab-usage-store";
 
 /** Sends each sidebar/content message to its handler. Returns true to keep `sendResponse` open. */
 export function routeMessage(
@@ -58,11 +56,6 @@ export function routeMessage(
 
   if (message.type === MSG.AUTH_SIGNOUT) {
     handleAuthSignOut(sendResponse);
-    return true;
-  }
-
-  if (message.type === MSG.LIST_WORKER_JOBS) {
-    handleListWorkerJobs(sendResponse);
     return true;
   }
 
@@ -121,6 +114,11 @@ export function routeMessage(
     return true;
   }
 
+  if (message.type === MSG.START_RUN) {
+    handleStartRun(message, sender, sendResponse);
+    return true;
+  }
+
   if (message.type === MSG.START_PIPELINE) {
     handleStartPipeline(message, sender, sendResponse);
     return true;
@@ -128,6 +126,25 @@ export function routeMessage(
 
   if (message.type === MSG.MATCH_OPTION) {
     handleMatchOption(message, sender, sendResponse);
+    return true;
+  }
+
+  if (message.type === MSG.REFRESH_TAB_USAGE) {
+    const tabId = Number(message.tabId);
+    if (!Number.isInteger(tabId)) {
+      sendResponse({ ok: false, error: "tabId is required" });
+      return false;
+    }
+    refreshTabUsage(tabId)
+      .then(() => sendResponse({ ok: true }))
+      .catch((err: unknown) =>
+        sendResponse({ ok: false, error: err instanceof Error ? err.message : String(err) }),
+      );
+    return true;
+  }
+
+  if (message.type === MSG.ESTIMATE_OPTION) {
+    handleEstimateOption(message, sender, sendResponse);
     return true;
   }
 

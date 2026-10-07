@@ -107,12 +107,9 @@ type Document struct {
 	Disability             string  `json:"disability" bson:"disability"`
 	VeteranStatus          string  `json:"veteranStatus" bson:"veteranStatus"`
 	DesiredSalary          string  `json:"desiredSalary" bson:"desiredSalary"`
-	OpenaiApiKey           string  `json:"openaiApiKey" bson:"openaiApiKey"`
-	DeepseekApiKey         string  `json:"deepseekApiKey" bson:"deepseekApiKey"`
+	OpenrouterApiKey       string  `json:"openrouterApiKey" bson:"openrouterApiKey"`
 	DefaultAccountPassword string  `json:"defaultAccountPassword" bson:"defaultAccountPassword"`
 	ResumeFolderPath       string  `json:"resumeFolderPath" bson:"resumeFolderPath"`
-	ModelProvider          string  `json:"modelProvider" bson:"modelProvider"`
-	ModelName              string  `json:"modelName" bson:"modelName"`
 	Timeline               []Entry `json:"timeline" bson:"timeline"`
 }
 
@@ -123,8 +120,8 @@ type storedProfile struct {
 }
 
 // Store keeps one profile per account. Memory is the copy this process reads;
-// Mongo is filled when a client is configured. A ready model reads uploaded
-// résumés; without one, the layout parser does.
+// Mongo is filled when a client is configured. A ready model, or the profile's
+// OpenRouter key, reads uploaded résumés; without either, the layout parser does.
 type Store struct {
 	mu    sync.Mutex
 	rows  map[string]Document
@@ -256,12 +253,9 @@ func normalize(doc Document) Document {
 	doc.Disability = orDefault(clip(doc.Disability, maxContact), defaultDisability)
 	doc.VeteranStatus = orDefault(clip(doc.VeteranStatus, maxContact), defaultVeteranStatus)
 	doc.DesiredSalary = clip(doc.DesiredSalary, maxContact)
-	doc.OpenaiApiKey = clip(doc.OpenaiApiKey, maxSecret)
-	doc.DeepseekApiKey = clip(doc.DeepseekApiKey, maxSecret)
+	doc.OpenrouterApiKey = clip(doc.OpenrouterApiKey, maxSecret)
 	doc.DefaultAccountPassword = clip(doc.DefaultAccountPassword, maxSecret)
 	doc.ResumeFolderPath = clip(doc.ResumeFolderPath, maxContact)
-	doc.ModelProvider = clip(doc.ModelProvider, maxContact)
-	doc.ModelName = clip(doc.ModelName, maxContact)
 	if len(doc.Timeline) > maxTimeline {
 		doc.Timeline = doc.Timeline[:maxTimeline]
 	}

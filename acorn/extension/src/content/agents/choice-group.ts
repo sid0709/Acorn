@@ -10,6 +10,8 @@
  * or component allowlists.
  */
 
+import { fieldWrapper } from "../form-dom";
+
 const GROUP_SELECTOR = [
   "fieldset",
   '[role="group"]',
@@ -69,6 +71,29 @@ export function isProxyControl(el: Element): boolean {
   return !hasClickableBox(el);
 }
 
+/** A native or ARIA option's label: aria-label, its <label>, then its value or text. */
+export function inputOptionLabel(el: Element): string {
+  const html = el as HTMLElement;
+  const id = html.id;
+  const byFor =
+    id && html.ownerDocument
+      ? html.ownerDocument.querySelector(`label[for="${CSS.escape(id)}"]`)?.textContent
+      : null;
+  const wrapping = html.closest("label")?.textContent;
+  return (
+    html.getAttribute("aria-label") ||
+    byFor ||
+    wrapping ||
+    html.getAttribute("value") ||
+    (html instanceof HTMLInputElement ? html.value : "") ||
+    html.innerText ||
+    html.textContent ||
+    ""
+  )
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
 /** The option's own label — what the person reads on the control. */
 export function choiceOptionLabel(el: Element): string {
   const html = el as HTMLElement;
@@ -83,6 +108,11 @@ export function choiceOptionLabel(el: Element): string {
     .trim();
 }
 
+/** `want` appears in `have` as a whole run of words. */
+export function containsWords(have: string, want: string): boolean {
+  return containsWordRun(tokens(have), tokens(want));
+}
+
 function labelIsValue(el: Element, value: string): boolean {
   const want = normalize(value);
   const have = normalize(choiceOptionLabel(el));
@@ -91,8 +121,15 @@ function labelIsValue(el: Element, value: string): boolean {
   return containsWordRun(tokens(have), tokens(want));
 }
 
-/** The field this control belongs to: nearest grouping container. */
+/**
+ * The field this control belongs to. A native box or radio: its own field wrapper
+ * (the highest ancestor holding only this question). Otherwise the nearest
+ * grouping container.
+ */
 function groupRoot(el: Element): ParentNode {
+  if (el instanceof HTMLInputElement && (el.type === "radio" || el.type === "checkbox")) {
+    return fieldWrapper(el);
+  }
   return el.closest(GROUP_SELECTOR) || el.parentElement || el.ownerDocument || document;
 }
 
@@ -103,8 +140,25 @@ function groupRoot(el: Element): ParentNode {
  */
 export function findVisibleChoiceOption(el: Element, value: string): HTMLElement | null {
   if (!value.trim()) return null;
-  const nodes = Array.from(groupRoot(el).querySelectorAll(CHOICE_SELECTOR)).filter(
-    (node): node is HTMLElement => node instanceof HTMLElement && hasClickableBox(node),
+  const root = groupRoot(el);
+  // The group's own option labels first: they belong to this field by name.
+  const nodes = [
+    ...memberLabels(el, root),
+    ...Array.from(root.querySelectorAll(CHOICE_SELECTOR)),
+  ].filter((node): node is HTMLElement => node instanceof HTMLElement && hasClickableBox(node));
+  const want = normalize(value);
+  const exact = nodes.find((node) => normalize(choiceOptionLabel(node)) === want);
+  return exact || nodes.find((node) => labelIsValue(node, value)) || null;
+}
+
+/**
+ * The <label>s of the native options in this control's group. A hidden radio or
+ * checkbox is often shown only through its own label, which a person clicks.
+ */
+function memberLabels(el: Element, root: ParentNode): HTMLLabelElement[] {
+  if (!(el instanceof HTMLInputElement) || !el.name) return [];
+  const members = Array.from(
+    root.querySelectorAll(`input[type="${el.type}"][name="${CSS.escape(el.name)}"]`),
   );
-  return nodes.find((node) => labelIsValue(node, value)) || null;
+  return members.flatMap((member) => Array.from((member as HTMLInputElement).labels ?? []));
 }

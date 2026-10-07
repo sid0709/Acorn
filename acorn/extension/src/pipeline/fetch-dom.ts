@@ -1,3 +1,4 @@
+import { MIN_CHILD_FORM_CONTROLS } from "../content/form-frame";
 import { sendTabMessage } from "../tab-messaging";
 import { MSG, type DomTreePayload } from "../types";
 
@@ -52,6 +53,16 @@ function formatDomFetchFailure(tabId: number, attempts: DomFrameAttempt[]): stri
 export async function fetchDomFromTab(
   tabId: number,
   preferredFrameId?: number | null,
+  /**
+   * `pendingFields` narrows `formFields` to fields still unanswered after a plan ran;
+   * `blockedFields` adds boxes left off, for a page that holds its forward control.
+   */
+  opts: {
+    fieldIssues?: boolean;
+    formFields?: boolean;
+    pendingFields?: boolean;
+    blockedFields?: boolean;
+  } = {},
 ): Promise<DomTreePayload> {
   const tried = new Set<number>();
 
@@ -62,7 +73,17 @@ export async function fetchDomFromTab(
     }
     return sendTabMessage<
       DomTreePayload & { error?: string; skipped?: boolean; formScore?: number }
-    >(tabId, { type: MSG.FETCH_DOM }, frameId);
+    >(
+      tabId,
+      {
+        type: MSG.FETCH_DOM,
+        fieldIssues: Boolean(opts.fieldIssues),
+        formFields: Boolean(opts.formFields),
+        pendingFields: Boolean(opts.pendingFields),
+        blockedFields: Boolean(opts.blockedFields),
+      },
+      frameId,
+    );
   };
 
   type Candidate = DomTreePayload & { formScore: number };
@@ -121,11 +142,20 @@ export async function fetchDomFromTab(
     // restricted pages — fall back to main frame only
   }
 
+  // The frame the run already reads still holds the form: no other frame can win,
+  // and asking them costs each one's wait for a form that never comes.
   if (preferredFrameId != null) {
-    consider(await attempt(preferredFrameId), preferredFrameId, null);
+    const preferred = await attempt(preferredFrameId);
+    consider(preferred, preferredFrameId, null);
+    const kept = candidates.find((candidate) => candidate.frameId === preferredFrameId);
+    if (kept && kept.formScore >= MIN_CHILD_FORM_CONTROLS) return kept;
   }
-  for (const frame of frameList) {
-    const res = await attempt(frame.frameId);
+  // Every other frame at once: a frame with no form waits out its hydration window,
+  // and in turn those waits would add up frame by frame.
+  const replies = await Promise.all(
+    frameList.map(async (frame) => ({ frame, res: await attempt(frame.frameId) })),
+  );
+  for (const { frame, res } of replies) {
     if (res == null) continue;
     consider(res, frame.frameId, frame.parentFrameId ?? null, frame.url);
   }

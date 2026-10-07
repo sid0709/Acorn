@@ -1,4 +1,5 @@
 import type { RuntimeAttachedFile } from "@acorn/shared/plan-runner/types";
+import { readRecommendedTop, type RecommendedResumeRank } from "@acorn/shared/resume-library";
 import { authHeaders, getAcornApiUrl } from "../../auth/acorn-auth";
 import { extractError, isNestMissingRoute, readId } from "./http";
 
@@ -10,19 +11,22 @@ export type CustomLibraryRecommendResult = {
   recommendedResumeId: string;
   recommendedResumeStack: string;
   recommendedResumeReason: string | null;
+  /** Best-ranked Library résumés, most probable first. */
+  recommendedTop: RecommendedResumeRank[];
   warning: string | null;
 };
 
 export async function recommendCustomLibrary(
   input: { jobDescription: string; title?: string; url?: string },
   _apiUrl?: string,
+  tabId?: number | null,
 ): Promise<CustomLibraryRecommendResult> {
   const jobDescription = input.jobDescription.trim();
   if (!jobDescription) throw new Error("No readable text on this tab");
   const base = (_apiUrl || (await getAcornApiUrl())).replace(/\/$/, "");
   const res = await fetch(`${base}/acorn/custom/recommend`, {
     method: "POST",
-    headers: await authHeaders(),
+    headers: await authHeaders(tabId),
     body: JSON.stringify({
       jobDescription,
       title: input.title?.trim() || undefined,
@@ -33,6 +37,7 @@ export async function recommendCustomLibrary(
     recommendedResumeId?: unknown;
     recommendedResumeStack?: unknown;
     recommendedResumeReason?: unknown;
+    recommendedTop?: unknown;
     warning?: unknown;
     error?: string;
     message?: string;
@@ -52,6 +57,7 @@ export async function recommendCustomLibrary(
     recommendedResumeId,
     recommendedResumeStack,
     recommendedResumeReason: String(data.recommendedResumeReason || "").trim() || null,
+    recommendedTop: readRecommendedTop(data.recommendedTop),
     warning: String(data.warning || "").trim() || null,
   };
 }

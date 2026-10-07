@@ -22,20 +22,24 @@ export function handleSelectionQa(
       }
       const tabId = sender.tab?.id;
       const tabJob = typeof tabId === "number" ? await getTabJob(tabId) : null;
-      const answer = await requestQaAnswer({
-        question,
-        page: {
-          title: String(message.title || ""),
-          url: String(message.url || ""),
-          job: tabJob
-            ? {
-                id: tabJob.jobId,
-                title: tabJob.title,
-                company: tabJob.company,
-              }
-            : null,
+      const answer = await requestQaAnswer(
+        {
+          question,
+          page: {
+            title: String(message.title || ""),
+            url: String(message.url || ""),
+            job: tabJob
+              ? {
+                  id: tabJob.jobId,
+                  title: tabJob.title,
+                  company: tabJob.company,
+                }
+              : null,
+          },
         },
-      });
+        undefined,
+        tabId,
+      );
       sendResponse({ ok: true, answer });
     } catch (err) {
       const detail = err instanceof Error ? err.message : String(err);

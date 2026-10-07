@@ -20,13 +20,14 @@ type QaPanelProps = {
   page?: AcornQaPage | null;
   disabled?: boolean;
   onStatus?: (status: { busy: boolean; error: boolean }) => void;
+  tabId?: number | null;
 };
 
 /**
  * Ask: paste a form question Fill left blank and get a human-sounding answer to copy,
  * as a short chat thread.
  */
-export function QaPanel({ signedIn, page, disabled, onStatus }: QaPanelProps) {
+export function QaPanel({ signedIn, page, disabled, onStatus, tabId }: QaPanelProps) {
   const [question, setQuestion] = useState("");
   const [asked, setAsked] = useState<string | null>(null);
   const [answer, setAnswer] = useState("");
@@ -43,7 +44,7 @@ export function QaPanel({ signedIn, page, disabled, onStatus }: QaPanelProps) {
     setError(null);
     setCopied(false);
     try {
-      const next = await requestQaAnswer({ question: text, page: page ?? null });
+      const next = await requestQaAnswer({ question: text, page: page ?? null }, undefined, tabId);
       setAnswer(next);
       onStatus?.({ busy: false, error: false });
     } catch (err) {

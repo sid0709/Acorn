@@ -1,56 +1,20 @@
 import type { ReactNode } from "react";
 import type { AcornMainTab } from "./SidebarNav";
-import { WorkerPoolList } from "./WorkerPoolList";
-import type {
-  JdPreview,
-  ResumePreview,
-  TabSession,
-  TabWork,
-  WorkerJobs,
-} from "./sidebar-panel-types";
+import { UsageHistoryList } from "./UsageHistoryList";
+import { useAiUsage } from "./use-ai-usage";
 
 interface Props {
   mainTab: AcornMainTab;
   nowCard: ReactNode;
-  workerJobs: WorkerJobs["workerJobs"];
-  workerJobsLoading: WorkerJobs["workerJobsLoading"];
-  workerJobsError: WorkerJobs["workerJobsError"];
-  openingJobId: WorkerJobs["openingJobId"];
-  markingJobId: WorkerJobs["markingJobId"];
-  jobsListKey: WorkerJobs["jobsListKey"];
-  fetchWorkerJobs: WorkerJobs["fetchWorkerJobs"];
-  openWorkerJob: WorkerJobs["openWorkerJob"];
-  markJobApplied: WorkerJobs["markJobApplied"];
-  tabJob: TabSession["tabJob"];
-  attachments: TabSession["attachments"];
-  pipelines: TabSession["pipelines"];
-  jobGenerates: TabSession["jobGenerates"];
-  openJobResumePreview: ResumePreview["openJobResumePreview"];
-  startJobWork: TabWork["startJobWork"];
-  setJdPreview: (preview: JdPreview | null) => void;
+  tabId: number | null;
+  signedIn: boolean;
+  /** The service worker's socket: usage is pushed live only while it is connected. */
+  socketConnected: boolean;
 }
 
-/** The Jobs tab: the Now card and the Worker pool list. */
-export function JobsPanel({
-  mainTab,
-  nowCard,
-  workerJobs,
-  workerJobsLoading,
-  workerJobsError,
-  openingJobId,
-  markingJobId,
-  jobsListKey,
-  fetchWorkerJobs,
-  openWorkerJob,
-  markJobApplied,
-  tabJob,
-  attachments,
-  pipelines,
-  jobGenerates,
-  openJobResumePreview,
-  startJobWork,
-  setJdPreview,
-}: Props) {
+/** The Jobs tab: the tab's job, and that tab's AI usage. */
+export function JobsPanel({ mainTab, nowCard, tabId, signedIn, socketConnected }: Props) {
+  const usage = useAiUsage(tabId, mainTab === "fill", signedIn, socketConnected);
   return (
     <section
       id="acorn-panel-fill"
@@ -59,35 +23,13 @@ export function JobsPanel({
       hidden={mainTab !== "fill"}
     >
       {nowCard}
-      <WorkerPoolList
-        jobs={workerJobs}
-        loading={workerJobsLoading}
-        error={workerJobsError}
-        selectedJobId={tabJob?.jobId ?? null}
-        attachments={attachments}
-        pipelines={pipelines}
-        generates={jobGenerates}
-        openingJobId={openingJobId}
-        markingJobId={markingJobId}
-        listKey={jobsListKey}
-        listActive={mainTab === "fill"}
-        onRefresh={() => void fetchWorkerJobs()}
-        onOpen={(job) => void openWorkerJob(job)}
-        onPreviewResume={openJobResumePreview}
-        onMarkApplied={(job) => void markJobApplied(job)}
-        onContinueGenerate={(job) =>
-          void startJobWork(
-            jobGenerates[job.id]?.workKind === "recommend" ? "recommend" : "generate",
-            { continue: true, job },
-          )
-        }
-        onRestartGenerate={(job) =>
-          void startJobWork(
-            jobGenerates[job.id]?.workKind === "recommend" ? "recommend" : "generate",
-            { continue: false, job },
-          )
-        }
-        onViewJd={(job, jd) => setJdPreview({ title: job.title, text: jd })}
+      <UsageHistoryList
+        entries={usage.entries}
+        totalPrice={usage.totalPrice}
+        loading={usage.loading}
+        error={usage.error}
+        tabId={tabId}
+        onRefresh={usage.reload}
       />
     </section>
   );

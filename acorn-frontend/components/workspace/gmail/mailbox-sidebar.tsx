@@ -10,44 +10,70 @@ import {
   SideNavItem,
   SideNavSection,
 } from "sid-ui";
-import { MAIL_LABELS, MAIL_LABEL_ORDER, type MailLabel } from "@/lib/workspace/mail";
-import type { Mailbox } from "@/lib/workspace/model";
 
-/** "inbox" and "unread" are views; every other value is a label. */
-export type MailView = "inbox" | "unread" | MailLabel;
+import type { GmailLabel, GmailProfile } from "@/lib/gmail/types";
+import {
+  labelTree,
+  systemFolders,
+  userFolder,
+  type GmailFolder,
+  type LabelNode,
+} from "@/lib/gmail/views";
 
-function count(value: number, variant: "neutral" | "info" = "neutral") {
-  return value > 0 ? <Badge label={String(value)} variant={variant} /> : undefined;
+function countBadge(value: number, isSelected: boolean) {
+  return value > 0 ? (
+    <Badge label={String(value)} variant={isSelected ? "info" : "neutral"} />
+  ) : undefined;
 }
 
+/**
+ * The connected Gmail account (its own name and photo), Gmail's folders, and the
+ * account's labels, nested the way Gmail nests "Parent/Child".
+ */
 export function MailboxSidebar({
-  name,
-  mailboxes,
-  view,
-  onView,
-  totals,
-  labelNames,
-  unread,
+  profile,
+  labels,
+  selected,
+  onSelect,
+  countFor,
   onManage,
 }: {
-  name: string;
-  mailboxes: Mailbox[];
-  view: MailView;
-  onView: (view: MailView) => void;
-  totals: Record<MailLabel, number>;
-  /** Gmail label names once auto-label has run; the Acorn category names until then. */
-  labelNames?: Record<MailLabel, string | null>;
-  unread: number;
+  profile: GmailProfile;
+  labels: GmailLabel[];
+  selected: string;
+  onSelect: (key: string) => void;
+  /** The badge number for a folder, after mail opened here. */
+  countFor: (folder: GmailFolder) => number;
   onManage: () => void;
 }) {
-  const primary = mailboxes.find((mailbox) => mailbox.isDefault) ?? mailboxes[0];
+  const name = profile.name || profile.email;
+  const folders = systemFolders(labels);
+  const tree = labelTree(labels);
+  const byId = new Map(labels.map((label) => [label.id, label]));
+
+  const renderLabel = (node: LabelNode) => {
+    const unread = countFor(userFolder(node.label));
+    return (
+      <SideNavItem
+        key={node.label.id}
+        label={node.leaf}
+        icon={<Glyph name="tag" />}
+        isSelected={selected === node.label.id}
+        onClick={() => onSelect(node.label.id)}
+        endContent={countBadge(unread, selected === node.label.id)}
+      >
+        {node.children.length > 0 ? node.children.map(renderLabel) : undefined}
+      </SideNavItem>
+    );
+  };
+
   return (
     <SideNav
       header={
         <SideNavHeading
           heading={name}
-          subheading={primary?.email ?? "No mailbox connected"}
-          icon={<Avatar name={name} size={32} />}
+          subheading={profile.name ? profile.email : undefined}
+          icon={<Avatar name={name} src={profile.picture || undefined} size={32} tooltip={false} />}
           headerEndContent={
             <IconButton
               label="Manage mailboxes"
@@ -60,46 +86,25 @@ export function MailboxSidebar({
         />
       }
     >
-      <SideNavSection title="Views">
-        <SideNavItem
-          label="Inbox"
-          icon={<Glyph name="mail" />}
-          isSelected={view === "inbox"}
-          onClick={() => onView("inbox")}
-          endContent={count(unread, "info")}
-        />
-        <SideNavItem
-          label="Unread"
-          icon={<Glyph name="dot" />}
-          isSelected={view === "unread"}
-          onClick={() => onView("unread")}
-          endContent={count(unread)}
-        />
-      </SideNavSection>
-      <SideNavSection title={labelNames ? "Gmail labels" : "Categories"}>
-        {MAIL_LABEL_ORDER.map((label) => (
+      <SideNavSection title="Mail" isHeaderHidden>
+        {folders.map((folder) => (
           <SideNavItem
-            key={label}
-            label={labelNames?.[label] ?? MAIL_LABELS[label].label}
-            icon={<Glyph name={labelNames?.[label] ? "tag" : MAIL_LABELS[label].icon} />}
-            isSelected={view === label}
-            onClick={() => onView(label)}
-            endContent={count(totals[label])}
+            key={folder.key}
+            label={folder.title}
+            icon={<Glyph name={folder.glyph} />}
+            isSelected={selected === folder.key}
+            onClick={() => onSelect(folder.key)}
+            endContent={
+              folder.count && byId.has(folder.count.labelId)
+                ? countBadge(countFor(folder), selected === folder.key)
+                : undefined
+            }
           />
         ))}
       </SideNavSection>
-      <SideNavSection title="Mailboxes">
-        {mailboxes.map((mailbox) => (
-          <SideNavItem
-            key={mailbox.id}
-            label={mailbox.label}
-            icon={<Glyph name={mailbox.isDefault ? "star" : "archive"} />}
-            onClick={onManage}
-            endContent={mailbox.isDefault ? <Badge label="Default" variant="blue" /> : undefined}
-          />
-        ))}
-        <SideNavItem label="Connect a mailbox" icon={<Glyph name="plus" />} onClick={onManage} />
-      </SideNavSection>
+      {tree.length > 0 ? (
+        <SideNavSection title="Labels">{tree.map(renderLabel)}</SideNavSection>
+      ) : null}
     </SideNav>
   );
 }

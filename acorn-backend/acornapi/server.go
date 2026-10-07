@@ -14,9 +14,12 @@ import (
 	"github.com/sid0709/OpenSeat/acorn-backend/account"
 	"github.com/sid0709/OpenSeat/acorn-backend/acorn"
 	"github.com/sid0709/OpenSeat/acorn-backend/acornapi/gateway"
+	"github.com/sid0709/OpenSeat/acorn-backend/aiusage"
 	"github.com/sid0709/OpenSeat/acorn-backend/debugtrace"
+	"github.com/sid0709/OpenSeat/acorn-backend/mailbox"
 	"github.com/sid0709/OpenSeat/acorn-backend/profile"
 	"github.com/sid0709/OpenSeat/acorn-backend/resume"
+	"github.com/sid0709/OpenSeat/acorn-backend/selector"
 	"github.com/sid0709/OpenSeat/backend-core/google"
 	"github.com/sid0709/OpenSeat/backend-core/httpkit"
 	"github.com/sid0709/OpenSeat/backend-core/jobs"
@@ -64,9 +67,16 @@ type Server struct {
 	switches       killswitch.Switches
 	google         *google.Client
 	googleRedirect string
+	gmail          *mailbox.Store
+	gmailGoogle    *mailbox.Google
+	gmailRedirect  string
 	resumes        *resume.Service
 	profiles       *profile.Store
 	debug          *debugtrace.Recorder
+	selector       *selector.Gateway
+	usage          *aiusage.Store
+	// sockets pushes each recorded AI call to the account's clients as it happens.
+	sockets accountEmitter
 }
 
 // Options are the Acorn API's settings. CORS is the server's: see acorn-backend/cmd/server.
@@ -81,12 +91,21 @@ type Options struct {
 	Google *google.Client
 	// GoogleRedirectURL is acorn-frontend's callback, registered in Google Cloud.
 	GoogleRedirectURL string
+	// Gmail is connected Gmail mailboxes. Nil leaves Gmail routes empty until configured.
+	Gmail *mailbox.Store
+	// GmailRedirectURL is acorn-frontend's Gmail OAuth callback.
+	GmailRedirectURL string
 	// Resumes is the template, generation, library, and history engine. Nil uses an in-memory store.
 	Resumes *resume.Service
 	// Profiles is the account profile. Nil uses an in-memory store.
 	Profiles *profile.Store
 	// Debug is local debug capture (pages, prompts, plans, step traces). Nil is off.
 	Debug *debugtrace.Recorder
+	// Selector binds the SelectorGateway to one decision model (tests). Nil builds
+	// a Jev gateway per request on the account's OpenRouter key.
+	Selector *selector.Gateway
+	// Usage stores per-tab AI call history. Nil answers an empty list.
+	Usage *aiusage.Store
 }
 
 func New(accounts Accounts, listings *jobs.Store, brain *acorn.Service, opts Options) (http.Handler, *gateway.Gateway) {
@@ -94,7 +113,9 @@ func New(accounts Accounts, listings *jobs.Store, brain *acorn.Service, opts Opt
 		accounts: accounts, listings: listings, acorn: brain, files: opts.Runtime,
 		cookie: opts.SessionCookie, switches: opts.KillSwitches,
 		google: opts.Google, googleRedirect: opts.GoogleRedirectURL,
+		gmail: opts.Gmail, gmailRedirect: opts.GmailRedirectURL,
 		resumes: opts.Resumes, profiles: opts.Profiles, debug: opts.Debug,
+		selector: opts.Selector, usage: opts.Usage,
 	}
 	if s.debug != nil {
 		brain.SetTracer(debugtrace.Tracer())
@@ -108,7 +129,11 @@ func New(accounts Accounts, listings *jobs.Store, brain *acorn.Service, opts Opt
 	if s.cookie == "" {
 		s.cookie = DefaultSessionCookie
 	}
+	if s.gmail != nil && opts.GmailRedirectURL != "" && opts.Google != nil {
+		s.gmailGoogle = &mailbox.Google{OAuth: opts.Google, RedirectURL: opts.GmailRedirectURL}
+	}
 	gw := gateway.New(s.authenticateSocket)
+	s.sockets = gw
 
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /acorn/health", s.health)
@@ -124,13 +149,18 @@ func New(accounts Accounts, listings *jobs.Store, brain *acorn.Service, opts Opt
 
 	mux.HandleFunc("POST /acorn/ai-analyze", s.requireAI(s.aiAnalyze))
 	mux.HandleFunc("POST /acorn/match-option", s.requireAI(s.matchOption))
+	mux.HandleFunc("POST /acorn/pick-options", s.requireAI(s.pickOptions))
 	mux.HandleFunc("POST /acorn/qa", s.requireAI(s.qa))
+	mux.HandleFunc("POST /acorn/run/read-page", s.requireAI(s.runReadPage))
+	mux.HandleFunc("POST /acorn/run/diagnose", s.requireAI(s.runDiagnose))
+	mux.HandleFunc("POST /acorn/run/log", s.runLog)
 	mux.HandleFunc("GET /acorn/runtime-file", s.runtimeFile)
 	if s.debug != nil {
 		mux.HandleFunc("POST /acorn/debug/log", s.debugLog)
 	}
 
-	mux.HandleFunc("GET /acorn/jobs", s.listJobs)
+	mux.HandleFunc("GET /acorn/ai-usage", s.listAIUsage)
+	mux.HandleFunc("GET /acorn/ai-usage/{id}", s.getAIUsage)
 	mux.HandleFunc("GET /acorn/jobs/{jobId}", s.getJob)
 	mux.HandleFunc("POST /acorn/jobs/{jobId}/generate", s.requireAI(s.generateForJob))
 	mux.HandleFunc("POST /acorn/jobs/{jobId}/mark-applied", s.markApplied)
@@ -142,7 +172,7 @@ func New(accounts Accounts, listings *jobs.Store, brain *acorn.Service, opts Opt
 	mux.HandleFunc("POST /acorn/custom/generate", s.requireAI(s.startGenerate))
 	mux.HandleFunc("POST /acorn/custom/generate/{inputId}/continue", s.requireAI(s.continueGenerate))
 	mux.HandleFunc("GET /acorn/custom/generate/{inputId}", s.pollGenerate)
-	mux.HandleFunc("POST /acorn/custom/recommend", s.recommendLibrary)
+	mux.HandleFunc("POST /acorn/custom/recommend", s.requireAI(s.recommendLibrary))
 	mux.HandleFunc("GET /acorn/custom/library-resumes/{resumeId}/preview", s.customLibraryPreview)
 	mux.HandleFunc("GET /acorn/custom/library-resumes/{resumeId}", s.customLibraryResume)
 	mux.HandleFunc("GET /acorn/custom/resumes/{generationId}/preview", s.customGeneratedPreview)
@@ -172,6 +202,18 @@ func New(accounts Accounts, listings *jobs.Store, brain *acorn.Service, opts Opt
 	mux.HandleFunc("GET /acorn/profile", s.getProfile)
 	mux.HandleFunc("PUT /acorn/profile", s.putProfile)
 	mux.HandleFunc("POST /acorn/profile/from-resume", s.fillProfile)
+
+	mux.HandleFunc("GET /acorn/gmail/mailboxes", s.listGmailMailboxes)
+	mux.HandleFunc("POST /acorn/gmail/connect/start", s.startGmailConnect)
+	mux.HandleFunc("POST /acorn/gmail/connect/finish", s.finishGmailConnect)
+	mux.HandleFunc("DELETE /acorn/gmail/mailboxes/{mailboxId}", s.deleteGmailMailbox)
+	mux.HandleFunc("PATCH /acorn/gmail/mailboxes/{mailboxId}", s.patchGmailMailbox)
+	mux.HandleFunc("GET /acorn/gmail/messages", s.listGmailMessages)
+	mux.HandleFunc("GET /acorn/gmail/messages/{messageId}", s.getGmailMessage)
+	mux.HandleFunc("GET /acorn/gmail/overview", s.getGmailOverview)
+	mux.HandleFunc("GET /acorn/gmail/label-guides", s.listLabelGuides)
+	mux.HandleFunc("PUT /acorn/gmail/label-guides", s.saveLabelGuides)
+	mux.HandleFunc("POST /acorn/gmail/autolabel", s.requireAI(s.autolabelGmail))
 
 	socket := gw.Handler()
 	mux.Handle(gateway.Path, socket)
@@ -203,6 +245,7 @@ func (s *Server) session(w http.ResponseWriter, r *http.Request) (account.Sessio
 		writeError(w, http.StatusInternalServerError, "could not load the session")
 		return account.Session{}, false
 	}
+	httpkit.SetUserID(r.Context(), session.User.ID)
 	return session, true
 }
 

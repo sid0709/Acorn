@@ -6,6 +6,8 @@ import (
 	"fmt"
 	"strings"
 	"time"
+
+	"github.com/sid0709/OpenSeat/backend-core/config"
 )
 
 type Service struct {
@@ -22,6 +24,15 @@ func New(store *Store, model Model) *Service {
 		store = NewMemory()
 	}
 	return &Service{store: store, model: model}
+}
+
+// Bound is the model this service was built with, when that model can answer.
+// Production leaves it unset and passes a profile key into each run.
+func (s *Service) Bound() (Model, bool) {
+	if s == nil || s.model == nil || !s.model.Ready() {
+		return nil, false
+	}
+	return s.model, true
 }
 
 func (s *Service) EnsureIndexes(ctx context.Context) error {
@@ -88,14 +99,14 @@ func (s *Service) DeleteTemplate(accountID, id string) error {
 	return nil
 }
 
-func (s *Service) Enqueue(accountID string, identity Identity, jobDescription, jobID string, checkpoint map[string]any) (Task, error) {
+func (s *Service) Enqueue(ctx context.Context, accountID string, identity Identity, jobDescription, jobID string, checkpoint map[string]any, model Model) (Task, error) {
 	if identity.FullName == "" {
 		return Task{}, fmt.Errorf("%w: identity is required", ErrInvalid)
 	}
-	return s.enqueue(accountID, identity, jobDescription, jobID, checkpoint)
+	return s.enqueue(ctx, accountID, identity, jobDescription, jobID, checkpoint, model)
 }
 
-func (s *Service) Continue(accountID, inputID string, identity Identity, jobDescription, jobID string, checkpoint map[string]any) (Task, error) {
+func (s *Service) Continue(ctx context.Context, accountID, inputID string, identity Identity, jobDescription, jobID string, checkpoint map[string]any, model Model) (Task, error) {
 	existing, ok := s.store.task(accountID, inputID)
 	if ok {
 		if identity.FullName == "" {
@@ -106,7 +117,7 @@ func (s *Service) Continue(accountID, inputID string, identity Identity, jobDesc
 		}
 		jobID = firstNonEmpty(jobID, existing.JobID)
 	}
-	return s.Enqueue(accountID, identity, jobDescription, jobID, checkpoint)
+	return s.Enqueue(ctx, accountID, identity, jobDescription, jobID, checkpoint, model)
 }
 
 func (s *Service) Poll(accountID, inputID string) (Task, error) {
@@ -304,14 +315,6 @@ func (s *Service) DeleteAccount(ctx context.Context, accountID string) error {
 	return s.store.DeleteAccount(ctx, accountID)
 }
 
-func (s *Service) Recommend(accountID, jobDescription, jobID string) (id, stack, reason string, err error) {
-	id, stack, reason, err = s.recommend(accountID, jobDescription)
-	if err == nil && jobID != "" {
-		s.store.rememberJob(accountID, jobID, id)
-	}
-	return id, stack, reason, err
-}
-
 func (s *Service) JobResume(accountID, jobID string) (FilePayload, string, string, error) {
 	ref := s.store.jobFile(accountID, jobID)
 	if ref == "" {
@@ -349,7 +352,7 @@ func defaultConfig() map[string]any {
 		"margin": marginRange.def, "sectionGap": sectionGapRange.def, "entryGap": entryGapRange.def, "lineHeight": lineHeightRange.def,
 	}
 	return map[string]any{
-		"schemaVersion": 4, "provider": "openai", "model": "gpt-5-nano",
+		"schemaVersion": 4, "provider": config.OpenRouterProvider, "model": config.OpenRouterModel,
 		"reasoningEffort": "low", "dynamicCareerTitles": false, "templateId": "classic",
 		"theme": theme, "systemInstruction": systemWriter, "jobDescription": "",
 		"coverage": map[string]any{"enabled": false, "experienceRequirementThreshold": 4, "aliases": map[string]any{}},
@@ -369,6 +372,8 @@ func mergeConfig(raw map[string]any) map[string]any {
 	if asString(base["templateId"]) == "" {
 		base["templateId"] = "classic"
 	}
+	base["provider"] = config.OpenRouterProvider
+	base["model"] = config.OpenRouterModel
 	return base
 }
 

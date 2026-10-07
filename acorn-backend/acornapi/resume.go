@@ -10,6 +10,7 @@ import (
 
 	"github.com/sid0709/OpenSeat/acorn-backend/account"
 	"github.com/sid0709/OpenSeat/acorn-backend/resume"
+	"github.com/sid0709/OpenSeat/backend-core/openai"
 )
 
 func (s *Server) identity(r *http.Request, session account.Session, extra *resume.Identity) resume.Identity {
@@ -168,7 +169,11 @@ func (s *Server) startGenerateFor(w http.ResponseWriter, r *http.Request, jobID 
 	if jobID == "" {
 		jobID = body.JobID
 	}
-	task, err := s.resumes.Enqueue(session.User.ID, s.identity(r, session, body.Identity), body.JobDescription, jobID, body.Checkpoint)
+	model, ok := s.resumeModel(w, r, session.User.ID)
+	if !ok {
+		return
+	}
+	task, err := s.resumes.Enqueue(s.withUsage(r, session.User.ID), session.User.ID, s.identity(r, session, body.Identity), body.JobDescription, jobID, body.Checkpoint, model)
 	if err != nil {
 		s.writeResumeErr(w, err)
 		return
@@ -190,7 +195,11 @@ func (s *Server) continueGenerate(w http.ResponseWriter, r *http.Request) {
 	if !decode(w, r, &body) {
 		return
 	}
-	task, err := s.resumes.Continue(session.User.ID, r.PathValue("inputId"), s.identity(r, session, body.Identity), body.JobDescription, body.JobID, body.Checkpoint)
+	model, ok := s.resumeModel(w, r, session.User.ID)
+	if !ok {
+		return
+	}
+	task, err := s.resumes.Continue(s.withUsage(r, session.User.ID), session.User.ID, r.PathValue("inputId"), s.identity(r, session, body.Identity), body.JobDescription, body.JobID, body.Checkpoint, model)
 	if err != nil {
 		s.writeResumeErr(w, err)
 		return
@@ -364,7 +373,11 @@ func (s *Server) analyzeLibrary(w http.ResponseWriter, r *http.Request) {
 	if !decode(w, r, &body) {
 		return
 	}
-	row, err := s.resumes.AnalyzeLibrary(r.Context(), session.User.ID, r.PathValue("resumeId"), body.Force)
+	model, ok := s.resumeModel(w, r, session.User.ID)
+	if !ok {
+		return
+	}
+	row, err := s.resumes.AnalyzeLibrary(s.withUsage(r, session.User.ID), session.User.ID, r.PathValue("resumeId"), body.Force, model)
 	if err != nil {
 		s.writeResumeErr(w, err)
 		return
@@ -450,13 +463,18 @@ func (s *Server) recommendLibrary(w http.ResponseWriter, r *http.Request) {
 	if !decode(w, r, &body) {
 		return
 	}
-	id, stack, reason, err := s.resumes.Recommend(session.User.ID, body.JobDescription, body.JobID)
+	gateway, ok := s.selectorFor(w, r, session.User.ID)
+	if !ok {
+		return
+	}
+	rec, err := s.resumes.Recommend(s.withUsage(r, session.User.ID), session.User.ID, body.JobDescription, body.JobID, gateway)
 	if err != nil {
 		s.writeResumeErr(w, err)
 		return
 	}
 	writeJSON(w, http.StatusOK, map[string]any{
-		"recommendedResumeId": id, "recommendedResumeStack": stack, "recommendedResumeReason": reason, "warning": nil,
+		"recommendedResumeId": rec.ResumeID, "recommendedResumeStack": rec.Stack, "recommendedResumeReason": rec.Reason,
+		"recommendedTop": rec.Top, "warning": nil,
 	})
 }
 
@@ -500,6 +518,10 @@ func (s *Server) writeResumeErr(w http.ResponseWriter, err error) {
 		writeError(w, http.StatusBadRequest, err.Error())
 	case errors.Is(err, resume.ErrNotFound), errors.Is(err, resume.ErrNoLibrary):
 		writeError(w, http.StatusNotFound, err.Error())
+	case errors.Is(err, resume.ErrNoPosting):
+		writeError(w, http.StatusUnprocessableEntity, resume.ErrNoPosting.Error())
+	case errors.Is(err, openai.ErrMissingOpenRouterKey):
+		writeError(w, http.StatusServiceUnavailable, openai.ErrMissingOpenRouterKey.Error())
 	case errors.Is(err, resume.ErrUnavailable):
 		writeError(w, http.StatusServiceUnavailable, err.Error())
 	default:

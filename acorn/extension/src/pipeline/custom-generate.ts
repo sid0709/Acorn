@@ -1,4 +1,5 @@
 import { patchCustomTab, getCustomTab } from "../tab-custom-session";
+
 import { extractRememberedTabJd } from "./custom-page-jd";
 import { runResumeGenerate } from "./run-generate";
 
@@ -11,6 +12,7 @@ export async function runCustomGenerate(args: {
   await runResumeGenerate({
     source: "custom",
     apiUrl,
+    tabId,
     continue: Boolean(args.continue),
     loadJd: () => extractRememberedTabJd(tabId, apiUrl),
     store: {

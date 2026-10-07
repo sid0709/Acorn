@@ -31,6 +31,7 @@ type Client struct {
 	missingKey  error
 	jsonObject  bool
 	noThinking  bool
+	noReasoning bool
 	http        *http.Client
 	searchHTTP  *http.Client
 }
@@ -79,38 +80,68 @@ func (c *Client) JSON(ctx context.Context, system, user string, schema json.RawM
 		return nil, err
 	}
 
+	started := time.Now()
+	request := StoredRequest(body)
 	var last error
+	var lastUsage Usage
 	for attempt := 0; attempt < maxAttempts; attempt++ {
-		content, status, retryAfter, err := c.complete(ctx, body)
+		attemptStarted := time.Now()
+		content, usage, status, retryAfter, err := c.complete(ctx, body)
 		if err == nil && status >= 200 && status < 300 {
 			if strings.TrimSpace(content) == "" {
-				return nil, fmt.Errorf("model returned an empty job")
+				empty := fmt.Errorf("model returned an empty job")
+				LogProvider(ctx, "chat", c.model, status, attempt+1, len(body), attemptStarted, usage, empty, "", false)
+				noteCall(ctx, c.model, started, request, usage, empty)
+				return nil, empty
 			}
+			if usage.Model == "" {
+				usage.Model = c.model
+			}
+			LogProvider(ctx, "chat", usage.Model, status, attempt+1, len(body), attemptStarted, usage, nil, "", false)
+			noteCall(ctx, usage.Model, started, request, usage, nil)
 			return []byte(content), nil
 		}
+		callErr := err
+		if callErr == nil {
+			callErr = statusError(status, content)
+		}
+		willRetry := attempt < maxAttempts-1 && ctx.Err() == nil && (err != nil || llmhttp.Retryable(status))
+		LogProvider(ctx, "chat", c.model, status, attempt+1, len(body), attemptStarted, usage, callErr, retryAfter, willRetry)
 		if err == nil && !llmhttp.Retryable(status) {
-			return nil, statusError(status, content)
+			noteCall(ctx, c.model, started, request, usage, callErr)
+			return nil, callErr
 		}
 		if err != nil && ctx.Err() != nil {
+			noteCall(ctx, c.model, started, request, Usage{}, err)
 			return nil, err
 		}
-		if err != nil {
-			last = err
-			retryAfter = ""
-		} else {
-			last = statusError(status, content)
-		}
-		if attempt == maxAttempts-1 {
+		last = callErr
+		lastUsage = usage
+		if !willRetry {
 			break
 		}
 		if err := llmhttp.Wait(ctx, llmhttp.RetryDelay(attempt, retryAfter)); err != nil {
+			noteCall(ctx, c.model, started, request, Usage{}, err)
 			return nil, err
 		}
 	}
 	if last == nil {
 		last = fmt.Errorf("model request failed")
 	}
+	noteCall(ctx, c.model, started, request, lastUsage, last)
 	return nil, last
+}
+
+func noteCall(ctx context.Context, model string, started time.Time, request string, usage Usage, err error) {
+	if usage.Model == "" {
+		usage.Model = model
+	}
+	usage.Duration = time.Since(started)
+	usage.Request = request
+	if err != nil {
+		usage.Error = err.Error()
+	}
+	Note(ctx, usage)
 }
 
 func (c *Client) chatRequest(system, user string, schema json.RawMessage) chatRequest {
@@ -136,39 +167,47 @@ func (c *Client) chatRequest(system, user string, schema json.RawMessage) chatRe
 	if c.noThinking {
 		request.Thinking = &thinking{Type: "disabled"}
 	}
+	if c.noReasoning {
+		request.Reasoning = &reasoningEffort{Effort: reasoningEffortNone}
+	}
 	return request
 }
 
-func (c *Client) complete(ctx context.Context, body []byte) (string, int, string, error) {
+func (c *Client) complete(ctx context.Context, body []byte) (string, Usage, int, string, error) {
 	request, err := http.NewRequestWithContext(ctx, http.MethodPost, c.baseURL+"/chat/completions", bytes.NewReader(body))
 	if err != nil {
-		return "", 0, "", err
+		return "", Usage{}, 0, "", err
 	}
 	request.Header.Set("Authorization", "Bearer "+c.apiKey)
 	request.Header.Set("Content-Type", "application/json")
 
 	response, err := c.http.Do(request)
 	if err != nil {
-		return "", 0, "", err
+		return "", Usage{}, 0, "", err
 	}
 	defer response.Body.Close()
 
 	payload, err := io.ReadAll(io.LimitReader(response.Body, 1<<20))
 	if err != nil {
-		return "", response.StatusCode, "", err
+		return "", Usage{}, response.StatusCode, "", err
 	}
 	var decoded chatResponse
 	if err := json.Unmarshal(payload, &decoded); err != nil {
-		return "", response.StatusCode, response.Header.Get("Retry-After"), fmt.Errorf("read model response: %w", err)
+		return "", Usage{}, response.StatusCode, response.Header.Get("Retry-After"), fmt.Errorf("read model response: %w", err)
 	}
 	content := ""
 	if len(decoded.Choices) > 0 {
 		content = decoded.Choices[0].Message.Content
 	}
-	if decoded.Error != nil && decoded.Error.Message != "" && (response.StatusCode < 200 || response.StatusCode >= 300) {
-		return decoded.Error.Message, response.StatusCode, response.Header.Get("Retry-After"), nil
+	model := decoded.Model
+	if model == "" {
+		model = c.model
 	}
-	return content, response.StatusCode, response.Header.Get("Retry-After"), nil
+	usage, _ := ParseChatUsage(model, decoded.Usage)
+	if decoded.Error != nil && decoded.Error.Message != "" && (response.StatusCode < 200 || response.StatusCode >= 300) {
+		return decoded.Error.Message, Usage{}, response.StatusCode, response.Header.Get("Retry-After"), nil
+	}
+	return content, usage, response.StatusCode, response.Header.Get("Retry-After"), nil
 }
 
 func statusError(status int, message string) error {
@@ -179,10 +218,15 @@ func statusError(status int, message string) error {
 }
 
 type chatRequest struct {
-	Model          string         `json:"model"`
-	Messages       []chatMessage  `json:"messages"`
-	ResponseFormat responseFormat `json:"response_format"`
-	Thinking       *thinking      `json:"thinking,omitempty"`
+	Model          string           `json:"model"`
+	Messages       []chatMessage    `json:"messages"`
+	ResponseFormat responseFormat   `json:"response_format"`
+	Thinking       *thinking        `json:"thinking,omitempty"`
+	Reasoning      *reasoningEffort `json:"reasoning,omitempty"`
+}
+
+type reasoningEffort struct {
+	Effort string `json:"effort"`
 }
 
 type thinking struct {
@@ -206,6 +250,8 @@ type jsonSchemaBody struct {
 }
 
 type chatResponse struct {
+	Model   string          `json:"model"`
+	Usage   json.RawMessage `json:"usage"`
 	Choices []struct {
 		Message struct {
 			Content string `json:"content"`
