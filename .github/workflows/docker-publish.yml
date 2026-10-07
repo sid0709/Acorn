@@ -1,8 +1,9 @@
-# Build Acorn's API and website images and push them to Docker Hub.
+# Build Acorn's API, website, and admin images and push them to Docker Hub.
 # A push to main, including a merge, deploys only the images whose inputs changed.
 # The extension is not an image. An extension-only push does not build or restart containers.
 # API inputs: acorn-backend, backend-core.
 # Website inputs: acorn-frontend, packages, acorn/packages/shared, the root package manifest, and the Bun lockfile.
+# Admin inputs: acorn-admin, shared packages (same as the website), and deploy/nginx/acornadmin.remotepairnet.net.conf.
 #
 # GitHub Environment (Settings → Environments → Production), branch: main.
 #
@@ -17,6 +18,7 @@
 #   VPS_SSH_PORT        — default 22
 #   ACORN_API_IMAGE     — environment variable, default omnimuh730/acorn-api
 #   ACORN_WEB_IMAGE     — environment variable, default omnimuh730/acorn-web
+#   ACORN_ADMIN_IMAGE   — environment variable, default omnimuh730/acorn-admin
 #
 # App secrets stay on the VPS in /opt/acorn/deploy.env. See docker/deploy.env.example.
 
@@ -34,6 +36,7 @@ concurrency:
 env:
   API_IMAGE: ${{ vars.ACORN_API_IMAGE || 'omnimuh730/acorn-api' }}
   WEB_IMAGE: ${{ vars.ACORN_WEB_IMAGE || 'omnimuh730/acorn-web' }}
+  ADMIN_IMAGE: ${{ vars.ACORN_ADMIN_IMAGE || 'omnimuh730/acorn-admin' }}
 
 jobs:
   build-and-push:
@@ -48,6 +51,7 @@ jobs:
       deploy: ${{ steps.plan.outputs.deploy }}
       deploy_api: ${{ steps.plan.outputs.api }}
       deploy_web: ${{ steps.plan.outputs.web }}
+      deploy_admin: ${{ steps.plan.outputs.admin }}
 
     steps:
       - name: Checkout Acorn
@@ -67,21 +71,22 @@ jobs:
           tag="sha-$(git rev-parse --short=12 HEAD)"
           echo "image_tag=${tag}" >> "$GITHUB_OUTPUT"
 
-          publish_both() {
+          publish_all() {
             echo "api=true" >> "$GITHUB_OUTPUT"
             echo "web=true" >> "$GITHUB_OUTPUT"
+            echo "admin=true" >> "$GITHUB_OUTPUT"
             echo "deploy=true" >> "$GITHUB_OUTPUT"
           }
 
           if [[ "$EVENT_NAME" == "workflow_dispatch" || -z "$BEFORE" || "$BEFORE" == 0000000000000000000000000000000000000000 ]]; then
-            echo "No previous commit to compare. Building the API and the website."
-            publish_both
+            echo "No previous commit to compare. Building the API, website, and admin."
+            publish_all
             exit 0
           fi
 
           if ! git fetch --depth=1 origin "$BEFORE"; then
-            echo "Could not fetch ${BEFORE}. Building the API and the website."
-            publish_both
+            echo "Could not fetch ${BEFORE}. Building the API, website, and admin."
+            publish_all
             exit 0
           fi
 
@@ -90,19 +95,22 @@ jobs:
           images="$(git diff --name-only "$BEFORE" HEAD | bash docker/changed-images.sh)"
           api=false
           web=false
+          admin=false
           while IFS= read -r image; do
             case "$image" in
               api) api=true ;;
               web) web=true ;;
+              admin) admin=true ;;
             esac
           done <<< "$images"
           echo "api=${api}" >> "$GITHUB_OUTPUT"
           echo "web=${web}" >> "$GITHUB_OUTPUT"
-          if [[ "$api" == true || "$web" == true ]]; then
+          echo "admin=${admin}" >> "$GITHUB_OUTPUT"
+          if [[ "$api" == true || "$web" == true || "$admin" == true ]]; then
             echo "deploy=true" >> "$GITHUB_OUTPUT"
           else
             echo "deploy=false" >> "$GITHUB_OUTPUT"
-            echo "No API or website inputs changed. Skipping image builds."
+            echo "No API, website, or admin inputs changed. Skipping image builds."
           fi
 
       - name: Set up Docker Buildx
@@ -152,6 +160,24 @@ jobs:
             org.opencontainers.image.revision=${{ github.sha }}
             org.opencontainers.image.title=acorn-web
 
+      - name: Build and push admin
+        if: steps.plan.outputs.admin == 'true'
+        uses: docker/build-push-action@v6
+        with:
+          context: src/Acorn
+          file: src/Acorn/acorn-admin/Dockerfile
+          push: true
+          platforms: linux/amd64
+          tags: |
+            ${{ env.ADMIN_IMAGE }}:${{ steps.plan.outputs.image_tag }}
+            ${{ env.ADMIN_IMAGE }}:latest
+          cache-from: type=gha,scope=acorn-admin
+          cache-to: type=gha,scope=acorn-admin,mode=max
+          labels: |
+            org.opencontainers.image.source=${{ github.server_url }}/${{ github.repository }}
+            org.opencontainers.image.revision=${{ github.sha }}
+            org.opencontainers.image.title=acorn-admin
+
   deploy:
     name: Deploy to VPS
     needs: build-and-push
@@ -190,22 +216,51 @@ jobs:
           target: /opt/acorn/
           strip_components: 1
 
-      - name: Pull images and recreate containers
-        uses: appleboy/ssh-action@v1.2.0
-        env:
-          ACORN_API_IMAGE: ${{ env.API_IMAGE }}
-          ACORN_WEB_IMAGE: ${{ env.WEB_IMAGE }}
-          DOCKERHUB_USERNAME: ${{ secrets.DOCKERHUB_USERNAME }}
-          DOCKERHUB_TOKEN: ${{ secrets.DOCKERHUB_TOKEN }}
-          IMAGE_TAG: ${{ needs.build-and-push.outputs.image_tag }}
-          DEPLOY_API: ${{ needs.build-and-push.outputs.deploy_api }}
-          DEPLOY_WEB: ${{ needs.build-and-push.outputs.deploy_web }}
+      - name: Sync admin nginx site
+        if: needs.build-and-push.outputs.deploy_admin == 'true'
+        uses: appleboy/scp-action@v0.1.7
         with:
           host: ${{ secrets.VPS_HOST }}
           username: ${{ secrets.VPS_USER }}
           key: ${{ secrets.VPS_SSH_KEY }}
           port: ${{ secrets.VPS_SSH_PORT || 22 }}
-          envs: ACORN_API_IMAGE,ACORN_WEB_IMAGE,DOCKERHUB_USERNAME,DOCKERHUB_TOKEN,IMAGE_TAG,DEPLOY_API,DEPLOY_WEB
+          source: deploy/nginx/acornadmin.remotepairnet.net.conf
+          target: /tmp/
+          strip_components: 2
+
+      - name: Install admin nginx site
+        if: needs.build-and-push.outputs.deploy_admin == 'true'
+        uses: appleboy/ssh-action@v1.2.0
+        with:
+          host: ${{ secrets.VPS_HOST }}
+          username: ${{ secrets.VPS_USER }}
+          key: ${{ secrets.VPS_SSH_KEY }}
+          port: ${{ secrets.VPS_SSH_PORT || 22 }}
+          script: |
+            set -eu
+            install -m 644 /tmp/acornadmin.remotepairnet.net.conf /etc/nginx/sites-available/acornadmin.remotepairnet.net
+            ln -sf /etc/nginx/sites-available/acornadmin.remotepairnet.net /etc/nginx/sites-enabled/acornadmin.remotepairnet.net
+            nginx -t
+            systemctl reload nginx
+
+      - name: Pull images and recreate containers
+        uses: appleboy/ssh-action@v1.2.0
+        env:
+          ACORN_API_IMAGE: ${{ env.API_IMAGE }}
+          ACORN_WEB_IMAGE: ${{ env.WEB_IMAGE }}
+          ACORN_ADMIN_IMAGE: ${{ env.ADMIN_IMAGE }}
+          DOCKERHUB_USERNAME: ${{ secrets.DOCKERHUB_USERNAME }}
+          DOCKERHUB_TOKEN: ${{ secrets.DOCKERHUB_TOKEN }}
+          IMAGE_TAG: ${{ needs.build-and-push.outputs.image_tag }}
+          DEPLOY_API: ${{ needs.build-and-push.outputs.deploy_api }}
+          DEPLOY_WEB: ${{ needs.build-and-push.outputs.deploy_web }}
+          DEPLOY_ADMIN: ${{ needs.build-and-push.outputs.deploy_admin }}
+        with:
+          host: ${{ secrets.VPS_HOST }}
+          username: ${{ secrets.VPS_USER }}
+          key: ${{ secrets.VPS_SSH_KEY }}
+          port: ${{ secrets.VPS_SSH_PORT || 22 }}
+          envs: ACORN_API_IMAGE,ACORN_WEB_IMAGE,ACORN_ADMIN_IMAGE,DOCKERHUB_USERNAME,DOCKERHUB_TOKEN,IMAGE_TAG,DEPLOY_API,DEPLOY_WEB,DEPLOY_ADMIN
           command_timeout: 20m
           script: |
             set -eu
@@ -220,6 +275,13 @@ jobs:
                 services="$services,web"
               else
                 services=web
+              fi
+            fi
+            if [ "$DEPLOY_ADMIN" = true ]; then
+              if [ -n "$services" ]; then
+                services="$services,admin"
+              else
+                services=admin
               fi
             fi
             /opt/acorn/deploy-remote.sh "$IMAGE_TAG" "$services"
