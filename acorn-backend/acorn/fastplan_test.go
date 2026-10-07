@@ -256,3 +256,13 @@ func TestFastPlanWritesTextWhileChoicesAreStillDeciding(t *testing.T) {
 		t.Fatalf("actions = %v, want the written AWS answer", actions)
 	}
 }
+
+func TestChoiceFieldTellsTheModelThePageIsWaiting(t *testing.T) {
+	text := choiceField(FormField{Label: "I agree to the acknowledgement", Kind: fieldToggle, Blocking: true})
+	if !strings.HasSuffix(text, blockingNote) {
+		t.Fatalf("choice field = %q, want the blocking note", text)
+	}
+	if strings.Contains(choiceField(FormField{Label: "Opt in", Kind: fieldToggle}), blockingNote) {
+		t.Fatal("a field the page is not waiting on carries the blocking note")
+	}
+}

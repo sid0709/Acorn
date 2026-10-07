@@ -76,7 +76,7 @@ if (!contentWindow[CONTENT_BOOT]) {
               message.formFields !== true
                 ? undefined
                 : message.pendingFields === true
-                  ? scanPendingFormFields()
+                  ? scanPendingFormFields({ blocked: message.blockedFields === true })
                   : scanFormFields(),
             formScore: score,
             fetchedAt: new Date().toISOString(),

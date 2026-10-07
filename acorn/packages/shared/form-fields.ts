@@ -28,4 +28,9 @@ export interface FormField {
   notes?: string[];
   required: boolean;
   options?: string[];
+  /**
+   * The page holds its forward control disabled while this field is unanswered
+   * or unchecked: it may be what the page is waiting for.
+   */
+  blocking?: boolean;
 }

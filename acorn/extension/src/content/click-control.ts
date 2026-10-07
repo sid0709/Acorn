@@ -10,6 +10,8 @@ export interface ClickControlResult {
   /** What was clicked, for the run log. */
   tag?: string;
   text?: string;
+  /** The control exists but refuses clicks: the page is waiting on something. */
+  disabled?: boolean;
 }
 
 function isDisabled(el: HTMLElement): boolean {
@@ -38,7 +40,7 @@ export function prepareControlClick(
     .slice(0, 80);
   const found = { tag: el.tagName.toLowerCase(), text };
   if (isDisabled(el)) {
-    return { ok: false, error: "Control is disabled", ...found };
+    return { ok: false, error: "Control is disabled", disabled: true, ...found };
   }
   schedule(() => pointerActivate(el));
   return { ok: true, ...found };

@@ -20,11 +20,17 @@ export async function planLateFields(args: {
   frameId: number | null;
   page: AiAnalyzeRequest["page"];
   apiUrl: string;
+  /** The page holds its forward control disabled: boxes left off are asked about again. */
+  blocked?: boolean;
 }): Promise<ActionPlan | null> {
-  const { tabId, frameId, page, apiUrl } = args;
+  const { tabId, frameId, page, apiUrl, blocked = false } = args;
   const started = Date.now();
   try {
-    const dom = await fetchDomFromTab(tabId, frameId, { formFields: true, pendingFields: true });
+    const dom = await fetchDomFromTab(tabId, frameId, {
+      formFields: true,
+      pendingFields: true,
+      blockedFields: blocked,
+    });
     const fields = dom.formFields ?? [];
     traceFromBackground("late:fields", () => ({
       count: fields.length,

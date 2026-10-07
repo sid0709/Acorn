@@ -12,6 +12,7 @@ import { isChoiceSelected } from "./choice-state";
 import { findAssociatedCombobox, findComboboxForOption } from "./enhanced-select";
 import { fillNativeSelect } from "./native-select";
 import { pointerActivate } from "./pointer-activate";
+import { waitMs } from "./wait";
 import { selectComboboxOption } from "./select-combobox";
 
 function normalize(text: string): string {
@@ -69,6 +70,8 @@ const GROUP_CONTAINER_SELECTOR =
   'fieldset, [role="group"], [role="radiogroup"], [class*="Field"], [class*="field"], td, th, form';
 /** Option buttons: a field whose answers are buttons rather than native inputs. */
 const OPTION_BUTTON_SELECTOR = 'button, [role="button"], [role="radio"], [aria-pressed]';
+/** How long an ARIA toggle gets to show its new state after a click. */
+const ARIA_STATE_SETTLE_MS = 150;
 /** How far up from an option button to look for the set of options it belongs to. */
 const OPTION_SET_MAX_DEPTH = 4;
 
@@ -216,6 +219,9 @@ function selectNativeChoice(el: HTMLInputElement, intended: string): string {
   if (kind === "radio") return ensureChecked(el, intended);
   const check = !intended || wantChecked(intended);
   if (el.checked !== check) pointerActivate(el);
+  if (el.checked !== check) {
+    throw new Error(`The page did not keep the box ${check ? "checked" : "unchecked"}`);
+  }
   return String(el.checked);
 }
 
@@ -228,11 +234,11 @@ function isAriaChecked(el: Element): boolean {
  * only when no option carries it is the answer a plain check / uncheck of this one.
  * Null hands over to the generic search.
  */
-function selectAriaChoice(
+async function selectAriaChoice(
   el: HTMLElement,
   role: "radio" | "checkbox",
   intended: string,
-): string | null {
+): Promise<string | null> {
   const named = findAriaChoice(groupRoot(el), intended) ?? (labelsMatch(el, intended) ? el : null);
   if (named) {
     if (!isAriaChecked(named)) pointerActivate(named);
@@ -242,7 +248,14 @@ function selectAriaChoice(
   const want = wantChecked(intended);
   // A radio is never unchecked into a "no": that needs an option saying so.
   if (role === "radio" && !want) throw new NoChoiceMatch(`No radio option matching "${intended}"`);
-  if (isAriaChecked(el) !== want) pointerActivate(el);
+  if (isAriaChecked(el) !== want) {
+    pointerActivate(el);
+    // A widget redraws its state after the click's handlers run, not during them.
+    await waitMs(ARIA_STATE_SETTLE_MS);
+  }
+  if (isAriaChecked(el) !== want) {
+    throw new Error(`The page did not keep the ${role} ${want ? "on" : "off"}`);
+  }
   return String(want);
 }
 
@@ -317,7 +330,7 @@ async function selectChoiceLocally(el: Element, value: string | null): Promise<s
 
   // ARIA checkbox/radio without native input
   if ((explicitAriaRole === "checkbox" || explicitAriaRole === "radio") && intended) {
-    const selected = selectAriaChoice(html, explicitAriaRole, intended);
+    const selected = await selectAriaChoice(html, explicitAriaRole, intended);
     if (selected != null) return selected;
   }
 

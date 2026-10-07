@@ -53,8 +53,16 @@ function formatDomFetchFailure(tabId: number, attempts: DomFrameAttempt[]): stri
 export async function fetchDomFromTab(
   tabId: number,
   preferredFrameId?: number | null,
-  /** `pendingFields` narrows `formFields` to fields still unanswered after a plan ran. */
-  opts: { fieldIssues?: boolean; formFields?: boolean; pendingFields?: boolean } = {},
+  /**
+   * `pendingFields` narrows `formFields` to fields still unanswered after a plan ran;
+   * `blockedFields` adds boxes left off, for a page that holds its forward control.
+   */
+  opts: {
+    fieldIssues?: boolean;
+    formFields?: boolean;
+    pendingFields?: boolean;
+    blockedFields?: boolean;
+  } = {},
 ): Promise<DomTreePayload> {
   const tried = new Set<number>();
 
@@ -72,6 +80,7 @@ export async function fetchDomFromTab(
         fieldIssues: Boolean(opts.fieldIssues),
         formFields: Boolean(opts.formFields),
         pendingFields: Boolean(opts.pendingFields),
+        blockedFields: Boolean(opts.blockedFields),
       },
       frameId,
     );

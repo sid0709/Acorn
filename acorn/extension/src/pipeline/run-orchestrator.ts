@@ -31,6 +31,7 @@ import { repairDriftInTab } from "./drift";
 import { clickControl, probePage, settleAfterClick, watchOpenedTabs } from "./run-click";
 import { failureEvidence } from "./run-evidence";
 import {
+  RUN_MAX_BLOCKED_PASSES,
   RUN_MAX_CLICK_RETRIES,
   RUN_MAX_NO_EFFECT,
   RUN_MAX_PAGES,
@@ -84,12 +85,14 @@ interface PageState {
   fillStartedAt: number;
   /** The last click never landed; the next look is a fresh read, not a click's outcome. */
   retryClick: boolean;
+  /** Passes over what the page still needed while it held its forward control disabled. */
+  blockedPasses: number;
 }
 
 /** A click either landed and settled, or never reached its control. */
 type ClickOutcome =
   | { settled: Awaited<ReturnType<typeof settleAfterClick>>; missed?: undefined }
-  | { missed: string; settled?: undefined };
+  | { missed: string; disabled: boolean; settled?: undefined };
 
 class RunStop extends Error {
   constructor(
@@ -194,7 +197,11 @@ export async function runOrchestrator(args: RunOrchestratorArgs): Promise<RunRep
   };
 
   /** Fill or Refill the page through the existing pipeline; its end is not the run's end. */
-  const fill = async (mode: FillMode, within: PageSnapshot) => {
+  const fill = async (
+    mode: FillMode,
+    within: PageSnapshot,
+    opts: { pendingOnly?: boolean } = {},
+  ) => {
     let last: PipelineProgress | undefined;
     const started = Date.now();
     await runFabPipeline({
@@ -204,6 +211,7 @@ export async function runOrchestrator(args: RunOrchestratorArgs): Promise<RunRep
       source: "fill",
       mode,
       requireResume: true,
+      pendingOnly: opts.pendingOnly,
       emitDomTree: (payload) => getAcornSocket()?.emit("dom:tree", payload),
       onProgress: (inner) => {
         last = inner;
@@ -302,7 +310,8 @@ export async function runOrchestrator(args: RunOrchestratorArgs): Promise<RunRep
       log.event("click", { role: picked.role, text: label, ok: result.ok, error: result.error });
       // The page re-rendered since it was read (its node is gone) or held the
       // control: the caller reads it again rather than giving up.
-      if (!result.ok) return { missed: result.error ?? "no answer" };
+      if (!result.ok)
+        return { missed: result.error ?? "no answer", disabled: result.disabled === true };
       clickFailures = 0;
       const settled = await settleAfterClick({
         tabId,
@@ -474,6 +483,7 @@ export async function runOrchestrator(args: RunOrchestratorArgs): Promise<RunRep
           scanBeforeClick: null,
           fillStartedAt: 0,
           retryClick: false,
+          blockedPasses: 0,
         };
         refillsOnPage = 0;
         log.event("page", { page: pageCount, url: logUrl(page.url), flagged: page.flagged });
@@ -643,8 +653,28 @@ export async function runOrchestrator(args: RunOrchestratorArgs): Promise<RunRep
         `${target.control.role === CONTROL_ROLE.submit ? "Submitting" : "Next step"} · ${label}`,
       );
       const clicked = await click(page, target.control, label);
-      if (clicked.missed != null) missedClick(state, label, clicked.missed);
-      else pending = clicked.settled.snapshot;
+      if (clicked.settled) {
+        pending = clicked.settled.snapshot;
+      } else if (clicked.disabled) {
+        // The page holds its forward control until it has what it needs: answer what
+        // is still blank or off, put back what it cleared, then click again.
+        state.clicks -= 1;
+        state.retryClick = true;
+        if (state.blockedPasses >= RUN_MAX_BLOCKED_PASSES) {
+          throw new RunStop(RUN_STAGE.advancing, page, [
+            `"${label}" stayed disabled after ${state.blockedPasses} passes over what the page still needed`,
+          ]);
+        }
+        state.blockedPasses += 1;
+        log.event("blocked", { control: label, pass: state.blockedPasses });
+        enter(RUN_STAGE.filling, `Answering what "${label}" is waiting on`);
+        const completed = await fill(FILL_MODE.fill, page, { pendingOnly: true });
+        if (completed.resumeMissing) {
+          throw noResumeStop(RUN_STAGE.filling, page, completed.error ?? RESUME_NOT_CHOSEN);
+        }
+      } else {
+        missedClick(state, label, clicked.missed);
+      }
     }
     throw new RunStop(stage, snapshot, [`The run used ${RUN_MAX_STEPS} steps without finishing`]);
   } catch (err) {

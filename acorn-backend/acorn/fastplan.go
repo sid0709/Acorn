@@ -55,6 +55,9 @@ type FormField struct {
 	OptionIndexes []int `json:"optionIndexes,omitempty"`
 	// Answered is true when the page already shows an answer.
 	Answered bool `json:"answered,omitempty"`
+	// Blocking is true when the page holds its forward control disabled while this
+	// field is blank or off: it may be what the page is waiting for.
+	Blocking bool `json:"blocking,omitempty"`
 }
 
 // ChoiceQuestion is one choice field the decision model answers from the profile.
@@ -275,6 +278,9 @@ func describe(field FormField) string {
 	if field.Required {
 		parts = append(parts, "required")
 	}
+	if field.Blocking {
+		parts = append(parts, "the page will not go on while it is blank")
+	}
 	return strings.Join(parts, "; ")
 }
 
@@ -399,12 +405,20 @@ func addResumeUpload(plan Plan, files []FormField, kinds map[int]string) {
 // a required box is submitted only when checked.
 const requiredNote = " — required: the form cannot be submitted without it"
 
+// blockingNote tells it the page is holding its submit control while answers it
+// needs are missing, and this field is still blank or off.
+const blockingNote = " — the page keeps its submit control disabled until the answers it needs are given; this one is still unanswered"
+
 // choiceField is what the decision model reads about a choice field.
 func choiceField(field FormField) string {
+	text := fieldWithSection(field)
 	if field.Required {
-		return fieldWithSection(field) + requiredNote
+		text += requiredNote
 	}
-	return fieldWithSection(field)
+	if field.Blocking {
+		text += blockingNote
+	}
+	return text
 }
 
 // fieldWithSection is a field's label with its form section, for the decision model.
@@ -462,7 +476,7 @@ func textAnswer(profile applicantFacts, field FormField, kind string) (fact stri
 	if kind == FactOtherPerson {
 		return "", false
 	}
-	return "", kind == FactWrite || (blankKinds[kind] && field.Required)
+	return "", kind == FactWrite || (blankKinds[kind] && (field.Required || field.Blocking))
 }
 
 // addTextFills fills profile facts, keeps blanks blank, and uses the writer's

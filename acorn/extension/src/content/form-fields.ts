@@ -58,6 +58,8 @@ const BUTTON_OPTIONS_MAX = 6;
 const BUTTON_LABEL_MAX_CHARS = 30;
 /** Buttons that are options by ARIA, wherever they sit. */
 const ARIA_CHOICE_SELECTOR = '[role="radio"], [aria-pressed]';
+/** A single on/off control built without a native checkbox (ARIA). */
+const ARIA_TOGGLE_SELECTOR = '[role="checkbox"], [role="switch"]';
 export const BUTTON_SELECTOR = 'button, [role="button"], [role="radio"], [aria-pressed]';
 
 function nodeId(el: Element): number {
@@ -125,7 +127,7 @@ function buttonsField(buttons: HTMLElement[], label: string, required: boolean):
  * A lone checkbox's label often names only the box ("Yes", "I agree"); the
  * question it answers is the title of the group it sits in. Both are the field.
  */
-function toggleLabel(control: HTMLInputElement, own: string): string {
+function toggleLabel(control: Element, own: string): string {
   const group = control.closest(NAMED_GROUP_SELECTOR);
   const question =
     groupAccessibleName(control) || (group ? groupQuestion(group, control, [control]) : "");
@@ -254,6 +256,31 @@ function ariaButtonFields(claimed: Set<number>): FormField[] {
   return fields;
 }
 
+/**
+ * Checkboxes and switches built from ARIA roles rather than a native box (an
+ * agreement, an opt-in). Skipped when a native checkbox stands behind them: that
+ * box is already a field, and answering both would toggle it twice.
+ */
+function ariaToggleFields(claimed: Set<number>): FormField[] {
+  const fields: FormField[] = [];
+  for (const el of queryDeep(document, ARIA_TOGGLE_SELECTOR)) {
+    if (!(el instanceof HTMLElement) || claimed.has(nodeId(el)) || nodeId(el) <= 0) continue;
+    if (!hasClickableBox(el) || el.closest('[aria-hidden="true"]')) continue;
+    const native = 'input[type="checkbox"]';
+    if (el.querySelector(native) || el.closest("label")?.querySelector(native)) continue;
+    const own = clip(labelCandidates(el)[0] ?? "", MAX_TEXT_CHARS);
+    const label = toggleLabel(el, own);
+    if (!label) continue;
+    fields.push(
+      withSection(
+        { elementIndex: nodeId(el), kind: "toggle", label, required: isRequired([el]) },
+        el,
+      ),
+    );
+  }
+  return fields;
+}
+
 /** The field plus its section heading, when that adds anything beyond the label. */
 function withSection(field: FormField, control: Element): FormField {
   const section = sectionTitle(control);
@@ -308,5 +335,6 @@ export function scanFormFields(): FormField[] {
   const fields = rows.map((row) => row.field);
   const claimed = new Set(fields.map((field) => field.elementIndex));
   fields.push(...ariaButtonFields(claimed));
+  fields.push(...ariaToggleFields(new Set(fields.map((field) => field.elementIndex))));
   return fields.slice(0, MAX_FORM_FIELDS);
 }

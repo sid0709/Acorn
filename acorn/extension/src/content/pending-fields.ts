@@ -32,13 +32,25 @@ function answered(field: FormField, control: Element): boolean {
   }
 }
 
-/** Fields to plan in a late pass. Uploads are never repeated. */
-export function scanPendingFormFields(): FormField[] {
-  return scanFormFields().filter((field) => {
+/** A single box that is off now, whoever left it so. */
+function toggleOff(control: Element): boolean {
+  if (control instanceof HTMLInputElement) return !control.checked;
+  return control.getAttribute("aria-checked") !== "true";
+}
+
+/**
+ * Fields to plan in a late pass. Uploads are never repeated. When the page keeps
+ * its forward control disabled (`blocked`), a box the plan chose to leave off is
+ * asked about again, marked as possibly what the page is waiting for.
+ */
+export function scanPendingFormFields(opts: { blocked?: boolean } = {}): FormField[] {
+  const pending = scanFormFields().filter((field) => {
     if (field.kind === "file") return false;
     const control = resolveElementByNodeId(field.elementIndex);
     // The field's own box: a follow-up an answer hid again is gone; a hidden proxy input is not.
     if (!control || !isVisible(fieldWrapper(control))) return false;
+    if (opts.blocked && field.kind === "toggle") return toggleOff(control);
     return !wasPlanFilled(control) && !answered(field, control);
   });
+  return opts.blocked ? pending.map((field) => ({ ...field, blocking: true })) : pending;
 }

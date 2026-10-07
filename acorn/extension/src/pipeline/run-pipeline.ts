@@ -1,5 +1,6 @@
 import { formatDuration, formatUsd } from "@acorn/shared/ai-usage";
 import { FILL_MODE, type FillMode } from "@acorn/shared/field-issues";
+import { FAST_PLAN_MODE } from "@acorn/shared/form-fields";
 import { applyApplicantIdentityToActions } from "@acorn/shared/plan-runner/applicant-identity";
 import { runActionPlan } from "@acorn/shared/plan-runner/orchestrator";
 import { PhaseClock } from "@acorn/shared/phase-clock";
@@ -43,6 +44,17 @@ const LEFTOVER_PASS_TIMEOUT_MS = 120_000;
 
 export type PipelineEmit = (progress: PipelineProgress) => void;
 
+/** A plan with no steps: the start of a pass that only plans what is still pending. */
+function emptyPlan(): ActionPlan {
+  return {
+    goal: "Answer what the page still needs",
+    actions: [],
+    forbidden_actions: [],
+    validation: { required_element_indexes: [], stop_before_submit: true },
+    unresolved_items: [],
+  };
+}
+
 export interface RunPipelineArgs {
   /** Pinned at Fill click. DOM fetch and every plan step target this tab, even if the user focuses another. */
   tabId: number;
@@ -54,6 +66,12 @@ export interface RunPipelineArgs {
   mode?: FillMode;
   /** Run: a fill with no résumé file stops before touching the page. Fill page leaves it off. */
   requireResume?: boolean;
+  /**
+   * Run, when the page holds its forward control disabled after a fill: plan only
+   * what is still unanswered (boxes left off included), then put back anything
+   * the page cleared. No full plan, so nothing already answered is rewritten.
+   */
+  pendingOnly?: boolean;
   /** Emit DOM tree to the backend (optional socket emit callback). */
   emitDomTree?: (payload: DomTreePayload) => void;
   /** Broadcast progress to the Chrome side panel + backend. */
@@ -68,6 +86,7 @@ export async function runFabPipeline(args: RunPipelineArgs): Promise<void> {
     source = "fill",
     mode = FILL_MODE.fill,
     requireResume = false,
+    pendingOnly = false,
     emitDomTree,
     onProgress,
   } = args;
@@ -246,20 +265,24 @@ export async function runFabPipeline(args: RunPipelineArgs): Promise<void> {
         null,
     };
 
-    const analyze = await clock.time("plan", () =>
-      requestPlan(
-        {
-          pureTree,
-          mode,
-          fieldIssues: refill ? fieldIssues : undefined,
-          page,
-          debug: ACORN_DEBUG ? { html: pageHtml, domTree: treePayload.tree, metaTree } : undefined,
-        },
-        formFields,
-        aiServerUrl,
-        tabId,
-      ),
-    );
+    const analyze = pendingOnly
+      ? { mode: FAST_PLAN_MODE, plan: emptyPlan() }
+      : await clock.time("plan", () =>
+          requestPlan(
+            {
+              pureTree,
+              mode,
+              fieldIssues: refill ? fieldIssues : undefined,
+              page,
+              debug: ACORN_DEBUG
+                ? { html: pageHtml, domTree: treePayload.tree, metaTree }
+                : undefined,
+            },
+            formFields,
+            aiServerUrl,
+            tabId,
+          ),
+        );
     if (refill && analyze.mode !== FILL_MODE.refill) {
       throw new Error(REFILL_UNSUPPORTED);
     }
@@ -377,9 +400,9 @@ export async function runFabPipeline(args: RunPipelineArgs): Promise<void> {
     // Fields the first scan could not see: a section that rendered late, fields an
     // import re-rendered, follow-ups an answer revealed.
     const late =
-      !report.aborted && wantsFastPlan(mode)
+      !report.aborted && (pendingOnly || wantsFastPlan(mode))
         ? await clock.time("late", () =>
-            planLateFields({ tabId, frameId, page, apiUrl: aiServerUrl }),
+            planLateFields({ tabId, frameId, page, apiUrl: aiServerUrl, blocked: pendingOnly }),
           )
         : null;
     if (late) {

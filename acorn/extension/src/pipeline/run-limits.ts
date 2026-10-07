@@ -7,6 +7,11 @@ export const RUN_MAX_REFILLS_PER_PAGE = 3;
  * in a row; each one is followed by a fresh read before the run stops.
  */
 export const RUN_MAX_CLICK_RETRIES = 2;
+/**
+ * Passes over what a page still needs when it holds its forward control disabled
+ * (fields left blank, boxes left off), each followed by another click.
+ */
+export const RUN_MAX_BLOCKED_PASSES = 2;
 /** Clicks on a page that change nothing and flag nothing before the run stops. */
 export const RUN_MAX_NO_EFFECT = 2;
 /** Orchestrator iterations in one run; a page takes a few. */

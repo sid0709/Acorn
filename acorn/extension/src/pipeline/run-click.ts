@@ -16,6 +16,8 @@ export interface ClickResult {
   error?: string;
   tag?: string;
   text?: string;
+  /** The control exists but refuses clicks: the page is waiting on something. */
+  disabled?: boolean;
 }
 
 /** Press a control the run picked, in the frame it was read from. */
