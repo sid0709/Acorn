@@ -1,6 +1,7 @@
 package mailbox
 
 import (
+	"strings"
 	"sync"
 	"time"
 )
@@ -36,6 +37,23 @@ func (c *ttlCache[V]) get(key string, now time.Time) (V, bool) {
 
 func (c *ttlCache[V]) set(key string, value V, now time.Time) {
 	c.setFor(key, value, now, c.ttl)
+}
+
+func (c *ttlCache[V]) delete(key string) {
+	c.mu.Lock()
+	delete(c.entries, key)
+	c.mu.Unlock()
+}
+
+// deletePrefix drops every entry whose key starts with prefix.
+func (c *ttlCache[V]) deletePrefix(prefix string) {
+	c.mu.Lock()
+	for key := range c.entries {
+		if strings.HasPrefix(key, prefix) {
+			delete(c.entries, key)
+		}
+	}
+	c.mu.Unlock()
 }
 
 // setFor stores value for its own lifetime, such as an access token's expiry.

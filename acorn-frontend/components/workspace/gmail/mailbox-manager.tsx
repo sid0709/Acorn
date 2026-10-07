@@ -51,7 +51,7 @@ export function MailboxManager({
       isOpen={isOpen}
       onOpenChange={onOpenChange}
       title="Mailboxes"
-      subtitle="Gmail inboxes Acorn can read"
+      subtitle="Gmail inboxes connected to Acorn"
       size="md"
     >
       <Stack gap={6}>

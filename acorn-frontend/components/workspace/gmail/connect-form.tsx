@@ -31,8 +31,8 @@ export function GmailConnectForm({
   return (
     <Stack gap={5}>
       <Text color="secondary">
-        Choose the Gmail inbox Acorn should read. This can differ from the email on your Acorn
-        account.
+        Choose the Gmail inbox Acorn should read and label. This can differ from the email on your
+        Acorn account.
       </Text>
       {error ? <Banner status="error" title={error} /> : null}
       {localError ? <Banner status="error" title={localError} /> : null}

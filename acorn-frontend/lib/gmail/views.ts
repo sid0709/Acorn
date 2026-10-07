@@ -5,6 +5,10 @@ import type { GmailLabel, GmailLabelColor, GmailRow } from "./types";
 /** Rows per page, and the choices the pager offers. */
 export const GMAIL_PAGE_SIZES = [10, 25, 50, 100];
 export const GMAIL_DEFAULT_PAGE_SIZE = 25;
+/** Gmail search for mail that has no custom label. */
+export const UNLABELED_QUERY = "has:nouserlabels";
+/** Longest label description stored for Autolabel. Matches acorn-backend. */
+export const GUIDE_DESCRIPTION_MAX = 400;
 /** Longest search Gmail is sent; matches acorn-backend's limit. */
 export const GMAIL_SEARCH_MAX = 500;
 /** Wait this long after the last keystroke before searching Gmail. */

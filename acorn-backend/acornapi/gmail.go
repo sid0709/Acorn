@@ -46,8 +46,9 @@ func (s *Server) startGmailConnect(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	var body struct {
-		Email string `json:"email"`
-		Label string `json:"label"`
+		Email       string `json:"email"`
+		Label       string `json:"label"`
+		Reauthorize bool   `json:"reauthorize"`
 	}
 	if !decode(w, r, &body) {
 		return
@@ -64,7 +65,7 @@ func (s *Server) startGmailConnect(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusInternalServerError, "could not start Gmail connection")
 		return
 	}
-	url, err := s.gmail.StartConnect(r.Context(), session.User.ID, body.Email, body.Label, s.gmailRedirect, verifier, challenge, state, time.Now())
+	url, err := s.gmail.StartConnect(r.Context(), session.User.ID, body.Email, body.Label, s.gmailRedirect, verifier, challenge, state, time.Now(), body.Reauthorize)
 	if err != nil {
 		writeGmailError(w, err)
 		return
@@ -245,6 +246,7 @@ type gmailMailboxJSON struct {
 	Label               string `json:"label"`
 	IsDefault           bool   `json:"isDefault"`
 	WatchesApplications bool   `json:"watchesApplications"`
+	CanModify           bool   `json:"canModify"`
 	ConnectedAt         string `json:"connectedAt"`
 }
 
@@ -259,6 +261,7 @@ func mailboxPayload(boxes []mailbox.Mailbox) []gmailMailboxJSON {
 			Label:               box.Label,
 			IsDefault:           box.IsDefault,
 			WatchesApplications: box.WatchesApplications,
+			CanModify:           box.CanModify,
 			ConnectedAt:         box.ConnectedAt.UTC().Format(time.RFC3339),
 		}
 	}
@@ -387,6 +390,10 @@ func writeGmailError(w http.ResponseWriter, err error) {
 		writeError(w, http.StatusConflict, err.Error())
 	case errors.Is(err, mailbox.ErrNotFound):
 		writeError(w, http.StatusNotFound, err.Error())
+	case errors.Is(err, mailbox.ErrGmailScope):
+		writeError(w, http.StatusForbidden, err.Error())
+	case errors.Is(err, mailbox.ErrGuide):
+		writeError(w, http.StatusBadRequest, err.Error())
 	case errors.Is(err, mailbox.ErrNotConfigured):
 		writeError(w, http.StatusServiceUnavailable, err.Error())
 	default:

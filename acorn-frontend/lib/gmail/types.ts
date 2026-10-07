@@ -66,6 +66,20 @@ export type GmailMessage = {
   attachments: GmailAttachment[];
 };
 
+/** A custom label's description, saved for Autolabel. */
+export type LabelGuide = {
+  labelId: string;
+  description: string;
+};
+
+/** What one Autolabel run did to the selected page. */
+export type AutolabelOutcome = {
+  results: { messageId: string; labelId: string; applied: boolean }[];
+  labeled: number;
+  unmatched: number;
+  failed: number;
+};
+
 /** What the list shows: a label (or all mail) narrowed by Gmail search syntax. */
 export type GmailListQuery = {
   mailboxId: string;

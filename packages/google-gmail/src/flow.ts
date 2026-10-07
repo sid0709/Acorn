@@ -15,12 +15,13 @@ export async function startGmailConnect(
   email: string,
   label: string,
   headers: Record<string, string> = {},
+  reauthorize = false,
 ): Promise<GmailStarted> {
   try {
     const response = await fetch(new URL(START_PATH, `${apiUrl}/`), {
       method: "POST",
       headers: { ...headers, "Content-Type": "application/json" },
-      body: JSON.stringify({ email, label }),
+      body: JSON.stringify({ email, label, reauthorize }),
       cache: "no-store",
     });
     if (!response.ok) return { ok: false, error: errorFor(response.status) };

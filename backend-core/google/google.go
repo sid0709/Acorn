@@ -34,6 +34,8 @@ const (
 	ScopeProfile        = "profile"
 	ScopeCalendarEvents = "https://www.googleapis.com/auth/calendar.events"
 	ScopeGmailReadonly  = "https://www.googleapis.com/auth/gmail.readonly"
+	// ScopeGmailModify reads mail and changes labels. It does not permanently delete.
+	ScopeGmailModify = "https://www.googleapis.com/auth/gmail.modify"
 )
 
 // ErrInvalidGrant is a code or refresh token Google no longer accepts: used,

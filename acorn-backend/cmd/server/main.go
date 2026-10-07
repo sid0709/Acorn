@@ -5,6 +5,7 @@ package main
 
 import (
 	"context"
+	"fmt"
 	"log/slog"
 	"os"
 
@@ -21,6 +22,7 @@ import (
 	"github.com/sid0709/OpenSeat/backend-core/httpkit"
 	"github.com/sid0709/OpenSeat/backend-core/jev"
 	"github.com/sid0709/OpenSeat/backend-core/platform"
+	"golang.org/x/sync/errgroup"
 )
 
 const (
@@ -86,24 +88,33 @@ func main() {
 		os.Exit(1)
 	}
 	resumes := resume.New(resume.NewStore(p.Mongo(), db.DestDB), nil)
-	if err := resumes.EnsureIndexes(context.Background()); err != nil {
-		slog.Error("acorn resumes", "error", err)
-		os.Exit(1)
-	}
 	profiles := profile.NewStore(p.Mongo(), db.DestDB, nil)
-	if err := profiles.EnsureIndexes(context.Background()); err != nil {
-		slog.Error("acorn profiles", "error", err)
-		os.Exit(1)
-	}
 	usage := aiusage.NewStore(p.Mongo(), db.DestDB)
-	if err := usage.EnsureIndexes(context.Background()); err != nil {
-		slog.Error("acorn ai usage", "error", err)
-		os.Exit(1)
-	}
 	gmailGoogle := &mailbox.Google{OAuth: oauth, RedirectURL: googleConfig.GmailRedirectURL}
 	gmailStore := mailbox.NewStore(p.Mongo(), db.DestDB, gmailGoogle)
-	if err := gmailStore.EnsureIndexes(context.Background()); err != nil {
-		slog.Error("acorn gmail", "error", err)
+
+	// Each store owns its own collections, so the index builds run side by side.
+	indexed := []struct {
+		name  string
+		store interface{ EnsureIndexes(context.Context) error }
+	}{
+		{"acorn accounts", accounts},
+		{"acorn resumes", resumes},
+		{"acorn profiles", profiles},
+		{"acorn ai usage", usage},
+		{"acorn gmail", gmailStore},
+	}
+	indexGroup, indexCtx := errgroup.WithContext(context.Background())
+	for _, item := range indexed {
+		indexGroup.Go(func() error {
+			if err := item.store.EnsureIndexes(indexCtx); err != nil {
+				return fmt.Errorf("%s: %w", item.name, err)
+			}
+			return nil
+		})
+	}
+	if err := indexGroup.Wait(); err != nil {
+		slog.Error("acorn indexes", "error", err)
 		os.Exit(1)
 	}
 	// Local debug capture: pages, profiles, prompts, and plans land on disk. Never set in production.

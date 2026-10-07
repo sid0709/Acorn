@@ -1,4 +1,4 @@
-// Package mailbox stores Gmail OAuth grants and reads inbox mail for Acorn.
+// Package mailbox stores Gmail OAuth grants and reads and labels inbox mail for Acorn.
 package mailbox
 
 import (
@@ -17,6 +17,7 @@ import (
 const (
 	mailboxesCollection   = "acorn_gmail_mailboxes"
 	oauthStatesCollection = "acorn_gmail_oauth_states"
+	guidesCollection      = "acorn_gmail_label_guides"
 	oauthStateTTL         = 10 * time.Minute
 	maxEmailLength        = 254
 	maxLabelLength        = 40
@@ -41,7 +42,9 @@ type Mailbox struct {
 	Label               string
 	IsDefault           bool
 	WatchesApplications bool
-	ConnectedAt         time.Time
+	// CanModify is true when the grant includes permission to apply labels.
+	CanModify   bool
+	ConnectedAt time.Time
 }
 
 type storedMailbox struct {
@@ -54,18 +57,20 @@ type storedMailbox struct {
 	Label               string    `bson:"label"`
 	IsDefault           bool      `bson:"isDefault"`
 	WatchesApplications bool      `bson:"watchesApplications"`
+	CanModify           bool      `bson:"canModify"`
 	RefreshToken        string    `bson:"refreshToken"`
 	ConnectedAt         time.Time `bson:"connectedAt"`
 }
 
 type storedOAuthState struct {
-	State     string    `bson:"state"`
-	UserID    string    `bson:"userId"`
-	Verifier  string    `bson:"verifier"`
-	Redirect  string    `bson:"redirect"`
-	Label     string    `bson:"label"`
-	LoginHint string    `bson:"loginHint"`
-	ExpiresAt time.Time `bson:"expiresAt"`
+	State       string    `bson:"state"`
+	UserID      string    `bson:"userId"`
+	Verifier    string    `bson:"verifier"`
+	Redirect    string    `bson:"redirect"`
+	Label       string    `bson:"label"`
+	LoginHint   string    `bson:"loginHint"`
+	Reauthorize bool      `bson:"reauthorize,omitempty"`
+	ExpiresAt   time.Time `bson:"expiresAt"`
 }
 
 // Provider exchanges OAuth codes and reads Gmail.
@@ -81,12 +86,20 @@ type GoogleGrant struct {
 	Name         string
 	Picture      string
 	RefreshToken string
+	CanModify    bool
+}
+
+// Grant is the stored token for one mailbox and whether it can apply labels.
+type Grant struct {
+	RefreshToken string
+	CanModify    bool
 }
 
 // Store keeps Gmail connections per Acorn account.
 type Store struct {
 	mailboxes   *mongo.Collection
 	oauthStates *mongo.Collection
+	guides      *mongo.Collection
 	provider    Provider
 }
 
@@ -95,6 +108,7 @@ func NewStore(client *mongo.Client, database string, provider Provider) *Store {
 	return &Store{
 		mailboxes:   db.Collection(mailboxesCollection),
 		oauthStates: db.Collection(oauthStatesCollection),
+		guides:      db.Collection(guidesCollection),
 		provider:    provider,
 	}
 }
@@ -109,6 +123,17 @@ func (s *Store) EnsureIndexes(ctx context.Context) error {
 	}
 	_, err = s.oauthStates.Indexes().CreateOne(ctx, mongo.IndexModel{
 		Keys:    bson.D{{Key: "state", Value: 1}},
+		Options: options.Index().SetUnique(true),
+	})
+	if err != nil {
+		return err
+	}
+	_, err = s.guides.Indexes().CreateOne(ctx, mongo.IndexModel{
+		Keys: bson.D{
+			{Key: "accountId", Value: 1},
+			{Key: "mailboxId", Value: 1},
+			{Key: "labelId", Value: 1},
+		},
 		Options: options.Index().SetUnique(true),
 	})
 	return err
@@ -134,7 +159,7 @@ func (s *Store) List(ctx context.Context, userID string) ([]Mailbox, error) {
 	return out, nil
 }
 
-func (s *Store) StartConnect(ctx context.Context, userID, email, label, redirect, verifier, challenge, state string, now time.Time) (string, error) {
+func (s *Store) StartConnect(ctx context.Context, userID, email, label, redirect, verifier, challenge, state string, now time.Time, reauthorize bool) (string, error) {
 	if !s.Ready() {
 		return "", ErrNotConfigured
 	}
@@ -153,17 +178,22 @@ func (s *Store) StartConnect(ctx context.Context, userID, email, label, redirect
 	if err != nil {
 		return "", err
 	}
-	if count > 0 {
+	if reauthorize {
+		if count == 0 {
+			return "", ErrNotFound
+		}
+	} else if count > 0 {
 		return "", ErrDuplicate
 	}
 	_, err = s.oauthStates.InsertOne(ctx, storedOAuthState{
-		State:     state,
-		UserID:    userID,
-		Verifier:  verifier,
-		Redirect:  redirect,
-		Label:     label,
-		LoginHint: email,
-		ExpiresAt: now.UTC().Add(oauthStateTTL),
+		State:       state,
+		UserID:      userID,
+		Verifier:    verifier,
+		Redirect:    redirect,
+		Label:       label,
+		LoginHint:   email,
+		Reauthorize: reauthorize,
+		ExpiresAt:   now.UTC().Add(oauthStateTTL),
 	})
 	if err != nil {
 		return "", err
@@ -192,6 +222,9 @@ func (s *Store) FinishConnect(ctx context.Context, userID, state, code string, n
 	}
 	if record.LoginHint != "" && grant.Email != record.LoginHint {
 		return Mailbox{}, ErrEmailMismatch
+	}
+	if record.Reauthorize {
+		return s.replaceGrant(ctx, userID, grant)
 	}
 	count, err := s.mailboxes.CountDocuments(ctx, bson.D{{Key: "userId", Value: userID}, {Key: "email", Value: grant.Email}})
 	if err != nil {
@@ -222,6 +255,7 @@ func (s *Store) FinishConnect(ctx context.Context, userID, state, code string, n
 		Label:               label,
 		IsDefault:           hasDefault == 0,
 		WatchesApplications: true,
+		CanModify:           grant.CanModify,
 		RefreshToken:        grant.RefreshToken,
 		ConnectedAt:         now.UTC(),
 	}
@@ -232,6 +266,9 @@ func (s *Store) FinishConnect(ctx context.Context, userID, state, code string, n
 }
 
 func (s *Store) Disconnect(ctx context.Context, userID, mailboxID string) error {
+	if _, err := s.guides.DeleteMany(ctx, bson.D{{Key: "accountId", Value: userID}, {Key: "mailboxId", Value: mailboxID}}); err != nil {
+		return err
+	}
 	res, err := s.mailboxes.DeleteOne(ctx, bson.D{{Key: "userId", Value: userID}, {Key: "id", Value: mailboxID}})
 	if err != nil {
 		return err
@@ -279,15 +316,45 @@ func (s *Store) Patch(ctx context.Context, userID, mailboxID string, isDefault *
 }
 
 func (s *Store) RefreshToken(ctx context.Context, userID, mailboxID string) (string, error) {
-	var doc storedMailbox
-	err := s.mailboxes.FindOne(ctx, bson.D{{Key: "userId", Value: userID}, {Key: "id", Value: mailboxID}}).Decode(&doc)
-	if errors.Is(err, mongo.ErrNoDocuments) {
-		return "", ErrNotFound
-	}
+	grant, err := s.Grant(ctx, userID, mailboxID)
 	if err != nil {
 		return "", err
 	}
-	return doc.RefreshToken, nil
+	return grant.RefreshToken, nil
+}
+
+func (s *Store) Grant(ctx context.Context, userID, mailboxID string) (Grant, error) {
+	var doc storedMailbox
+	err := s.mailboxes.FindOne(ctx, bson.D{{Key: "userId", Value: userID}, {Key: "id", Value: mailboxID}}).Decode(&doc)
+	if errors.Is(err, mongo.ErrNoDocuments) {
+		return Grant{}, ErrNotFound
+	}
+	if err != nil {
+		return Grant{}, err
+	}
+	return Grant{RefreshToken: doc.RefreshToken, CanModify: doc.CanModify}, nil
+}
+
+func (s *Store) replaceGrant(ctx context.Context, userID string, grant GoogleGrant) (Mailbox, error) {
+	var doc storedMailbox
+	err := s.mailboxes.FindOneAndUpdate(ctx,
+		bson.D{{Key: "userId", Value: userID}, {Key: "email", Value: grant.Email}},
+		bson.D{{Key: "$set", Value: bson.D{
+			{Key: "refreshToken", Value: grant.RefreshToken},
+			{Key: "name", Value: grant.Name},
+			{Key: "picture", Value: grant.Picture},
+			{Key: "googleSubject", Value: grant.Subject},
+			{Key: "canModify", Value: grant.CanModify},
+		}}},
+		options.FindOneAndUpdate().SetReturnDocument(options.After),
+	).Decode(&doc)
+	if errors.Is(err, mongo.ErrNoDocuments) {
+		return Mailbox{}, ErrNotFound
+	}
+	if err != nil {
+		return Mailbox{}, err
+	}
+	return mailboxFromStored(doc), nil
 }
 
 func (s *Store) takeOAuthState(ctx context.Context, state string, now time.Time) (storedOAuthState, error) {
@@ -317,6 +384,7 @@ func mailboxFromStored(doc storedMailbox) Mailbox {
 		Label:               doc.Label,
 		IsDefault:           doc.IsDefault,
 		WatchesApplications: doc.WatchesApplications,
+		CanModify:           doc.CanModify,
 		ConnectedAt:         doc.ConnectedAt,
 	}
 }

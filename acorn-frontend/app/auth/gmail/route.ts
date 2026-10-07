@@ -23,9 +23,14 @@ export async function POST(request: Request) {
     typeof form?.get("next") === "string" ? String(form.get("next")) : undefined,
   );
 
-  const started = await startGmailConnect(acornApiUrl(), email, label, {
-    Authorization: `Bearer ${token}`,
-  });
+  const reauthorize = form?.get("reauthorize") === "1";
+  const started = await startGmailConnect(
+    acornApiUrl(),
+    email,
+    label,
+    { Authorization: `Bearer ${token}` },
+    reauthorize,
+  );
   if (!started.ok) {
     return seeOther(gmailErrorPath(ROUTES.gmailConnect, started.error, next));
   }

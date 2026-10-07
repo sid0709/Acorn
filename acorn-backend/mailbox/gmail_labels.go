@@ -144,6 +144,17 @@ func (g *Google) Overview(ctx context.Context, mailboxID, refreshToken string, f
 	return overview, nil
 }
 
+// UserLabelIDs is the set of labels the person created.
+func UserLabelIDs(labels []Label) map[string]bool {
+	ids := make(map[string]bool, len(labels))
+	for _, label := range labels {
+		if label.Type == labelUser {
+			ids[label.ID] = true
+		}
+	}
+	return ids
+}
+
 // visibleLabels keeps the sidebar's system folders in Gmail's order, then the
 // person's own labels by name, leaving out labels hidden in Gmail.
 func visibleLabels(labels []gmailLabel) []gmailLabel {

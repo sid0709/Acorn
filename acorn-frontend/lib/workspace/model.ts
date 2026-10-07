@@ -65,6 +65,8 @@ export type Mailbox = {
   label: string;
   isDefault: boolean;
   watchesApplications: boolean;
+  /** The Gmail grant can apply labels. Older connections need to allow it again. */
+  canModify: boolean;
   connectedAt: string;
 };
 
@@ -73,7 +75,7 @@ export type Workspace = {
   resumes: ResumeDraft[];
   library: LibraryResume[];
   mailboxes: Mailbox[];
-  /** Gmail message ids opened in Acorn. Acorn reads Gmail read-only, so this stays local. */
+  /** Gmail message ids opened in Acorn. This only changes how Acorn draws the row. */
   readMail: string[];
 };
 

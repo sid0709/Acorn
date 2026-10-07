@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/base64"
 	"encoding/json"
+	"errors"
 	"io"
 	"net/http"
 	"strings"
@@ -64,6 +65,62 @@ const gmailHost = "gmail.googleapis.com/gmail/v1/users/me"
 
 func b64(value string) string {
 	return base64.RawURLEncoding.EncodeToString([]byte(value))
+}
+
+type roundTripFunc func(*http.Request) (*http.Response, error)
+
+func (f roundTripFunc) RoundTrip(req *http.Request) (*http.Response, error) { return f(req) }
+
+func TestAddLabelPostsModify(t *testing.T) {
+	var method, path, body, auth string
+	g := &Google{
+		OAuth: &google.Client{ClientID: "id", ClientSecret: "secret", HTTP: &http.Client{Transport: roundTripFunc(func(req *http.Request) (*http.Response, error) {
+			if req.URL.Host == "oauth2.googleapis.com" {
+				return &http.Response{
+					StatusCode: http.StatusOK,
+					Body:       io.NopCloser(strings.NewReader(`{"access_token":"access","expires_in":3600}`)),
+					Header:     http.Header{},
+				}, nil
+			}
+			raw, _ := io.ReadAll(req.Body)
+			method, path, body, auth = req.Method, req.URL.Path, string(raw), req.Header.Get("Authorization")
+			return &http.Response{StatusCode: http.StatusOK, Body: io.NopCloser(strings.NewReader(`{}`)), Header: http.Header{}}, nil
+		})}},
+		RedirectURL: "https://example.test/callback",
+	}
+	if err := g.AddLabel(context.Background(), "box", "refresh", "m1", "Label_9"); err != nil {
+		t.Fatal(err)
+	}
+	if method != http.MethodPost || path != "/gmail/v1/users/me/messages/m1/modify" {
+		t.Fatalf("request = %s %s", method, path)
+	}
+	if !strings.Contains(body, `"addLabelIds":["Label_9"]`) || auth != "Bearer access" {
+		t.Fatalf("body = %s auth = %s", body, auth)
+	}
+}
+
+func TestAddLabelReportsMissingScope(t *testing.T) {
+	g := &Google{
+		OAuth: &google.Client{ClientID: "id", ClientSecret: "secret", HTTP: &http.Client{Transport: roundTripFunc(func(req *http.Request) (*http.Response, error) {
+			if req.URL.Host == "oauth2.googleapis.com" {
+				return &http.Response{
+					StatusCode: http.StatusOK,
+					Body:       io.NopCloser(strings.NewReader(`{"access_token":"access","expires_in":3600}`)),
+					Header:     http.Header{},
+				}, nil
+			}
+			return &http.Response{
+				StatusCode: http.StatusForbidden,
+				Body:       io.NopCloser(strings.NewReader(`{"error":{"message":"insufficient authentication scopes"}}`)),
+				Header:     http.Header{},
+			}, nil
+		})}},
+		RedirectURL: "https://example.test/callback",
+	}
+	err := g.AddLabel(context.Background(), "box", "refresh", "m1", "Label_9")
+	if !errors.Is(err, ErrGmailScope) {
+		t.Fatalf("err = %v", err)
+	}
 }
 
 func TestListMessagesKeepsOrderAndCaches(t *testing.T) {

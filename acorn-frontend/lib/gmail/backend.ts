@@ -23,6 +23,8 @@ export const GMAIL_BACKEND = {
   mailboxes: "/acorn/gmail/mailboxes",
   messages: "/acorn/gmail/messages",
   overview: "/acorn/gmail/overview",
+  guides: "/acorn/gmail/label-guides",
+  autolabel: "/acorn/gmail/autolabel",
 } as const;
 
 async function call(path: string, init?: RequestInit): Promise<Response | null> {
@@ -64,6 +66,25 @@ export function loadGmailPage(query: GmailListQuery) {
  * Forwards a browser read to acorn-backend with the session token, passing the
  * query through. Lists cache briefly in the browser; message bodies for longer.
  */
+/** Forwards a browser write (or an uncached read) to acorn-backend with the session token. */
+export async function proxyGmailWrite(request: Request, path: string) {
+  const incoming = new URL(request.url).searchParams;
+  const query = incoming.toString();
+  const hasBody = request.method !== "GET" && request.method !== "HEAD";
+  const response = await call(`${path}${query ? `?${query}` : ""}`, {
+    method: request.method,
+    body: hasBody ? await request.text() : undefined,
+  });
+  if (!response) return Response.json({ message: UNREACHABLE }, { status: 502 });
+  return new Response(response.body, {
+    status: response.status,
+    headers: {
+      "Content-Type": response.headers.get("Content-Type") ?? "application/json",
+      "Cache-Control": "no-store",
+    },
+  });
+}
+
 export async function proxyGmail(request: Request, path: string, kind: "list" | "message") {
   const incoming = new URL(request.url).searchParams;
   const response = await call(`${path}?${incoming}`);

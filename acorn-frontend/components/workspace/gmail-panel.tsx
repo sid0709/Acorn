@@ -38,6 +38,7 @@ import {
 import { ROUTES } from "@/lib/routes";
 import type { Mailbox } from "@/lib/workspace/model";
 
+import { AutolabelDialog } from "./gmail/autolabel-dialog";
 import { MailList } from "./gmail/mail-list";
 import { MailReader } from "./gmail/mail-reader";
 import { MailboxManager } from "./gmail/mailbox-manager";
@@ -86,6 +87,7 @@ export function GmailPanel({
   const [search, setSearch] = useState("");
   const [openRow, setOpenRow] = useState<GmailRow | null>(null);
   const [managing, setManaging] = useState(false);
+  const [labeling, setLabeling] = useState(false);
   const pageSize = useSyncExternalStore(subscribePageSize, readPageSize, serverPageSize);
 
   const {
@@ -174,7 +176,7 @@ export function GmailPanel({
     <Stack gap={6}>
       <PageHeader
         title="Gmail"
-        description="Your connected inbox, with its own labels. Acorn reads Gmail and never changes it."
+        description="Your connected inbox, with its own labels. Autolabel files mail into the labels you describe."
         action={
           <HStack gap={2} vAlign="center" wrap="wrap">
             {mailboxes.length > 1 ? (
@@ -191,12 +193,20 @@ export function GmailPanel({
               />
             ) : null}
             {mailbox ? (
-              <Button
-                label="Mailboxes"
-                variant="secondary"
-                icon={<Glyph name="settings" />}
-                onClick={() => setManaging(true)}
-              />
+              <>
+                <Button
+                  label="Autolabel"
+                  variant="secondary"
+                  icon={<Glyph name="tag" />}
+                  onClick={() => setLabeling(true)}
+                />
+                <Button
+                  label="Mailboxes"
+                  variant="secondary"
+                  icon={<Glyph name="settings" />}
+                  onClick={() => setManaging(true)}
+                />
+              </>
             ) : (
               <Button
                 label="Connect Gmail"
@@ -301,6 +311,17 @@ export function GmailPanel({
         onConnect={connect}
         onChange={(next) => void saveMailboxes(next)}
       />
+      {mailbox ? (
+        <AutolabelDialog
+          isOpen={labeling}
+          onOpenChange={setLabeling}
+          mailboxId={mailbox.id}
+          email={mailbox.email}
+          canModify={mailbox.canModify}
+          labels={labels}
+          onApplied={refresh}
+        />
+      ) : null}
     </Stack>
   );
 }

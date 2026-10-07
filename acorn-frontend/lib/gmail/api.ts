@@ -14,6 +14,7 @@ type MailboxRow = {
   label: string;
   isDefault: boolean;
   watchesApplications: boolean;
+  canModify?: boolean;
   connectedAt: string;
 };
 
@@ -26,6 +27,7 @@ function toMailbox(row: MailboxRow): Mailbox {
     label: row.label,
     isDefault: row.isDefault,
     watchesApplications: row.watchesApplications,
+    canModify: row.canModify === true,
     connectedAt: row.connectedAt,
   };
 }

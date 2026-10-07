@@ -211,6 +211,9 @@ func New(accounts Accounts, listings *jobs.Store, brain *acorn.Service, opts Opt
 	mux.HandleFunc("GET /acorn/gmail/messages", s.listGmailMessages)
 	mux.HandleFunc("GET /acorn/gmail/messages/{messageId}", s.getGmailMessage)
 	mux.HandleFunc("GET /acorn/gmail/overview", s.getGmailOverview)
+	mux.HandleFunc("GET /acorn/gmail/label-guides", s.listLabelGuides)
+	mux.HandleFunc("PUT /acorn/gmail/label-guides", s.saveLabelGuides)
+	mux.HandleFunc("POST /acorn/gmail/autolabel", s.requireAI(s.autolabelGmail))
 
 	socket := gw.Handler()
 	mux.Handle(gateway.Path, socket)

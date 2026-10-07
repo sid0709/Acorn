@@ -5,6 +5,7 @@ import (
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
@@ -33,6 +34,18 @@ const (
 
 // ErrGmailAuth is a refresh token Google no longer accepts; the mailbox must reconnect.
 var ErrGmailAuth = errors.New("Gmail access was revoked; reconnect this mailbox")
+
+// ErrGmailScope is a grant that can read mail but cannot change labels.
+var ErrGmailScope error = gmailScopeError{}
+
+type gmailScopeError struct{}
+
+func (gmailScopeError) Error() string {
+	return "Gmail needs permission to apply labels. Reconnect this mailbox."
+}
+
+// StopLabeling tells a labeling run to halt instead of trying the rest of the page.
+func (gmailScopeError) StopLabeling() {}
 
 // Google reads a job hunter's Gmail through the shared OAuth client. It keeps
 // access tokens and recent reads in memory so a page of mail costs one round
@@ -65,7 +78,13 @@ func (g *Google) Configured() bool {
 	return g != nil && g.OAuth.Configured() && g.RedirectURL != ""
 }
 
-var gmailScopes = []string{google.ScopeOpenID, google.ScopeEmail, google.ScopeProfile, google.ScopeGmailReadonly}
+var gmailScopes = []string{
+	google.ScopeOpenID,
+	google.ScopeEmail,
+	google.ScopeProfile,
+	google.ScopeGmailReadonly,
+	google.ScopeGmailModify,
+}
 
 func (g *Google) AuthURL(state, loginHint, codeChallenge string) string {
 	return g.OAuth.AuthURL(google.AuthRequest{
@@ -84,8 +103,9 @@ func (g *Google) Exchange(ctx context.Context, code, redirect, verifier string) 
 	if err != nil {
 		return GoogleGrant{}, err
 	}
-	if !token.Granted(google.ScopeGmailReadonly) {
-		return GoogleGrant{}, fmt.Errorf("gmail readonly scope was not granted")
+	canRead := token.Granted(google.ScopeGmailReadonly) || token.Granted(google.ScopeGmailModify)
+	if !canRead {
+		return GoogleGrant{}, fmt.Errorf("gmail access was not granted")
 	}
 	profile, err := g.OAuth.Profile(ctx, token.AccessToken)
 	if err != nil {
@@ -97,6 +117,7 @@ func (g *Google) Exchange(ctx context.Context, code, redirect, verifier string) 
 		Name:         profile.Name,
 		Picture:      profile.Picture,
 		RefreshToken: token.RefreshToken,
+		CanModify:    token.Granted(google.ScopeGmailModify),
 	}, nil
 }
 
@@ -140,16 +161,36 @@ func tokenKey(refreshToken string) string {
 
 // get calls a Gmail endpoint (relative to gmailAPIBase) and returns the body.
 func (g *Google) get(ctx context.Context, accessToken, path string, query url.Values) ([]byte, error) {
+	return g.call(ctx, http.MethodGet, accessToken, path, query, nil)
+}
+
+// post sends JSON to a Gmail endpoint and returns the body.
+func (g *Google) post(ctx context.Context, accessToken, path string, payload any) ([]byte, error) {
+	raw, err := json.Marshal(payload)
+	if err != nil {
+		return nil, err
+	}
+	return g.call(ctx, http.MethodPost, accessToken, path, nil, raw)
+}
+
+func (g *Google) call(ctx context.Context, method, accessToken, path string, query url.Values, payload []byte) ([]byte, error) {
 	endpoint := gmailAPIBase + path
 	if len(query) > 0 {
 		endpoint += "?" + query.Encode()
 	}
 	for attempt := 0; ; attempt++ {
-		req, err := http.NewRequestWithContext(ctx, http.MethodGet, endpoint, nil)
+		var reader io.Reader
+		if payload != nil {
+			reader = bytes.NewReader(payload)
+		}
+		req, err := http.NewRequestWithContext(ctx, method, endpoint, reader)
 		if err != nil {
 			return nil, err
 		}
 		req.Header.Set("Authorization", "Bearer "+accessToken)
+		if payload != nil {
+			req.Header.Set("Content-Type", "application/json")
+		}
 		body, status, err := g.do(req)
 		if err != nil {
 			return nil, err
@@ -160,6 +201,10 @@ func (g *Google) get(ctx context.Context, accessToken, path string, query url.Va
 		if status == http.StatusUnauthorized {
 			return nil, ErrGmailAuth
 		}
+		statusErr := &gmailStatusError{path: path, status: status, body: body}
+		if isInsufficientScope(statusErr) {
+			return nil, ErrGmailScope
+		}
 		if retryable(status, body) && attempt < gmailRetries {
 			select {
 			case <-ctx.Done():
@@ -168,8 +213,12 @@ func (g *Google) get(ctx context.Context, accessToken, path string, query url.Va
 			}
 			continue
 		}
-		return nil, &gmailStatusError{path: path, status: status}
+		return nil, statusErr
 	}
+}
+
+func isInsufficientScope(err *gmailStatusError) bool {
+	return err.status == http.StatusForbidden && bytes.Contains(bytes.ToLower(err.body), []byte("insufficient"))
 }
 
 // retryable is a rate limit or a server hiccup. Gmail answers per-user rate
@@ -188,6 +237,7 @@ func retryable(status int, body []byte) bool {
 type gmailStatusError struct {
 	path   string
 	status int
+	body   []byte
 }
 
 func (e *gmailStatusError) Error() string {
