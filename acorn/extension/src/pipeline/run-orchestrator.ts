@@ -27,11 +27,21 @@ import { getTabJob, rekeyTabJob } from "../tab-job-session";
 
 import { requestDiagnose, requestReadPage, READ_INTENT, type ReadIntent } from "./api/run";
 import { repairDriftInTab } from "./drift";
+import { fetchDomFromTab } from "./fetch-dom";
 import { RESUME_NOT_CHOSEN, type ResumeGate } from "./resume-gate";
-import { clickControl, probePage, settleAfterClick, watchOpenedTabs } from "./run-click";
+import {
+  clickControl,
+  probePage,
+  waitForPerson,
+  settleAfterClick,
+  watchOpenedTabs,
+  type SettleHow,
+} from "./run-click";
 import { failureEvidence } from "./run-evidence";
 import {
+  RUN_MAX_AI_CALLS,
   RUN_MAX_BLOCKED_PASSES,
+  RUN_MAX_FILLS_PER_PAGE,
   RUN_MAX_CLICK_RETRIES,
   RUN_MAX_NO_EFFECT,
   RUN_MAX_PAGES,
@@ -40,6 +50,7 @@ import {
 } from "./run-limits";
 import { logUrl, RunLog } from "./run-log";
 import { snapshotPage, type PageSnapshot } from "./run-page";
+import { isNewStep } from "./run-step";
 import { NO_RESUME_FILE, runFabPipeline } from "./run-pipeline";
 import { ensureRecommendedResume } from "./run-resume";
 
@@ -72,7 +83,9 @@ export interface RunOrchestratorArgs {
 
 /** Where the run is on one page. */
 interface PageState {
+  /** The page as the run last saw it; its own edits update this, they never make a new step. */
   signature: string;
+  url: string;
   filled: boolean;
   /** Clicks of a Next / Submit / Apply control on this page. */
   clicks: number;
@@ -86,6 +99,8 @@ interface PageState {
   retryClick: boolean;
   /** Passes over what the page still needed while it held its forward control disabled. */
   blockedPasses: number;
+  /** Fills of this step of any kind; capped by RUN_MAX_FILLS_PER_PAGE. */
+  fills: number;
 }
 
 /** A click either landed and settled, or never reached its control. */
@@ -105,6 +120,29 @@ class RunStop extends Error {
     super(notes[0] ?? UNKNOWN_FAILURE_LABEL);
   }
 }
+
+/** Fields a stuck page still shows blank or off, as evidence lines (labels only, never values). */
+async function unansweredNotes(tabId: number, frameId: number | null): Promise<string[]> {
+  const dom = await fetchDomFromTab(tabId, frameId, {
+    formFields: true,
+    pendingFields: true,
+    blockedFields: true,
+  }).catch(() => null);
+  return (dom?.formFields ?? []).map((field) =>
+    field.kind === "toggle"
+      ? `Box "${field.label}" is still unchecked`
+      : `Field "${field.label}" is still unanswered`,
+  );
+}
+
+/** The run waits while the page needs a step only the applicant can do. */
+const WAITING_FOR_PERSON =
+  "Waiting for you to finish this step on the page; Acorn goes on once it moves";
+/** The run stopped waiting for the applicant to do a step only they can. */
+const WAITED_FOR_PERSON = "The page is waiting for a step only you can do";
+
+/** Why a run stopped on its own budget; shown as the stop's label. */
+const BUDGET_SPENT = "The run reached its limit on AI work";
 
 /** The run stops before touching the page: no résumé to apply with. */
 function noResumeStop(stage: RunStage, snapshot: PageSnapshot | null, detail: string): RunStop {
@@ -196,11 +234,32 @@ export async function runOrchestrator(args: RunOrchestratorArgs): Promise<RunRep
   };
 
   /** Fill or Refill the page through the existing pipeline; its end is not the run's end. */
+  /** Stop when the run has spent its AI budget: fills of this step, or model calls overall. */
+  const checkBudget = async (within: PageSnapshot | null) => {
+    const marks = (await Promise.all(usageMarks)).filter((mark): mark is UsageMark => mark != null);
+    const used = await usageSince(marks, { settle: false }).catch(() => null);
+    const calls = used?.calls ?? 0;
+    const fills = current?.fills ?? 0;
+    if (calls < RUN_MAX_AI_CALLS && fills < RUN_MAX_FILLS_PER_PAGE) return;
+    const detail =
+      calls >= RUN_MAX_AI_CALLS
+        ? `${calls} model calls (limit ${RUN_MAX_AI_CALLS})`
+        : `${fills} fills of this step (limit ${RUN_MAX_FILLS_PER_PAGE})`;
+    log.event("budget:spent", { calls, fills });
+    throw new RunStop(stage, within, [detail], undefined, {
+      reason: RUN_FAILURE_REASON.budgetSpent,
+      label: BUDGET_SPENT,
+      detail,
+    });
+  };
+
   const fill = async (
     mode: FillMode,
     within: PageSnapshot,
     opts: { pendingOnly?: boolean } = {},
   ) => {
+    await checkBudget(within);
+    if (current) current.fills += 1;
     let last: PipelineProgress | undefined;
     const started = Date.now();
     await runFabPipeline({
@@ -291,6 +350,7 @@ export async function runOrchestrator(args: RunOrchestratorArgs): Promise<RunRep
       fallback: res.fallback ?? null,
       fallbackPicked,
       guest: res.guest === true,
+      needsPerson: res.needsPerson === true,
     };
   };
 
@@ -339,6 +399,27 @@ export async function runOrchestrator(args: RunOrchestratorArgs): Promise<RunRep
         `Could not click "${label}" after ${clickFailures} fresh reads of the page: ${error}`,
       ]);
     }
+  };
+
+  /**
+   * The page waits on something only the applicant can give: do nothing to it and
+   * spend nothing, look again once they have moved it on.
+   */
+  const awaitPerson = async (page: PageSnapshot) => {
+    log.event("wait:person", { url: logUrl(page.url) });
+    progress(WAITING_FOR_PERSON);
+    const moved = await clock.time("wait", () => waitForPerson(tabId, page.frameId));
+    if (!moved) {
+      throw new RunStop(stage, page, [WAITED_FOR_PERSON], undefined, {
+        reason: RUN_FAILURE_REASON.waitedForPerson,
+        label: WAITED_FOR_PERSON,
+        detail: WAITED_FOR_PERSON,
+      });
+    }
+    log.event("wait:done", {});
+    // The applicant moved the page on: what follows is the page's answer, as after a click.
+    const after = await snap({ form: true, frameId: page.frameId });
+    return { snapshot: after, how: "changed" as SettleHow };
   };
 
   /** The control a read picked, or its fallback when it answered none. */
@@ -446,15 +527,19 @@ export async function runOrchestrator(args: RunOrchestratorArgs): Promise<RunRep
   progress("Starting…", "fetching");
 
   try {
-    let pending: PageSnapshot | null = null;
+    /** The page a click just produced, and how that click settled. */
+    let pending: { snapshot: PageSnapshot; how: SettleHow } | null = null;
 
     while (log.step < RUN_MAX_STEPS) {
       log.step += 1;
+      await checkBudget(snapshot);
 
       // 1. Look at the page: the one a click just produced, or a fresh read.
       let page: PageSnapshot;
+      let settled: SettleHow | null = null;
       if (pending) {
-        page = pending;
+        page = pending.snapshot;
+        settled = pending.how;
         pending = null;
       } else {
         enter(RUN_STAGE.reading);
@@ -465,7 +550,11 @@ export async function runOrchestrator(args: RunOrchestratorArgs): Promise<RunRep
       }
       snapshot = page;
 
-      const moved = current == null || page.signature !== current.signature;
+      const moved = isNewStep({ previous: current, page, settled });
+      if (!moved && current) {
+        current.signature = page.signature;
+        current.url = page.url;
+      }
       if (moved) {
         pageCount += 1;
         if (pageCount > RUN_MAX_PAGES) {
@@ -475,6 +564,7 @@ export async function runOrchestrator(args: RunOrchestratorArgs): Promise<RunRep
         }
         current = {
           signature: page.signature,
+          url: page.url,
           filled: false,
           clicks: 0,
           refills: 0,
@@ -483,6 +573,7 @@ export async function runOrchestrator(args: RunOrchestratorArgs): Promise<RunRep
           fillStartedAt: 0,
           retryClick: false,
           blockedPasses: 0,
+          fills: 0,
         };
         refillsOnPage = 0;
         log.event("page", { page: pageCount, url: logUrl(page.url), flagged: page.flagged });
@@ -547,6 +638,11 @@ export async function runOrchestrator(args: RunOrchestratorArgs): Promise<RunRep
         if (!resumeChecked) recommend(page.url, page.title);
         await settleRecommend();
 
+        if (first.needsPerson) {
+          pending = await awaitPerson(page);
+          continue;
+        }
+
         if (first.kind === PAGE_KIND.posting) {
           if (!first.control || !first.picked) {
             throw new RunStop(RUN_STAGE.applying, page, [
@@ -561,7 +657,7 @@ export async function runOrchestrator(args: RunOrchestratorArgs): Promise<RunRep
           const label = first.picked.text || first.picked.label;
           const clicked = await click(page, first.control, label);
           if (clicked.missed != null) missedClick(state, label, clicked.missed);
-          else pending = clicked.settled.snapshot;
+          else pending = { snapshot: clicked.settled.snapshot, how: clicked.settled.how };
           continue;
         }
 
@@ -578,7 +674,7 @@ export async function runOrchestrator(args: RunOrchestratorArgs): Promise<RunRep
           enter(RUN_STAGE.applying, `Going on without an account · ${label}`);
           const clicked = await click(page, target.control, label);
           if (clicked.missed != null) missedClick(state, label, clicked.missed);
-          else pending = clicked.settled.snapshot;
+          else pending = { snapshot: clicked.settled.snapshot, how: clicked.settled.how };
           continue;
         }
 
@@ -624,6 +720,10 @@ export async function runOrchestrator(args: RunOrchestratorArgs): Promise<RunRep
       if (next.kind === PAGE_KIND.confirmation) {
         return await finish(report(RUN_OUTCOME.completed));
       }
+      if (next.needsPerson) {
+        pending = await awaitPerson(page);
+        continue;
+      }
       if (next.kind === PAGE_KIND.accountStep && !next.guest) {
         throw new RunStop(RUN_STAGE.advancing, page, [
           "This step asks to sign in or create an account and offers no way to go on without one",
@@ -653,7 +753,7 @@ export async function runOrchestrator(args: RunOrchestratorArgs): Promise<RunRep
       );
       const clicked = await click(page, target.control, label);
       if (clicked.settled) {
-        pending = clicked.settled.snapshot;
+        pending = { snapshot: clicked.settled.snapshot, how: clicked.settled.how };
       } else if (clicked.disabled) {
         // The page holds its forward control until it has what it needs: answer what
         // is still blank or off, put back what it cleared, then click again.
@@ -662,6 +762,7 @@ export async function runOrchestrator(args: RunOrchestratorArgs): Promise<RunRep
         if (state.blockedPasses >= RUN_MAX_BLOCKED_PASSES) {
           throw new RunStop(RUN_STAGE.advancing, page, [
             `"${label}" stayed disabled after ${state.blockedPasses} passes over what the page still needed`,
+            ...(await unansweredNotes(tabId, page.frameId)),
           ]);
         }
         state.blockedPasses += 1;

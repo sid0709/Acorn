@@ -10,6 +10,8 @@
  * or component allowlists.
  */
 
+import { fieldWrapper } from "../form-dom";
+
 const GROUP_SELECTOR = [
   "fieldset",
   '[role="group"]',
@@ -119,8 +121,15 @@ function labelIsValue(el: Element, value: string): boolean {
   return containsWordRun(tokens(have), tokens(want));
 }
 
-/** The field this control belongs to: nearest grouping container. */
+/**
+ * The field this control belongs to. A native box or radio: its own field wrapper
+ * (the highest ancestor holding only this question). Otherwise the nearest
+ * grouping container.
+ */
 function groupRoot(el: Element): ParentNode {
+  if (el instanceof HTMLInputElement && (el.type === "radio" || el.type === "checkbox")) {
+    return fieldWrapper(el);
+  }
   return el.closest(GROUP_SELECTOR) || el.parentElement || el.ownerDocument || document;
 }
 

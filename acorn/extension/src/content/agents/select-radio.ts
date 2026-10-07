@@ -8,9 +8,10 @@ import {
   inputOptionLabel,
   isProxyControl,
 } from "./choice-group";
-import { isChoiceSelected } from "./choice-state";
+import { choiceState } from "./choice-state";
 import { findAssociatedCombobox, findComboboxForOption } from "./enhanced-select";
 import { fillNativeSelect } from "./native-select";
+import { fieldWrapper } from "../form-dom";
 import { pointerActivate } from "./pointer-activate";
 import { waitMs } from "./wait";
 import { selectComboboxOption } from "./select-combobox";
@@ -121,6 +122,11 @@ export function groupRoot(el: HTMLElement): ParentNode {
   const named = sameNameGroup(el);
   const namedRoot = named ? commonAncestor(named) : null;
   if (namedRoot) return namedRoot;
+  // A native box or radio with no named group answers one question: its own field
+  // wrapper, never a wider container where another question's option shares its label.
+  if (el instanceof HTMLInputElement && (el.type === "radio" || el.type === "checkbox")) {
+    return fieldWrapper(el);
+  }
   const container = el.closest(GROUP_CONTAINER_SELECTOR);
   const optionSet = optionSetRoot(el);
   // The nearer one wins: a page-wide <form> is not one question's group.
@@ -160,6 +166,16 @@ function ensureChecked(el: HTMLInputElement, intended?: string): string {
   // A click the page ignored (or undid) is a failed step, never a quiet success.
   if (!el.checked) throw new Error(`The page did not keep "${label || intended}" selected`);
   return label || "checked";
+}
+
+/**
+ * Click an option only when it does not already read as chosen. A second click on
+ * a chosen option un-chooses it on many widgets, so an even number of clicks
+ * would cancel the answer.
+ */
+function activateUnlessChosen(el: HTMLElement): void {
+  if (choiceState(el) === true) return;
+  pointerActivate(el);
 }
 
 /** The field has options, but none carries the intended label. */
@@ -298,11 +314,11 @@ async function selectChoiceLocally(el: Element, value: string | null): Promise<s
 
     const visible = findDisplayedOption(html.closest('[role="listbox"]'), label);
     if (visible) {
-      pointerActivate(visible);
+      activateUnlessChosen(visible);
       return inputOptionLabel(visible) || label;
     }
     if (isDisplayed(html)) {
-      pointerActivate(html);
+      activateUnlessChosen(html);
       return inputOptionLabel(html) || label;
     }
     throw new Error(`Dropdown option "${label}" is not open — no combobox trigger found`);
@@ -319,7 +335,7 @@ async function selectChoiceLocally(el: Element, value: string | null): Promise<s
   ) {
     const option = findVisibleChoiceOption(el, intended);
     if (option) {
-      if (!isChoiceSelected(option)) pointerActivate(option);
+      activateUnlessChosen(option);
       return choiceOptionLabel(option) || intended;
     }
   }
@@ -336,7 +352,7 @@ async function selectChoiceLocally(el: Element, value: string | null): Promise<s
 
   // Custom choice buttons: the planned node is the option to activate.
   if (el instanceof HTMLButtonElement && intended && labelsMatch(html, intended)) {
-    pointerActivate(html);
+    activateUnlessChosen(html);
     return inputOptionLabel(html) || intended;
   }
 
@@ -348,12 +364,12 @@ async function selectChoiceLocally(el: Element, value: string | null): Promise<s
     if (radio) return ensureChecked(radio, intended);
     const aria = findAriaChoice(root, intended);
     if (aria) {
-      pointerActivate(aria);
+      activateUnlessChosen(aria);
       return inputOptionLabel(aria) || intended;
     }
     const button = findButtonChoice(root, intended);
     if (button) {
-      pointerActivate(button);
+      activateUnlessChosen(button);
       return inputOptionLabel(button) || intended;
     }
   }
@@ -375,6 +391,6 @@ async function selectChoiceLocally(el: Element, value: string | null): Promise<s
     return selectComboboxOption(el, intended);
   }
 
-  pointerActivate(html);
+  activateUnlessChosen(html);
   return inputOptionLabel(el) || "clicked";
 }

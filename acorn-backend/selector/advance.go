@@ -44,6 +44,7 @@ const (
 	controlQuestion  = "control"
 	finalQuestion    = "is_final_step"
 	guestQuestion    = "continues_without_account"
+	personQuestion   = "waits_for_person"
 	diagnoseQuestion = "failure"
 
 	controlKeyPrefix = "control"
@@ -112,7 +113,10 @@ type PageRead struct {
 	// Guest is true when the page offers a way to go on without signing in or
 	// creating an account; on an account step the run clicks only then.
 	Guest bool
-	Usage jev.Usage
+	// NeedsPerson is true when the page waits on something only the applicant can
+	// give in the moment (a code sent to them, a challenge to solve): the run waits.
+	NeedsPerson bool
+	Usage       jev.Usage
 }
 
 var pageKinds = []struct{ key, description string }{
@@ -175,6 +179,15 @@ func (g *Gateway) ReadPage(ctx context.Context, q PageQuery) (PageRead, error) {
 					"false": "Not the last step: the forward control opens another page or step.",
 				},
 			},
+			personQuestion: {
+				Type: jev.TypeNoul,
+				Instructions: "Is the page waiting for something only the applicant can give in the moment before it can go on, " +
+					"such as a code that was sent to them or a challenge they must solve themselves?",
+				Criteria: map[string]string{
+					"true":  "The page waits for the applicant to enter or solve something only they can.",
+					"false": "Nothing on the page needs the applicant personally; it can be filled and sent.",
+				},
+			},
 			guestQuestion: {
 				Type:         jev.TypeNoul,
 				Instructions: "Does this page offer a way to go on with the application without signing in or creating an account?",
@@ -205,6 +218,9 @@ func (g *Gateway) ReadPage(ctx context.Context, q PageQuery) (PageRead, error) {
 
 	if guest := res.Answers[guestQuestion]; guest.Noul != nil {
 		read.Guest = *guest.Noul > checkThreshold
+	}
+	if person := res.Answers[personQuestion]; person.Noul != nil {
+		read.NeedsPerson = *person.Noul > checkThreshold
 	}
 	answer, ok := res.Answers[controlQuestion]
 	if !ok {

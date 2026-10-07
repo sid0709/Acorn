@@ -266,3 +266,10 @@ func TestChoiceFieldTellsTheModelThePageIsWaiting(t *testing.T) {
 		t.Fatal("a field the page is not waiting on carries the blocking note")
 	}
 }
+
+func TestPersonOnlyFieldsAreNeverWritten(t *testing.T) {
+	field := FormField{ElementIndex: 4, Kind: fieldText, Label: "Security code", Required: true}
+	if fact, write := textAnswer(parseApplicantFacts("{}"), field, FactPersonOnly); fact != "" || write {
+		t.Fatalf("person-only field got fact %q write %v, want neither", fact, write)
+	}
+}

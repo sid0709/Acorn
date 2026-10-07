@@ -49,6 +49,10 @@ export type RunOutcome = (typeof RUN_OUTCOME)[keyof typeof RUN_OUTCOME];
 export const RUN_FAILURE_REASON = {
   /** No résumé was chosen for the job (no description found, or no Library résumé fits). */
   resumeNotChosen: "resume_not_chosen",
+  /** The run reached its cap on fills of one step or on model calls. */
+  budgetSpent: "ai_budget_spent",
+  /** A step only the applicant can do (a code sent to them) was not done in time. */
+  waitedForPerson: "waited_for_person",
 } as const;
 
 /** Why a run could not finish, in the decision model's words (mirrors the backend's reasons). */

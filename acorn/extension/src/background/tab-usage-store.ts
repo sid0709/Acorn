@@ -86,9 +86,17 @@ export async function markTabUsage(tabId: number): Promise<UsageMark> {
   return { usageKey, tally: (await ledgerFor(usageKey)).mark() };
 }
 
-/** Every call pushed to these tabs since their marks, as one summary. */
-export async function usageSince(marks: UsageMark[]): Promise<AiUsageSummary> {
-  await new Promise((resolve) => setTimeout(resolve, USAGE_PUSH_SETTLE_MS));
+/**
+ * Every call pushed to these tabs since their marks, as one summary. A final total
+ * waits for pushes still in flight; a budget check mid-run reads what is there.
+ */
+export async function usageSince(
+  marks: UsageMark[],
+  opts: { settle?: boolean } = {},
+): Promise<AiUsageSummary> {
+  if (opts.settle !== false) {
+    await new Promise((resolve) => setTimeout(resolve, USAGE_PUSH_SETTLE_MS));
+  }
   const parts = await Promise.all(
     marks.map(async (mark) => (await ledgerFor(mark.usageKey)).since(mark.tally)),
   );

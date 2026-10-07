@@ -1,3 +1,5 @@
+import { rememberLookBeforeClick } from "./choice-state";
+
 /** Pointer + click sequence so React/pointer handlers see an activation. */
 
 function isDisplayed(el: HTMLElement): boolean {
@@ -46,6 +48,9 @@ export function visibleActivateTarget(el: HTMLElement, intended?: string | null)
 
 export function pointerActivate(el: HTMLElement, intended?: string | null): void {
   const target = visibleActivateTarget(el, intended);
+  // How both looked while not chosen, so a later look can tell a click took.
+  rememberLookBeforeClick(el);
+  rememberLookBeforeClick(target);
   const view = target.ownerDocument?.defaultView || window;
   const rect = target.getBoundingClientRect();
   const clientX = rect.width ? rect.left + rect.width / 2 : 0;

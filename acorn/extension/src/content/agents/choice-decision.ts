@@ -11,7 +11,7 @@ import {
   hasClickableBox,
   inputOptionLabel,
 } from "./choice-group";
-import { isChoiceSelected } from "./choice-state";
+import { choiceState } from "./choice-state";
 import { askAiMatchOption } from "./match-option-client";
 import { pointerActivate } from "./pointer-activate";
 
@@ -112,7 +112,9 @@ export async function pickSingleChoice(
 }
 
 function setChecked(control: ChoiceControl, want: boolean): void {
-  if (isChoiceSelected(control.el) === want) return;
+  // Unknown state never earns a click to clear it: a click might choose it instead.
+  const state = choiceState(control.el);
+  if (state === want || (state == null && !want)) return;
   // A hidden native box is a proxy: click the visible option that carries its label.
   const target = hasClickableBox(control.el)
     ? control.el

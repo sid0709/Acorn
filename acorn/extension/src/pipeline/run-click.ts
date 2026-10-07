@@ -5,6 +5,8 @@ import {
   RUN_SETTLE_MAX_MS,
   RUN_SETTLE_MIN_MS,
   RUN_SETTLE_POLL_MS,
+  RUN_PERSON_POLL_MS,
+  RUN_PERSON_WAIT_MAX_MS,
   RUN_PROBE_TIMEOUT_MS,
   RUN_SETTLE_UNCHANGED_MS,
   RUN_TAB_LOAD_MAX_MS,
@@ -42,6 +44,24 @@ export async function probePage(tabId: number, frameId: number | null): Promise<
     RUN_PROBE_TIMEOUT_MS,
   );
   return res?.ok && res.probe ? res.probe : null;
+}
+
+/**
+ * Wait, with no model call, until the applicant moves the page on: its address or
+ * its set of fields changes (they entered the code and sent it), or the tab is
+ * gone. False when the wait ran out.
+ */
+export async function waitForPerson(tabId: number, frameId: number | null): Promise<boolean> {
+  const before = await probePage(tabId, frameId);
+  const started = Date.now();
+  while (Date.now() - started < RUN_PERSON_WAIT_MAX_MS) {
+    await sleep(RUN_PERSON_POLL_MS);
+    const tab = await chrome.tabs.get(tabId).catch(() => null);
+    if (!tab) return true;
+    const now = await probePage(tabId, frameId);
+    if (!before || !now || now.url !== before.url || now.fields !== before.fields) return true;
+  }
+  return false;
 }
 
 const sleep = (ms: number) => new Promise<void>((resolve) => setTimeout(resolve, ms));

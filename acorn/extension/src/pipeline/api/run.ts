@@ -37,6 +37,8 @@ export interface ReadPageResponse {
   fallback?: { id: number; role: ControlRole; confidence: number } | null;
   /** The page offers a way to go on without signing in or creating an account. */
   guest?: boolean;
+  /** The page waits on something only the applicant can give (a code sent to them). */
+  needsPerson?: boolean;
   usage?: AiUsageSummary;
 }
 

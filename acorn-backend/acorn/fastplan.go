@@ -430,7 +430,7 @@ func fieldWithSection(field FormField) string {
 }
 
 // blankKinds leave a field empty (or, when it is required, have the writer answer it).
-var blankKinds = map[string]bool{FactSkip: true, FactOtherPerson: true, FactUnknownDetail: true}
+var blankKinds = map[string]bool{FactSkip: true, FactOtherPerson: true, FactUnknownDetail: true, FactPersonOnly: true}
 
 func textRole(field FormField) string {
 	if field.Kind == fieldTextarea {
@@ -473,7 +473,8 @@ func textAnswer(profile applicantFacts, field FormField, kind string) (fact stri
 		}
 		kind = FactSkip
 	}
-	if kind == FactOtherPerson {
+	// Another person's details, and what only the applicant can give, are never made up.
+	if kind == FactOtherPerson || kind == FactPersonOnly {
 		return "", false
 	}
 	return "", kind == FactWrite || (blankKinds[kind] && (field.Required || field.Blocking))
