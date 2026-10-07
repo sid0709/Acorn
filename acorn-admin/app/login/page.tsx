@@ -1,5 +1,4 @@
 import { redirect } from "next/navigation";
-import { PageContainer } from "sid-ui";
 
 import { LoginForm } from "@/components/login-form";
 import { currentAdminEmail } from "@/lib/auth/session";
@@ -10,9 +9,9 @@ export default async function LoginPage() {
   if (email) redirect(HOME_ROUTE);
   return (
     <main className="admin-login">
-      <PageContainer width="narrow">
+      <div className="admin-login-card">
         <LoginForm />
-      </PageContainer>
+      </div>
     </main>
   );
 }

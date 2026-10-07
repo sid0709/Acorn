@@ -5,22 +5,40 @@ import { Banner, Button } from "sid-ui";
 import { signOut } from "@/lib/auth/actions";
 import type { AcornAccount } from "@/lib/auth/session";
 import { ROUTES } from "@/lib/routes";
+import { useExtensionSupportSync, type ExtensionSync } from "./use-extension-support-sync";
 
 const endTime = new Intl.DateTimeFormat(undefined, { hour: "numeric", minute: "2-digit" });
 
-/** Shown on every page while an admin is signed in as the user. */
+const EXTENSION_STATUS: Record<ExtensionSync["kind"], string> = {
+  checking: "checking the extension…",
+  linked: "the extension follows this session",
+  missing: "extension not detected",
+  failed: "the extension could not sign in",
+};
+
+/**
+ * Shown on every page while an admin is signed in as the user. It also signs the
+ * Acorn extension into the same support session, so it never asks for Google.
+ */
 export function SupportBanner({
   account,
 }: {
   account: AcornAccount & { support: NonNullable<AcornAccount["support"]> };
 }) {
   const router = useRouter();
+  const extension = useExtensionSupportSync({ accountId: account.id });
   const ends = Date.parse(account.support.expiresAt);
   return (
     <Banner
       status="warning"
       title={`Support session as ${account.name}`}
-      description={`Opened by ${account.support.by}${Number.isFinite(ends) ? ` · ends ${endTime.format(ends)}` : ""}`}
+      description={[
+        `Opened by ${account.support.by}`,
+        Number.isFinite(ends) ? `ends ${endTime.format(ends)}` : "",
+        EXTENSION_STATUS[extension.kind],
+      ]
+        .filter(Boolean)
+        .join(" · ")}
       endContent={
         <Button
           label="End support session"

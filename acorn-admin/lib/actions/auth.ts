@@ -10,7 +10,7 @@ import {
   writeAdminSessionCookie,
 } from "../auth/cookie";
 import { acornApiUrl } from "../config";
-import { HOME_ROUTE, ROUTES } from "../routes";
+import { ROUTES } from "../routes";
 
 export async function signOutAction(): Promise<void> {
   const token = await adminSessionToken();
@@ -25,6 +25,7 @@ export async function signOutAction(): Promise<void> {
   redirect(ROUTES.login);
 }
 
+/** Signs in and sets the session cookie; returns an error message, or null on success. */
 export async function signInActionWithError(
   email: string,
   password: string,
@@ -42,5 +43,5 @@ export async function signInActionWithError(
   const data = (await res.json()) as { token?: string };
   if (!data.token) return "Sign-in did not return a session.";
   await writeAdminSessionCookie(data.token);
-  redirect(HOME_ROUTE);
+  return null;
 }

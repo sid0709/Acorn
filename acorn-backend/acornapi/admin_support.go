@@ -181,3 +181,27 @@ func (s *Server) redeemSupportCode(w http.ResponseWriter, r *http.Request) {
 	}
 	writeJSON(w, http.StatusOK, out)
 }
+
+// supportExtensionCode lets the site, while it is in a support session, hand the
+// same support session to the extension: a fresh single-use extension code for
+// the user and admin behind the caller's session. Any other session gets 403.
+func (s *Server) supportExtensionCode(w http.ResponseWriter, r *http.Request) {
+	session, ok := s.session(w, r)
+	if !ok || !s.supportReady(w) {
+		return
+	}
+	if session.SupportBy == "" {
+		writeError(w, http.StatusForbidden, "only a support session can sign the extension in")
+		return
+	}
+	code, err := s.supportAccess.CreateHandoff(r.Context(), supportaccess.Handoff{
+		UserID: session.User.ID, AdminEmail: session.SupportBy, Reason: session.SupportReason,
+		Purpose: supportaccess.PurposeExtension,
+	}, time.Now())
+	if err != nil {
+		slog.Error("acorn support extension code", "error", err)
+		writeError(w, http.StatusInternalServerError, "could not sign the extension in")
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"code": code})
+}

@@ -1,54 +1,30 @@
 "use client";
 
-import { useEffect, useState } from "react";
-import { Banner, Spinner, HStack, Text } from "sid-ui";
-import {
-  ACORN_SUPPORT_HANDOFF,
-  ACORN_SUPPORT_HANDOFF_ACK,
-  type AcornSupportHandoffAck,
-  type AcornSupportHandoffMessage,
-} from "@acorn/shared/api";
-import { EXTENSION_ACK_TIMEOUT_MS, SUPPORT_PARAM } from "@/lib/support";
+import { Banner, HStack, Spinner, Text } from "sid-ui";
+import { EXTENSION_CODE_TTL_MINUTES, SUPPORT_PARAM } from "@/lib/support";
+import { useExtensionSupportSync } from "./use-extension-support-sync";
 
-type State =
-  | { kind: "waiting" }
-  | { kind: "linked" }
-  | { kind: "missing" }
-  | { kind: "failed"; error: string };
+/** The code is used up once the extension answers; keep it out of history after that. */
+function dropCodeFromAddress() {
+  const url = new URL(window.location.href);
+  url.searchParams.delete(SUPPORT_PARAM.extensionCode);
+  window.history.replaceState(null, "", url);
+}
 
 /**
- * Passes the extension its one-time code for the same support session. The
- * extension's content script on this site answers; no answer means it is not
- * installed (or not on this browser). The code leaves the address bar either way.
+ * Signs the Acorn extension into this support session with the code the
+ * sign-in link came with, and says how it went. The code stays in the address
+ * until the extension answers, so reloading the page retries.
  */
-export function ExtensionHandoff({ code }: { code: string }) {
-  const [state, setState] = useState<State>({ kind: "waiting" });
-
-  useEffect(() => {
-    const url = new URL(window.location.href);
-    url.searchParams.delete(SUPPORT_PARAM.extensionCode);
-    window.history.replaceState(null, "", url);
-
-    const onMessage = (event: MessageEvent<AcornSupportHandoffAck>) => {
-      if (event.source !== window || event.origin !== window.location.origin) return;
-      if (event.data?.type !== ACORN_SUPPORT_HANDOFF_ACK) return;
-      window.clearTimeout(timer);
-      setState(
-        event.data.ok ? { kind: "linked" } : { kind: "failed", error: event.data.error ?? "" },
-      );
-    };
-    window.addEventListener("message", onMessage);
-    const timer = window.setTimeout(() => setState({ kind: "missing" }), EXTENSION_ACK_TIMEOUT_MS);
-    const message: AcornSupportHandoffMessage = { type: ACORN_SUPPORT_HANDOFF, code };
-    window.postMessage(message, window.location.origin);
-    return () => {
-      window.removeEventListener("message", onMessage);
-      window.clearTimeout(timer);
-    };
-  }, [code]);
+export function ExtensionHandoff({ accountId, code }: { accountId: string; code?: string }) {
+  const state = useExtensionSupportSync({
+    accountId,
+    initialCode: code,
+    onCodeUsed: dropCodeFromAddress,
+  });
 
   switch (state.kind) {
-    case "waiting":
+    case "checking":
       return (
         <HStack gap={2} vAlign="center">
           <Spinner size="sm" />
@@ -68,7 +44,7 @@ export function ExtensionHandoff({ code }: { code: string }) {
         <Banner
           status="info"
           title="The Acorn extension did not answer"
-          description="Install or enable it in this browser, then open the support link again from the admin console."
+          description={`Reload the Acorn extension in chrome://extensions (or install it), then reload this page within ${EXTENSION_CODE_TTL_MINUTES} minutes. Any Acorn page also signs it in while this session lasts.`}
         />
       );
     case "failed":
@@ -76,7 +52,7 @@ export function ExtensionHandoff({ code }: { code: string }) {
         <Banner
           status="warning"
           title="The extension could not sign in"
-          description={state.error || "Open the support link again from the admin console."}
+          description={state.error || "Reload any Acorn page to try again."}
         />
       );
   }

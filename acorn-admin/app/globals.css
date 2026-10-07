@@ -34,6 +34,7 @@ html {
   box-sizing: border-box;
 }
 
-.admin-login > * {
-  width: 100%;
+.admin-login-card {
+  --admin-login-width: 30rem;
+  width: min(100%, var(--admin-login-width));
 }

@@ -1,11 +1,14 @@
 "use client";
 
+import { useRouter } from "next/navigation";
 import { useState } from "react";
 import { Banner, Button, Card, Text, TextInput, VStack } from "sid-ui";
 
 import { signInActionWithError } from "@/lib/actions/auth";
+import { HOME_ROUTE } from "@/lib/routes";
 
 export function LoginForm() {
+  const router = useRouter();
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [error, setError] = useState<string | null>(null);
@@ -27,7 +30,12 @@ export function LoginForm() {
             setError(null);
             void signInActionWithError(email, password)
               .then((message) => {
-                if (message) setError(message);
+                if (message) {
+                  setError(message);
+                  return;
+                }
+                router.replace(HOME_ROUTE);
+                router.refresh();
               })
               .catch((err: unknown) => {
                 setError(err instanceof Error ? err.message : String(err));

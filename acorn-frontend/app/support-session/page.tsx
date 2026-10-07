@@ -39,7 +39,7 @@ export default async function SupportSessionPage({
                     {`${account.email} · support session opened by ${account.support.by}`}
                   </Text>
                 </Stack>
-                {code ? <ExtensionHandoff code={code} /> : null}
+                <ExtensionHandoff accountId={account.id} code={code} />
                 <Button label="Continue to Acorn" variant="primary" href={ROUTES.overview} />
               </>
             )}

@@ -1,20 +1,13 @@
+import { acornWebOrigins } from "@acorn/shared/api";
 import { DEFAULT_ACORN_WEB_URL, acornSupportSignIn } from "../../auth/acorn-auth";
 import { connectSocket } from "../socket-connection";
 import type { RuntimeMessage, SendResponse } from "./shared";
-
-function webOrigin(): string {
-  try {
-    return new URL(DEFAULT_ACORN_WEB_URL).origin;
-  } catch {
-    return "";
-  }
-}
 
 /** Only the Acorn site's own top frame may hand the extension a support sign-in. */
 export function isAcornSiteSender(sender: chrome.runtime.MessageSender): boolean {
   if (sender.frameId !== 0 || !sender.url) return false;
   try {
-    return new URL(sender.url).origin === webOrigin();
+    return acornWebOrigins([DEFAULT_ACORN_WEB_URL]).includes(new URL(sender.url).origin);
   } catch {
     return false;
   }

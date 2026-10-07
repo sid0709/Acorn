@@ -5,6 +5,7 @@ import { acornHeaders } from "./headers";
 import { sessionToken } from "./cookie";
 
 export type AcornAccount = {
+  id: string;
   name: string;
   email: string;
   /** Set when an admin opened this session to help the user: their email and when it ends. */
@@ -21,13 +22,20 @@ export const currentAccount = cache(async (): Promise<AcornAccount | null> => {
   }).catch(() => null);
   if (!response?.ok) return null;
   const body = (await response.json()) as {
-    session?: { displayName?: string; email?: string; supportBy?: string; expiresAt?: string };
+    session?: {
+      accountId?: string;
+      displayName?: string;
+      email?: string;
+      supportBy?: string;
+      expiresAt?: string;
+    };
   };
   const name = body.session?.displayName?.trim();
   const email = body.session?.email?.trim();
   if (!name || !email) return null;
+  const id = body.session?.accountId ?? "";
   const supportBy = body.session?.supportBy?.trim();
   return supportBy
-    ? { name, email, support: { by: supportBy, expiresAt: body.session?.expiresAt ?? "" } }
-    : { name, email };
+    ? { id, name, email, support: { by: supportBy, expiresAt: body.session?.expiresAt ?? "" } }
+    : { id, name, email };
 });

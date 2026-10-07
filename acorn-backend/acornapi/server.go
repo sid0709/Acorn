@@ -171,6 +171,7 @@ func New(accounts Accounts, listings *jobs.Store, brain *acorn.Service, opts Opt
 	mux.HandleFunc("POST /acorn/auth/google/start", s.startExtensionGoogle)
 	mux.HandleFunc("POST /acorn/auth/google/finish", s.finishExtensionGoogle)
 	mux.HandleFunc("POST /acorn/auth/support/redeem", s.redeemSupportCode)
+	mux.HandleFunc("POST /acorn/auth/support/extension-code", s.supportExtensionCode)
 
 	mux.HandleFunc("POST /acorn/ai-analyze", s.requireAI(s.aiAnalyze))
 	mux.HandleFunc("POST /acorn/match-option", s.requireAI(s.matchOption))
