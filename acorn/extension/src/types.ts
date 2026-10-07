@@ -53,7 +53,11 @@ export const MSG = {
   COLLECT_CHOICES: "acorn:collect-choices",
   /** Re-read field errors on the last serialized tree (Refill's after-check). */
   SCAN_FIELD_ISSUES: "acorn:scan-field-issues",
+  /** Press one control the Run orchestrator picked from the tree. */
+  CLICK_CONTROL: "acorn:click-control",
   START_PIPELINE: "acorn:start-pipeline",
+  /** Run: recommend, fill, advance, and refill until the application is done. */
+  START_RUN: "acorn:start-run",
   PIPELINE_PROGRESS: "acorn:pipeline-progress",
   SOCKET_STATUS: "acorn:socket-status",
   OPERATOR_NOTICE: "acorn:operator-notice",

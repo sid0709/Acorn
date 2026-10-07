@@ -379,3 +379,39 @@ func TestSignOutRevokesTheAcornSession(t *testing.T) {
 		t.Fatalf("signed-out session = %d, want 401", rec.Code)
 	}
 }
+
+func TestRunReadPageAndDiagnose(t *testing.T) {
+	handler, _ := newTestServer(t, fakeModel{})
+	page := `{"runId":"r 1!","step":2,"intent":"advance","url":"https://jobs.example.com/apply?token=secret","text":"Your details",` +
+		`"controls":[{"id":7,"tag":"button","text":"Continue"}]}`
+	rec := call(handler, "POST", "/acorn/run/read-page", page, bearer("hunter"), "")
+	if rec.Code != http.StatusOK || !strings.Contains(rec.Body.String(), `"ok":true`) || !strings.Contains(rec.Body.String(), `"id":7`) {
+		t.Fatalf("read-page got %d %s", rec.Code, rec.Body)
+	}
+	if got := call(handler, "POST", "/acorn/run/read-page", `{}`, bearer("hunter"), "").Code; got != http.StatusBadRequest {
+		t.Errorf("empty read-page status %d, want 400", got)
+	}
+	rec = call(handler, "POST", "/acorn/run/diagnose", `{"stage":"advance","evidence":["Email is required"]}`, bearer("hunter"), "")
+	if rec.Code != http.StatusOK || !strings.Contains(rec.Body.String(), `"reason"`) || !strings.Contains(rec.Body.String(), "Email is required") {
+		t.Fatalf("diagnose got %d %s", rec.Code, rec.Body)
+	}
+}
+
+func TestRunReadPageFailureIsData(t *testing.T) {
+	handler, _ := newTestServerWith(t, fakeModel{}, fakeDecider{err: errors.New("jev down")})
+	rec := call(handler, "POST", "/acorn/run/read-page", `{"text":"x"}`, bearer("hunter"), "")
+	if rec.Code != http.StatusOK || !strings.Contains(rec.Body.String(), `"ok":false`) {
+		t.Fatalf("got %d %s", rec.Code, rec.Body)
+	}
+}
+
+func TestRunLogAcceptsEvents(t *testing.T) {
+	handler, _ := newTestServer(t, fakeModel{})
+	body := `{"runId":"abc","events":[{"t":1700000000000,"step":1,"event":"click","data":{"text":"Next"}}]}`
+	if got := call(handler, "POST", "/acorn/run/log", body, bearer("hunter"), "").Code; got != http.StatusNoContent {
+		t.Fatalf("status %d, want 204", got)
+	}
+	if got := call(handler, "POST", "/acorn/run/log", body, nil, "").Code; got != http.StatusUnauthorized {
+		t.Errorf("signed-out status %d, want 401", got)
+	}
+}

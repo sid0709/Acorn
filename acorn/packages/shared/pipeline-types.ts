@@ -3,6 +3,7 @@
 import type { AiUsageSummary } from "./ai-usage";
 import type { FillMode } from "./field-issues";
 import type { ActionPlan, RunStepRecord } from "./plan-runner/types";
+import type { RunProgress } from "./run-types";
 import type { DomTreeNode } from "./tree-export";
 
 export type PipelinePhase = "idle" | "fetching" | "analyzing" | "running" | "done" | "error";
@@ -19,6 +20,8 @@ export interface PipelineProgress {
   message: string;
   /** Fill or Refill; set when the run starts and kept through its updates. */
   mode?: FillMode;
+  /** Set while Run drives this tab, and on its last update. */
+  run?: RunProgress;
   stepIndex?: number;
   stepTotal?: number;
   stepLabel?: string;
@@ -64,5 +67,6 @@ export function mergePipelineProgress(
     plan: starting ? next.plan : (next.plan ?? prev.plan),
     steps: starting ? (next.steps ?? []) : (next.steps ?? prev.steps),
     resumeUpload: starting ? next.resumeUpload : (next.resumeUpload ?? prev.resumeUpload),
+    run: starting ? next.run : (next.run ?? prev.run),
   };
 }

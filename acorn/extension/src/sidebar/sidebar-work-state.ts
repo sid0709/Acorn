@@ -6,6 +6,9 @@ import type { useTabSession } from "./use-tab-session";
 
 type TabSession = ReturnType<typeof useTabSession>;
 
+export const RUN_HINT =
+  "Recommend a résumé, fill each page, and click Next or Submit until the application is done.";
+
 export const REFILL_HINT = "Fix the fields this page flagged. Click Submit or Next first.";
 
 /** Whether the active tab's Custom tab or attached Fill job has Generate / Recommend in flight. */
@@ -97,14 +100,20 @@ export function actionBarState({
           : customTab?.recommendedResumeId
             ? "Recommend again"
             : "Recommend Resume";
+  const running = progress.run != null;
   const refilling = progress.mode === FILL_MODE.refill;
-  const fillLabel =
-    fillBusy && !refilling
+  // While Run drives the tab it owns the progress text; Fill and Refill keep their names.
+  const fillLabel = running
+    ? "Fill page"
+    : fillBusy && !refilling
       ? progress.message
       : progress.phase === "done"
         ? "Fill again"
         : "Fill page";
-  const refillLabel = fillBusy && refilling ? progress.message : "Refill flagged fields";
+  const refillLabel =
+    !running && fillBusy && refilling ? progress.message : "Refill flagged fields";
+  const runLabel =
+    running && fillBusy ? progress.message : progress.run?.report ? "Run again" : "Run";
 
   return {
     attachedJobGenerate,
@@ -114,5 +123,6 @@ export function actionBarState({
     recommendLabel,
     fillLabel,
     refillLabel,
+    runLabel,
   };
 }

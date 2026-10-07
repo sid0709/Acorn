@@ -250,6 +250,11 @@ function serializeNode(el: Element, depth: number): DomNode[] {
     if (val) attrs[attr] = val.slice(0, 120);
   }
 
+  // `disabled` is a boolean attribute (empty value), so the loop above never keeps it.
+  if (el.hasAttribute("disabled") || el.getAttribute("aria-disabled") === "true") {
+    attrs["disabled"] = "true";
+  }
+
   if ((tag === "input" || tag === "textarea") && "value" in el) {
     const val = (el as HTMLInputElement).value;
     if (val) attrs["value"] = String(val).slice(0, 120);

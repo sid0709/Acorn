@@ -136,6 +136,9 @@ func New(accounts Accounts, listings *jobs.Store, brain *acorn.Service, opts Opt
 	mux.HandleFunc("POST /acorn/match-option", s.requireAI(s.matchOption))
 	mux.HandleFunc("POST /acorn/pick-options", s.requireAI(s.pickOptions))
 	mux.HandleFunc("POST /acorn/qa", s.requireAI(s.qa))
+	mux.HandleFunc("POST /acorn/run/read-page", s.requireAI(s.runReadPage))
+	mux.HandleFunc("POST /acorn/run/diagnose", s.requireAI(s.runDiagnose))
+	mux.HandleFunc("POST /acorn/run/log", s.runLog)
 	mux.HandleFunc("GET /acorn/runtime-file", s.runtimeFile)
 	if s.debug != nil {
 		mux.HandleFunc("POST /acorn/debug/log", s.debugLog)

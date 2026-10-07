@@ -17,7 +17,10 @@ function treeTextLength(node: DomNode): number {
  * a form to hydrate, and the frame with the most text wins (the posting can live
  * in an embedded job-board frame).
  */
-export async function fetchPostingDomFromTab(tabId: number): Promise<DomTreePayload> {
+export async function fetchPostingDomFromTab(
+  tabId: number,
+  opts: { fieldIssues?: boolean } = {},
+): Promise<DomTreePayload> {
   let frameIds = [0];
   try {
     const frames = await chrome.webNavigation.getAllFrames({ tabId });
@@ -29,7 +32,7 @@ export async function fetchPostingDomFromTab(tabId: number): Promise<DomTreePayl
     frameIds.map((frameId) =>
       sendTabMessage<FrameReply | null>(
         tabId,
-        { type: MSG.FETCH_DOM, posting: true },
+        { type: MSG.FETCH_DOM, posting: true, fieldIssues: Boolean(opts.fieldIssues) },
         frameId,
         POSTING_FRAME_TIMEOUT_MS,
       ).then((reply): DomTreePayload | null =>

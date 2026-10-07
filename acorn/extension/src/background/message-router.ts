@@ -21,6 +21,7 @@ import {
 import { handleMatchOption } from "./messages/match-option";
 import { handleEstimateOption } from "./messages/estimate-option";
 import { handleFetchDom, handleStartPipeline } from "./messages/pipeline";
+import { handleStartRun } from "./messages/run";
 import { handleSelectionQa } from "./messages/selection-qa";
 import type { RuntimeMessage, SendResponse } from "./messages/shared";
 import { handleGetTabJob, handleMarkJobApplied, handleOpenWorkerJob } from "./messages/worker-jobs";
@@ -109,6 +110,11 @@ export function routeMessage(
 
   if (message.type === "acorn:reconnect-socket") {
     handleReconnectSocket(sendResponse);
+    return true;
+  }
+
+  if (message.type === MSG.START_RUN) {
+    handleStartRun(message, sender, sendResponse);
     return true;
   }
 

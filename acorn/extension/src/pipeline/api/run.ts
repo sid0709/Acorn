@@ -1,0 +1,92 @@
+import { authHeaders, getAcornApiUrl } from "../../auth/acorn-auth";
+
+import type { AiUsageSummary } from "@acorn/shared/ai-usage";
+import type { PageControl } from "@acorn/shared/page-controls";
+import type { ControlRole, PageKind } from "@acorn/shared/run-types";
+
+export const READ_INTENT = {
+  start: "start",
+  advance: "advance",
+} as const;
+
+export type ReadIntent = (typeof READ_INTENT)[keyof typeof READ_INTENT];
+
+export interface ReadPageRequest {
+  runId: string;
+  step: number;
+  intent: ReadIntent;
+  url: string;
+  title: string;
+  text: string;
+  controls: PageControl[];
+  flagged: number;
+  pageMessages: string[];
+}
+
+export interface ReadPageResponse {
+  ok: boolean;
+  error?: string;
+  kind?: PageKind;
+  kindConfidence?: number;
+  /** The control to click; null when nothing on the page moves the application forward. */
+  control?: { id: number; role: ControlRole; confidence: number } | null;
+  usage?: AiUsageSummary;
+}
+
+export interface DiagnoseRequest {
+  runId: string;
+  step: number;
+  stage: string;
+  attempts: number;
+  url: string;
+  title: string;
+  text: string;
+  evidence: string[];
+}
+
+export interface DiagnoseResponse {
+  ok: boolean;
+  error?: string;
+  reason?: string;
+  label?: string;
+  detail?: string;
+  confidence?: number;
+  usage?: AiUsageSummary;
+}
+
+async function post<T extends { ok: boolean; error?: string }>(
+  path: string,
+  body: unknown,
+  apiUrl: string,
+  tabId: number,
+): Promise<T> {
+  const base = (apiUrl || (await getAcornApiUrl())).replace(/\/$/, "");
+  const res = await fetch(`${base}/acorn/run/${path}`, {
+    method: "POST",
+    headers: await authHeaders(tabId),
+    body: JSON.stringify(body),
+  });
+  const data = (await res.json().catch(() => ({}))) as T & { message?: string };
+  if (!res.ok) {
+    return { ...data, ok: false, error: data.error || data.message || `HTTP ${res.status}` };
+  }
+  return data;
+}
+
+/** What kind of page this is and which control to click, decided by Jev. */
+export function requestReadPage(
+  request: ReadPageRequest,
+  apiUrl: string,
+  tabId: number,
+): Promise<ReadPageResponse> {
+  return post<ReadPageResponse>("read-page", request, apiUrl, tabId);
+}
+
+/** Why a run stopped, decided by Jev from what the page flagged. */
+export function requestDiagnose(
+  request: DiagnoseRequest,
+  apiUrl: string,
+  tabId: number,
+): Promise<DiagnoseResponse> {
+  return post<DiagnoseResponse>("diagnose", request, apiUrl, tabId);
+}

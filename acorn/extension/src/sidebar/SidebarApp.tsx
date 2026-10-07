@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { FILL_MODE } from "@acorn/shared/field-issues";
 import { isFillPhaseBusy } from "@acorn/shared/pipeline-types";
+import { RUN_OUTCOME } from "@acorn/shared/run-types";
 import { customTabHasResume } from "../tab-custom-session";
 import { countBusyWorkers, tabInputFromProgress } from "../acorn-face/director";
 import { useCompanionFace } from "../acorn-face/use-companion-face";
@@ -9,7 +10,13 @@ import { hostOf } from "./custom-tab-resume";
 import { NowCard } from "./NowCard";
 import { SidebarHeader } from "./SidebarHeader";
 import { SidebarNav, type AcornMainTab } from "./SidebarNav";
-import { REFILL_HINT, actionBarState, isAnyTabWorking, isGenerateBusy } from "./sidebar-work-state";
+import {
+  REFILL_HINT,
+  RUN_HINT,
+  actionBarState,
+  isAnyTabWorking,
+  isGenerateBusy,
+} from "./sidebar-work-state";
 import { useActiveTabId } from "./use-active-tab";
 import { usePlanInspect } from "./use-plan-inspect";
 import { useResumePreview } from "./use-resume-preview";
@@ -57,15 +64,25 @@ export default function SidebarApp() {
     busyCounts.working > 0 ? "working" : busyCounts.thinking > 0 ? "thinking" : "waiting";
   const fillErrorText =
     progress.phase === "error" ? progress.error || progress.message || "Fill failed" : null;
+  const runErrored = progress.run?.report?.outcome === RUN_OUTCOME.failed;
 
   useEffect(() => {
     if (!fillErrorText) return;
     pushAcornNotice({
       kind: "error",
-      title: "Fill couldn’t finish",
+      title: runErrored ? "Run stopped" : "Fill couldn’t finish",
       detail: fillErrorText,
     });
-  }, [fillErrorText]);
+  }, [fillErrorText, runErrored]);
+
+  const runDoneText =
+    progress.phase === "done" && progress.run?.report?.outcome === RUN_OUTCOME.completed
+      ? progress.message
+      : null;
+  useEffect(() => {
+    if (!runDoneText) return;
+    pushAcornNotice({ kind: "success", title: "Run finished", detail: runDoneText });
+  }, [runDoneText]);
 
   const refillDoneText =
     progress.phase === "done" && progress.mode === FILL_MODE.refill ? progress.message : null;
@@ -77,6 +94,7 @@ export default function SidebarApp() {
   const {
     remembering,
     startPipeline,
+    startRun,
     rememberFocusedTab,
     forgetCustomTab,
     focusCustomTab,
@@ -142,6 +160,7 @@ export default function SidebarApp() {
     recommendLabel,
     fillLabel,
     refillLabel,
+    runLabel,
   } = actionBarState({
     mainTab,
     tabJob,
@@ -159,6 +178,12 @@ export default function SidebarApp() {
         ? `${tabJob.company} · ${tabJob.title}`
         : "No job on this tab";
   const nowActions = {
+    run: {
+      label: runLabel,
+      title: RUN_HINT,
+      disabled: tabWorkBusy || !session || activeTabId == null,
+      onClick: () => void startRun(),
+    },
     fill: {
       label: fillLabel,
       title: customLocked ? rememberFirst : fillLabel,

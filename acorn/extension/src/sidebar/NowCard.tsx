@@ -23,6 +23,8 @@ type NowCardProps = {
   customTab: TabSession["customTab"];
   progress: PipelineProgress;
   fillBusy: boolean;
+  /** Recommend, fill, and advance until the application is done. */
+  run: NowAction;
   fill: NowAction;
   /** Fixes only the fields the page flagged after Submit / Next. */
   refill: NowAction;
@@ -138,6 +140,28 @@ function RecommendTop({ top }: { top: RecommendedResumeRank[] }) {
   );
 }
 
+function RunStatus({ progress }: { progress: PipelineProgress }) {
+  const run = progress.run;
+  if (!run) return null;
+  const failure = run.report?.failure;
+  if (failure) {
+    return (
+      <VStack gap={1}>
+        <HStack gap={2} align="center">
+          <Badge variant="error" label="Run stopped" />
+        </HStack>
+        <Text type="supporting" weight="semibold">
+          {failure.label}
+        </Text>
+        {failure.detail ? <Text type="supporting">{failure.detail}</Text> : null}
+      </VStack>
+    );
+  }
+  const parts = [`Page ${Math.max(run.page, 1)}`];
+  if (run.refills > 0) parts.push(`refill ${run.refills}/${run.maxRefills}`);
+  return <Text type="supporting">{parts.join(" · ")}</Text>;
+}
+
 function RunProgress({ run }: { run: CustomUiProgress }) {
   return (
     <VStack gap={1}>
@@ -152,8 +176,18 @@ function RunProgress({ run }: { run: CustomUiProgress }) {
  * its résumé, any run in flight, and the actions that work on it.
  */
 export function NowCard(props: NowCardProps) {
-  const { mainTab, customTab, progress, fillBusy, fill, refill, generate, recommend, remember } =
-    props;
+  const {
+    mainTab,
+    customTab,
+    progress,
+    fillBusy,
+    run: runAction,
+    fill,
+    refill,
+    generate,
+    recommend,
+    remember,
+  } = props;
   const { title, subtitle, status, run } = describe(props);
   const top = run ? [] : recommendedTop(props);
   const needsRemember = mainTab === "custom" && !customTab;
@@ -184,6 +218,7 @@ export function NowCard(props: NowCardProps) {
         {run ? <RunProgress run={run} /> : null}
         {top.length ? <RecommendTop top={top} /> : null}
         {fillBusy ? <ProgressBar label={progress.message || "Filling…"} isIndeterminate /> : null}
+        <RunStatus progress={progress} />
         {needsRemember ? (
           <VStack gap={2}>
             <Button
@@ -208,6 +243,15 @@ export function NowCard(props: NowCardProps) {
           <VStack gap={2}>
             <Button
               variant="primary"
+              icon={<Glyph name="play" />}
+              label={runAction.label}
+              tooltip={runAction.title}
+              isDisabled={runAction.disabled}
+              width="100%"
+              onClick={runAction.onClick}
+            />
+            <Button
+              variant="secondary"
               icon={<Glyph name="edit" />}
               label={fill.label}
               tooltip={fill.title}

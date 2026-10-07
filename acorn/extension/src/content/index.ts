@@ -2,6 +2,7 @@ import { ACORN_DEBUG, DEBUG_HTML_MAX_CHARS, traceFromPage } from "../debug-trace
 import { MSG, PLAN_STEP_PAGE_TIMEOUT_MS, type PlanStepPayload } from "../types";
 
 import { executeActions, getElementContent } from "./action-runner";
+import { CLICK_AFTER_REPLY_MS, prepareControlClick } from "./click-control";
 import { fillLeftoverComboboxes } from "./agents/leftover-combobox";
 import { waitForDomQuiet } from "./agents/wait";
 import { collectChoiceItems, type ChoiceBatchStep } from "./choice-batch";
@@ -228,6 +229,23 @@ if (!contentWindow[CONTENT_BOOT]) {
             ok: false,
             error: err instanceof Error ? err.message : String(err),
           }),
+        );
+      return true;
+    }
+
+    if (message.type === MSG.CLICK_CONTROL) {
+      if (!isAcornDomFrame()) {
+        sendResponse({ ok: false, skipped: true, error: "Not a form frame" });
+        return false;
+      }
+      void runExclusive(async () =>
+        prepareControlClick(message.nodeId as number, (click) => {
+          setTimeout(click, CLICK_AFTER_REPLY_MS);
+        }),
+      )
+        .then((result) => sendResponse(result))
+        .catch((err) =>
+          sendResponse({ ok: false, error: err instanceof Error ? err.message : String(err) }),
         );
       return true;
     }
