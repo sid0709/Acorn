@@ -64,9 +64,13 @@ type AccountRow struct {
 	CreatedAt time.Time
 }
 
-// Session is a live sign-in.
+// Session is a live sign-in. SupportBy is the admin email when an admin opened
+// this session to help the user; ExpiresAt is when it stops working.
 type Session struct {
-	User User
+	User          User
+	SupportBy     string
+	SupportReason string
+	ExpiresAt     time.Time
 }
 
 type storedAccount struct {
@@ -86,6 +90,9 @@ type storedSession struct {
 	UserID    string    `bson:"userId"`
 	ExpiresAt time.Time `bson:"expiresAt"`
 	CreatedAt time.Time `bson:"createdAt"`
+	// SupportBy and SupportReason are set on sessions an admin opened to help the user.
+	SupportBy     string `bson:"supportBy,omitempty"`
+	SupportReason string `bson:"supportReason,omitempty"`
 }
 
 // Store keeps Acorn accounts and sessions in their own collections.
@@ -213,7 +220,12 @@ func (s *Store) Session(ctx context.Context, token string, now time.Time) (Sessi
 	if err != nil {
 		return Session{}, err
 	}
-	return Session{User: User{ID: user.ID, Name: user.Name, Email: user.Email}}, nil
+	return Session{
+		User:          User{ID: user.ID, Name: user.Name, Email: user.Email},
+		SupportBy:     doc.SupportBy,
+		SupportReason: doc.SupportReason,
+		ExpiresAt:     doc.ExpiresAt,
+	}, nil
 }
 
 // Revoke ends the session behind token. A missing token is still success.
@@ -290,39 +302,6 @@ func (s *Store) jobIDs(ctx context.Context, userID, field string) ([]string, err
 	return doc.SavedJobIDs, nil
 }
 
-// ListAccounts returns recent accounts for the support console.
-func (s *Store) ListAccounts(ctx context.Context, skip, limit int) ([]AccountRow, error) {
-	if s == nil || s.accounts == nil {
-		return nil, nil
-	}
-	if skip < 0 {
-		skip = 0
-	}
-	if limit <= 0 || limit > 100 {
-		limit = 100
-	}
-	cursor, err := s.accounts.Find(ctx, bson.M{}, options.Find().
-		SetSort(bson.D{{Key: "createdAt", Value: -1}}).
-		SetSkip(int64(skip)).
-		SetLimit(int64(limit)).
-		SetProjection(bson.M{"id": 1, "name": 1, "email": 1, "createdAt": 1}))
-	if err != nil {
-		return nil, err
-	}
-	defer cursor.Close(ctx)
-	var docs []storedAccount
-	if err := cursor.All(ctx, &docs); err != nil {
-		return nil, err
-	}
-	rows := make([]AccountRow, 0, len(docs))
-	for _, doc := range docs {
-		rows = append(rows, AccountRow{
-			ID: doc.ID, Name: doc.Name, Email: doc.Email, CreatedAt: doc.CreatedAt,
-		})
-	}
-	return rows, nil
-}
-
 // GetAccount loads one account by id.
 func (s *Store) GetAccount(ctx context.Context, id string) (AccountRow, error) {
 	if s == nil || s.accounts == nil || id == "" {
@@ -342,17 +321,17 @@ func (s *Store) GetAccount(ctx context.Context, id string) (AccountRow, error) {
 }
 
 func (s *Store) insertSession(ctx context.Context, userID string, now time.Time) (string, error) {
+	return s.storeSession(ctx, storedSession{UserID: userID, ExpiresAt: now.Add(SessionTTL).UTC(), CreatedAt: now.UTC()})
+}
+
+// storeSession saves row under a new token and returns the token.
+func (s *Store) storeSession(ctx context.Context, row storedSession) (string, error) {
 	token, err := newToken()
 	if err != nil {
 		return "", err
 	}
-	_, err = s.sessions.InsertOne(ctx, storedSession{
-		TokenHash: hashToken(token),
-		UserID:    userID,
-		ExpiresAt: now.Add(SessionTTL).UTC(),
-		CreatedAt: now.UTC(),
-	})
-	if err != nil {
+	row.TokenHash = hashToken(token)
+	if _, err := s.sessions.InsertOne(ctx, row); err != nil {
 		return "", err
 	}
 	return token, nil

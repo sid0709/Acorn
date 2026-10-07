@@ -12,6 +12,7 @@
   },
   "dependencies": {
     "@acorn/app-theme": "workspace:*",
+    "@acorn/support-chat": "workspace:*",
     "next": "catalog:",
     "react": "catalog:",
     "react-dom": "catalog:",

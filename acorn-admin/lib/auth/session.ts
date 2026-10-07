@@ -1,8 +1,9 @@
 import { cache } from "react";
 
 import { acornApiUrl } from "../config";
-import { adminSessionToken } from "./cookie";
+
 import { ADMIN_AUTH_ME_PATH } from "./constants";
+import { adminSessionToken } from "./cookie";
 
 /** The admin email behind this browser's session cookie, or null when signed out. */
 export const currentAdminEmail = cache(async (): Promise<string | null> => {

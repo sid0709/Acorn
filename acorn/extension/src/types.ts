@@ -41,6 +41,10 @@ export const PLAN_STEP_PAGE_TIMEOUT_MS = PLAN_STEP_TIMEOUT_MS - 5_000;
 export const SOCKET_EVENT = {
   /** One AI call was recorded: `{ tab, entry }`, tab being the usage key it belongs to. */
   aiUsageRecorded: "ai-usage:recorded",
+  /** Support replied on one of this account's reports: `{ claim, message }`. */
+  supportMessage: "support:message",
+  /** Support opened or closed one of this account's reports: `{ claim }`. */
+  supportClaim: "support:claim",
 } as const;
 
 export const MSG = {
@@ -65,8 +69,12 @@ export const MSG = {
   PAGE_PROBE: "acorn:page-probe",
   /** Sidebar → service worker: reconcile one tab's AI usage with the server's list. */
   REFRESH_TAB_USAGE: "acorn:refresh-tab-usage",
-  /** Sidebar → service worker: screenshot active tab and file a support claim. */
+  /** Sidebar → service worker: full-page screenshot of the active tab, filed with notes as a support claim. */
   SUBMIT_SUPPORT_CLAIM: "acorn:submit-support-claim",
+  /** Service worker → sidebar: a report changed on the server (new reply, opened, closed). */
+  SUPPORT_CLAIMS_CHANGED: "acorn:support-claims-changed",
+  /** Content script on the Acorn site → service worker: a support sign-in code to redeem. */
+  SUPPORT_HANDOFF: "acorn:support-handoff-relay",
   /** Press one control the Run orchestrator picked from the tree. */
   CLICK_CONTROL: "acorn:click-control",
   START_PIPELINE: "acorn:start-pipeline",

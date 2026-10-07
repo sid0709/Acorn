@@ -165,7 +165,7 @@ func (s *Server) completeGoogle(
 		writeGoogleAccountError(w, err)
 		return
 	}
-	writeJSON(w, http.StatusOK, sessionBody(sessionToken, user))
+	writeJSON(w, http.StatusOK, sessionBody(sessionToken, account.Session{User: user}))
 }
 
 // extensionRedirect is Chrome's identity redirect: https://<extension-id>.chromiumapp.org/

@@ -3,6 +3,7 @@ import { acornApiUrl } from "@/lib/config";
 
 import { listParams } from "./query";
 import type { GmailListQuery, GmailOverview, GmailPage } from "./types";
+import { acornHeaders } from "@/lib/auth/headers";
 
 /**
  * Server-only calls to acorn-backend's Gmail routes. Pages read through these while
@@ -30,9 +31,7 @@ export const GMAIL_BACKEND = {
 async function call(path: string, init?: RequestInit): Promise<Response | null> {
   const token = await sessionToken();
   if (!token) return null;
-  const headers = new Headers(init?.headers);
-  headers.set("Authorization", `Bearer ${token}`);
-  if (init?.body && !headers.has("Content-Type")) headers.set("Content-Type", "application/json");
+  const headers = acornHeaders(token, init);
   return fetch(`${acornApiUrl()}${path}`, { ...init, headers, cache: "no-store" }).catch(
     () => null,
   );

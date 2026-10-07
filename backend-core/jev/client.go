@@ -122,6 +122,13 @@ func (c *Client) Ready() bool { return c != nil && c.apiKey != "" }
 // Decide asks every question about the state in one call and retries transient failures.
 func (c *Client) Decide(ctx context.Context, req Request) (Response, error) {
 	if !c.Ready() {
+		model := config.JevModel
+		if c != nil {
+			model = c.model
+		}
+		openai.Note(ctx, openai.Usage{
+			Model: model, Error: openai.ErrMissingOpenRouterKey.Error(), ErrorKind: openai.ErrorKindNoAPIKey,
+		})
 		return Response{}, openai.ErrMissingOpenRouterKey
 	}
 	body, err := json.Marshal(struct {
@@ -133,40 +140,50 @@ func (c *Client) Decide(ctx context.Context, req Request) (Response, error) {
 	}
 
 	started := time.Now()
-	request := openai.StoredRequest(body)
+	spent := openai.Usage{Model: c.model, Request: openai.StoredRequest(body)}
+	note := func(attempts, status int, rawResponse []byte, err error) {
+		spent.Duration = time.Since(started)
+		spent.Attempts = attempts
+		spent.HTTPStatus = status
+		if rawResponse != nil {
+			spent.Response = openai.StoredResponse(rawResponse)
+		}
+		if err != nil {
+			spent.Error = err.Error()
+			spent.ErrorKind = openai.ClassifyError(err, status)
+		}
+		openai.Note(ctx, spent)
+	}
 	var last error
+	lastStatus := 0
 	for attempt := 0; attempt < maxAttempts; attempt++ {
 		attemptStarted := time.Now()
 		res, status, retryAfter, rawResponse, err := c.post(ctx, body)
 		usage := providerUsage(c.model, res.Usage)
+		spent.Add(usage)
+		lastStatus = status
 		if err == nil {
 			openai.LogProvider(ctx, "decision", c.model, status, attempt+1, len(body), attemptStarted, usage, nil, "", false)
-			usage.Duration = time.Since(started)
-			usage.Request = request
-			usage.Response = openai.StoredResponse(rawResponse)
-			openai.Note(ctx, usage)
+			note(attempt+1, status, rawResponse, nil)
 			return res, nil
 		}
 		willRetry := attempt < maxAttempts-1 && ctx.Err() == nil && (status == 0 || llmhttp.Retryable(status))
 		openai.LogProvider(ctx, "decision", c.model, status, attempt+1, len(body), attemptStarted, usage, err, retryAfter, willRetry)
 		if !willRetry {
-			openai.Note(ctx, openai.Usage{
-				Model: c.model, Duration: time.Since(started), Request: request, Error: err.Error(),
-			})
+			if ctx.Err() != nil {
+				err = fmt.Errorf("%w: %w", ctx.Err(), err)
+			}
+			note(attempt+1, status, rawResponse, err)
 			return Response{}, err
 		}
 		last = err
 		if err := llmhttp.Wait(ctx, llmhttp.RetryDelay(attempt, retryAfter)); err != nil {
-			openai.Note(ctx, openai.Usage{
-				Model: c.model, Duration: time.Since(started), Request: request, Error: err.Error(),
-			})
+			note(attempt+1, status, nil, err)
 			return Response{}, err
 		}
 	}
 	if last != nil {
-		openai.Note(ctx, openai.Usage{
-			Model: c.model, Duration: time.Since(started), Request: request, Error: last.Error(),
-		})
+		note(maxAttempts, lastStatus, nil, last)
 	}
 	return Response{}, last
 }

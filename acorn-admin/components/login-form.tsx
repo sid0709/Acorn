@@ -3,7 +3,7 @@
 import { useState } from "react";
 import { Banner, Button, Card, Text, TextInput, VStack } from "sid-ui";
 
-import { signInActionWithError } from "@/lib/auth/actions";
+import { signInActionWithError } from "@/lib/actions/auth";
 
 export function LoginForm() {
   const [email, setEmail] = useState("");
@@ -17,7 +17,9 @@ export function LoginForm() {
         <Text as="h1" type="large" weight="semibold">
           Acorn Admin
         </Text>
-        <Text type="supporting">Sign in to review support claims and AI usage.</Text>
+        <Text type="supporting">
+          Demo: enter any email and password. Sign in to review support claims and AI usage.
+        </Text>
         <form
           onSubmit={(event) => {
             event.preventDefault();

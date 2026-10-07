@@ -16,6 +16,7 @@ import type {
   ResumeHistoryRun,
 } from "@acorn/shared/resume-history";
 import type { ResumeLibraryRow } from "@acorn/shared/resume-library";
+import { acornHeaders } from "@/lib/auth/headers";
 
 export type ResumeCall<T> = { ok: true; data: T } | { ok: false; message: string };
 
@@ -24,9 +25,7 @@ type ErrorBody = { message?: string; error?: string };
 async function authed(path: string, init?: RequestInit): Promise<Response | ResumeCall<never>> {
   const token = await sessionToken();
   if (!token) return { ok: false, message: "Sign in required." };
-  const headers = new Headers(init?.headers);
-  headers.set("Authorization", `Bearer ${token}`);
-  if (init?.body && !headers.has("Content-Type")) headers.set("Content-Type", "application/json");
+  const headers = acornHeaders(token, init);
   const response = await fetch(`${acornApiUrl()}${path}`, {
     ...init,
     headers,

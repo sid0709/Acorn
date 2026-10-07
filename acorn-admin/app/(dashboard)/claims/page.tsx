@@ -1,42 +1,13 @@
-import Link from "next/link";
-import { Text, VStack } from "sid-ui";
+import type { Metadata } from "next";
 
-import { listClaims } from "@/lib/api/admin-data";
+import { ClaimsWorkspace } from "@/components/claims/claims-workspace";
 
-export default async function ClaimsPage() {
-  const claims = await listClaims();
-  return (
-    <VStack gap={4}>
-      <Text as="h1" type="large" weight="semibold">
-        Support claims
-      </Text>
-      <table className="acorn-admin-table">
-        <thead>
-          <tr>
-            <th>Status</th>
-            <th>User</th>
-            <th>Page</th>
-            <th>When</th>
-          </tr>
-        </thead>
-        <tbody>
-          {claims.map((claim) => (
-            <tr key={claim.id}>
-              <td>{claim.status}</td>
-              <td>
-                <Link href={`/claims/${claim.id}`}>{claim.userEmail}</Link>
-              </td>
-              <td>
-                <a href={claim.pageUrl} target="_blank" rel="noreferrer">
-                  {claim.pageTitle || claim.pageUrl}
-                </a>
-              </td>
-              <td>{new Date(claim.createdAt).toLocaleString()}</td>
-            </tr>
-          ))}
-        </tbody>
-      </table>
-      {claims.length === 0 ? <Text type="supporting">No claims yet.</Text> : null}
-    </VStack>
-  );
+export const metadata: Metadata = { title: "Claims" };
+
+export default async function ClaimsPage({
+  searchParams,
+}: {
+  searchParams: Promise<{ status?: string; q?: string }>;
+}) {
+  return <ClaimsWorkspace selectedId={null} searchParams={await searchParams} />;
 }

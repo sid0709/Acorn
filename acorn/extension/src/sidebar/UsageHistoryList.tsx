@@ -1,15 +1,18 @@
-import { useMemo, useState, type CSSProperties } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { Dialog, DialogHeader } from "@astryxdesign/core";
 import {
   Banner,
   Button,
+  ChartLegend,
   EmptyState,
   Glyph,
   HStack,
   IconButton,
   Spinner,
   Text,
+  Tooltip,
   VStack,
+  type ChartTone,
 } from "sid-ui";
 import {
   fetchUsageDetail,
@@ -17,7 +20,17 @@ import {
   type AiUsageEntry,
   type UsageDetail,
 } from "./use-ai-usage";
-import { usageBarHeight, usageBarHue, usageBarLabel, usageBarWidth } from "./usage-chart";
+import {
+  USAGE_FAILED_TONE,
+  chronological,
+  modelTones,
+  shortModel,
+  usageBarHeight,
+  usageBarLabel,
+  usageBarWidth,
+  usageScale,
+  type UsageScale,
+} from "./usage-chart";
 
 type UsageHistoryListProps = {
   entries: AiUsageEntry[];
@@ -74,33 +87,51 @@ function prettyJson(text: string): string {
   }
 }
 
-function UsageBar({ entry, onSelect }: { entry: AiUsageEntry; onSelect: () => void }) {
-  const width = usageBarWidth(entry.durationMs);
-  const height = usageBarHeight(entry.costNanos, entry.priced);
-  const hue = usageBarHue(entry.id);
-  const style = {
-    "--acorn-usage-hue": String(hue),
-    width: `${width}px`,
-    minHeight: `${height}px`,
-  } as CSSProperties;
-
+/** One call: as wide as it was slow, as tall as it was costly, in its model's tone. */
+function UsageBar({
+  entry,
+  scale,
+  tone,
+  onSelect,
+}: {
+  entry: AiUsageEntry;
+  scale: UsageScale;
+  tone: ChartTone;
+  onSelect: () => void;
+}) {
+  const tip = [
+    shortModel(entry.model),
+    formatDuration(entry.durationMs),
+    entry.priced ? formatUsagePrice(entry.price) : "unpriced",
+    entry.error ? "failed" : "",
+  ]
+    .filter(Boolean)
+    .join(" · ");
   return (
-    <button
-      type="button"
-      className="acorn-usage-bar"
-      style={style}
-      aria-label={`View ${usageBarLabel(entry)}`}
-      title={usageBarLabel(entry)}
-      onClick={onSelect}
-    >
-      <Text type="supporting" className="acorn-usage-bar-label" maxLines={2}>
-        {entry.model || "Call"}
-      </Text>
-    </button>
+    <Tooltip content={tip}>
+      <span
+        role="listitem"
+        tabIndex={0}
+        className="acorn-usage-mark"
+        data-tone={tone}
+        style={{
+          width: `${usageBarWidth(entry.durationMs, scale)}px`,
+          height: `${usageBarHeight(entry, scale)}%`,
+        }}
+        aria-label={`View ${usageBarLabel(entry)}`}
+        onClick={onSelect}
+        onKeyDown={(event) => {
+          if (event.key === "Enter" || event.key === " ") {
+            event.preventDefault();
+            onSelect();
+          }
+        }}
+      />
+    </Tooltip>
   );
 }
 
-/** AI calls made from the active Chrome tab, newest first. */
+/** AI calls made from the active Chrome tab, oldest on the left and each new call added on the right. */
 export function UsageHistoryList({
   entries,
   totalPrice,
@@ -115,7 +146,17 @@ export function UsageHistoryList({
   const [detailLoading, setDetailLoading] = useState(false);
   const [detailTab, setDetailTab] = useState<DetailTab>("request");
 
-  const sorted = useMemo(() => [...entries], [entries]);
+  const sorted = useMemo(() => chronological(entries), [entries]);
+  const scale = useMemo(() => usageScale(sorted), [sorted]);
+  const tones = useMemo(() => modelTones(sorted), [sorted]);
+  const hasFailed = sorted.some((entry) => entry.error);
+  const plotRef = useRef<HTMLDivElement>(null);
+
+  // Keep the newest call in view as calls arrive.
+  useEffect(() => {
+    const plot = plotRef.current;
+    if (plot) plot.scrollLeft = plot.scrollWidth;
+  }, [sorted.length]);
 
   async function showDetail(entry: AiUsageEntry) {
     setOpen(entry);
@@ -175,11 +216,32 @@ export function UsageHistoryList({
         />
       ) : null}
       {sorted.length > 0 ? (
-        <div className="acorn-usage-chart" role="list">
-          {sorted.map((entry) => (
-            <UsageBar key={entry.id} entry={entry} onSelect={() => void showDetail(entry)} />
-          ))}
-        </div>
+        <VStack gap={2}>
+          <div
+            ref={plotRef}
+            className="acorn-usage-plot"
+            role="list"
+            aria-label="AI calls on this tab"
+          >
+            {sorted.map((entry) => (
+              <UsageBar
+                key={entry.id}
+                entry={entry}
+                scale={scale}
+                tone={
+                  entry.error ? USAGE_FAILED_TONE : (tones.get(entry.model || "Model") ?? "neutral")
+                }
+                onSelect={() => void showDetail(entry)}
+              />
+            ))}
+          </div>
+          <ChartLegend
+            items={[
+              ...[...tones].map(([model, tone]) => ({ label: shortModel(model), tone })),
+              ...(hasFailed ? [{ label: "Failed", tone: USAGE_FAILED_TONE }] : []),
+            ]}
+          />
+        </VStack>
       ) : null}
       <Dialog
         isOpen={open != null}

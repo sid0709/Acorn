@@ -1,6 +1,6 @@
 {
   "name": "acorn-extension",
-  "version": "1.26.0",
+  "version": "1.27.0",
   "private": true,
   "type": "module",
   "scripts": {
@@ -11,9 +11,10 @@
     "@acorn/app-theme": "workspace:*",
     "@acorn/face": "workspace:*",
     "@acorn/shared": "workspace:*",
-    "sid-ui": "catalog:",
+    "@acorn/support-chat": "workspace:*",
     "react": "catalog:",
     "react-dom": "catalog:",
+    "sid-ui": "catalog:",
     "socket.io-client": "catalog:"
   },
   "devDependencies": {

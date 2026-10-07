@@ -1,51 +1,54 @@
-import Link from "next/link";
 import { notFound } from "next/navigation";
-import { Text, VStack } from "sid-ui";
+import { GridColumn, GridSystem, Stack } from "sid-ui";
 
-import { getUser, listUserUsage } from "@/lib/api/admin-data";
+import type { Metadata } from "next";
 
-export default async function UserDetailPage({ params }: { params: Promise<{ id: string }> }) {
+import { filterOptions } from "@/components/stats/filter-options";
+import { StatisticsDashboard } from "@/components/stats/statistics-dashboard";
+import { StatsFilters } from "@/components/stats/stats-filters";
+import { AuditCard } from "@/components/users/audit-card";
+import { RecentCalls } from "@/components/users/recent-calls";
+import { UserHeader } from "@/components/users/user-header";
+import { getUser, listUserAudit, listUserUsage } from "@/lib/api/users";
+import { statsFilterFrom } from "@/lib/statistics/types";
+
+export const metadata: Metadata = { title: "User" };
+
+export default async function UserDetailPage({
+  params,
+  searchParams,
+}: {
+  params: Promise<{ id: string }>;
+  searchParams: Promise<Record<string, string | string[] | undefined>>;
+}) {
   const { id } = await params;
-  const detail = await getUser(id);
+  const search = await searchParams;
+  const filter = statsFilterFrom(search);
+  const callsPage = Number(search.calls) || 1;
+  const [detail, calls, audit] = await Promise.all([
+    getUser(id, filter),
+    listUserUsage(id, callsPage),
+    listUserAudit(id),
+  ]);
   if (!detail) notFound();
-  const { user, usage } = detail;
-  const rows = await listUserUsage(id);
   return (
-    <VStack gap={4}>
-      <Link href="/users">← Users</Link>
-      <Text as="h1" type="large" weight="semibold">
-        {user.name}
-      </Text>
-      <Text type="supporting">{user.email}</Text>
-      <Text type="supporting">
-        {usage.callCount.toLocaleString()} calls · {usage.totalTokens.toLocaleString()} tokens ·{" "}
-        {usage.totalPrice} estimated · last{" "}
-        {usage.lastCallAt ? new Date(usage.lastCallAt).toLocaleString() : "—"}
-      </Text>
-      <table className="acorn-admin-table">
-        <thead>
-          <tr>
-            <th>When</th>
-            <th>Model</th>
-            <th>Tab</th>
-            <th>Tokens</th>
-            <th>Duration</th>
-            <th>Cost</th>
-          </tr>
-        </thead>
-        <tbody>
-          {rows.map((row) => (
-            <tr key={row.id}>
-              <td>{new Date(row.createdAt).toLocaleString()}</td>
-              <td>{row.model}</td>
-              <td>{row.tabKey}</td>
-              <td>{row.totalTokens.toLocaleString()}</td>
-              <td>{row.durationMs} ms</td>
-              <td>{row.priced ? row.price : "—"}</td>
-            </tr>
-          ))}
-        </tbody>
-      </table>
-    </VStack>
+    <Stack gap={6}>
+      <UserHeader user={detail.user} />
+      <StatsFilters filter={filter} {...filterOptions(detail.statistics)} />
+      <StatisticsDashboard stats={detail.statistics} />
+      <GridSystem gap={4} align="stretch">
+        <GridColumn span="full" lg={8}>
+          <RecentCalls
+            entries={calls.entries}
+            total={calls.total}
+            page={calls.page}
+            pageSize={calls.pageSize}
+          />
+        </GridColumn>
+        <GridColumn span="full" lg={4}>
+          <AuditCard entries={audit} />
+        </GridColumn>
+      </GridSystem>
+    </Stack>
   );
 }

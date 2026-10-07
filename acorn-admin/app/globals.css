@@ -1,51 +1,39 @@
 @import "sid-ui/styles/astryx.css";
 @import "sid-ui/styles/components.css";
 
-@import "tailwindcss";
+html,
+body {
+  height: 100%;
+  font-family: var(--font-family-body);
+}
 
 body {
   margin: 0;
-  min-height: 100dvh;
-  background: var(--color-surface-default);
+  background: var(--color-background-body);
   color: var(--color-text-primary);
-  font-family: var(--font-family-sans);
 }
 
-.acorn-admin-shell {
-  display: flex;
-  flex-direction: column;
+html {
+  scrollbar-gutter: stable;
+}
+
+/* The claims inbox fills the viewport under the admin bar. */
+.claims-inbox {
+  height: calc(100dvh - var(--claims-inbox-offset));
+  min-height: var(--claims-inbox-min-height);
+  --claims-inbox-offset: 9rem;
+  --claims-inbox-min-height: 32rem;
+}
+
+/* The sign-in card sits in the middle of the window. */
+.admin-login {
+  display: grid;
+  place-items: center;
   min-height: 100dvh;
+  padding: var(--spacing-4);
+  box-sizing: border-box;
 }
 
-.acorn-admin-nav {
-  display: flex;
-  gap: var(--spacing-4);
-  padding: var(--spacing-4) var(--spacing-6);
-  border-bottom: 1px solid var(--color-border-subtle);
-}
-
-.acorn-admin-main {
-  padding: var(--spacing-6);
-  max-width: 1120px;
+.admin-login > * {
   width: 100%;
-  margin: 0 auto;
-}
-
-.acorn-admin-table {
-  width: 100%;
-  border-collapse: collapse;
-  font-size: var(--font-size-sm);
-}
-
-.acorn-admin-table th,
-.acorn-admin-table td {
-  text-align: left;
-  padding: var(--spacing-2) var(--spacing-3);
-  border-bottom: 1px solid var(--color-border-subtle);
-}
-
-.acorn-admin-screenshot {
-  max-width: 100%;
-  border-radius: var(--radius-md);
-  border: 1px solid var(--color-border-subtle);
 }

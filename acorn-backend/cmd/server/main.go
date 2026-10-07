@@ -10,15 +10,16 @@ import (
 	"os"
 
 	"github.com/sid0709/OpenSeat/acorn-backend/account"
-	"github.com/sid0709/OpenSeat/acorn-backend/admin"
 	"github.com/sid0709/OpenSeat/acorn-backend/acorn"
 	"github.com/sid0709/OpenSeat/acorn-backend/acornapi"
+	"github.com/sid0709/OpenSeat/acorn-backend/admin"
 	"github.com/sid0709/OpenSeat/acorn-backend/aiusage"
 	"github.com/sid0709/OpenSeat/acorn-backend/debugtrace"
 	"github.com/sid0709/OpenSeat/acorn-backend/mailbox"
 	"github.com/sid0709/OpenSeat/acorn-backend/profile"
 	"github.com/sid0709/OpenSeat/acorn-backend/resume"
 	"github.com/sid0709/OpenSeat/acorn-backend/support"
+	"github.com/sid0709/OpenSeat/acorn-backend/supportaccess"
 	"github.com/sid0709/OpenSeat/backend-core/config"
 	"github.com/sid0709/OpenSeat/backend-core/google"
 	"github.com/sid0709/OpenSeat/backend-core/httpkit"
@@ -95,10 +96,20 @@ func main() {
 	profiles := profile.NewStore(p.Mongo(), db.DestDB, nil)
 	usage := aiusage.NewStore(p.Mongo(), db.DestDB)
 	claims := support.NewStore(p.Mongo(), db.DestDB)
+	supportAccess := supportaccess.NewStore(p.Mongo(), db.DestDB)
+	webURL := config.Env("ACORN_WEB_URL", "")
+	if webURL == "" {
+		slog.Warn("Support sign-in (admin \"Sign in as user\") is off until ACORN_WEB_URL is set")
+	}
+	adminDemo := admin.DemoMode()
+	if adminDemo {
+		slog.Warn("Acorn admin demo mode is on: any password works for admin sign-in; set ACORN_ADMIN_DEMO=off in production")
+	}
 	adminStore := admin.NewStore(p.Mongo(), db.DestDB, admin.Config{
 		SessionSecret:     config.Env("ACORN_ADMIN_SESSION_SECRET", ""),
 		BootstrapEmail:    config.Env("ACORN_ADMIN_EMAIL", ""),
 		BootstrapPassword: config.Env("ACORN_ADMIN_PASSWORD", ""),
+		DemoMode:          adminDemo,
 	})
 	gmailGoogle := &mailbox.Google{OAuth: oauth, RedirectURL: googleConfig.GmailRedirectURL}
 	gmailStore := mailbox.NewStore(p.Mongo(), db.DestDB, gmailGoogle)
@@ -114,6 +125,7 @@ func main() {
 		{"acorn ai usage", usage},
 		{"acorn support claims", claims},
 		{"acorn admin", adminStore},
+		{"acorn support access", supportAccess},
 		{"acorn gmail", gmailStore},
 	}
 	indexGroup, indexCtx := errgroup.WithContext(context.Background())
@@ -142,16 +154,18 @@ func main() {
 			Path: config.Env("ACORN_RUNTIME_FILE_PATH", ""),
 			Key:  config.Env("ACORN_RUNTIME_FILE_KEY", defaultRuntimeKey),
 		},
-		KillSwitches:      p.KillSwitches,
-		Google:            oauth,
-		GoogleRedirectURL: googleConfig.SignInRedirectURL,
-		Gmail:             gmailStore,
-		GmailRedirectURL:  googleConfig.GmailRedirectURL,
-		Debug:             debug,
-		Usage:             usage,
-		Claims:            claims,
-		Admins:            adminStore,
+		KillSwitches:       p.KillSwitches,
+		Google:             oauth,
+		GoogleRedirectURL:  googleConfig.SignInRedirectURL,
+		Gmail:              gmailStore,
+		GmailRedirectURL:   googleConfig.GmailRedirectURL,
+		Debug:              debug,
+		Usage:              usage,
+		Claims:             claims,
+		Admins:             adminStore,
 		AdminSessionCookie: acornapi.DefaultAdminSessionCookie,
+		SupportAccess:      supportAccess,
+		WebURL:             webURL,
 	})
 	defer gateway.Close()
 

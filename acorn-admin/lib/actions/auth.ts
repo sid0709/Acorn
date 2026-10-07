@@ -2,24 +2,15 @@
 
 import { redirect } from "next/navigation";
 
-import { acornApiUrl } from "../config";
-import { ADMIN_SIGN_IN_PATH, ADMIN_SIGN_OUT_PATH } from "./constants";
-import { adminSessionToken, clearAdminSessionCookie, writeAdminSessionCookie } from "./cookie";
 import { readApiError } from "../api/client";
-
-export async function signInAction(email: string, password: string): Promise<boolean> {
-  const res = await fetch(`${acornApiUrl()}${ADMIN_SIGN_IN_PATH}`, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ email, password }),
-    cache: "no-store",
-  });
-  if (!res.ok) return false;
-  const data = (await res.json()) as { token?: string };
-  if (!data.token) return false;
-  await writeAdminSessionCookie(data.token);
-  redirect("/claims");
-}
+import { ADMIN_SIGN_IN_PATH, ADMIN_SIGN_OUT_PATH } from "../auth/constants";
+import {
+  adminSessionToken,
+  clearAdminSessionCookie,
+  writeAdminSessionCookie,
+} from "../auth/cookie";
+import { acornApiUrl } from "../config";
+import { HOME_ROUTE, ROUTES } from "../routes";
 
 export async function signOutAction(): Promise<void> {
   const token = await adminSessionToken();
@@ -31,7 +22,7 @@ export async function signOutAction(): Promise<void> {
     }).catch(() => null);
   }
   await clearAdminSessionCookie();
-  redirect("/login");
+  redirect(ROUTES.login);
 }
 
 export async function signInActionWithError(
@@ -43,10 +34,13 @@ export async function signInActionWithError(
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ email, password }),
     cache: "no-store",
-  });
+  }).catch(() => null);
+  if (!res) {
+    return `acorn-backend is not reachable at ${acornApiUrl()}. Start it with bun run dev:acorn-api.`;
+  }
   if (!res.ok) return await readApiError(res);
   const data = (await res.json()) as { token?: string };
   if (!data.token) return "Sign-in did not return a session.";
   await writeAdminSessionCookie(data.token);
-  redirect("/claims");
+  redirect(HOME_ROUTE);
 }

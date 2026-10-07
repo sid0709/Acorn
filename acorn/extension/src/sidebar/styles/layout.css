@@ -116,3 +116,15 @@
   flex-shrink: 0;
   line-height: 0;
 }
+
+/* The Support tab's open conversation fills the panel; ClaimThread scrolls itself. */
+.acorn-panel-support {
+  min-height: 0;
+}
+
+.acorn-support-thread {
+  flex: 1 1 auto;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+}

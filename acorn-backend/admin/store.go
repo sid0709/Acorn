@@ -12,10 +12,10 @@ import (
 	"strings"
 	"time"
 
-	"golang.org/x/crypto/argon2"
 	"go.mongodb.org/mongo-driver/v2/bson"
 	"go.mongodb.org/mongo-driver/v2/mongo"
 	"go.mongodb.org/mongo-driver/v2/mongo/options"
+	"golang.org/x/crypto/argon2"
 )
 
 const (
@@ -29,6 +29,8 @@ const (
 	argonKeyLen  = 32
 	saltBytes    = 16
 	tokenBytes   = 32
+	// demoSessionSecret signs admin sessions when DemoMode is on and ACORN_ADMIN_SESSION_SECRET is unset.
+	demoSessionSecret = "acorn-admin-demo-session"
 )
 
 var ErrInvalidLogin = errors.New("email or password is incorrect")
@@ -38,6 +40,8 @@ type Config struct {
 	SessionSecret     string
 	BootstrapEmail    string
 	BootstrapPassword string
+	// DemoMode accepts any password for a valid email address.
+	DemoMode bool
 }
 
 type storedAdmin struct {
@@ -72,7 +76,23 @@ func NewStore(client *mongo.Client, database string, cfg Config) *Store {
 }
 
 func (s *Store) Ready() bool {
-	return s != nil && s.users != nil && strings.TrimSpace(s.cfg.SessionSecret) != ""
+	if s == nil || s.sessions == nil {
+		return false
+	}
+	if s.cfg.DemoMode {
+		return s.sessionSecret() != ""
+	}
+	return s.users != nil && s.sessionSecret() != ""
+}
+
+func (s *Store) sessionSecret() string {
+	if secret := strings.TrimSpace(s.cfg.SessionSecret); secret != "" {
+		return secret
+	}
+	if s.cfg.DemoMode {
+		return demoSessionSecret
+	}
+	return ""
 }
 
 func (s *Store) EnsureIndexes(ctx context.Context) error {
@@ -129,10 +149,16 @@ func (s *Store) SignIn(ctx context.Context, email, password string, now time.Tim
 	if !s.Ready() {
 		return "", errors.New("admin sign-in is not configured")
 	}
+	email = normalizeEmail(email)
+	if email == "" || !strings.Contains(email, "@") {
+		return "", ErrInvalidLogin
+	}
+	if s.cfg.DemoMode {
+		return s.issueSession(ctx, email, now)
+	}
 	if err := s.EnsureBootstrap(ctx); err != nil {
 		return "", err
 	}
-	email = normalizeEmail(email)
 	var doc storedAdmin
 	err := s.users.FindOne(ctx, bson.M{"email": email}).Decode(&doc)
 	if errors.Is(err, mongo.ErrNoDocuments) {
@@ -144,12 +170,16 @@ func (s *Store) SignIn(ctx context.Context, email, password string, now time.Tim
 	if !passwordMatches(password, doc.PasswordHash, doc.PasswordSalt) {
 		return "", ErrInvalidLogin
 	}
+	return s.issueSession(ctx, email, now)
+}
+
+func (s *Store) issueSession(ctx context.Context, email string, now time.Time) (string, error) {
 	token, err := newToken()
 	if err != nil {
 		return "", err
 	}
 	_, err = s.sessions.InsertOne(ctx, storedSession{
-		TokenHash: hashToken(token, s.cfg.SessionSecret),
+		TokenHash: hashToken(token, s.sessionSecret()),
 		Email:     email,
 		ExpiresAt: now.UTC().Add(sessionTTL),
 		CreatedAt: now.UTC(),
@@ -167,7 +197,7 @@ func (s *Store) Session(ctx context.Context, token string, now time.Time) (strin
 	}
 	var doc storedSession
 	err := s.sessions.FindOne(ctx, bson.M{
-		"tokenHash": hashToken(token, s.cfg.SessionSecret),
+		"tokenHash": hashToken(token, s.sessionSecret()),
 		"expiresAt": bson.M{"$gt": now.UTC()},
 	}).Decode(&doc)
 	if errors.Is(err, mongo.ErrNoDocuments) {
@@ -184,7 +214,7 @@ func (s *Store) Revoke(ctx context.Context, token string) error {
 	if !s.Ready() || token == "" {
 		return nil
 	}
-	_, err := s.sessions.DeleteOne(ctx, bson.M{"tokenHash": hashToken(token, s.cfg.SessionSecret)})
+	_, err := s.sessions.DeleteOne(ctx, bson.M{"tokenHash": hashToken(token, s.sessionSecret())})
 	return err
 }
 

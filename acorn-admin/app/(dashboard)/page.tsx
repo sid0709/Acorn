@@ -1,5 +1,7 @@
 import { redirect } from "next/navigation";
 
-export default function AdminHome() {
-  redirect("/claims");
+import { HOME_ROUTE } from "@/lib/routes";
+
+export default function DashboardHome() {
+  redirect(HOME_ROUTE);
 }

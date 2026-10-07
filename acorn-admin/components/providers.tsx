@@ -1,8 +1,9 @@
 "use client";
 
-import type { ReactNode } from "react";
-import Link from "next/link";
 import { AppTheme } from "@acorn/app-theme";
+import Link from "next/link";
+
+import type { ReactNode } from "react";
 
 export function Providers({ children }: { children: ReactNode }) {
   return (

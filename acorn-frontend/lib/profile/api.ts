@@ -4,6 +4,7 @@ import { acornApiUrl } from "@/lib/config";
 import { sessionToken } from "@/lib/auth/cookie";
 import type { ApplicantProfile } from "@/lib/workspace/profile";
 import type { ResumeUpload } from "@/lib/workspace/resume-file";
+import { acornHeaders } from "@/lib/auth/headers";
 
 export type ProfileCall<T> = { ok: true; data: T } | { ok: false; message: string };
 
@@ -21,9 +22,7 @@ type ProfileBody = {
 async function authed(path: string, init?: RequestInit): Promise<Response | ProfileCall<never>> {
   const token = await sessionToken();
   if (!token) return { ok: false, message: "Sign in required." };
-  const headers = new Headers(init?.headers);
-  headers.set("Authorization", `Bearer ${token}`);
-  if (init?.body && !headers.has("Content-Type")) headers.set("Content-Type", "application/json");
+  const headers = acornHeaders(token, init);
   const response = await fetch(`${acornApiUrl()}/acorn/profile${path}`, {
     ...init,
     headers,

@@ -110,6 +110,14 @@ func room(accountID string) socket.Room { return socket.Room("acorn:acct:" + acc
 // SOCKET_EVENT.aiUsageRecorded in the extension.
 const UsageRecordedEvent = "ai-usage:recorded"
 
+// SupportMessageEvent tells the reporter's clients that support replied on a claim,
+// and SupportClaimEvent that a claim was opened or closed. The same strings are
+// SOCKET_EVENT.supportMessage and SOCKET_EVENT.supportClaim in the extension.
+const (
+	SupportMessageEvent = "support:message"
+	SupportClaimEvent   = "support:claim"
+)
+
 // EmitToAccount sends one event to every connected client of the account.
 func (g *Gateway) EmitToAccount(accountID, event string, payload any) {
 	if g == nil || g.io == nil || accountID == "" {

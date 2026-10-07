@@ -27,3 +27,27 @@ export const ACORN_HOSTS = {
 export function acornHosts(mode: string): AcornHosts {
   return mode === "development" ? ACORN_HOSTS.development : ACORN_HOSTS.production;
 }
+
+/**
+ * Names the caller on every API request as "<client>/<version>", so usage stats can
+ * tell the extension from the site. The same string is clientHeader in acornapi.
+ */
+export const ACORN_CLIENT_HEADER = "X-Acorn-Client";
+export const ACORN_CLIENT = { extension: "extension", web: "web" } as const;
+
+/**
+ * Support sign-in: acorn-frontend posts ACORN_SUPPORT_HANDOFF with a one-time code
+ * to its own window, the extension's content script on that origin relays it to the
+ * service worker, and posts ACORN_SUPPORT_HANDOFF_ACK back with the outcome.
+ */
+export const ACORN_SUPPORT_HANDOFF = "acorn:support-handoff";
+export const ACORN_SUPPORT_HANDOFF_ACK = "acorn:support-handoff-ack";
+export type AcornSupportHandoffMessage = { type: typeof ACORN_SUPPORT_HANDOFF; code: string };
+export type AcornSupportHandoffAck = {
+  type: typeof ACORN_SUPPORT_HANDOFF_ACK;
+  ok: boolean;
+  error?: string;
+};
+
+/** Where a support handoff code is redeemed on the API. */
+export const ACORN_SUPPORT_REDEEM_PATH = "/acorn/auth/support/redeem";

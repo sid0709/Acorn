@@ -1,6 +1,16 @@
 import type { CSSProperties } from "react";
 import type { AcornFaceMode } from "@acorn/face";
-import { Avatar, AvatarStatusDot, Badge, Glyph, HStack, MoreMenu, Text, VStack } from "sid-ui";
+import {
+  Avatar,
+  AvatarStatusDot,
+  Badge,
+  Button,
+  Glyph,
+  HStack,
+  MoreMenu,
+  Text,
+  VStack,
+} from "sid-ui";
 import type { AcornStoredSession } from "../auth/acorn-auth";
 import { ACORN_FACE_BADGE_PX, ACORN_FACE_BRAND_PX } from "../acorn-face/constants";
 import { AcornFaceView } from "../acorn-face/AcornFaceView";
@@ -24,8 +34,9 @@ type SidebarHeaderProps = {
 };
 
 /**
- * The live Acorn Face, what the active tab is, a worker chip while anything runs, and the
- * account menu. The avatar's dot is the socket connection.
+ * The live Acorn Face, what the active tab is, a worker chip while anything runs, the
+ * Report button, and the account menu. The avatar's dot is the socket connection. In a
+ * support session a badge names it and "End support session" replaces sign-out.
  */
 export function SidebarHeader({
   session,
@@ -81,6 +92,20 @@ export function SidebarHeader({
           />
         </span>
       ) : null}
+      {session.supportBy ? (
+        <span title={`Support session opened by ${session.supportBy}`}>
+          <Badge variant="warning" label="Support" />
+        </span>
+      ) : null}
+      <Button
+        label="Report"
+        variant="secondary"
+        size="sm"
+        icon={<Glyph name="chat" />}
+        tooltip="Report a problem on this page"
+        isDisabled={reportDisabled}
+        onClick={onReport}
+      />
       <MoreMenu
         label={`${session.displayName} · ${connected ? "connected" : "offline"}`}
         variant="ghost"
@@ -104,18 +129,11 @@ export function SidebarHeader({
             items: [
               { label: "Acorn Face guide", icon: <Glyph name="info" />, onClick: onOpenGuide },
               { label: "Settings", icon: <Glyph name="settings" />, onClick: onOpenSettings },
-              {
-                label: "Report issue",
-                icon: <Glyph name="share" />,
-                isDisabled: reportDisabled,
-                description: reportDisabled ? "Sign in on an active tab first" : undefined,
-                onClick: onReport,
-              },
             ],
           },
           { type: "divider" },
           {
-            label: "Sign out",
+            label: session.supportBy ? "End support session" : "Sign out",
             icon: <Glyph name="signOut" />,
             isDisabled: signOutDisabled,
             description: signOutDisabled ? "Wait for running work to finish" : undefined,

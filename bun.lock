@@ -24,6 +24,7 @@
       "version": "0.1.0",
       "dependencies": {
         "@acorn/app-theme": "workspace:*",
+        "@acorn/support-chat": "workspace:*",
         "next": "catalog:",
         "react": "catalog:",
         "react-dom": "catalog:",
@@ -81,6 +82,7 @@
         "@acorn/app-theme": "workspace:*",
         "@acorn/face": "workspace:*",
         "@acorn/shared": "workspace:*",
+        "@acorn/support-chat": "workspace:*",
         "react": "catalog:",
         "react-dom": "catalog:",
         "sid-ui": "catalog:",
@@ -138,6 +140,21 @@
         "typescript": "catalog:",
       },
     },
+    "packages/support-chat": {
+      "name": "@acorn/support-chat",
+      "version": "0.1.0",
+      "dependencies": {
+        "sid-ui": "catalog:",
+      },
+      "devDependencies": {
+        "@types/react": "catalog:",
+        "eslint": "catalog:",
+        "typescript": "catalog:",
+      },
+      "peerDependencies": {
+        "react": ">=19",
+      },
+    },
   },
   "trustedDependencies": [
     "sharp",
@@ -191,6 +208,8 @@
     "@acorn/google-signin": ["@acorn/google-signin@workspace:packages/google-signin"],
 
     "@acorn/shared": ["@acorn/shared@workspace:acorn/packages/shared"],
+
+    "@acorn/support-chat": ["@acorn/support-chat@workspace:packages/support-chat"],
 
     "@alloc/quick-lru": ["@alloc/quick-lru@5.3.0", "", {}, "sha512-U4+70Pc5ZS9osnCBCE5Jha/ciHM+Yp+CNMNC/7HvYbNRk1Ldd+f7qO65W5qfhu/TCv+/ozljlXXe9Nj8419DMA=="],
 

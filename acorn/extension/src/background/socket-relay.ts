@@ -16,6 +16,13 @@ export function bindSocketRelay(socket: Socket): void {
     void recordPushedUsage(payload).catch(() => undefined);
   });
 
+  // The Support tab refetches when a report changes; nothing is open when it is closed.
+  for (const event of [SOCKET_EVENT.supportMessage, SOCKET_EVENT.supportClaim]) {
+    socket.on(event, () => {
+      void chrome.runtime.sendMessage({ type: MSG.SUPPORT_CLAIMS_CHANGED }).catch(() => undefined);
+    });
+  }
+
   socket.on("dom:highlight", async (payload: HighlightPayload) => {
     const { tabId, nodeId } = payload;
     if (!tabId || nodeId == null) return;

@@ -23,6 +23,7 @@ import { clearHighlight, highlightElement } from "./highlighter";
 import { scanPendingFormFields } from "./pending-fields";
 import { runPlanStep } from "./plan-step-runner";
 import { initSelectionQa } from "./selection-qa";
+import { initSupportHandoff } from "./support-handoff";
 
 const CONTENT_BOOT = "__acornContentBoot";
 
@@ -43,6 +44,7 @@ function runExclusive<T>(work: () => Promise<T>): Promise<T> {
 if (!contentWindow[CONTENT_BOOT]) {
   contentWindow[CONTENT_BOOT] = true;
   initSelectionQa();
+  initSupportHandoff();
 
   chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
     if (message.type === MSG.FETCH_DOM) {

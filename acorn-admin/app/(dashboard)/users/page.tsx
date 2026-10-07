@@ -1,35 +1,34 @@
-import Link from "next/link";
-import { Text, VStack } from "sid-ui";
+import { PageHeader, Stack } from "sid-ui";
 
-import { listUsers } from "@/lib/api/admin-data";
+import type { Metadata } from "next";
 
-export default async function UsersPage() {
-  const users = await listUsers();
+import { UsersSearch } from "@/components/users/users-search";
+import { UsersTable } from "@/components/users/users-table";
+import { listUsers } from "@/lib/api/users";
+import { formatCount } from "@/lib/format";
+
+export const metadata: Metadata = { title: "Users" };
+
+export default async function UsersPage({
+  searchParams,
+}: {
+  searchParams: Promise<{ q?: string; page?: string }>;
+}) {
+  const { q = "", page = "1" } = await searchParams;
+  const result = await listUsers(q, Number(page) || 1);
   return (
-    <VStack gap={4}>
-      <Text as="h1" type="large" weight="semibold">
-        Users
-      </Text>
-      <table className="acorn-admin-table">
-        <thead>
-          <tr>
-            <th>Name</th>
-            <th>Email</th>
-            <th>Joined</th>
-          </tr>
-        </thead>
-        <tbody>
-          {users.map((user) => (
-            <tr key={user.id}>
-              <td>
-                <Link href={`/users/${user.id}`}>{user.name}</Link>
-              </td>
-              <td>{user.email}</td>
-              <td>{new Date(user.createdAt).toLocaleDateString()}</td>
-            </tr>
-          ))}
-        </tbody>
-      </table>
-    </VStack>
+    <Stack gap={6}>
+      <PageHeader
+        title="Users"
+        description={`${formatCount(result.total)} accounts · AI use over the last 30 days`}
+      />
+      <UsersSearch initial={q} />
+      <UsersTable
+        users={result.users}
+        total={result.total}
+        page={result.page}
+        pageSize={result.pageSize}
+      />
+    </Stack>
   );
 }
