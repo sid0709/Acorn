@@ -36,16 +36,20 @@ const (
 
 // FormField is one control the extension found on the page.
 type FormField struct {
-	ElementIndex int      `json:"elementIndex"`
-	Kind         string   `json:"kind"`
-	Label        string   `json:"label"`
-	Section      string   `json:"section"`
-	InputType    string   `json:"inputType"`
-	Autocomplete string   `json:"autocomplete"`
-	Placeholder  string   `json:"placeholder"`
-	Name         string   `json:"name"`
-	Required     bool     `json:"required"`
-	Options      []string `json:"options"`
+	ElementIndex int    `json:"elementIndex"`
+	Kind         string `json:"kind"`
+	Label        string `json:"label"`
+	Section      string `json:"section"`
+	InputType    string `json:"inputType"`
+	Autocomplete string `json:"autocomplete"`
+	Placeholder  string `json:"placeholder"`
+	Name         string `json:"name"`
+	// MaxLength is the control's native maxlength; 0 when it sets none.
+	MaxLength int `json:"maxLength,omitempty"`
+	// Notes is short text the page shows after a text field: a counter ("0/300"), a format hint.
+	Notes    []string `json:"notes,omitempty"`
+	Required bool     `json:"required"`
+	Options  []string `json:"options"`
 	// OptionIndexes are the node ids of Options, in the same order, when known: a
 	// step then targets the chosen option itself.
 	OptionIndexes []int `json:"optionIndexes,omitempty"`
@@ -227,8 +231,35 @@ func describe(field FormField) string {
 	if field.Kind == fieldTextarea {
 		parts = append(parts, "multi-line")
 	}
+	if notes := fieldNotes(field); notes != "" {
+		parts = append(parts, fmt.Sprintf("text under the field: %q", notes))
+	}
 	if field.Required {
 		parts = append(parts, "required")
+	}
+	return strings.Join(parts, "; ")
+}
+
+// fieldNotes is the page's own text after a field, joined for one line.
+func fieldNotes(field FormField) string {
+	notes := make([]string, 0, len(field.Notes))
+	for _, note := range field.Notes {
+		if note = strings.TrimSpace(note); note != "" {
+			notes = append(notes, note)
+		}
+	}
+	return strings.Join(notes, " | ")
+}
+
+// fieldLimits is what bounds a written answer: the native maxlength and the page's
+// text under the field, where many forms state a limit they enforce ("0/300").
+func fieldLimits(field FormField) string {
+	var parts []string
+	if field.MaxLength > 0 {
+		parts = append(parts, fmt.Sprintf("max %d characters", field.MaxLength))
+	}
+	if notes := fieldNotes(field); notes != "" {
+		parts = append(parts, "text under the field: "+notes)
 	}
 	return strings.Join(parts, "; ")
 }
@@ -374,7 +405,7 @@ func writeFields(fields []FormField) []typingField {
 		if section := strings.TrimSpace(field.Section); section != "" {
 			question += " (form section: " + section + ")"
 		}
-		out = append(out, typingField{ElementIndex: field.ElementIndex, Question: question, Role: textRole(field)})
+		out = append(out, typingField{ElementIndex: field.ElementIndex, Question: question, Role: textRole(field), Limits: fieldLimits(field)})
 	}
 	return out
 }

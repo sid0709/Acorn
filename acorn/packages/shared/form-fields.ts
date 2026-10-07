@@ -22,6 +22,10 @@ export interface FormField {
   autocomplete?: string;
   placeholder?: string;
   name?: string;
+  /** The control's native maxlength, when it sets one. */
+  maxLength?: number;
+  /** Short text the page shows after a text field: a character counter, a format hint. */
+  notes?: string[];
   required: boolean;
   options?: string[];
 }

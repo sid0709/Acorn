@@ -125,3 +125,19 @@ func TestFastPlanTellsThePickerAChoiceIsRequired(t *testing.T) {
 		t.Fatalf("optional field read %q, want no required note", picker.asked[1].Field)
 	}
 }
+
+func TestWriteFieldsCarryTheFieldsLimits(t *testing.T) {
+	fields := writeFields([]FormField{{
+		ElementIndex: 7, Kind: fieldTextarea, Label: "Why do you want to work here?",
+		MaxLength: 500, Notes: []string{"0/300"},
+	}})
+	if len(fields) != 1 {
+		t.Fatalf("got %d fields, want 1", len(fields))
+	}
+	prompt := proseUserPrompt("{}", fields, nil)
+	for _, want := range []string{"max 500 characters", "text under the field: 0/300"} {
+		if !strings.Contains(prompt, want) {
+			t.Errorf("writer prompt lacks %q:\n%s", want, prompt)
+		}
+	}
+}

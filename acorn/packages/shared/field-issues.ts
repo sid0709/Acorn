@@ -41,3 +41,19 @@ export const EMPTY_FIELD_ISSUE_SCAN: FieldIssueScan = { issues: [], pageMessages
 export function countFlaggedFields(scan: FieldIssueScan): number {
   return scan.issues.filter((issue) => issue.invalid || issue.linkedMessages.length > 0).length;
 }
+
+function issueKey(issue: FieldIssue): string {
+  return [issue.label, issue.role, ...issue.linkedMessages].join("\u0000");
+}
+
+/**
+ * Fields a click flagged: marked invalid, or carrying a linked message the page
+ * did not show before the click. A hint the page always links to a field
+ * (aria-describedby help text) is not an answer the page rejected.
+ */
+export function countFlaggedSince(before: FieldIssueScan | null, after: FieldIssueScan): number {
+  const earlier = new Set((before?.issues ?? []).map(issueKey));
+  return after.issues.filter(
+    (issue) => issue.invalid || (issue.linkedMessages.length > 0 && !earlier.has(issueKey(issue))),
+  ).length;
+}

@@ -18,6 +18,11 @@ function tokenSubsequence(want: string[], have: string[]): boolean {
   return false;
 }
 
+/** A label has words: a required mark ("*") or a counter's punctuation names nothing. */
+function hasWords(text: string): boolean {
+  return /[\p{L}\p{N}]/u.test(text);
+}
+
 export function labelMatches(expected: string, candidates: string[]): boolean {
   const exp = normalize(expected);
   if (!exp) return true;
@@ -27,6 +32,8 @@ export function labelMatches(expected: string, candidates: string[]): boolean {
     const n = normalize(c)
       .replace(/[?*]+$/g, "")
       .trim();
+    // "*" strips to "", and every label includes "": a mark beside any field would match any plan.
+    if (!hasWords(n)) return false;
     if (n === exp || n === expBare || n.includes(expBare) || expBare.includes(n)) return true;
     // Plans often truncate long Greenhouse labels; require a long shared prefix.
     const prefixLen = Math.min(72, expBare.length, n.length);

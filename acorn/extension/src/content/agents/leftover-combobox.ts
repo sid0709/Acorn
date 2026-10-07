@@ -1,5 +1,6 @@
 import { traceFromPage } from "../../debug-trace";
 import { fieldWrapper, groupQuestion } from "../form-dom";
+import { forLabelOf, uniqueById } from "../verify/element-labels";
 
 import { fillElement } from "./fill";
 import { wasPlanFilled } from "./plan-fill-registry";
@@ -33,19 +34,14 @@ function fieldLabel(el: HTMLElement): string {
   if (labelled) {
     const parts = labelled
       .split(/\s+/)
-      .map((id) => el.ownerDocument.getElementById(id)?.textContent?.replace(/\s+/g, " ").trim())
+      .map((id) => uniqueById(el, id)?.textContent?.replace(/\s+/g, " ").trim())
       .filter(Boolean);
     if (parts.length) return parts.join(" ");
   }
   const aria = el.getAttribute("aria-label")?.replace(/\s+/g, " ").trim();
   if (aria) return aria;
-  if (el.id) {
-    const forLabel = el.ownerDocument
-      .querySelector(`label[for="${CSS.escape(el.id)}"]`)
-      ?.textContent?.replace(/\s+/g, " ")
-      .trim();
-    if (forLabel) return forLabel;
-  }
+  const forLabel = forLabelOf(el)?.replace(/\s+/g, " ").trim();
+  if (forLabel) return forLabel;
   const wrap = el.closest("label")?.textContent?.replace(/\s+/g, " ").trim();
   if (wrap) return wrap.slice(0, 200);
   // No label points at the control itself (a typeahead with no id): the field's

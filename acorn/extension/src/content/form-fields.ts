@@ -34,6 +34,8 @@ import { inferRole } from "./verify/element-role";
 import type { FormField } from "@acorn/shared/form-fields";
 
 const MAX_FORM_FIELDS = 150;
+/** Texts after a text field kept as its notes (a counter, a format hint). */
+const TEXT_FIELD_NOTES = 2;
 /** Short texts beside a file input that describe what it takes. */
 const FILE_HINT_TEXTS = 3;
 /** Native input types a person types into. */
@@ -66,11 +68,29 @@ function attr(el: Element, name: string): string | undefined {
   return el.getAttribute(name)?.trim() || undefined;
 }
 
-function textAttrs(el: Element): Pick<FormField, "autocomplete" | "placeholder" | "name"> {
+/**
+ * What names a text field and bounds its answer: native attributes, plus the
+ * text the page shows after it inside its own wrapper ("0/300"), which is how
+ * many forms state a limit they enforce without maxlength.
+ */
+function textAttrs(
+  el: Element,
+  label: string,
+): Pick<FormField, "autocomplete" | "placeholder" | "name" | "maxLength" | "notes"> {
+  const maxLength =
+    el instanceof HTMLInputElement || el instanceof HTMLTextAreaElement ? el.maxLength : -1;
+  const notes = wrapperTexts(
+    el,
+    fieldWrapper(el),
+    Node.DOCUMENT_POSITION_FOLLOWING,
+    new Set([normalize(label)]),
+  ).slice(0, TEXT_FIELD_NOTES);
   return {
     autocomplete: attr(el, "autocomplete"),
     placeholder: attr(el, "placeholder"),
     name: attr(el, "name"),
+    maxLength: maxLength > 0 ? maxLength : undefined,
+    notes: notes.length ? notes : undefined,
   };
 }
 
@@ -187,13 +207,14 @@ function describeControl(control: Element, seenGroups: Set<string>): FormField |
     // aria-hidden marks a control no person reads or fills (a widget's mirror input).
     if (!isVisible(control) || control.closest('[aria-hidden="true"]')) return null;
     if (inferRole(control) === "combobox" || !TEXT_INPUT_TYPES.has(type)) return null;
+    const text = label();
     return {
       elementIndex: nodeId(control),
       kind: "text",
-      label: label(),
+      label: text,
       inputType: type,
       required,
-      ...textAttrs(control),
+      ...textAttrs(control, text),
     };
   }
   const role = inferRole(control);
@@ -203,12 +224,13 @@ function describeControl(control: Element, seenGroups: Set<string>): FormField |
     role === "textbox"
   ) {
     if (!isVisible(control)) return null;
+    const text = label();
     return {
       elementIndex: nodeId(control),
       kind: "textarea",
-      label: label(),
+      label: text,
       required,
-      ...textAttrs(control),
+      ...textAttrs(control, text),
     };
   }
   return null;
@@ -238,14 +260,52 @@ function withSection(field: FormField, control: Element): FormField {
   return section && section !== field.label ? { ...field, section } : field;
 }
 
+const TEXT_KINDS = new Set<FormField["kind"]>(["text", "textarea"]);
+
+/** The question inside a control's own field wrapper: its title, else the nearest text before it. */
+function wrapperQuestion(control: Element): string {
+  const wrapper = fieldWrapper(control);
+  return (
+    groupQuestion(wrapper, control, [control]) ||
+    wrapperTexts(control, wrapper, Node.DOCUMENT_POSITION_PRECEDING, new Set()).at(-1) ||
+    ""
+  );
+}
+
+/**
+ * Text fields that came out with one shared label: the label points past them (an
+ * id the page reuses, a name attribute) rather than naming each question, and the
+ * planner would give every one of them the same answer. Each takes the question in
+ * its own wrapper instead, when that tells them apart.
+ */
+function separateSharedLabels(rows: { field: FormField; control: Element }[]): void {
+  const byLabel = new Map<string, { field: FormField; control: Element }[]>();
+  for (const row of rows) {
+    if (!TEXT_KINDS.has(row.field.kind)) continue;
+    const key = normalize(row.field.label);
+    byLabel.set(key, [...(byLabel.get(key) ?? []), row]);
+  }
+  for (const shared of byLabel.values()) {
+    if (shared.length < 2) continue;
+    const questions = shared.map((row) => wrapperQuestion(row.control));
+    const distinct = new Set(questions.map(normalize));
+    if (questions.some((question) => !question) || distinct.size !== shared.length) continue;
+    shared.forEach((row, i) => {
+      row.field.label = questions[i];
+    });
+  }
+}
+
 /** Every fillable field on the page, in page order. */
 export function scanFormFields(): FormField[] {
   const seenGroups = new Set<string>();
-  const fields: FormField[] = [];
+  const rows: { field: FormField; control: Element }[] = [];
   for (const control of queryDeep(document, `:is(${FILLABLE_SELECTOR})[${ACORN_ID_ATTR}]`)) {
     const field = describeControl(control, seenGroups);
-    if (field?.elementIndex) fields.push(withSection(field, control));
+    if (field?.elementIndex) rows.push({ field: withSection(field, control), control });
   }
+  separateSharedLabels(rows);
+  const fields = rows.map((row) => row.field);
   const claimed = new Set(fields.map((field) => field.elementIndex));
   fields.push(...ariaButtonFields(claimed));
   return fields.slice(0, MAX_FORM_FIELDS);

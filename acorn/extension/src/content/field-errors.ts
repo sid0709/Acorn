@@ -123,10 +123,12 @@ function issueRank(issue: FieldIssue): number {
 
 function pageMessages(): string[] {
   const messages = new Set<string>();
+  // A router's live region announces the document title on each route; that is no alert.
+  const title = normalize(document.title);
   for (const el of queryDeep(document, PAGE_MESSAGE_SELECTOR)) {
     if (!isVisible(el)) continue;
     const text = clip((el as HTMLElement).innerText || el.textContent || "", MAX_MESSAGE_CHARS);
-    if (text) messages.add(text);
+    if (text && normalize(text) !== title) messages.add(text);
     if (messages.size >= MAX_PAGE_MESSAGES) break;
   }
   return [...messages];

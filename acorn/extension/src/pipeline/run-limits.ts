@@ -26,6 +26,8 @@ export const RUN_PAGE_TEXT_MAX_CHARS = 8_000;
 export const RUN_EVIDENCE_LINE_MAX_CHARS = 200;
 /** Evidence lines sent with a failure diagnosis. */
 export const RUN_EVIDENCE_MAX_LINES = 20;
+/** Embedded frames listed with a page snapshot. */
+export const RUN_FRAMES_MAX = 6;
 
 /** Run log events per request to the backend. */
 export const RUN_LOG_BATCH_MAX = 50;

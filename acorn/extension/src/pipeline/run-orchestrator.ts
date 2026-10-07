@@ -1,4 +1,9 @@
-import { FILL_MODE, type FillMode } from "@acorn/shared/field-issues";
+import {
+  FILL_MODE,
+  countFlaggedSince,
+  type FieldIssueScan,
+  type FillMode,
+} from "@acorn/shared/field-issues";
 import {
   CONTROL_ROLE,
   PAGE_KIND,
@@ -64,6 +69,8 @@ interface PageState {
   clicks: number;
   refills: number;
   noEffect: number;
+  /** The fields as they stood right before the last forward click. */
+  scanBeforeClick: FieldIssueScan | null;
 }
 
 class RunStop extends Error {
@@ -348,7 +355,14 @@ export async function runOrchestrator(args: RunOrchestratorArgs): Promise<RunRep
             `The run went through ${RUN_MAX_PAGES} pages without finishing`,
           ]);
         }
-        current = { signature: page.signature, filled: false, clicks: 0, refills: 0, noEffect: 0 };
+        current = {
+          signature: page.signature,
+          filled: false,
+          clicks: 0,
+          refills: 0,
+          noEffect: 0,
+          scanBeforeClick: null,
+        };
         refillsOnPage = 0;
         log.event("page", { page: pageCount, url: logUrl(page.url), flagged: page.flagged });
       }
@@ -356,7 +370,10 @@ export async function runOrchestrator(args: RunOrchestratorArgs): Promise<RunRep
 
       // 2. The same page after a click: the page rejected the answers, or nothing happened.
       if (!moved && state.clicks > 0) {
-        if (page.flagged > 0) {
+        // Only what the click flagged: a hint the page always shows is no rejection.
+        const flagged = countFlaggedSince(state.scanBeforeClick, page.scan);
+        log.event("after-click", { flagged, shown: page.flagged });
+        if (flagged > 0) {
           if (state.refills >= RUN_MAX_REFILLS_PER_PAGE) {
             throw new RunStop(RUN_STAGE.refilling, page, [
               `Still flagged after ${state.refills} refills (limit ${RUN_MAX_REFILLS_PER_PAGE})`,
@@ -367,7 +384,7 @@ export async function runOrchestrator(args: RunOrchestratorArgs): Promise<RunRep
           refillsTotal += 1;
           enter(
             RUN_STAGE.refilling,
-            `Refill ${state.refills}/${RUN_MAX_REFILLS_PER_PAGE} · ${page.flagged} flagged`,
+            `Refill ${state.refills}/${RUN_MAX_REFILLS_PER_PAGE} · ${flagged} flagged`,
           );
           const refilled = await fill(FILL_MODE.refill, page);
           if (refilled.failed) {
@@ -454,11 +471,18 @@ export async function runOrchestrator(args: RunOrchestratorArgs): Promise<RunRep
         return await finish(report(RUN_OUTCOME.completed));
       }
       if (!next.control || !next.picked) {
-        throw new RunStop(RUN_STAGE.advancing, page, [
-          "No control on the page moves the application forward",
-        ]);
+        // After a click, a missing control is the page holding the click (busy,
+        // disabled, waiting on a check), not a page that never had one.
+        const notes =
+          state.clicks > 0 && control
+            ? [
+                `"${control}" was clicked ${state.clicks} time${state.clicks === 1 ? "" : "s"}; the page stayed on this step and no longer offers a control that moves it forward`,
+              ]
+            : ["No control on the page moves the application forward"];
+        throw new RunStop(RUN_STAGE.advancing, page, notes);
       }
       state.clicks += 1;
+      state.scanBeforeClick = page.scan;
       const label = next.picked.text || next.picked.label;
       enter(
         RUN_STAGE.advancing,

@@ -9,6 +9,7 @@ import { formatAnalyzeTrees } from "@acorn/shared/tree-export";
 
 import { fetchDomFromTab } from "./fetch-dom";
 import { fetchPostingDomFromTab } from "./fetch-posting";
+import { embeddedFrames } from "./run-frames";
 import { RUN_PAGE_TEXT_MAX_CHARS } from "./run-limits";
 
 import type { DomTreeNode } from "@acorn/shared/tree-export";
@@ -25,6 +26,8 @@ export interface PageSnapshot {
   /** Fields the page marks invalid or ties an error message to. */
   flagged: number;
   signature: string;
+  /** Embedded frames outside the read frame, by title or address. */
+  frames: string[];
 }
 
 /**
@@ -46,15 +49,17 @@ export async function snapshotPage(
     RUN_PAGE_TEXT_MAX_CHARS,
   );
   const scan = payload.fieldIssues ?? EMPTY_FIELD_ISSUE_SCAN;
+  const frameId = payload.frameId ?? null;
   return {
     tabId,
     url,
     title,
-    frameId: payload.frameId ?? null,
+    frameId,
     text,
     controls: collectPageControls(tree),
     scan,
     flagged: countFlaggedFields(scan),
     signature: pageSignature(tree, url, text),
+    frames: await embeddedFrames(tabId, frameId, tree),
   };
 }

@@ -41,6 +41,8 @@ const MAX_CHILDREN = 120;
  */
 const MAX_OPTION_CHILDREN = 600;
 const MAX_TEXT = 120;
+/** An iframe's title is the embedded widget's accessible name; nothing else of it is readable. */
+const IFRAME_TITLE_MAX_CHARS = 120;
 
 const OPTION_LIST_TAGS = new Set(["SELECT", "OPTGROUP", "DATALIST"]);
 
@@ -249,6 +251,9 @@ function serializeNode(el: Element, depth: number): DomNode[] {
     const val = el.getAttribute(attr);
     if (val) attrs[attr] = val.slice(0, 120);
   }
+
+  const frameTitle = tag === "iframe" ? el.getAttribute("title")?.trim() : "";
+  if (frameTitle) attrs["title"] = frameTitle.slice(0, IFRAME_TITLE_MAX_CHARS);
 
   // `disabled` is a boolean attribute (empty value), so the loop above never keeps it.
   if (el.hasAttribute("disabled") || el.getAttribute("aria-disabled") === "true") {

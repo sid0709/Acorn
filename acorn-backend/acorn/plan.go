@@ -193,6 +193,8 @@ type typingField struct {
 	Draft        string
 	// Note is the page's validation message for the previous answer (Refill only).
 	Note string
+	// Limits bound the answer: a maxlength, or the page's counter or hint under the field.
+	Limits string
 }
 
 func roleToken(role string) string {
@@ -322,6 +324,9 @@ func proseUserPrompt(applicant string, fields []typingField, page map[string]any
 			draft = "(none)"
 		}
 		block := fmt.Sprintf("element_index: %d\nrole: %s\nquestion: %s\ndraft: %s", field.ElementIndex, field.Role, field.Question, draft)
+		if limits := strings.TrimSpace(field.Limits); limits != "" {
+			block += "\nfield limits: " + limits
+		}
 		if note := strings.TrimSpace(field.Note); note != "" {
 			block += "\npage error: " + note
 		}

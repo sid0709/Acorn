@@ -7,7 +7,7 @@
 
 import { getDirectText } from "./dom-serializer";
 import { FILLABLE_SELECTOR } from "./form-frame";
-import { labelCandidates } from "./verify/element-labels";
+import { labelCandidates, uniqueById } from "./verify/element-labels";
 import { inferRole } from "./verify/element-role";
 
 export const ACORN_ID_ATTR = "data-acorn-id";
@@ -170,9 +170,7 @@ export function groupAccessibleName(control: Element): string {
   const group = control.closest(NAMED_GROUP_SELECTOR);
   if (!group) return "";
   const ids = (group.getAttribute("aria-labelledby") || "").split(/\s+/).filter(Boolean);
-  const byIds = ids
-    .map((id) => control.ownerDocument.getElementById(id)?.textContent || "")
-    .join(" ");
+  const byIds = ids.map((id) => uniqueById(group, id)?.textContent || "").join(" ");
   const legend =
     group instanceof HTMLFieldSetElement ? group.querySelector(":scope > legend")?.textContent : "";
   return clip(byIds || group.getAttribute("aria-label") || legend || "", MAX_TEXT_CHARS);

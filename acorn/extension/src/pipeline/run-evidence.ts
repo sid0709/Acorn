@@ -23,12 +23,16 @@ export function failureEvidence(args: {
   const lines: string[] = [...(args.notes ?? [])];
   const scan = args.snapshot?.scan;
   for (const message of scan?.pageMessages ?? []) lines.push(`Page alert: ${message}`);
+  for (const frame of args.snapshot?.frames ?? []) lines.push(`Embedded frame: ${frame}`);
   for (const issue of scan?.issues ?? []) {
     const messages = [...issue.linkedMessages, ...issue.nearbyMessages].join(" / ");
-    const state = issue.invalid ? "invalid" : issue.required ? "required" : "flagged";
-    lines.push(
-      `Field "${issue.label || issue.role}" is ${state}${messages ? `: ${messages}` : ""}`,
-    );
+    // Text beside a valid field is often help copy; only invalid or empty-required is a rejection.
+    const state = issue.invalid
+      ? "is marked invalid"
+      : issue.required && !issue.value
+        ? "is required and empty"
+        : "shows page text (not marked invalid)";
+    lines.push(`Field "${issue.label || issue.role}" ${state}${messages ? `: ${messages}` : ""}`);
   }
   for (const step of args.steps ?? []) {
     if (step.status === "failed" || step.status === "blocked") {
