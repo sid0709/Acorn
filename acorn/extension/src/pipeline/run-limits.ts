@@ -17,6 +17,8 @@ export const RUN_SETTLE_MAX_MS = 20_000;
 export const RUN_SETTLE_MIN_MS = 1_200;
 /** How often a click's effect is checked. */
 export const RUN_SETTLE_POLL_MS = 400;
+/** A probe is a single DOM pass; a frame that takes longer is treated as having moved. */
+export const RUN_PROBE_TIMEOUT_MS = 2_000;
 /** A tab that has not finished loading by this point is read anyway. */
 export const RUN_TAB_LOAD_MAX_MS = 20_000;
 

@@ -106,7 +106,7 @@ const FIELD_TAGS = new Set(["input", "select", "textarea"]);
 const NON_FIELD_INPUTS = new Set(["hidden", ...BUTTON_INPUT_TYPES]);
 
 /** A short, stable hash for comparing two page states. */
-function hash(text: string): string {
+export function shortHash(text: string): string {
   let h = 5381;
   for (let i = 0; i < text.length; i += 1) h = ((h << 5) + h + text.charCodeAt(i)) | 0;
   return (h >>> 0).toString(36);
@@ -139,5 +139,5 @@ export function pageSignature(root: DomTreeNode, url: string, text: string): str
   } catch {
     // Keep the raw string for an address that does not parse.
   }
-  return `${address}|${hash(fields.length ? fields.join("|") : text)}`;
+  return `${address}|${shortHash(fields.length ? fields.join("|") : text)}`;
 }

@@ -30,6 +30,11 @@ export interface ReadPageResponse {
   kindConfidence?: number;
   /** The control to click; null when nothing on the page moves the application forward. */
   control?: { id: number; role: ControlRole; confidence: number } | null;
+  /**
+   * When `control` is null on a form being advanced: the most probable forward
+   * control anyway. The run clicks it before deciding the page is stuck.
+   */
+  fallback?: { id: number; role: ControlRole; confidence: number } | null;
   usage?: AiUsageSummary;
 }
 

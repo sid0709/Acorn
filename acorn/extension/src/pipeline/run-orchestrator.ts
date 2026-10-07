@@ -1,6 +1,7 @@
 import {
   FILL_MODE,
   countFlaggedSince,
+  countRequiredEmpty,
   type FieldIssueScan,
   type FillMode,
 } from "@acorn/shared/field-issues";
@@ -16,12 +17,15 @@ import {
   type RunStage,
 } from "@acorn/shared/run-types";
 
+import { PhaseClock } from "@acorn/shared/phase-clock";
+
 import { getAcornSocket } from "../acorn-socket";
 import { rekeyCustomTab } from "../tab-custom-session";
-import { rekeyTabJob } from "../tab-job-session";
+import { getTabJob, rekeyTabJob } from "../tab-job-session";
 
 import { requestDiagnose, requestReadPage, READ_INTENT, type ReadIntent } from "./api/run";
-import { clickControl, settleAfterClick, watchOpenedTabs } from "./run-click";
+import { repairDriftInTab } from "./drift";
+import { clickControl, probePage, settleAfterClick, watchOpenedTabs } from "./run-click";
 import { failureEvidence } from "./run-evidence";
 import {
   RUN_MAX_NO_EFFECT,
@@ -71,6 +75,8 @@ interface PageState {
   noEffect: number;
   /** The fields as they stood right before the last forward click. */
   scanBeforeClick: FieldIssueScan | null;
+  /** When this page's fill began; drift repair replays only answers given since. */
+  fillStartedAt: number;
 }
 
 class RunStop extends Error {
@@ -111,6 +117,25 @@ export async function runOrchestrator(args: RunOrchestratorArgs): Promise<RunRep
   let current: PageState | null = null;
   let snapshot: PageSnapshot | null = null;
   let resumeChecked = false;
+  /** A résumé recommend in flight; it must settle before any click or fill. */
+  let recommending: Promise<{ recommended: boolean; error?: string }> | null = null;
+  const clock = new PhaseClock();
+  const snap = (opts: Parameters<typeof snapshotPage>[1]) =>
+    clock.time("snapshot", () => snapshotPage(tabId, opts));
+  const recommend = (url: string, title: string, posting: boolean) => {
+    resumeChecked = true;
+    recommending = clock.time("recommend", () =>
+      ensureRecommendedResume({ tabId, url, title, apiUrl, posting, log }),
+    );
+  };
+  /** Wait for the recommend before the run touches the page or moves tabs. */
+  const settleRecommend = async () => {
+    if (!recommending) return;
+    enter(RUN_STAGE.recommending);
+    const recommended = await recommending;
+    recommending = null;
+    if (recommended.error) progress(`Résumé skipped · ${recommended.error}`);
+  };
 
   const runState = (): RunProgress => ({
     runId,
@@ -142,6 +167,7 @@ export async function runOrchestrator(args: RunOrchestratorArgs): Promise<RunRep
   /** Fill or Refill the page through the existing pipeline; its end is not the run's end. */
   const fill = async (mode: FillMode, within: PageSnapshot) => {
     let last: PipelineProgress | undefined;
+    const started = Date.now();
     await runFabPipeline({
       tabId,
       preferredFrameId: within.frameId,
@@ -164,25 +190,29 @@ export async function runOrchestrator(args: RunOrchestratorArgs): Promise<RunRep
       steps: last?.steps?.length,
       durationMs: last?.durationMs,
       costUsd: last?.usage?.costUsd,
+      phases: last?.phases,
     });
+    clock.add(mode === FILL_MODE.refill ? "refill" : "fill", Date.now() - started);
     return { failed, error: last?.error, steps: last?.steps };
   };
 
   const read = async (intent: ReadIntent, within: PageSnapshot) => {
-    const res = await requestReadPage(
-      {
-        runId,
-        step: log.step,
-        intent,
-        url: within.url,
-        title: within.title,
-        text: within.text,
-        controls: within.controls,
-        flagged: within.flagged,
-        pageMessages: within.scan.pageMessages,
-      },
-      apiUrl,
-      tabId,
+    const res = await clock.time("decide", () =>
+      requestReadPage(
+        {
+          runId,
+          step: log.step,
+          intent,
+          url: within.url,
+          title: within.title,
+          text: within.text,
+          controls: within.controls,
+          flagged: within.flagged,
+          pageMessages: within.scan.pageMessages,
+        },
+        apiUrl,
+        tabId,
+      ),
     );
     if (!res.ok || !res.kind) {
       throw new RunStop(RUN_STAGE.reading, within, [
@@ -190,9 +220,10 @@ export async function runOrchestrator(args: RunOrchestratorArgs): Promise<RunRep
       ]);
     }
     kind = res.kind;
-    const picked = res.control
-      ? within.controls.find((candidate) => candidate.id === res.control?.id)
-      : undefined;
+    const find = (id?: number) =>
+      id == null ? undefined : within.controls.find((candidate) => candidate.id === id);
+    const picked = find(res.control?.id);
+    const fallbackPicked = find(res.fallback?.id);
     log.event("read", {
       intent,
       kind: res.kind,
@@ -206,8 +237,21 @@ export async function runOrchestrator(args: RunOrchestratorArgs): Promise<RunRep
             text: picked?.text || picked?.label,
           }
         : null,
+      fallback: res.fallback
+        ? {
+            confidence: res.fallback.confidence,
+            text: fallbackPicked?.text || fallbackPicked?.label,
+            disabled: fallbackPicked?.disabled,
+          }
+        : null,
     });
-    return { kind: res.kind, control: res.control ?? null, picked };
+    return {
+      kind: res.kind,
+      control: res.control ?? null,
+      picked,
+      fallback: res.fallback ?? null,
+      fallbackPicked,
+    };
   };
 
   /** Click the control, then wait for the page to react. Returns the page that follows. */
@@ -217,6 +261,8 @@ export async function runOrchestrator(args: RunOrchestratorArgs): Promise<RunRep
     label: string,
   ) => {
     control = label;
+    const started = Date.now();
+    const beforeProbe = await probePage(tabId, on.frameId);
     const watcher = watchOpenedTabs(tabId);
     try {
       const result = await clickControl(tabId, on.frameId, picked.id);
@@ -230,6 +276,7 @@ export async function runOrchestrator(args: RunOrchestratorArgs): Promise<RunRep
         tabId,
         frameId: on.frameId,
         before: { url: on.url, signature: on.signature },
+        beforeProbe,
         watcher,
       });
       log.event("settled", { how: settled.how, url: logUrl(settled.snapshot.url) });
@@ -237,6 +284,7 @@ export async function runOrchestrator(args: RunOrchestratorArgs): Promise<RunRep
       return settled;
     } finally {
       watcher.stop();
+      clock.add("click", Date.now() - started);
     }
   };
 
@@ -254,19 +302,21 @@ export async function runOrchestrator(args: RunOrchestratorArgs): Promise<RunRep
     });
     const fallbackDetail = evidence.slice(0, 3).join(" · ");
     try {
-      const res = await requestDiagnose(
-        {
-          runId,
-          step: log.step,
-          stage: stop.stage,
-          attempts: refillsOnPage,
-          url: stop.snapshot?.url ?? "",
-          title: stop.snapshot?.title ?? "",
-          text: stop.snapshot?.text ?? "",
-          evidence,
-        },
-        apiUrl,
-        tabId,
+      const res = await clock.time("diagnose", () =>
+        requestDiagnose(
+          {
+            runId,
+            step: log.step,
+            stage: stop.stage,
+            attempts: refillsOnPage,
+            url: stop.snapshot?.url ?? "",
+            title: stop.snapshot?.title ?? "",
+            text: stop.snapshot?.text ?? "",
+            evidence,
+          },
+          apiUrl,
+          tabId,
+        ),
       );
       if (res.ok && res.reason) {
         log.event("diagnose:done", { reason: res.reason, confidence: res.confidence });
@@ -306,6 +356,7 @@ export async function runOrchestrator(args: RunOrchestratorArgs): Promise<RunRep
       seconds,
       reason: result.failure?.reason,
       detail: result.failure?.detail,
+      phases: clock.summary(),
     });
     const message = failed
       ? `Stopped · ${result.failure?.label ?? UNKNOWN_FAILURE_LABEL}`
@@ -340,7 +391,7 @@ export async function runOrchestrator(args: RunOrchestratorArgs): Promise<RunRep
         pending = null;
       } else {
         enter(RUN_STAGE.reading);
-        page = await snapshotPage(tabId, {
+        page = await snap({
           form: current?.filled === true,
           frameId: snapshot?.frameId,
         });
@@ -362,6 +413,7 @@ export async function runOrchestrator(args: RunOrchestratorArgs): Promise<RunRep
           refills: 0,
           noEffect: 0,
           scanBeforeClick: null,
+          fillStartedAt: 0,
         };
         refillsOnPage = 0;
         log.event("page", { page: pageCount, url: logUrl(page.url), flagged: page.flagged });
@@ -372,8 +424,9 @@ export async function runOrchestrator(args: RunOrchestratorArgs): Promise<RunRep
       if (!moved && state.clicks > 0) {
         // Only what the click flagged: a hint the page always shows is no rejection.
         const flagged = countFlaggedSince(state.scanBeforeClick, page.scan);
-        log.event("after-click", { flagged, shown: page.flagged });
-        if (flagged > 0) {
+        const missing = countRequiredEmpty(page.scan);
+        log.event("after-click", { flagged, missing, shown: page.flagged });
+        if (flagged > 0 || missing > 0) {
           if (state.refills >= RUN_MAX_REFILLS_PER_PAGE) {
             throw new RunStop(RUN_STAGE.refilling, page, [
               `Still flagged after ${state.refills} refills (limit ${RUN_MAX_REFILLS_PER_PAGE})`,
@@ -384,7 +437,7 @@ export async function runOrchestrator(args: RunOrchestratorArgs): Promise<RunRep
           refillsTotal += 1;
           enter(
             RUN_STAGE.refilling,
-            `Refill ${state.refills}/${RUN_MAX_REFILLS_PER_PAGE} · ${flagged} flagged`,
+            `Refill ${state.refills}/${RUN_MAX_REFILLS_PER_PAGE} · ${flagged + missing} to fix`,
           );
           const refilled = await fill(FILL_MODE.refill, page);
           if (refilled.failed) {
@@ -404,10 +457,12 @@ export async function runOrchestrator(args: RunOrchestratorArgs): Promise<RunRep
             ]);
           }
         }
-        page = await snapshotPage(tabId, { form: true, frameId: page.frameId });
+        page = await snap({ form: true, frameId: page.frameId });
         snapshot = page;
       } else if (!state.filled) {
-        // 3. A page seen for the first time: what is it?
+        // 3. A page seen for the first time: what is it? A tab bound to a job can
+        // have its résumé recommended while the page is read.
+        if (!resumeChecked && (await getTabJob(tabId))) recommend(page.url, page.title, false);
         const first = await read(READ_INTENT.start, page);
         if (first.kind === PAGE_KIND.confirmation) {
           return await finish(report(RUN_OUTCOME.completed));
@@ -418,19 +473,8 @@ export async function runOrchestrator(args: RunOrchestratorArgs): Promise<RunRep
           ]);
         }
 
-        if (!resumeChecked) {
-          resumeChecked = true;
-          enter(RUN_STAGE.recommending);
-          const recommended = await ensureRecommendedResume({
-            tabId,
-            url: page.url,
-            title: page.title,
-            apiUrl,
-            posting: first.kind === PAGE_KIND.posting,
-            log,
-          });
-          if (recommended.error) progress(`Résumé skipped · ${recommended.error}`);
-        }
+        if (!resumeChecked) recommend(page.url, page.title, first.kind === PAGE_KIND.posting);
+        await settleRecommend();
 
         if (first.kind === PAGE_KIND.posting) {
           if (!first.control || !first.picked) {
@@ -450,6 +494,7 @@ export async function runOrchestrator(args: RunOrchestratorArgs): Promise<RunRep
 
         // An application form: fill it, then look again for the control that moves it on.
         enter(RUN_STAGE.filling);
+        state.fillStartedAt = Date.now();
         const filled = await fill(FILL_MODE.fill, page);
         if (filled.failed) {
           throw new RunStop(
@@ -460,17 +505,33 @@ export async function runOrchestrator(args: RunOrchestratorArgs): Promise<RunRep
           );
         }
         state.filled = true;
-        page = await snapshotPage(tabId, { form: true, frameId: page.frameId });
+        page = await snap({ form: true, frameId: page.frameId });
         snapshot = page;
       }
 
-      // 4. A filled page: click the control that moves the application forward.
+      // 4. A filled page: put back what the page cleared since the fill, then click
+      // the control that moves the application forward. The click comes before any
+      // verdict: a page that looks stuck often answers it by showing what it needs.
       enter(RUN_STAGE.advancing);
+      if (state.fillStartedAt > 0) {
+        const drift = await repairDriftInTab(tabId, page.frameId, state.fillStartedAt);
+        if (drift.checked) log.event("drift", { ...drift });
+        if (drift.repaired > 0) {
+          page = await snap({ form: true, frameId: page.frameId });
+          snapshot = page;
+        }
+      }
       const next = await read(READ_INTENT.advance, page);
       if (next.kind === PAGE_KIND.confirmation) {
         return await finish(report(RUN_OUTCOME.completed));
       }
-      if (!next.control || !next.picked) {
+      const target =
+        next.control && next.picked
+          ? { control: next.control, picked: next.picked, fallback: false }
+          : next.fallback && next.fallbackPicked
+            ? { control: next.fallback, picked: next.fallbackPicked, fallback: true }
+            : null;
+      if (!target) {
         // After a click, a missing control is the page holding the click (busy,
         // disabled, waiting on a check), not a page that never had one.
         const notes =
@@ -483,12 +544,15 @@ export async function runOrchestrator(args: RunOrchestratorArgs): Promise<RunRep
       }
       state.clicks += 1;
       state.scanBeforeClick = page.scan;
-      const label = next.picked.text || next.picked.label;
+      const label = target.picked.text || target.picked.label;
+      if (target.fallback) {
+        log.event("click:fallback", { text: label, disabled: target.picked.disabled });
+      }
       enter(
         RUN_STAGE.advancing,
-        `${next.control.role === CONTROL_ROLE.submit ? "Submitting" : "Next step"} · ${label}`,
+        `${target.control.role === CONTROL_ROLE.submit ? "Submitting" : "Next step"} · ${label}`,
       );
-      pending = (await click(page, next.control, label)).snapshot;
+      pending = (await click(page, target.control, label)).snapshot;
     }
     throw new RunStop(stage, snapshot, [`The run used ${RUN_MAX_STEPS} steps without finishing`]);
   } catch (err) {

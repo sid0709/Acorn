@@ -2,7 +2,15 @@ import { traceFromPage } from "../../debug-trace";
 import { fieldWrapper, groupQuestion } from "../form-dom";
 import { forLabelOf, uniqueById } from "../verify/element-labels";
 
+import { JEV_LIST_MAX } from "./combobox/choose-option";
+import { estimateOptionAnswer } from "./combobox/estimate-client";
+import { optionText } from "./combobox/options-dom";
+import { openAndCollectOptions } from "./combobox/options-wait";
+import { dismissOpenOverlays, resolveTypeableInput } from "./combobox/typing";
+import { resolveDropdownInteractionTarget } from "./enhanced-select";
 import { fillElement } from "./fill";
+import { askAiMatchOption } from "./match-option-client";
+import { optionLabel, realOptions } from "./native-select";
 import { wasPlanFilled } from "./plan-fill-registry";
 import { readControlValue } from "./read-control-value";
 
@@ -67,13 +75,112 @@ export async function fillLeftoverComboboxes(): Promise<{
       all,
       picked: batch.map((el) => ({ id: el.id, label: fieldLabel(el), read: readControlValue(el) })),
     }));
+    // The page is driven one dropdown at a time, but no dropdown waits on another's
+    // answer: each one's options are read and its decision is sent at once, and the
+    // answers are applied after they all came back.
+    const planned: { el: HTMLElement; label: string; answer: Promise<LeftoverAnswer> }[] = [];
     for (const el of batch) {
       tried.add(el);
-      if (await fillLeftover(el)) filled += 1;
+      const label = fieldLabel(el);
+      const listed = await readListedOptions(el);
+      planned.push({ el, label, answer: decideLeftover(label, listed) });
+    }
+    const answers = await Promise.all(planned.map((row) => row.answer));
+    for (const [i, { el, label }] of planned.entries()) {
+      if (await fillLeftover(el, label, answers[i])) filled += 1;
     }
     found += batch.length;
   }
   return { found, filled };
+}
+
+/** What one leftover dropdown lists when opened; long or remote lists are searched later. */
+type ListedOptions = { labels: string[]; searchable: boolean };
+
+/** How a leftover dropdown gets its answer, decided before the page is touched again. */
+type LeftoverAnswer =
+  /** An option of its list, picked by the decision model: selected with no further call. */
+  | { kind: "option"; label: string }
+  /** A long or remote list: the writer's estimate, typed as a search. */
+  | { kind: "search"; estimate: Promise<string | null> }
+  /** Nothing decided ahead: the one-by-one path. */
+  | { kind: "live" };
+
+async function readListedOptions(el: HTMLElement): Promise<ListedOptions> {
+  const target = resolveDropdownInteractionTarget(el);
+  if (target instanceof HTMLSelectElement) {
+    return { labels: realOptions(target).map(optionLabel).filter(Boolean), searchable: false };
+  }
+  const doc = target.ownerDocument || document;
+  try {
+    dismissOpenOverlays(doc, target);
+    const options = await openAndCollectOptions(target, doc);
+    return {
+      labels: options.map(optionText).filter(Boolean),
+      searchable: Boolean(resolveTypeableInput(target)),
+    };
+  } catch {
+    return { labels: [], searchable: false };
+  } finally {
+    dismissOpenOverlays(doc, target);
+  }
+}
+
+/** Starts the decision now; the promise resolves while later dropdowns are being read. */
+async function decideLeftover(label: string, listed: ListedOptions): Promise<LeftoverAnswer> {
+  const whole =
+    listed.labels.length > 0 && (listed.labels.length <= JEV_LIST_MAX || !listed.searchable);
+  if (whole) {
+    const ai = await askAiMatchOption({
+      intendedValue: PROFILE_ANSWER,
+      options: listed.labels,
+      fieldLabel: label || null,
+      typedQuery: null,
+      allowNotListed: false,
+    });
+    const picked = ai.matched_option || ai.fallback_option;
+    return picked ? { kind: "option", label: picked } : { kind: "live" };
+  }
+  if (listed.searchable && label) {
+    return { kind: "search", estimate: estimateOptionAnswer(label) };
+  }
+  return { kind: "live" };
+}
+
+async function fillLeftover(
+  el: HTMLElement,
+  label: string,
+  answer: LeftoverAnswer,
+): Promise<boolean> {
+  try {
+    if (answer.kind === "option") {
+      // An exact option label: the select path clicks it without asking again.
+      await fillElement(el, answer.label, label || null);
+    } else {
+      // PROFILE_ANSWER is an instruction for the matcher, never a search query: a long
+      // list types the writer's estimated answer instead.
+      await fillElement(el, PROFILE_ANSWER, label || null, {
+        estimateQuery: true,
+        estimate: answer.kind === "search" ? answer.estimate : undefined,
+        searchFirst: answer.kind === "search",
+      });
+    }
+    traceFromPage("leftover:filled", () => ({
+      id: el.id,
+      label,
+      by: answer.kind,
+      read: readControlValue(el),
+    }));
+    return Boolean(readControlValue(el));
+  } catch (err) {
+    traceFromPage("leftover:error", () => ({
+      id: el.id,
+      label,
+      by: answer.kind,
+      error: String(err),
+    }));
+    return false;
+  }
 }
 
 /** Empty, enabled dropdowns no plan step answered and this pass has not tried. */
@@ -91,18 +198,4 @@ function leftoverCandidates(tried: Set<HTMLElement>): { all: number; leftovers: 
     return !readControlValue(el);
   });
   return { all: nodes.length, leftovers };
-}
-
-async function fillLeftover(el: HTMLElement): Promise<boolean> {
-  const label = fieldLabel(el);
-  try {
-    // PROFILE_ANSWER is an instruction for the matcher, never a search query: a long
-    // list types the writer's estimated answer instead.
-    await fillElement(el, PROFILE_ANSWER, label || null, { estimateQuery: true });
-    traceFromPage("leftover:filled", () => ({ id: el.id, label, read: readControlValue(el) }));
-    return Boolean(readControlValue(el));
-  } catch (err) {
-    traceFromPage("leftover:error", () => ({ id: el.id, label, error: String(err) }));
-    return false;
-  }
 }

@@ -131,14 +131,16 @@ func (s *Service) FastPlan(ctx context.Context, applicant string, fields []FormF
 		return AnalyzeResult{}, fmt.Errorf("%w: formFields are required", ErrInvalid)
 	}
 	texts, files, choices := splitFields(fields)
+	profile := parseApplicantFacts(applicant)
 
 	var (
-		wg                    sync.WaitGroup
-		textKinds, fileTypes  map[int]string
-		subjects              map[int]string
-		picks                 map[int][]string
-		written               map[int]string
-		textErr, fileErr, err error
+		wg                   sync.WaitGroup
+		textKinds, fileTypes map[int]string
+		subjects             map[int]string
+		picks                map[int][]string
+		early, late          map[int]string
+		textErr, fileErr     error
+		pickErr              error
 	)
 	// Multi-line fields almost always want a written answer: start the writer now,
 	// alongside the decision model, instead of after it.
@@ -147,30 +149,66 @@ func (s *Service) FastPlan(ctx context.Context, applicant string, fields []FormF
 		go func() {
 			defer wg.Done()
 			var writeErr error
-			if written, writeErr = s.writeAnswers(ctx, applicant, page, prose); writeErr != nil {
+			if early, writeErr = s.writeAnswers(ctx, applicant, page, prose); writeErr != nil {
 				slog.Warn("acorn fast plan: early written answers skipped", "error", writeErr)
 			}
 		}()
 	}
-	wg.Add(4)
+	// One-line fields learn they need writing from the classifier: their writer
+	// starts the moment the text fields are classified, not after every decision.
+	wg.Add(1)
 	go func() {
 		defer wg.Done()
-		textKinds, textErr = s.classifier.ClassifyEach(ctx, textFieldInstructions, factKinds(), describeAll(texts))
+		var classified sync.WaitGroup
+		classified.Add(2)
+		go func() {
+			defer classified.Done()
+			textKinds, textErr = s.classifier.ClassifyEach(ctx, textFieldInstructions, factKinds(), describeAll(texts))
+		}()
+		go func() {
+			defer classified.Done()
+			var subjectErr error
+			if subjects, subjectErr = s.classifier.ClassifyEach(ctx, subjectInstructions, subjectKinds, describeAll(texts)); subjectErr != nil {
+				slog.Warn("acorn fast plan: field subjects unclassified", "error", subjectErr)
+			}
+		}()
+		classified.Wait()
+		if textErr != nil {
+			return
+		}
+		if textKinds == nil {
+			textKinds = map[int]string{}
+		}
+		for index, subject := range subjects {
+			if subject == subjectOther {
+				textKinds[index] = FactOtherPerson
+			}
+		}
+		var oneLine []FormField
+		for _, field := range texts {
+			if _, write := textAnswer(profile, field, textKinds[field.ElementIndex]); write && field.Kind != fieldTextarea {
+				oneLine = append(oneLine, field)
+			}
+		}
+		if len(oneLine) == 0 {
+			return
+		}
+		var writeErr error
+		if late, writeErr = s.writeAnswers(ctx, applicant, page, writeFields(oneLine)); writeErr != nil {
+			slog.Warn("acorn fast plan: written answers skipped", "error", writeErr)
+		}
 	}()
+	wg.Add(2)
 	go func() {
 		defer wg.Done()
-		var subjectErr error
-		if subjects, subjectErr = s.classifier.ClassifyEach(ctx, subjectInstructions, subjectKinds, describeAll(texts)); subjectErr != nil {
-			slog.Warn("acorn fast plan: field subjects unclassified", "error", subjectErr)
+		fileTypes, fileErr = s.classifier.ClassifyEach(ctx, fileFieldInstructions, fileKinds, describeAll(files))
+		if fileErr == nil {
+			s.settleResumeField(ctx, files, fileTypes)
 		}
 	}()
 	go func() {
 		defer wg.Done()
-		fileTypes, fileErr = s.classifier.ClassifyEach(ctx, fileFieldInstructions, fileKinds, describeAll(files))
-	}()
-	go func() {
-		defer wg.Done()
-		picks, err = s.picker.PickChoices(ctx, applicant, choiceQuestions(choices))
+		picks, pickErr = s.picker.PickChoices(ctx, applicant, choiceQuestions(choices))
 	}()
 	wg.Wait()
 	if textErr != nil && len(texts) > 0 {
@@ -179,16 +217,16 @@ func (s *Service) FastPlan(ctx context.Context, applicant string, fields []FormF
 	if fileErr != nil {
 		slog.Warn("acorn fast plan: file fields unclassified", "error", fileErr)
 	}
-	if err != nil {
-		slog.Warn("acorn fast plan: choice fields left to the runtime", "error", err)
+	if pickErr != nil {
+		slog.Warn("acorn fast plan: choice fields left to the runtime", "error", pickErr)
 	}
 
 	plan := newPlan()
-	s.settleResumeField(ctx, files, fileTypes)
 	addResumeUpload(plan, files, fileTypes)
-	for index, subject := range subjects {
-		if subject == subjectOther {
-			textKinds[index] = FactOtherPerson
+	written := make(map[int]string, len(early)+len(late))
+	for _, answers := range []map[int]string{early, late} {
+		for index, answer := range answers {
+			written[index] = answer
 		}
 	}
 	s.addTextFills(ctx, plan, texts, textKinds, written, applicant, page)
@@ -410,26 +448,35 @@ func writeFields(fields []FormField) []typingField {
 	return out
 }
 
+// textAnswer is how a text field of this kind is answered: a profile fact's value,
+// or write when the writer must answer it (a written-answer kind, or a required
+// field the profile cannot answer). Neither means it stays blank; another
+// person's details are never made up.
+func textAnswer(profile applicantFacts, field FormField, kind string) (fact string, write bool) {
+	if kind != FactWrite && !blankKinds[kind] && kind != "" {
+		if value := factValue(profile, kind); value != "" {
+			return value, false
+		}
+		kind = FactSkip
+	}
+	if kind == FactOtherPerson {
+		return "", false
+	}
+	return "", kind == FactWrite || (blankKinds[kind] && field.Required)
+}
+
 // addTextFills fills profile facts, keeps blanks blank, and uses the writer's
-// answers for "write" fields — reusing the early answers for multi-line fields.
+// answers already written for "write" fields; any it still lacks are written now.
 func (s *Service) addTextFills(ctx context.Context, plan Plan, fields []FormField, kinds map[int]string, written map[int]string, applicant string, page map[string]any) {
 	profile := parseApplicantFacts(applicant)
 	var write []FormField
 	for _, field := range fields {
-		kind := kinds[field.ElementIndex]
-		if kind != FactWrite && !blankKinds[kind] && kind != "" {
-			if value := factValue(profile, kind); value != "" {
-				addAction(plan, "fill", field, textRole(field), value, nil)
-				continue
-			}
-			kind = FactSkip
-		}
-		// Another person's details are never made up: the applicant fills those.
-		if kind == FactOtherPerson {
+		fact, needsWriting := textAnswer(profile, field, kinds[field.ElementIndex])
+		if fact != "" {
+			addAction(plan, "fill", field, textRole(field), fact, nil)
 			continue
 		}
-		// A required field the profile cannot answer still gets a written answer.
-		if kind != FactWrite && !(blankKinds[kind] && field.Required) {
+		if !needsWriting {
 			continue
 		}
 		if answer := strings.TrimSpace(written[field.ElementIndex]); answer != "" {

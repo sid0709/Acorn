@@ -4,18 +4,23 @@ import (
 	"context"
 	"encoding/json"
 	"strings"
+	"sync"
 	"testing"
 
 	"github.com/sid0709/OpenSeat/backend-core/candidate"
 )
 
-// fakeModel answers each call from a queue of replies, in order.
+// fakeModel answers each call from a queue of replies, in order. Calls may come
+// from parallel writers, so the queue is guarded.
 type fakeModel struct {
+	mu      sync.Mutex
 	replies []string
 	calls   []string
 }
 
 func (f *fakeModel) JSON(_ context.Context, system, user string, _ json.RawMessage) ([]byte, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
 	f.calls = append(f.calls, system[:20]+"|"+user)
 	if len(f.replies) == 0 {
 		return nil, context.DeadlineExceeded

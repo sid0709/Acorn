@@ -36,6 +36,13 @@ export type ChooseOptions = {
    * list asks the writer for an estimated answer and types that instead.
    */
   estimateQuery?: boolean;
+  /** The writer's estimate, already requested (the leftover pass asks for all at once). */
+  estimate?: Promise<string | null>;
+  /**
+   * The list was read already and is too long, or empty until typed into: skip
+   * opening it again and type the query right away.
+   */
+  searchFirst?: boolean;
 };
 
 /**
@@ -55,8 +62,17 @@ export async function chooseOption(
   doc: Document,
   value: string,
   fieldLabel: string | null,
-  { allowTypeahead, estimateQuery = false }: ChooseOptions,
+  { allowTypeahead, estimateQuery = false, estimate, searchFirst = false }: ChooseOptions,
 ): Promise<ChooseResult> {
+  const estimated = () => estimate ?? estimateOptionAnswer(fieldLabel);
+  if (searchFirst && allowTypeahead && resolveTypeableInput(control)) {
+    const query = estimateQuery ? await estimated() : value;
+    traceFromPage("combo:search-first", () => ({ value, query }));
+    if (query && query.trim().length >= 2) {
+      dismissOpenOverlays(doc, control);
+      return narrowAndDecide(control, doc, query, fieldLabel, []);
+    }
+  }
   const openStarted = Date.now();
   dismissOpenOverlays(doc, control);
   await waitMs(40);
@@ -86,7 +102,7 @@ export async function chooseOption(
       return { match: first.match ?? first.fallback, options: initial };
   }
 
-  const query = estimateQuery ? await estimateOptionAnswer(fieldLabel) : value;
+  const query = estimateQuery ? await estimated() : value;
   traceFromPage("combo:estimate", () => ({ value, query, count: initial.length, estimateQuery }));
   if (!query || query.trim().length < 2) {
     const forced = await decide(value, fieldLabel, null, initial, false);

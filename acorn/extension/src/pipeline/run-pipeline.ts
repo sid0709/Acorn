@@ -2,6 +2,7 @@ import { formatDuration, formatUsd } from "@acorn/shared/ai-usage";
 import { FILL_MODE, type FillMode } from "@acorn/shared/field-issues";
 import { applyApplicantIdentityToActions } from "@acorn/shared/plan-runner/applicant-identity";
 import { runActionPlan } from "@acorn/shared/plan-runner/orchestrator";
+import { PhaseClock } from "@acorn/shared/phase-clock";
 import { formatPlannerTree } from "@acorn/shared/planner-tree";
 import { formatAnalyzeTrees } from "@acorn/shared/tree-export";
 
@@ -15,6 +16,7 @@ import { MSG, type DomTreePayload, type PipelineSource } from "../types";
 
 import { fetchRuntimeFile } from "./api/job-files";
 import { decideChoicesInBatch } from "./choice-batch";
+import { repairDriftInTab } from "./drift";
 import { fetchDomFromTab } from "./fetch-dom";
 import { keepResumeIfSameSite, loadFillResume } from "./fill-resume";
 import { planLateFields } from "./late-fields";
@@ -69,6 +71,7 @@ export async function runFabPipeline(args: RunPipelineArgs): Promise<void> {
   } = args;
 
   const startedAt = Date.now();
+  const clock = new PhaseClock();
   const refill = mode === FILL_MODE.refill;
   beginPipelineUsageTracking(tabId);
 
@@ -86,7 +89,7 @@ export async function runFabPipeline(args: RunPipelineArgs): Promise<void> {
   const finishMeta = () => {
     const durationMs = Date.now() - startedAt;
     const usage = endPipelineUsageTracking(tabId);
-    return { durationMs, usage };
+    return { durationMs, usage, phases: clock.summary() };
   };
 
   try {
@@ -101,20 +104,22 @@ export async function runFabPipeline(args: RunPipelineArgs): Promise<void> {
       source !== "custom" && customTab != null && customTabHasResume(customTab);
     const resumeSource: PipelineSource =
       source === "custom" || usingForcedCustom ? "custom" : "fill";
-    const [fetchedDom, resumeLoad, runtimeFile] = await Promise.all([
-      fetchDomFromTab(tabId, preferredFrameId, {
-        fieldIssues: refill,
-        formFields: wantsFastPlan(mode),
-      }),
-      loadFillResume({
-        source: resumeSource,
-        tabJob,
-        customTab,
-        customGenerationId: customTab?.generationId ?? null,
-        apiUrl: aiServerUrl,
-      }),
-      fetchRuntimeFile(aiServerUrl).catch(() => null),
-    ]);
+    const [fetchedDom, resumeLoad, runtimeFile] = await clock.time("dom", () =>
+      Promise.all([
+        fetchDomFromTab(tabId, preferredFrameId, {
+          fieldIssues: refill,
+          formFields: wantsFastPlan(mode),
+        }),
+        loadFillResume({
+          source: resumeSource,
+          tabJob,
+          customTab,
+          customGenerationId: customTab?.generationId ?? null,
+          apiUrl: aiServerUrl,
+        }),
+        fetchRuntimeFile(aiServerUrl).catch(() => null),
+      ]),
+    );
     // The page HTML only rides to Analyze's debug capture, not the socket or sidebar.
     const { html: pageHtml, fieldIssues, formFields, ...treePayload } = fetchedDom;
     const boundResume =
@@ -154,11 +159,12 @@ export async function runFabPipeline(args: RunPipelineArgs): Promise<void> {
       });
 
     if (refill && !fieldIssues?.issues.length) {
-      const { durationMs, usage } = finishMeta();
+      const { durationMs, usage, phases } = finishMeta();
       emit({
         phase: "done",
         message: REFILL_NOTHING_FLAGGED,
         durationMs,
+        phases,
         usage,
         tree: treeSnapshot,
         resumeUpload: resumeUpload(),
@@ -223,17 +229,19 @@ export async function runFabPipeline(args: RunPipelineArgs): Promise<void> {
         null,
     };
 
-    const analyze = await requestPlan(
-      {
-        pureTree,
-        mode,
-        fieldIssues: refill ? fieldIssues : undefined,
-        page,
-        debug: ACORN_DEBUG ? { html: pageHtml, domTree: treePayload.tree, metaTree } : undefined,
-      },
-      formFields,
-      aiServerUrl,
-      tabId,
+    const analyze = await clock.time("plan", () =>
+      requestPlan(
+        {
+          pureTree,
+          mode,
+          fieldIssues: refill ? fieldIssues : undefined,
+          page,
+          debug: ACORN_DEBUG ? { html: pageHtml, domTree: treePayload.tree, metaTree } : undefined,
+        },
+        formFields,
+        aiServerUrl,
+        tabId,
+      ),
     );
     addPipelineUsage(tabId, analyze.usage);
     if (refill && analyze.mode !== FILL_MODE.refill) {
@@ -268,83 +276,85 @@ export async function runFabPipeline(args: RunPipelineArgs): Promise<void> {
     }));
 
     const runPlan = (target: ActionPlan, total: number) =>
-      runActionPlan({
-        plan: target,
-        runtimeFile,
-        recommendedResume,
-        customResume,
-        resumeFileKind,
-        force: refill,
-        executeStep: async (step: PlanStepPayload) => {
-          const sentAt = Date.now();
-          const res = await sendPlanStepToTab(tabId, step, frameId);
-          traceFromBackground("step:result", () => ({
-            element_index: step.element_index,
-            label: step.expected_label,
-            ok: res.ok,
-            alreadyFilled: res.alreadyFilled,
-            error: res.error,
-            valueAfter: res.details?.valueAfter,
-            ms: Date.now() - sentAt,
-          }));
-          const details = res.details ?? {};
-          return {
-            ok: Boolean(res.ok),
-            verified: res.verified,
-            acted: res.acted,
-            alreadyFilled: Boolean(res.alreadyFilled),
-            error: res.error,
-            details: {
-              nodeId: typeof details.nodeId === "number" ? details.nodeId : undefined,
-              matchedLabel:
-                typeof details.matchedLabel === "string" ? details.matchedLabel : undefined,
-              matchedRole:
-                typeof details.matchedRole === "string" ? details.matchedRole : undefined,
-              valueAfter: typeof details.valueAfter === "string" ? details.valueAfter : undefined,
-            },
-          };
-        },
-        hooks: {
-          beforeFills: () =>
-            decideChoicesInBatch({ tabId, frameId, plan: target, apiUrl: aiServerUrl }),
-          onSteps: (steps) => {
-            const running = steps.find((s) => s.status === "running" || s.status === "paused");
-            const doneCount = steps.filter((s) =>
-              ["ok", "skipped", "blocked", "failed", "aborted"].includes(s.status),
-            ).length;
-            const current = running ?? steps[Math.min(doneCount, steps.length - 1)];
-            const idx = current ? current.index + 1 : doneCount;
-            emit({
-              phase: "running",
-              message: `Running ${Math.min(idx, total)}/${total}…`,
-              stepIndex: current?.index,
-              stepTotal: total,
-              stepLabel: current ? shortLabel(current.expected_label, current.action) : undefined,
-              steps,
-              resumeUpload: buildResumeUploadProgress({
-                recommendedResume: resumeFile,
-                resumeStack: boundResumeStack,
-                skipReason: resumeSkipReason,
+      clock.time("steps", () =>
+        runActionPlan({
+          plan: target,
+          runtimeFile,
+          recommendedResume,
+          customResume,
+          resumeFileKind,
+          force: refill,
+          executeStep: async (step: PlanStepPayload) => {
+            const sentAt = Date.now();
+            const res = await sendPlanStepToTab(tabId, step, frameId);
+            traceFromBackground("step:result", () => ({
+              element_index: step.element_index,
+              label: step.expected_label,
+              ok: res.ok,
+              alreadyFilled: res.alreadyFilled,
+              error: res.error,
+              valueAfter: res.details?.valueAfter,
+              ms: Date.now() - sentAt,
+            }));
+            const details = res.details ?? {};
+            return {
+              ok: Boolean(res.ok),
+              verified: res.verified,
+              acted: res.acted,
+              alreadyFilled: Boolean(res.alreadyFilled),
+              error: res.error,
+              details: {
+                nodeId: typeof details.nodeId === "number" ? details.nodeId : undefined,
+                matchedLabel:
+                  typeof details.matchedLabel === "string" ? details.matchedLabel : undefined,
+                matchedRole:
+                  typeof details.matchedRole === "string" ? details.matchedRole : undefined,
+                valueAfter: typeof details.valueAfter === "string" ? details.valueAfter : undefined,
+              },
+            };
+          },
+          hooks: {
+            beforeFills: () =>
+              decideChoicesInBatch({ tabId, frameId, plan: target, apiUrl: aiServerUrl }),
+            onSteps: (steps) => {
+              const running = steps.find((s) => s.status === "running" || s.status === "paused");
+              const doneCount = steps.filter((s) =>
+                ["ok", "skipped", "blocked", "failed", "aborted"].includes(s.status),
+              ).length;
+              const current = running ?? steps[Math.min(doneCount, steps.length - 1)];
+              const idx = current ? current.index + 1 : doneCount;
+              emit({
+                phase: "running",
+                message: `Running ${Math.min(idx, total)}/${total}…`,
+                stepIndex: current?.index,
+                stepTotal: total,
+                stepLabel: current ? shortLabel(current.expected_label, current.action) : undefined,
                 steps,
-              }),
-            });
+                resumeUpload: buildResumeUploadProgress({
+                  recommendedResume: resumeFile,
+                  resumeStack: boundResumeStack,
+                  skipReason: resumeSkipReason,
+                  steps,
+                }),
+              });
+            },
+            onPause: async (request) => {
+              emit({
+                phase: "running",
+                message:
+                  request.kind === "error"
+                    ? `Skipping: ${shortLabel(request.expected_label, request.action)}`
+                    : `Review: ${shortLabel(request.expected_label, request.action)}`,
+                stepIndex: request.index,
+                stepTotal: total,
+                stepLabel: shortLabel(request.expected_label, request.action),
+                resumeUpload: resumeUpload(),
+              });
+              return autoPauseDecision(request);
+            },
           },
-          onPause: async (request) => {
-            emit({
-              phase: "running",
-              message:
-                request.kind === "error"
-                  ? `Skipping: ${shortLabel(request.expected_label, request.action)}`
-                  : `Review: ${shortLabel(request.expected_label, request.action)}`,
-              stepIndex: request.index,
-              stepTotal: total,
-              stepLabel: shortLabel(request.expected_label, request.action),
-              resumeUpload: resumeUpload(),
-            });
-            return autoPauseDecision(request);
-          },
-        },
-      });
+        }),
+      );
 
     let report = await runPlan(plan, stepTotal);
 
@@ -352,22 +362,38 @@ export async function runFabPipeline(args: RunPipelineArgs): Promise<void> {
     // import re-rendered, follow-ups an answer revealed.
     const late =
       !report.aborted && wantsFastPlan(mode)
-        ? await planLateFields({ tabId, frameId, page, apiUrl: aiServerUrl })
+        ? await clock.time("late", () =>
+            planLateFields({ tabId, frameId, page, apiUrl: aiServerUrl }),
+          )
         : null;
     if (late) {
       planSnapshot = { ...plan, actions: [...(plan.actions ?? []), ...late.actions] };
       report = mergeReports(report, await runPlan(late, late.actions.length));
     }
 
+    // A page that rewrote itself under the fill (a résumé import, a reset) gets its
+    // answers back before the leftover pass reads what is still empty.
+    if (!report.aborted) {
+      const drift = await clock.time("drift", () => repairDriftInTab(tabId, frameId, startedAt));
+      traceFromBackground("drift:repair", () => drift);
+    }
+
     // Refill only touches the fields the page flagged.
     if (!report.aborted && !refill) {
-      await sendTabMessage<{
-        ok?: boolean;
-        found?: number;
-        filled?: number;
-        error?: string;
-        skipped?: boolean;
-      }>(tabId, { type: MSG.FILL_LEFTOVER_COMBOS }, frameId ?? undefined, LEFTOVER_PASS_TIMEOUT_MS);
+      await clock.time("leftover", () =>
+        sendTabMessage<{
+          ok?: boolean;
+          found?: number;
+          filled?: number;
+          error?: string;
+          skipped?: boolean;
+        }>(
+          tabId,
+          { type: MSG.FILL_LEFTOVER_COMBOS },
+          frameId ?? undefined,
+          LEFTOVER_PASS_TIMEOUT_MS,
+        ),
+      );
     }
 
     const { durationMs, usage } = finishMeta();
@@ -388,6 +414,7 @@ export async function runFabPipeline(args: RunPipelineArgs): Promise<void> {
         error: "Plan run aborted",
         stepTotal,
         durationMs,
+        phases: clock.summary(),
         usage,
         tree: treeSnapshot,
         plan: planSnapshot,
@@ -400,7 +427,9 @@ export async function runFabPipeline(args: RunPipelineArgs): Promise<void> {
     const { summary } = report;
     const okLabel = report.ok ? `${summary.ok} ok` : `${summary.ok} ok, ${summary.skipped} skipped`;
     const resultLabel = refill
-      ? `Refilled ${okLabel}${refillResultSuffix(await rescanFieldIssues(tabId, frameId))}`
+      ? `Refilled ${okLabel}${refillResultSuffix(
+          await clock.time("rescan", () => rescanFieldIssues(tabId, frameId)),
+        )}`
       : okLabel;
 
     emit({
@@ -408,6 +437,7 @@ export async function runFabPipeline(args: RunPipelineArgs): Promise<void> {
       message: `Done · ${resultLabel} · ${timeLabel} · ${costLabel}`,
       stepTotal,
       durationMs,
+      phases: clock.summary(),
       usage,
       tree: treeSnapshot,
       plan: planSnapshot,
@@ -422,6 +452,7 @@ export async function runFabPipeline(args: RunPipelineArgs): Promise<void> {
       message: `Failed · ${formatDuration(durationMs)} · ${formatUsd(usage?.costUsd)}`,
       error,
       durationMs,
+      phases: clock.summary(),
       usage,
       tree: treeSnapshot,
       plan: planSnapshot,

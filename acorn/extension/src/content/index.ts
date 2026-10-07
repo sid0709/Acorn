@@ -7,6 +7,8 @@ import { fillLeftoverComboboxes } from "./agents/leftover-combobox";
 import { waitForDomQuiet } from "./agents/wait";
 import { collectChoiceItems, type ChoiceBatchStep } from "./choice-batch";
 import { comboSnapshot } from "./debug-snapshot";
+import { repairDrift } from "./drift-repair";
+import { probePage } from "./page-probe";
 import { serializeDom } from "./dom-serializer";
 import { resolveElementByNodeId } from "./element-resolver";
 import { scanFieldIssues } from "./field-errors";
@@ -229,6 +231,32 @@ if (!contentWindow[CONTENT_BOOT]) {
             ok: false,
             error: err instanceof Error ? err.message : String(err),
           }),
+        );
+      return true;
+    }
+
+    if (message.type === MSG.PAGE_PROBE) {
+      if (!isAcornDomFrame()) {
+        sendResponse({ ok: false, skipped: true, error: "Not a form frame" });
+        return false;
+      }
+      try {
+        sendResponse({ ok: true, probe: probePage() });
+      } catch (err) {
+        sendResponse({ ok: false, error: err instanceof Error ? err.message : String(err) });
+      }
+      return false;
+    }
+
+    if (message.type === MSG.REPAIR_DRIFT) {
+      if (!isAcornDomFrame()) {
+        sendResponse({ ok: false, skipped: true, error: "Not a form frame" });
+        return false;
+      }
+      void runExclusive(() => repairDrift(Number(message.since) || 0))
+        .then((result) => sendResponse({ ok: true, ...result }))
+        .catch((err) =>
+          sendResponse({ ok: false, error: err instanceof Error ? err.message : String(err) }),
         );
       return true;
     }

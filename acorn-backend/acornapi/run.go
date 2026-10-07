@@ -140,6 +140,12 @@ func (s *Server) runReadPage(w http.ResponseWriter, r *http.Request) {
 	} else {
 		attrs = append(attrs, "controlId", nil)
 	}
+	if read.Fallback != nil {
+		out["fallback"] = map[string]any{
+			"id": read.Fallback.ID, "role": read.Fallback.Role, "confidence": read.Fallback.Confidence,
+		}
+		attrs = append(attrs, "fallbackId", read.Fallback.ID, "fallbackConfidence", read.Fallback.Confidence)
+	}
 	log.Info("acorn run read-page decided", attrs...)
 	writeJSON(w, http.StatusOK, out)
 }

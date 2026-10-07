@@ -7,15 +7,20 @@ import (
 	"fmt"
 	"log/slog"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/sid0709/OpenSeat/backend-core/openai"
 )
 
 const (
-	proseTimeout    = 20 * time.Second
-	identityTimeout = 8 * time.Second
-	extractTimeout  = 25 * time.Second
+	proseTimeout = 20 * time.Second
+	// writerConcurrency caps the writer calls one request keeps in flight: each
+	// field is written by its own call, so the slowest answer, not the sum of
+	// every answer, sets how long writing takes.
+	writerConcurrency = 8
+	identityTimeout   = 8 * time.Second
+	extractTimeout    = 25 * time.Second
 	// fieldsTimeout bounds field discovery: one read of the whole planner tree.
 	fieldsTimeout = 45 * time.Second
 	maxQuestion   = 8000
@@ -224,11 +229,60 @@ func (s *Service) rewriteTyping(ctx context.Context, plan Plan, applicant string
 	return overlayTypingFills(plan, answers)
 }
 
-// writeAnswers has the writer answer typed fields, keyed by element index.
+// writeAnswers has the writer answer typed fields, keyed by element index. Each
+// field is its own call, run in parallel; every call also lists the form's other
+// questions so answers do not repeat one another. A field whose call fails is
+// left out; the error returns only when no field got an answer.
 func (s *Service) writeAnswers(ctx context.Context, applicant string, page map[string]any, fields []typingField) (map[int]string, error) {
+	if len(fields) <= 1 {
+		return s.writeBatch(ctx, applicant, page, fields, nil)
+	}
+	var (
+		mu       sync.Mutex
+		wg       sync.WaitGroup
+		out      = make(map[int]string, len(fields))
+		firstErr error
+		slots    = make(chan struct{}, writerConcurrency)
+	)
+	for i, field := range fields {
+		others := make([]string, 0, len(fields)-1)
+		for j, other := range fields {
+			if j != i {
+				others = append(others, other.Question)
+			}
+		}
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			slots <- struct{}{}
+			defer func() { <-slots }()
+			answers, err := s.writeBatch(ctx, applicant, page, []typingField{field}, others)
+			mu.Lock()
+			defer mu.Unlock()
+			if err != nil {
+				if firstErr == nil {
+					firstErr = err
+				}
+				return
+			}
+			for index, answer := range answers {
+				out[index] = answer
+			}
+		}()
+	}
+	wg.Wait()
+	if len(out) == 0 && firstErr != nil {
+		return nil, firstErr
+	}
+	return out, nil
+}
+
+// writeBatch is one writer call answering fields; others are the form's other
+// questions, answered separately, named so this answer does not repeat them.
+func (s *Service) writeBatch(ctx context.Context, applicant string, page map[string]any, fields []typingField, others []string) (map[int]string, error) {
 	ctx, cancel := context.WithTimeout(ctx, proseTimeout)
 	defer cancel()
-	text, err := s.ask(ctx, PurposeTyping, proseSystem, proseUserPrompt(applicant, fields, page), proseAnswersSchema())
+	text, err := s.ask(ctx, PurposeTyping, proseSystem, proseUserPrompt(applicant, fields, page, others...), proseAnswersSchema())
 	if err != nil {
 		return nil, err
 	}

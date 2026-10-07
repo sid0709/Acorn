@@ -100,7 +100,12 @@ type PageRead struct {
 	KindProbs      map[string]float64
 	// Control is nil when no control moves the application forward.
 	Control *ControlPick
-	Usage   jev.Usage
+	// Fallback is Jev's most probable forward control when it answered none on a
+	// form it was asked to advance: the run clicks it before deciding the page is
+	// stuck, since a page that looks blocked often reacts to the click itself (it
+	// shows which fields it still needs).
+	Fallback *ControlPick
+	Usage    jev.Usage
 }
 
 var pageKinds = []struct{ key, description string }{
@@ -183,21 +188,29 @@ func (g *Gateway) ReadPage(ctx context.Context, q PageQuery) (PageRead, error) {
 	}
 
 	answer, ok := res.Answers[controlQuestion]
-	if !ok || answer.Choice == noControlKey {
+	if !ok {
 		return read, nil
 	}
-	id, listed := keys[answer.Choice]
-	if !listed {
-		return read, nil
-	}
-	pick := &ControlPick{ID: id, Confidence: answer.Confidence, Probabilities: map[int]float64{}}
+	probabilities := map[int]float64{}
 	for key, p := range answer.Probabilities {
 		if controlID, ok := keys[key]; ok {
-			pick.Probabilities[controlID] = p
+			probabilities[controlID] = p
 		}
 	}
-	pick.Role = controlRole(read.Kind, res.Answers[finalQuestion])
-	read.Control = pick
+	role := controlRole(read.Kind, res.Answers[finalQuestion])
+	if id, listed := keys[answer.Choice]; listed {
+		read.Control = &ControlPick{ID: id, Role: role, Confidence: answer.Confidence, Probabilities: probabilities}
+		return read, nil
+	}
+	if q.Intent == IntentAdvance && read.Kind == KindForm {
+		controlKeys := make(map[string]string, len(keys))
+		for key := range keys {
+			controlKeys[key] = key
+		}
+		if key := bestKey(answer.Probabilities, controlKeys); key != "" {
+			read.Fallback = &ControlPick{ID: keys[key], Role: role, Confidence: answer.Probabilities[key], Probabilities: probabilities}
+		}
+	}
 	return read, nil
 }
 
@@ -218,8 +231,10 @@ func controlInstructions(intent string) string {
 		return "The applicant has finished filling this page. Which control moves the application to its next step, " +
 			"or submits it on the last step? Judge by what the control does on this page, not only by its wording: " +
 			"a site may call it Next, Continue, Save and continue, Review, Submit, Apply, or use an arrow or an icon. " +
-			"Never pick Back, Previous, Cancel, Save draft, Sign out, a social login, a link to another site, or a control that is disabled. " +
-			"Choose none when nothing here moves the application forward."
+			"Never pick Back, Previous, Cancel, Save draft, Sign out, a social login, or a link to another site. " +
+			"Prefer an enabled control, but a forward control that looks disabled is still the forward control: " +
+			"many forms only grey it out until their fields are valid, and clicking it shows what they still need. " +
+			"Choose none only when nothing here moves the application forward."
 	}
 	return "Which control starts an application for this role? On a job posting that is the Apply control " +
 		"(Apply, Apply now, Easy Apply, Start application, or an apply link). " +

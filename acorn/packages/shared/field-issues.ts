@@ -57,3 +57,8 @@ export function countFlaggedSince(before: FieldIssueScan | null, after: FieldIss
     (issue) => issue.invalid || (issue.linkedMessages.length > 0 && !earlier.has(issueKey(issue))),
   ).length;
 }
+
+/** Required fields that still show no answer. */
+export function countRequiredEmpty(scan: FieldIssueScan): number {
+  return scan.issues.filter((issue) => issue.required && !issue.value.trim()).length;
+}

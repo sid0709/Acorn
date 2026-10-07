@@ -28,6 +28,8 @@ export interface PipelineProgress {
   error?: string;
   /** Wall-clock ms for the full FAB pipeline (set on done/error). */
   durationMs?: number;
+  /** Ms per pipeline phase (DOM read, plan, steps, late pass, …), set on done/error for the run log. */
+  phases?: Record<string, number>;
   /** Aggregated AI token usage / estimated USD (analyze + match-option). */
   usage?: AiUsageSummary | null;
   /** UI-only snapshot of the tree sent to AI Analyze. */

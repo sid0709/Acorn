@@ -13,6 +13,10 @@ export interface ComboboxFillOptions {
   allowTypeahead?: boolean;
   /** `value` is an instruction, not a search: a long list types the writer's estimate instead. */
   estimateQuery?: boolean;
+  /** See ChooseOptions: a writer estimate already requested. */
+  estimate?: Promise<string | null>;
+  /** See ChooseOptions: the list was read already; type the query right away. */
+  searchFirst?: boolean;
 }
 
 /** Choose the option for `value` (see chooseOption), click it, and leave the popup closed. */
@@ -20,7 +24,7 @@ export async function selectComboboxOption(
   el: Element,
   value: string,
   fieldHint?: string | null,
-  { allowTypeahead = true, estimateQuery = false }: ComboboxFillOptions = {},
+  { allowTypeahead = true, estimateQuery = false, estimate, searchFirst }: ComboboxFillOptions = {},
 ): Promise<string> {
   const requested = el as HTMLElement;
   if (requested instanceof HTMLSelectElement) {
@@ -58,6 +62,8 @@ export async function selectComboboxOption(
   const { match, options } = await chooseOption(html, doc, value, fieldLabel, {
     allowTypeahead,
     estimateQuery,
+    estimate,
+    searchFirst,
   });
   if (!match) {
     dismissOpenOverlays(doc, html);

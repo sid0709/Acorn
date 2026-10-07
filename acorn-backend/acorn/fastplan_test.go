@@ -2,9 +2,13 @@ package acorn
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
+	"fmt"
 	"strings"
+	"sync"
 	"testing"
+	"time"
 )
 
 // fakeClassifier labels every file field with fileKind and answers PickOne with pick.
@@ -139,5 +143,116 @@ func TestWriteFieldsCarryTheFieldsLimits(t *testing.T) {
 		if !strings.Contains(prompt, want) {
 			t.Errorf("writer prompt lacks %q:\n%s", want, prompt)
 		}
+	}
+}
+
+// barrierWriter answers each writer call only once `want` calls are in flight
+// together, so it fails (times out) unless the calls run in parallel.
+type barrierWriter struct {
+	want    int
+	mu      sync.Mutex
+	arrived int
+	release chan struct{}
+	users   []string
+}
+
+func (b *barrierWriter) JSON(ctx context.Context, _, user string, _ json.RawMessage) ([]byte, error) {
+	b.mu.Lock()
+	b.arrived++
+	b.users = append(b.users, user)
+	if b.arrived == b.want {
+		close(b.release)
+	}
+	b.mu.Unlock()
+	select {
+	case <-b.release:
+	case <-ctx.Done():
+		return nil, ctx.Err()
+	}
+	index := strings.TrimSpace(strings.SplitN(strings.SplitN(user, "element_index: ", 2)[1], "\n", 2)[0])
+	return []byte(`{"answers":[{"element_index":` + index + `,"value":"answer ` + index + `"}]}`), nil
+}
+func (b *barrierWriter) Model() string { return "barrier" }
+func (b *barrierWriter) Ready() bool   { return true }
+
+func TestWriteAnswersWritesEachFieldInParallel(t *testing.T) {
+	writer := &barrierWriter{want: 3, release: make(chan struct{})}
+	fields := []typingField{
+		{ElementIndex: 1, Question: "Why us?", Role: "textarea"},
+		{ElementIndex: 2, Question: "Your AWS experience", Role: "textbox"},
+		{ElementIndex: 3, Question: "Your Redshift experience", Role: "textbox"},
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+	defer cancel()
+	answers, err := New(writer).writeAnswers(ctx, "{}", nil, fields)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, field := range fields {
+		if got := answers[field.ElementIndex]; got != fmt.Sprintf("answer %d", field.ElementIndex) {
+			t.Errorf("answer %d = %q", field.ElementIndex, got)
+		}
+	}
+	for _, user := range writer.users {
+		if !strings.Contains(user, "answered separately") {
+			t.Errorf("a writer call does not list the other questions:\n%s", user)
+		}
+	}
+}
+
+// writeClassifier says every text field needs a written answer.
+type writeClassifier struct{ fakeClassifier }
+
+func (w *writeClassifier) ClassifyEach(ctx context.Context, instructions string, kinds map[string]string, items map[int]string) (map[int]string, error) {
+	if instructions != textFieldInstructions {
+		return w.fakeClassifier.ClassifyEach(ctx, instructions, kinds, items)
+	}
+	out := map[int]string{}
+	for id := range items {
+		out[id] = FactWrite
+	}
+	return out, nil
+}
+
+// writerFirstPicker holds the choice decision until the writer has been called.
+type writerFirstPicker struct{ writing <-chan struct{} }
+
+func (p writerFirstPicker) PickChoices(ctx context.Context, _ string, _ []ChoiceQuestion) (map[int][]string, error) {
+	select {
+	case <-p.writing:
+		return map[int][]string{}, nil
+	case <-ctx.Done():
+		return nil, ctx.Err()
+	}
+}
+
+// signalWriter answers like the writer and closes `called` on its first call.
+type signalWriter struct {
+	once   sync.Once
+	called chan struct{}
+}
+
+func (w *signalWriter) JSON(_ context.Context, _, _ string, _ json.RawMessage) ([]byte, error) {
+	w.once.Do(func() { close(w.called) })
+	return []byte(`{"answers":[{"element_index":5,"value":"Five years on AWS."}]}`), nil
+}
+func (w *signalWriter) Model() string { return "signal" }
+func (w *signalWriter) Ready() bool   { return true }
+
+func TestFastPlanWritesTextWhileChoicesAreStillDeciding(t *testing.T) {
+	writer := &signalWriter{called: make(chan struct{})}
+	service := New(writer).WithClassifier(&writeClassifier{}).WithPicker(writerFirstPicker{writing: writer.called})
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+	defer cancel()
+	result, err := service.FastPlan(ctx, "{}", []FormField{
+		{ElementIndex: 5, Kind: fieldText, Label: "What is your experience with AWS?", Required: true},
+		{ElementIndex: 9, Kind: fieldRadio, Label: "Eligible to work?", Options: []string{"Yes", "No"}},
+	}, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	actions := result.Plan["actions"].([]any)
+	if len(actions) != 1 || actions[0].(map[string]any)["value"] != "Five years on AWS." {
+		t.Fatalf("actions = %v, want the written AWS answer", actions)
 	}
 }

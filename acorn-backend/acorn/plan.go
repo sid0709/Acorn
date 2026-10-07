@@ -316,7 +316,9 @@ func jobContext(page map[string]any) string {
 	return strings.Join(parts, "\n")
 }
 
-func proseUserPrompt(applicant string, fields []typingField, page map[string]any) string {
+// proseUserPrompt keeps the profile first, the prefix every writer call shares,
+// so the provider's prompt cache serves it across a form's parallel calls.
+func proseUserPrompt(applicant string, fields []typingField, page map[string]any, others ...string) string {
 	blocks := make([]string, 0, len(fields))
 	for _, field := range fields {
 		draft := strings.TrimSpace(field.Draft)
@@ -336,8 +338,13 @@ func proseUserPrompt(applicant string, fields []typingField, page map[string]any
 	if context := jobContext(page); context != "" {
 		job = "Job context:\n" + context + "\n\n"
 	}
+	elsewhere := ""
+	if len(others) > 0 {
+		elsewhere = "\n\nOther questions on this form, answered separately (do not repeat their content):\n- " +
+			strings.Join(others, "\n- ")
+	}
 	return strings.TrimSpace("PROFILE JSON:\n" + applicant + "\n\n" + job +
-		"Typing fields (answer every element_index):\n" + strings.Join(blocks, "\n\n") +
+		"Typing fields (answer every element_index):\n" + strings.Join(blocks, "\n\n") + elsewhere +
 		"\n\nReturn json with one answers[].value per field.")
 }
 

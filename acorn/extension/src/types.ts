@@ -53,6 +53,10 @@ export const MSG = {
   COLLECT_CHOICES: "acorn:collect-choices",
   /** Re-read field errors on the last serialized tree (Refill's after-check). */
   SCAN_FIELD_ISSUES: "acorn:scan-field-issues",
+  /** Put back answers the page cleared after a fill (an import, a reset), with no model call. */
+  REPAIR_DRIFT: "acorn:repair-drift",
+  /** A cheap look at the page while a click settles (see PageProbe). */
+  PAGE_PROBE: "acorn:page-probe",
   /** Press one control the Run orchestrator picked from the tree. */
   CLICK_CONTROL: "acorn:click-control",
   START_PIPELINE: "acorn:start-pipeline",
@@ -135,6 +139,15 @@ export interface RuntimeAttachedFile {
   label?: string | null;
   resumeId?: string | null;
   jobId?: string | null;
+}
+
+/** What a click's settle loop compares between polls, without serializing the page. */
+export interface PageProbe {
+  url: string;
+  /** Hash of the fields the page asks for (never their values). */
+  fields: string;
+  /** Visible fields marked invalid plus visible alerts. */
+  refusals: number;
 }
 
 export interface PlanStepPayload {

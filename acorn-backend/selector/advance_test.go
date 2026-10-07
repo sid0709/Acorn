@@ -119,3 +119,27 @@ func TestDiagnoseUnknownReasonIsOther(t *testing.T) {
 		t.Fatalf("failure = %+v err = %v, want other", failure, err)
 	}
 }
+
+func TestReadPageFallsBackToTheMostProbableControl(t *testing.T) {
+	decider := &scriptedDecider{answers: map[string]jev.Answer{
+		pageKindQuestion: {Choice: KindForm},
+		controlQuestion: {Choice: noControlKey, Probabilities: map[string]float64{
+			noControlKey: 0.7, "control_0": 0.05, "control_1": 0.25,
+		}},
+	}}
+	read, err := New(decider).ReadPage(context.Background(), PageQuery{Text: "Your details", Intent: IntentAdvance, Controls: formControls})
+	if err != nil || read.Control != nil || read.Fallback == nil || read.Fallback.ID != 11 {
+		t.Fatalf("read = %+v err = %v, want no pick and a fallback on control 11", read, err)
+	}
+}
+
+func TestReadPageNoFallbackOffAForm(t *testing.T) {
+	decider := &scriptedDecider{answers: map[string]jev.Answer{
+		pageKindQuestion: {Choice: KindPosting},
+		controlQuestion:  {Choice: noControlKey, Probabilities: map[string]float64{"control_1": 0.2}},
+	}}
+	read, err := New(decider).ReadPage(context.Background(), PageQuery{Text: "Senior Go Engineer", Intent: IntentAdvance, Controls: formControls})
+	if err != nil || read.Fallback != nil {
+		t.Fatalf("read = %+v err = %v, want no fallback on a posting", read, err)
+	}
+}

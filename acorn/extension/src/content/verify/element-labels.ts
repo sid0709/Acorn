@@ -68,9 +68,28 @@ export function uniqueById(el: Element, id: string): Element | null {
  * when the id names this control alone.
  */
 export function forLabelOf(el: Element): string | null | undefined {
-  if (!el.id || uniqueById(el, el.id) !== el) return null;
+  if (!el.id) return null;
   const root = el.getRootNode() as Document | ShadowRoot;
-  return root.querySelector?.(`label[for="${CSS.escape(el.id)}"]`)?.textContent;
+  if (typeof root.querySelectorAll !== "function") return null;
+  const selector = `label[for="${CSS.escape(el.id)}"]`;
+  if (uniqueById(el, el.id) === el) return root.querySelector(selector)?.textContent;
+  return nearestSharedLabel(el, selector)?.textContent;
+}
+
+/**
+ * With an id reused across fields, the label meant for this control is the one in
+ * its own part of the page: the first ancestor holding a matching label must hold
+ * exactly one, and no other control carrying the same id.
+ */
+function nearestSharedLabel(el: Element, selector: string): Element | null {
+  const idSelector = `#${CSS.escape(el.id)}`;
+  for (let node = el.parentElement; node; node = node.parentElement) {
+    const labels = node.querySelectorAll(selector);
+    if (!labels.length) continue;
+    const others = Array.from(node.querySelectorAll(idSelector)).filter((other) => other !== el);
+    return labels.length === 1 && !others.length ? labels[0] : null;
+  }
+  return null;
 }
 
 export function labelCandidates(el: Element): string[] {
