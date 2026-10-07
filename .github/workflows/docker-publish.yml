@@ -19,6 +19,11 @@
 #   ACORN_API_IMAGE     — environment variable, default omnimuh730/acorn-api
 #   ACORN_WEB_IMAGE     — environment variable, default omnimuh730/acorn-web
 #   ACORN_ADMIN_IMAGE   — environment variable, default omnimuh730/acorn-admin
+#   ACORN_ADMIN_USERNAME — staff email for acorn-admin (maps to ACORN_ADMIN_EMAIL on the API)
+#   ACORN_ADMIN_PWD      — staff password (maps to ACORN_ADMIN_PASSWORD on the API)
+#
+# Optional secret: ACORN_ADMIN_SESSION_SECRET — signs admin sessions when demo mode is off.
+# If unset, the deploy step generates one on the VPS and keeps it in deploy.env.
 #
 # App secrets stay on the VPS in /opt/acorn/deploy.env. See docker/deploy.env.example.
 
@@ -205,16 +210,33 @@ jobs:
             set -eu
             install -d -m 700 /opt/acorn
 
-      - name: Sync deploy script
+      - name: Sync deploy scripts
         uses: appleboy/scp-action@v0.1.7
         with:
           host: ${{ secrets.VPS_HOST }}
           username: ${{ secrets.VPS_USER }}
           key: ${{ secrets.VPS_SSH_KEY }}
           port: ${{ secrets.VPS_SSH_PORT || 22 }}
-          source: docker/deploy-remote.sh
+          source: "docker/deploy-remote.sh,docker/sync-deploy-env.sh"
           target: /opt/acorn/
           strip_components: 1
+
+      - name: Sync admin credentials to deploy.env
+        uses: appleboy/ssh-action@v1.2.0
+        env:
+          ACORN_ADMIN_USERNAME: ${{ vars.ACORN_ADMIN_USERNAME }}
+          ACORN_ADMIN_PWD: ${{ vars.ACORN_ADMIN_PWD }}
+          ACORN_ADMIN_SESSION_SECRET: ${{ secrets.ACORN_ADMIN_SESSION_SECRET }}
+        with:
+          host: ${{ secrets.VPS_HOST }}
+          username: ${{ secrets.VPS_USER }}
+          key: ${{ secrets.VPS_SSH_KEY }}
+          port: ${{ secrets.VPS_SSH_PORT || 22 }}
+          envs: ACORN_ADMIN_USERNAME,ACORN_ADMIN_PWD,ACORN_ADMIN_SESSION_SECRET
+          script: |
+            set -eu
+            chmod 755 /opt/acorn/sync-deploy-env.sh
+            /opt/acorn/sync-deploy-env.sh
 
       - name: Sync admin nginx site
         if: needs.build-and-push.outputs.deploy_admin == 'true'
@@ -269,6 +291,14 @@ jobs:
             services=""
             if [ "$DEPLOY_API" = true ]; then
               services=api
+            fi
+            if [ -f /tmp/acorn-api-restart-needed ]; then
+              if [ -z "$services" ]; then
+                services=api
+              elif [[ ",$services," != *",api,"* ]]; then
+                services="$services,api"
+              fi
+              rm -f /tmp/acorn-api-restart-needed
             fi
             if [ "$DEPLOY_WEB" = true ]; then
               if [ -n "$services" ]; then

@@ -20,7 +20,9 @@ Port `6010` on the VPS is reserved for JoinedHQ admin; do not point Acorn admin 
 
 ## GitHub Environment `Production` (branch `main`)
 
-Secrets: `DOCKERHUB_USERNAME`, `DOCKERHUB_TOKEN`, `VPS_HOST`, `VPS_USER`, `VPS_SSH_KEY`. Optional: `VPS_SSH_PORT`, vars `ACORN_API_IMAGE`, `ACORN_WEB_IMAGE`, `ACORN_ADMIN_IMAGE`.
+Secrets: `DOCKERHUB_USERNAME`, `DOCKERHUB_TOKEN`, `VPS_HOST`, `VPS_USER`, `VPS_SSH_KEY`. Optional: `VPS_SSH_PORT`, `ACORN_ADMIN_SESSION_SECRET`, vars `ACORN_API_IMAGE`, `ACORN_WEB_IMAGE`, `ACORN_ADMIN_IMAGE`, `ACORN_ADMIN_USERNAME`, `ACORN_ADMIN_PWD`.
+
+Each deploy run writes `ACORN_ADMIN_USERNAME` / `ACORN_ADMIN_PWD` into `/opt/acorn/deploy.env` as `ACORN_ADMIN_EMAIL` / `ACORN_ADMIN_PASSWORD`, sets `ACORN_ADMIN_DEMO=off`, and restarts the API container so acorn-admin sign-in uses that staff account. The bootstrap user is created only when `acorn_admin_users` is empty; change the password in Mongo or clear that collection if you rotate credentials later.
 
 ## Domains
 

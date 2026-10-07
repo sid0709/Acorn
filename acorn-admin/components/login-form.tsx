@@ -20,9 +20,7 @@ export function LoginForm() {
         <Text as="h1" type="large" weight="semibold">
           Acorn Admin
         </Text>
-        <Text type="supporting">
-          Demo: enter any email and password. Sign in to review support claims and AI usage.
-        </Text>
+        <Text type="supporting">Staff sign-in for support claims, user lookup, and AI usage.</Text>
         <form
           onSubmit={(event) => {
             event.preventDefault();
