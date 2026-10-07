@@ -59,8 +59,43 @@ export function queryDeep(root: ParentNode, selector: string, out: Element[] = [
   return out;
 }
 
+/** Containers whose accessible name is the question their controls answer. */
+export const NAMED_GROUP_SELECTOR = 'fieldset, [role="group"], [role="radiogroup"]';
+
+/**
+ * A named group (fieldset, role=group) holding several checkboxes and no other
+ * control: one question whose boxes may each carry their own name ("Black",
+ * "Caribbean"), so the name alone does not group them.
+ */
+function checkboxSetGroup(el: Element): Element | null {
+  if (!(el instanceof HTMLInputElement) || el.type !== "checkbox") return null;
+  const group = el.closest(NAMED_GROUP_SELECTOR);
+  if (!group) return null;
+  const controls = Array.from(group.querySelectorAll(FILLABLE_SELECTOR));
+  const onlyBoxes = controls.every(
+    (control) => control instanceof HTMLInputElement && control.type === "checkbox",
+  );
+  return onlyBoxes && controls.length > 1 ? group : null;
+}
+
+/** Stable per-page keys for checkbox-set groups, which have no shared name to key by. */
+const groupKeys = new WeakMap<Element, string>();
+let nextGroupKey = 0;
+
+function checkboxSetKey(group: Element): string {
+  let key = groupKeys.get(group);
+  if (!key) {
+    nextGroupKey += 1;
+    key = `checkbox-set:${nextGroupKey}`;
+    groupKeys.set(group, key);
+  }
+  return key;
+}
+
 export function choiceGroupKey(el: Element): string | null {
   if (!(el instanceof HTMLInputElement) || !CHOICE_TYPES.has(el.type)) return null;
+  const set = checkboxSetGroup(el);
+  if (set) return checkboxSetKey(set);
   return el.name ? `${el.type}:${el.form?.id ?? ""}:${el.name}` : null;
 }
 
@@ -127,9 +162,6 @@ export function fieldLabel(control: Element, members: Element[], wrapper: Elemen
   return clip(labelCandidates(control)[0] ?? "", MAX_TEXT_CHARS);
 }
 
-/** Containers whose accessible name is the question their controls answer. */
-const NAMED_GROUP_SELECTOR = 'fieldset, [role="group"], [role="radiogroup"]';
-
 /**
  * The accessible name of the group a control sits in (ARIA): aria-labelledby,
  * aria-label, or a fieldset's legend. "" when the control is in no named group.
@@ -192,6 +224,8 @@ export function groupQuestion(wrapper: Element, first: Element, members: Element
 }
 
 export function groupMembers(control: Element): Element[] {
+  const set = checkboxSetGroup(control);
+  if (set) return Array.from(set.querySelectorAll('input[type="checkbox"]'));
   const key = choiceGroupKey(control);
   if (!key) return [control];
   const input = control as HTMLInputElement;

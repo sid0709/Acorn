@@ -52,7 +52,8 @@ function formatDomFetchFailure(tabId: number, attempts: DomFrameAttempt[]): stri
 export async function fetchDomFromTab(
   tabId: number,
   preferredFrameId?: number | null,
-  opts: { fieldIssues?: boolean; formFields?: boolean } = {},
+  /** `pendingFields` narrows `formFields` to fields still unanswered after a plan ran. */
+  opts: { fieldIssues?: boolean; formFields?: boolean; pendingFields?: boolean } = {},
 ): Promise<DomTreePayload> {
   const tried = new Set<number>();
 
@@ -69,6 +70,7 @@ export async function fetchDomFromTab(
         type: MSG.FETCH_DOM,
         fieldIssues: Boolean(opts.fieldIssues),
         formFields: Boolean(opts.formFields),
+        pendingFields: Boolean(opts.pendingFields),
       },
       frameId,
     );

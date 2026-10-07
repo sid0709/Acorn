@@ -17,6 +17,7 @@ import { fetchRuntimeFile } from "./api/job-files";
 import { decideChoicesInBatch } from "./choice-batch";
 import { fetchDomFromTab } from "./fetch-dom";
 import { keepResumeIfSameSite, loadFillResume } from "./fill-resume";
+import { planLateFields } from "./late-fields";
 import { requestPlan, wantsFastPlan } from "./plan-request";
 import {
   REFILL_NOTHING_FLAGGED,
@@ -26,7 +27,7 @@ import {
   rescanFieldIssues,
 } from "./refill";
 import { buildResumeUploadProgress } from "./resume-upload-status";
-import { autoPauseDecision, countDomNodes, shortLabel } from "./run-pipeline-helpers";
+import { autoPauseDecision, countDomNodes, mergeReports, shortLabel } from "./run-pipeline-helpers";
 import {
   addPipelineUsage,
   beginPipelineUsageTracking,
@@ -35,6 +36,9 @@ import {
 
 import type { PipelineProgress } from "@acorn/shared/pipeline-types";
 import type { ActionPlan, PlanStepPayload, RunStepRecord } from "@acorn/shared/plan-runner/types";
+
+/** The leftover dropdown pass, all of its rounds, answers within this. */
+const LEFTOVER_PASS_TIMEOUT_MS = 120_000;
 
 export type PipelineEmit = (progress: PipelineProgress) => void;
 
@@ -187,42 +191,44 @@ export async function runFabPipeline(args: RunPipelineArgs): Promise<void> {
     const pureTree = formatPlannerTree(treePayload.tree);
     const metaTree = ACORN_DEBUG ? formatAnalyzeTrees(treePayload.tree).metaTree : undefined;
 
+    const page = {
+      title: treePayload.title || "Untitled",
+      url: treePayload.url,
+      fetchedAt: treePayload.fetchedAt,
+      job:
+        source === "custom"
+          ? null
+          : tabJob
+            ? {
+                id: tabJob.jobId,
+                title: tabJob.title,
+                company: tabJob.company,
+              }
+            : null,
+      customGenerationId:
+        source === "custom" && !usingLibrary ? (customTab?.generationId ?? null) : null,
+      customLibraryResumeId:
+        source === "custom" && usingLibrary ? (customTab?.recommendedResumeId ?? null) : null,
+      customRemembered: source === "custom",
+      recommendedResumeAvailable: Boolean(resumeFile),
+      recommendedResumeStack:
+        resumeFile?.label ||
+        (source === "custom"
+          ? usingLibrary
+            ? customTab?.recommendedResumeStack
+            : customTab?.generationId
+              ? "Generated"
+              : null
+          : tabJob?.resumeStack) ||
+        null,
+    };
+
     const analyze = await requestPlan(
       {
         pureTree,
         mode,
         fieldIssues: refill ? fieldIssues : undefined,
-        page: {
-          title: treePayload.title || "Untitled",
-          url: treePayload.url,
-          fetchedAt: treePayload.fetchedAt,
-          job:
-            source === "custom"
-              ? null
-              : tabJob
-                ? {
-                    id: tabJob.jobId,
-                    title: tabJob.title,
-                    company: tabJob.company,
-                  }
-                : null,
-          customGenerationId:
-            source === "custom" && !usingLibrary ? (customTab?.generationId ?? null) : null,
-          customLibraryResumeId:
-            source === "custom" && usingLibrary ? (customTab?.recommendedResumeId ?? null) : null,
-          customRemembered: source === "custom",
-          recommendedResumeAvailable: Boolean(resumeFile),
-          recommendedResumeStack:
-            resumeFile?.label ||
-            (source === "custom"
-              ? usingLibrary
-                ? customTab?.recommendedResumeStack
-                : customTab?.generationId
-                  ? "Generated"
-                  : null
-              : tabJob?.resumeStack) ||
-            null,
-        },
+        page,
         debug: ACORN_DEBUG ? { html: pageHtml, domTree: treePayload.tree, metaTree } : undefined,
       },
       formFields,
@@ -261,81 +267,97 @@ export async function runFabPipeline(args: RunPipelineArgs): Promise<void> {
       })),
     }));
 
-    const report = await runActionPlan({
-      plan,
-      runtimeFile,
-      recommendedResume,
-      customResume,
-      resumeFileKind,
-      force: refill,
-      executeStep: async (step: PlanStepPayload) => {
-        const sentAt = Date.now();
-        const res = await sendPlanStepToTab(tabId, step, frameId);
-        traceFromBackground("step:result", () => ({
-          element_index: step.element_index,
-          label: step.expected_label,
-          ok: res.ok,
-          alreadyFilled: res.alreadyFilled,
-          error: res.error,
-          valueAfter: res.details?.valueAfter,
-          ms: Date.now() - sentAt,
-        }));
-        const details = res.details ?? {};
-        return {
-          ok: Boolean(res.ok),
-          verified: res.verified,
-          acted: res.acted,
-          alreadyFilled: Boolean(res.alreadyFilled),
-          error: res.error,
-          details: {
-            nodeId: typeof details.nodeId === "number" ? details.nodeId : undefined,
-            matchedLabel:
-              typeof details.matchedLabel === "string" ? details.matchedLabel : undefined,
-            matchedRole: typeof details.matchedRole === "string" ? details.matchedRole : undefined,
-            valueAfter: typeof details.valueAfter === "string" ? details.valueAfter : undefined,
-          },
-        };
-      },
-      hooks: {
-        beforeFills: () => decideChoicesInBatch({ tabId, frameId, plan, apiUrl: aiServerUrl }),
-        onSteps: (steps) => {
-          const running = steps.find((s) => s.status === "running" || s.status === "paused");
-          const doneCount = steps.filter((s) =>
-            ["ok", "skipped", "blocked", "failed", "aborted"].includes(s.status),
-          ).length;
-          const current = running ?? steps[Math.min(doneCount, steps.length - 1)];
-          const idx = current ? current.index + 1 : doneCount;
-          emit({
-            phase: "running",
-            message: `Running ${Math.min(idx, stepTotal)}/${stepTotal}…`,
-            stepIndex: current?.index,
-            stepTotal,
-            stepLabel: current ? shortLabel(current.expected_label, current.action) : undefined,
-            steps,
-            resumeUpload: buildResumeUploadProgress({
-              recommendedResume: resumeFile,
-              resumeStack: boundResumeStack,
-              skipReason: resumeSkipReason,
+    const runPlan = (target: ActionPlan, total: number) =>
+      runActionPlan({
+        plan: target,
+        runtimeFile,
+        recommendedResume,
+        customResume,
+        resumeFileKind,
+        force: refill,
+        executeStep: async (step: PlanStepPayload) => {
+          const sentAt = Date.now();
+          const res = await sendPlanStepToTab(tabId, step, frameId);
+          traceFromBackground("step:result", () => ({
+            element_index: step.element_index,
+            label: step.expected_label,
+            ok: res.ok,
+            alreadyFilled: res.alreadyFilled,
+            error: res.error,
+            valueAfter: res.details?.valueAfter,
+            ms: Date.now() - sentAt,
+          }));
+          const details = res.details ?? {};
+          return {
+            ok: Boolean(res.ok),
+            verified: res.verified,
+            acted: res.acted,
+            alreadyFilled: Boolean(res.alreadyFilled),
+            error: res.error,
+            details: {
+              nodeId: typeof details.nodeId === "number" ? details.nodeId : undefined,
+              matchedLabel:
+                typeof details.matchedLabel === "string" ? details.matchedLabel : undefined,
+              matchedRole:
+                typeof details.matchedRole === "string" ? details.matchedRole : undefined,
+              valueAfter: typeof details.valueAfter === "string" ? details.valueAfter : undefined,
+            },
+          };
+        },
+        hooks: {
+          beforeFills: () =>
+            decideChoicesInBatch({ tabId, frameId, plan: target, apiUrl: aiServerUrl }),
+          onSteps: (steps) => {
+            const running = steps.find((s) => s.status === "running" || s.status === "paused");
+            const doneCount = steps.filter((s) =>
+              ["ok", "skipped", "blocked", "failed", "aborted"].includes(s.status),
+            ).length;
+            const current = running ?? steps[Math.min(doneCount, steps.length - 1)];
+            const idx = current ? current.index + 1 : doneCount;
+            emit({
+              phase: "running",
+              message: `Running ${Math.min(idx, total)}/${total}…`,
+              stepIndex: current?.index,
+              stepTotal: total,
+              stepLabel: current ? shortLabel(current.expected_label, current.action) : undefined,
               steps,
-            }),
-          });
+              resumeUpload: buildResumeUploadProgress({
+                recommendedResume: resumeFile,
+                resumeStack: boundResumeStack,
+                skipReason: resumeSkipReason,
+                steps,
+              }),
+            });
+          },
+          onPause: async (request) => {
+            emit({
+              phase: "running",
+              message:
+                request.kind === "error"
+                  ? `Skipping: ${shortLabel(request.expected_label, request.action)}`
+                  : `Review: ${shortLabel(request.expected_label, request.action)}`,
+              stepIndex: request.index,
+              stepTotal: total,
+              stepLabel: shortLabel(request.expected_label, request.action),
+              resumeUpload: resumeUpload(),
+            });
+            return autoPauseDecision(request);
+          },
         },
-        onPause: async (request) => {
-          emit({
-            phase: "running",
-            message:
-              request.kind === "error"
-                ? `Skipping: ${shortLabel(request.expected_label, request.action)}`
-                : `Review: ${shortLabel(request.expected_label, request.action)}`,
-            stepIndex: request.index,
-            stepTotal,
-            stepLabel: shortLabel(request.expected_label, request.action),
-            resumeUpload: resumeUpload(),
-          });
-          return autoPauseDecision(request);
-        },
-      },
-    });
+      });
+
+    let report = await runPlan(plan, stepTotal);
+
+    // Fields the first scan could not see: a section that rendered late, fields an
+    // import re-rendered, follow-ups an answer revealed.
+    const late =
+      !report.aborted && wantsFastPlan(mode)
+        ? await planLateFields({ tabId, frameId, page, apiUrl: aiServerUrl })
+        : null;
+    if (late) {
+      planSnapshot = { ...plan, actions: [...(plan.actions ?? []), ...late.actions] };
+      report = mergeReports(report, await runPlan(late, late.actions.length));
+    }
 
     // Refill only touches the fields the page flagged.
     if (!report.aborted && !refill) {
@@ -345,7 +367,7 @@ export async function runFabPipeline(args: RunPipelineArgs): Promise<void> {
         filled?: number;
         error?: string;
         skipped?: boolean;
-      }>(tabId, { type: MSG.FILL_LEFTOVER_COMBOS }, frameId ?? undefined, 120000);
+      }>(tabId, { type: MSG.FILL_LEFTOVER_COMBOS }, frameId ?? undefined, LEFTOVER_PASS_TIMEOUT_MS);
     }
 
     const { durationMs, usage } = finishMeta();

@@ -80,12 +80,25 @@ var subjectKinds = map[string]string{
 	subjectOther:     "Someone else's information: a reference, an emergency contact, a referrer, or a supervisor.",
 }
 
+// File field kinds. Only résumé and autofill fields get the résumé upload.
+const (
+	fileResume      = "resume"
+	fileAutofill    = "autofill"
+	fileCoverLetter = "cover_letter"
+	fileOther       = "other"
+)
+
 var fileKinds = map[string]string{
-	"resume":       "The application's résumé or CV document.",
-	"autofill":     "A drop zone that parses a résumé to pre-fill the form — not the résumé field itself.",
-	"cover_letter": "A cover letter.",
-	"other":        "Any other document: transcript, portfolio, certificate, or additional files.",
+	fileResume:      "The application's résumé or CV document.",
+	fileAutofill:    "A drop zone that parses a résumé to pre-fill the form — not the résumé field itself.",
+	fileCoverLetter: "A cover letter.",
+	fileOther:       "Any other document: transcript, portfolio, certificate, or additional files.",
 }
+
+// resumeFieldInstructions pick the one résumé field among several résumé-like
+// uploads. Judged one at a time, a parse-to-prefill drop zone reads like a
+// résumé field; side by side, the field the application submits stands out.
+const resumeFieldInstructions = "Which of these upload fields is where the application submits its résumé? Not a drop zone that only reads a résumé to pre-fill the form."
 
 // WithPicker returns a copy that answers choice fields with the decision model.
 func (s *Service) WithPicker(picker ChoicePicker) *Service {
@@ -161,6 +174,7 @@ func (s *Service) FastPlan(ctx context.Context, applicant string, fields []FormF
 	}
 
 	plan := newPlan()
+	s.settleResumeField(ctx, files, fileTypes)
 	addResumeUpload(plan, files, fileTypes)
 	for index, subject := range subjects {
 		if subject == subjectOther {
@@ -207,6 +221,9 @@ func describe(field FormField) string {
 	if field.Kind == fieldTextarea {
 		parts = append(parts, "multi-line")
 	}
+	if field.Required {
+		parts = append(parts, "required")
+	}
 	return strings.Join(parts, "; ")
 }
 
@@ -226,7 +243,7 @@ func choiceQuestions(fields []FormField) []ChoiceQuestion {
 			options = []string{toggleCheck, toggleLeave}
 		}
 		out = append(out, ChoiceQuestion{
-			ElementIndex: field.ElementIndex, Field: fieldWithSection(field), Options: options,
+			ElementIndex: field.ElementIndex, Field: choiceField(field), Options: options,
 			Multiple: field.Kind == fieldCheckbox,
 		})
 	}
@@ -258,12 +275,38 @@ func addAction(plan Plan, action string, field FormField, role, value string, fi
 	validation["required_element_indexes"] = append(validation["required_element_indexes"].([]any), float64(field.ElementIndex))
 }
 
+// settleResumeField leaves one résumé field when several uploads were classified
+// as résumé or autofill: the decision model compares them in one question, the
+// pick becomes the résumé field and the others the autofill zone. An upload to a
+// parse-to-prefill zone makes the site rewrite the form under the fill, so a
+// mistaken résumé kind there is never uploaded alongside the real field.
+func (s *Service) settleResumeField(ctx context.Context, files []FormField, kinds map[int]string) {
+	candidates := map[int]string{}
+	for _, field := range files {
+		if kind := kinds[field.ElementIndex]; kind == fileResume || kind == fileAutofill {
+			candidates[field.ElementIndex] = describe(field)
+		}
+	}
+	if len(candidates) < 2 {
+		return
+	}
+	picked, err := s.classifier.PickOne(ctx, resumeFieldInstructions, candidates)
+	if err != nil {
+		slog.Warn("acorn fast plan: résumé field not settled", "error", err)
+		return
+	}
+	for index := range candidates {
+		kinds[index] = fileAutofill
+	}
+	kinds[picked] = fileResume
+}
+
 // addResumeUpload attaches the résumé to every résumé field, or to the autofill
 // drop zone only when the form has no résumé field. Uploads run before any other
 // step, so a parse zone's prefill is overwritten by the planned answers.
 func addResumeUpload(plan Plan, files []FormField, kinds map[int]string) {
 	recommended := "recommended_resume"
-	for _, want := range []string{"resume", "autofill"} {
+	for _, want := range []string{fileResume, fileAutofill} {
 		added := false
 		for _, field := range files {
 			if kinds[field.ElementIndex] == want {
@@ -275,6 +318,18 @@ func addResumeUpload(plan Plan, files []FormField, kinds map[int]string) {
 			return
 		}
 	}
+}
+
+// requiredNote tells the decision model a choice field cannot be left unanswered:
+// a required box is submitted only when checked.
+const requiredNote = " — required: the form cannot be submitted without it"
+
+// choiceField is what the decision model reads about a choice field.
+func choiceField(field FormField) string {
+	if field.Required {
+		return fieldWithSection(field) + requiredNote
+	}
+	return fieldWithSection(field)
 }
 
 // fieldWithSection is a field's label with its form section, for the decision model.

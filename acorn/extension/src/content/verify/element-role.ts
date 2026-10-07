@@ -37,11 +37,16 @@ export function inferRole(el: Element): string {
   return tag;
 }
 
+const BUTTONS_FIELD = "buttons";
+const BUTTON_OPTION_ROLES = ["button", "radio", "checkbox", "switch"];
+
 export function roleMatches(expected: string, actual: string, el: Element): boolean {
   const exp = normalize(expected);
   const act = normalize(actual);
   if (!exp) return true;
   if (exp === act) return true;
+  // A field of option buttons (the field scan's "buttons") may present each option as an ARIA radio.
+  if (exp === BUTTONS_FIELD && BUTTON_OPTION_ROLES.includes(act)) return true;
 
   const aliases: Record<string, string[]> = {
     textbox: [

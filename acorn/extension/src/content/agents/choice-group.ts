@@ -106,6 +106,11 @@ export function choiceOptionLabel(el: Element): string {
     .trim();
 }
 
+/** `want` appears in `have` as a whole run of words. */
+export function containsWords(have: string, want: string): boolean {
+  return containsWordRun(tokens(have), tokens(want));
+}
+
 function labelIsValue(el: Element, value: string): boolean {
   const want = normalize(value);
   const have = normalize(choiceOptionLabel(el));
@@ -126,8 +131,25 @@ function groupRoot(el: Element): ParentNode {
  */
 export function findVisibleChoiceOption(el: Element, value: string): HTMLElement | null {
   if (!value.trim()) return null;
-  const nodes = Array.from(groupRoot(el).querySelectorAll(CHOICE_SELECTOR)).filter(
-    (node): node is HTMLElement => node instanceof HTMLElement && hasClickableBox(node),
+  const root = groupRoot(el);
+  // The group's own option labels first: they belong to this field by name.
+  const nodes = [
+    ...memberLabels(el, root),
+    ...Array.from(root.querySelectorAll(CHOICE_SELECTOR)),
+  ].filter((node): node is HTMLElement => node instanceof HTMLElement && hasClickableBox(node));
+  const want = normalize(value);
+  const exact = nodes.find((node) => normalize(choiceOptionLabel(node)) === want);
+  return exact || nodes.find((node) => labelIsValue(node, value)) || null;
+}
+
+/**
+ * The <label>s of the native options in this control's group. A hidden radio or
+ * checkbox is often shown only through its own label, which a person clicks.
+ */
+function memberLabels(el: Element, root: ParentNode): HTMLLabelElement[] {
+  if (!(el instanceof HTMLInputElement) || !el.name) return [];
+  const members = Array.from(
+    root.querySelectorAll(`input[type="${el.type}"][name="${CSS.escape(el.name)}"]`),
   );
-  return nodes.find((node) => labelIsValue(node, value)) || null;
+  return members.flatMap((member) => Array.from((member as HTMLInputElement).labels ?? []));
 }

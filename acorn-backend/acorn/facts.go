@@ -36,12 +36,12 @@ var facts = []Fact{
 	{"first_name", "The applicant's first (given) name.", func(p applicantFacts) string { return p.str("firstName") }},
 	{"last_name", "The applicant's last (family) name.", func(p applicantFacts) string { return p.str("lastName") }},
 	{"full_name", "The applicant's full legal name (first and last).", func(p applicantFacts) string { return p.str("fullName") }},
-	{"preferred_name", "The name the applicant prefers to be called.", func(p applicantFacts) string { return p.str("firstName") }},
+	{"preferred_name", "The single given name the applicant prefers to be called. A field asking for a preferred full name wants full_name.", func(p applicantFacts) string { return p.str("firstName") }},
 	{"email", "The applicant's email address.", func(p applicantFacts) string { return p.str("email") }},
 	{"phone", "The applicant's phone number.", func(p applicantFacts) string { return p.str("phone") }},
 	{"linkedin", "LinkedIn profile URL.", func(p applicantFacts) string { return p.str("linkedin") }},
 	{"github", "GitHub profile URL.", func(p applicantFacts) string { return p.str("github") }},
-	{"website", "Personal website, portfolio, or other profile URL.", func(p applicantFacts) string {
+	{"website", "Personal website or portfolio URL — not an account on a social network or other platform.", func(p applicantFacts) string {
 		return firstFact(p.str("portfolioUrl"), p.str("github"), p.str("linkedin"))
 	}},
 	{"street_address", "Street address line (house number and street).", func(p applicantFacts) string { return p.str("address") }},
@@ -88,7 +88,7 @@ func factKinds() map[string]string {
 		kinds[fact.Key] = fact.Description
 	}
 	kinds[FactWrite] = "The field asks for a written answer the profile does not hold as one fact: a reason, a description, a cover letter, or any open question."
-	kinds[FactSkip] = "Nothing in a job application profile answers it (fax, pager, middle name, address line 2, an extension): leave it blank."
+	kinds[FactSkip] = "Nothing in a job application profile answers it (fax, pager, middle name, address line 2, an extension, an account on a platform the profile names no URL for): leave it blank."
 	kinds[FactOtherPerson] = "A field about another person, not the applicant: a reference, an emergency contact, a referrer, or a supervisor — their name, email, phone, title, or relationship."
 	kinds[FactUnknownDetail] = "A detail of one school or job entry the profile does not hold: that school's or job's city, department, supervisor, GPA, or minor."
 	return kinds

@@ -17,6 +17,7 @@ import {
   waitForFormSurface,
 } from "./form-frame";
 import { clearHighlight, highlightElement } from "./highlighter";
+import { scanPendingFormFields } from "./pending-fields";
 import { runPlanStep } from "./plan-step-runner";
 import { initSelectionQa } from "./selection-qa";
 
@@ -68,7 +69,12 @@ if (!contentWindow[CONTENT_BOOT]) {
             title: document.title,
             tree,
             fieldIssues: message.fieldIssues === true ? scanFieldIssues() : undefined,
-            formFields: message.formFields === true ? scanFormFields() : undefined,
+            formFields:
+              message.formFields !== true
+                ? undefined
+                : message.pendingFields === true
+                  ? scanPendingFormFields()
+                  : scanFormFields(),
             formScore: score,
             fetchedAt: new Date().toISOString(),
             frameId: sender.frameId ?? null,

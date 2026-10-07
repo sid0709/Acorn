@@ -12,6 +12,7 @@ import { groupRoot } from "./agents/select-radio";
 import {
   ACORN_ID_ATTR,
   MAX_TEXT_CHARS,
+  NAMED_GROUP_SELECTOR,
   choiceGroupKey,
   clip,
   fieldLabel,
@@ -21,6 +22,7 @@ import {
   groupQuestion,
   isRequired,
   isVisible,
+  normalize,
   queryDeep,
   sectionTitle,
   wrapperTexts,
@@ -54,7 +56,7 @@ const BUTTON_OPTIONS_MAX = 6;
 const BUTTON_LABEL_MAX_CHARS = 30;
 /** Buttons that are options by ARIA, wherever they sit. */
 const ARIA_CHOICE_SELECTOR = '[role="radio"], [aria-pressed]';
-const BUTTON_SELECTOR = 'button, [role="button"], [role="radio"], [aria-pressed]';
+export const BUTTON_SELECTOR = 'button, [role="button"], [role="radio"], [aria-pressed]';
 
 function nodeId(el: Element): number {
   return Number(el.getAttribute(ACORN_ID_ATTR)) || 0;
@@ -99,6 +101,19 @@ function buttonsField(buttons: HTMLElement[], label: string, required: boolean):
   };
 }
 
+/**
+ * A lone checkbox's label often names only the box ("Yes", "I agree"); the
+ * question it answers is the title of the group it sits in. Both are the field.
+ */
+function toggleLabel(control: HTMLInputElement, own: string): string {
+  const group = control.closest(NAMED_GROUP_SELECTOR);
+  const question =
+    groupAccessibleName(control) || (group ? groupQuestion(group, control, [control]) : "");
+  if (!question || normalize(own).includes(normalize(question))) return own;
+  // The question is already clipped; keep the box's own words after it.
+  return own ? `${question} — ${own}` : question;
+}
+
 /** A radio or checkbox group (or a hidden proxy box behind visible option buttons). */
 function choiceField(control: HTMLInputElement): FormField | null {
   const members = groupMembers(control);
@@ -117,7 +132,12 @@ function choiceField(control: HTMLInputElement): FormField | null {
   }
   const label = fieldLabel(control, members, wrapper);
   if (control.type === "checkbox" && single) {
-    return { elementIndex: nodeId(control), kind: "toggle", label, required };
+    return {
+      elementIndex: nodeId(control),
+      kind: "toggle",
+      label: toggleLabel(control, label),
+      required,
+    };
   }
   const options = members.map((member) => inputOptionLabel(member)).filter(Boolean);
   if (options.length < 2) return null;

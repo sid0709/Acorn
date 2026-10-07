@@ -63,6 +63,8 @@ type Tracer func(ctx context.Context, call Call)
 // model. The SelectorGateway (TypeSafe Jev) is the real one.
 type Classifier interface {
 	ClassifyEach(ctx context.Context, instructions string, kinds map[string]string, items map[int]string) (map[int]string, error)
+	// PickOne compares the items side by side and returns the id of the one that fits.
+	PickOne(ctx context.Context, instructions string, items map[int]string) (int, error)
 }
 
 type Service struct {

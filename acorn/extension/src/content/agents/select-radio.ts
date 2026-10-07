@@ -1,7 +1,9 @@
 import { inferElementRole } from "../verify-element";
+
 import { applyCheckboxSet, isCheckboxGroup, pickSingleChoice } from "./choice-decision";
 import {
   choiceOptionLabel,
+  containsWords,
   findVisibleChoiceOption,
   inputOptionLabel,
   isProxyControl,
@@ -16,12 +18,28 @@ function normalize(text: string): string {
   return text.replace(/\s+/g, " ").trim().toLowerCase();
 }
 
-function labelsMatch(option: Element, value: string): boolean {
+/** The option's label (or native value) is exactly the value. */
+function labelsEqual(option: Element, value: string): boolean {
   const n = normalize(value);
   if (!n) return false;
-  const label = normalize(inputOptionLabel(option));
   const rawValue = option instanceof HTMLInputElement ? normalize(option.value) : "";
-  return label === n || rawValue === n || label.includes(n) || n.includes(label);
+  return normalize(inputOptionLabel(option)) === n || rawValue === n;
+}
+
+/** Exactly equal, or one holds the other as whole words ("No" is not in "I do not know"). */
+/** The node whose label is exactly the value, else the first that matches it as words. */
+function pickByLabel<T extends Element>(nodes: T[], value: string): T | null {
+  return (
+    nodes.find((node) => labelsEqual(node, value)) ??
+    nodes.find((node) => labelsMatch(node, value)) ??
+    null
+  );
+}
+
+function labelsMatch(option: Element, value: string): boolean {
+  if (!normalize(value)) return false;
+  const label = inputOptionLabel(option);
+  return labelsEqual(option, value) || containsWords(label, value) || containsWords(value, label);
 }
 
 function isBooleanIntent(value: string): boolean {
@@ -44,7 +62,7 @@ function findDisplayedOption(listbox: Element | null, value: string): HTMLElemen
   const nodes = Array.from(listbox.querySelectorAll('[role="option"]')).filter(
     (node): node is HTMLElement => node instanceof HTMLElement && isDisplayed(node),
   );
-  return nodes.find((node) => labelsMatch(node, value)) || null;
+  return pickByLabel(nodes, value);
 }
 
 /** The field a choice control belongs to: its nearest grouping container. */
@@ -64,23 +82,25 @@ function findChoiceInGroup(
   value: string,
   kind: "checkbox" | "radio",
 ): HTMLInputElement | null {
-  const nodes = Array.from(root.querySelectorAll(`input[type="${kind}"]`));
-  const match = nodes.find((node) => labelsMatch(node, value));
-  return match instanceof HTMLInputElement ? match : null;
+  const nodes = Array.from(root.querySelectorAll(`input[type="${kind}"]`)).filter(
+    (node): node is HTMLInputElement => node instanceof HTMLInputElement,
+  );
+  // An exact label wins: "Hispanic or Latino" is inside "White (Not Hispanic or Latino)".
+  return pickByLabel(nodes, value);
 }
 
 function findAriaChoice(root: ParentNode, value: string): HTMLElement | null {
   const nodes = Array.from(root.querySelectorAll('[role="checkbox"], [role="radio"]')).filter(
     (node): node is HTMLElement => node instanceof HTMLElement,
   );
-  return nodes.find((node) => labelsMatch(node, value)) || null;
+  return pickByLabel(nodes, value);
 }
 
 function findButtonChoice(root: ParentNode, value: string): HTMLElement | null {
   const nodes = Array.from(
     root.querySelectorAll('button, [role="button"], [role="radio"], [aria-pressed]'),
   ).filter((node): node is HTMLElement => node instanceof HTMLElement && isDisplayed(node));
-  return nodes.find((node) => labelsMatch(node, value)) || null;
+  return pickByLabel(nodes, value);
 }
 
 function ensureChecked(el: HTMLInputElement, intended?: string): string {
@@ -126,6 +146,53 @@ function isDropdownTarget(el: Element): boolean {
     role === "option" ||
     (el as HTMLElement).getAttribute("aria-haspopup") === "listbox"
   );
+}
+
+/** A native radio or checkbox: the group option named by the answer, else the box itself. */
+function selectNativeChoice(el: HTMLInputElement, intended: string): string {
+  const kind = el.type === "radio" ? "radio" : "checkbox";
+  if (intended && (kind === "radio" || !isBooleanIntent(intended))) {
+    // The option named by the answer, even "Yes" / "No": checking the planned
+    // radio would answer with whatever option happens to come first.
+    const named =
+      findChoiceInGroup(groupRoot(el), intended, kind) ?? (labelsMatch(el, intended) ? el : null);
+    if (named) return ensureChecked(named, intended);
+    // No option carries the answer: only a bare "check it" means this radio.
+    if (kind === "checkbox" || !isBooleanIntent(intended) || !wantChecked(intended)) {
+      throw new NoChoiceMatch(`No ${kind} option matching "${intended}"`);
+    }
+  }
+  if (kind === "radio") return ensureChecked(el, intended);
+  const check = !intended || wantChecked(intended);
+  if (el.checked !== check) pointerActivate(el);
+  return String(el.checked);
+}
+
+function isAriaChecked(el: Element): boolean {
+  return el.getAttribute("aria-checked") === "true" || el.getAttribute("aria-pressed") === "true";
+}
+
+/**
+ * An ARIA radio or checkbox. The option the answer names wins, even "Yes" / "No";
+ * only when no option carries it is the answer a plain check / uncheck of this one.
+ * Null hands over to the generic search.
+ */
+function selectAriaChoice(
+  el: HTMLElement,
+  role: "radio" | "checkbox",
+  intended: string,
+): string | null {
+  const named = findAriaChoice(groupRoot(el), intended) ?? (labelsMatch(el, intended) ? el : null);
+  if (named) {
+    if (!isAriaChecked(named)) pointerActivate(named);
+    return inputOptionLabel(named) || intended;
+  }
+  if (!isBooleanIntent(intended)) return null;
+  const want = wantChecked(intended);
+  // A radio is never unchecked into a "no": that needs an option saying so.
+  if (role === "radio" && !want) throw new NoChoiceMatch(`No radio option matching "${intended}"`);
+  if (isAriaChecked(el) !== want) pointerActivate(el);
+  return String(want);
 }
 
 /** Local selection by boolean intent or visible option label (native and ARIA widgets). */
@@ -193,36 +260,14 @@ async function selectChoiceLocally(el: Element, value: string | null): Promise<s
     }
   }
 
-  if (el instanceof HTMLInputElement && el.type === "radio") {
-    if (intended && !isBooleanIntent(intended) && !labelsMatch(el, intended)) {
-      const grouped = findChoiceInGroup(groupRoot(html), intended, "radio");
-      if (grouped) return ensureChecked(grouped, intended);
-      throw new NoChoiceMatch(`No radio option matching "${intended}"`);
-    }
-    return ensureChecked(el, intended);
-  }
-
-  if (el instanceof HTMLInputElement && el.type === "checkbox") {
-    if (intended && !isBooleanIntent(intended)) {
-      if (labelsMatch(el, intended)) return ensureChecked(el, intended);
-      const grouped = findChoiceInGroup(groupRoot(html), intended, "checkbox");
-      if (grouped) return ensureChecked(grouped, intended);
-      throw new NoChoiceMatch(`No checkbox option matching "${intended}"`);
-    }
-    const check = !intended || wantChecked(intended);
-    if (el.checked !== check) pointerActivate(el);
-    return String(el.checked);
+  if (el instanceof HTMLInputElement && (el.type === "radio" || el.type === "checkbox")) {
+    return selectNativeChoice(el, intended);
   }
 
   // ARIA checkbox/radio without native input
   if ((explicitAriaRole === "checkbox" || explicitAriaRole === "radio") && intended) {
-    if (isBooleanIntent(intended) || labelsMatch(html, intended)) {
-      const pressed =
-        html.getAttribute("aria-checked") === "true" ||
-        html.getAttribute("aria-pressed") === "true";
-      if (!pressed) pointerActivate(html);
-      return inputOptionLabel(html) || "checked";
-    }
+    const selected = selectAriaChoice(html, explicitAriaRole, intended);
+    if (selected != null) return selected;
   }
 
   // Custom choice buttons: the planned node is the option to activate.

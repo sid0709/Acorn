@@ -1,4 +1,5 @@
 import { visibleOptions } from "./option-mirror";
+import { POPUP_ITEM_SELECTOR, POPUP_SELECTOR } from "./popup-roles";
 
 export function normalize(text: string): string {
   return text.replace(/\s+/g, " ").replace(/[–—]/g, "-").trim().toLowerCase();
@@ -62,23 +63,25 @@ function listboxRootsForControl(control: HTMLElement, doc: Document): HTMLElemen
 }
 
 export function collectOptionsInRoot(root: ParentNode): HTMLElement[] {
-  const selectors = [
-    '[role="option"]',
-    '[role="listbox"] [role="option"]',
-    '[role="listbox"] li',
-    'ul[role="listbox"] li',
-  ];
+  const selectors = [POPUP_ITEM_SELECTOR, '[role="listbox"] li'];
   const found = new Set<HTMLElement>();
   for (const selector of selectors) {
     for (const node of Array.from(root.querySelectorAll(selector))) {
       const html = node as HTMLElement;
-      if (!isDisplayed(html)) continue;
+      if (!isDisplayed(html) || !isFirstCellOfRow(html)) continue;
       const text = optionText(html);
       if (!text || text.length > 200 || isPlaceholderOption(text)) continue;
       found.add(html);
     }
   }
   return Array.from(found);
+}
+
+/** A grid row is one choice: keep its first gridcell, not every column of it. */
+function isFirstCellOfRow(el: HTMLElement): boolean {
+  if (el.getAttribute("role") !== "gridcell") return true;
+  const row = el.closest('[role="row"]');
+  return !row || row.querySelector('[role="gridcell"]') === el;
 }
 
 function scoreListbox(listbox: HTMLElement, control: HTMLElement): number {
@@ -126,7 +129,7 @@ function collectScopedOptions(control: HTMLElement, doc: Document): HTMLElement[
     return [];
   }
 
-  const listboxes = Array.from(doc.querySelectorAll('[role="listbox"]')).filter(
+  const listboxes = Array.from(doc.querySelectorAll(POPUP_SELECTOR)).filter(
     (node): node is HTMLElement =>
       node instanceof HTMLElement && isDisplayed(node) && listboxServesControl(node, control, doc),
   );
@@ -160,7 +163,7 @@ export function displayedListboxes(control: HTMLElement, doc: Document): HTMLEle
     (node) => isDisplayed(node) || collectOptionsInRoot(node).length > 0,
   );
   if (owned.length) return owned;
-  return Array.from(doc.querySelectorAll('[role="listbox"]')).filter(
+  return Array.from(doc.querySelectorAll(POPUP_SELECTOR)).filter(
     (node): node is HTMLElement => node instanceof HTMLElement && isDisplayed(node),
   );
 }
