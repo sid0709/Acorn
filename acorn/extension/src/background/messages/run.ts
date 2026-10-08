@@ -1,8 +1,8 @@
 import { getAccessToken, getAcornApiUrl } from "../../auth/acorn-auth";
-import { runOrchestrator } from "../../pipeline/run-orchestrator";
-import { syncAutoFocus } from "../auto-focus";
 import { getRunCheckpoint } from "../../pipeline/run-checkpoint";
+import { runOrchestrator } from "../../pipeline/run-orchestrator";
 import { getStopBeforeSubmit } from "../../run-settings";
+import { syncAutoFocus } from "../auto-focus";
 import { beginRunStop, claimRunStopTab, endRunStop, stopRunOnTab } from "../run-stop";
 import { broadcastPipelineProgress } from "../socket-connection";
 import { pinnedTabId } from "../tab-target";
@@ -12,6 +12,7 @@ import {
   runTabIds,
   syncWorkKeepAlive,
 } from "../work-state";
+
 import { SIGN_IN_FIRST, type RuntimeMessage, type SendResponse } from "./shared";
 
 /** Run: the whole application on this tab, in one click. */

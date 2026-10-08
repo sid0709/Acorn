@@ -1,15 +1,10 @@
-import { useEffect, useMemo, useState } from "react";
 import {
   IDLE_PIPELINE_PROGRESS,
   mergePipelineProgress,
   type PipelineProgress,
 } from "@acorn/shared/pipeline-types";
-import {
-  listTabJobs,
-  TAB_JOBS_STORAGE_KEY,
-  type JobAttachment,
-  type TabJobMap,
-} from "../tab-job-session";
+import { useEffect, useMemo, useState } from "react";
+
 import {
   listCustomTabs,
   TAB_CUSTOM_STORAGE_KEY,
@@ -21,6 +16,12 @@ import {
   listJobGenerates,
   type JobGenerateMap,
 } from "../tab-job-generate-session";
+import {
+  listTabJobs,
+  TAB_JOBS_STORAGE_KEY,
+  type JobAttachment,
+  type TabJobMap,
+} from "../tab-job-session";
 import {
   listTabPipelines,
   TAB_PIPELINES_STORAGE_KEY,

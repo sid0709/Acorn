@@ -3,6 +3,7 @@
 // content scripts on job sites, workers, and the demo.
 // Run: bun run --cwd acorn/packages/acorn-face art:prepare
 import { join } from "node:path";
+
 import sharp from "sharp";
 
 const ROOT = join(import.meta.dir, "..");

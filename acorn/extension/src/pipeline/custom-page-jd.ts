@@ -54,7 +54,7 @@ export async function extractRememberedTabJd(
   apiUrl: string,
 ): Promise<RememberedTabJd> {
   const treePayload = await fetchDomFromTab(tabId);
-  const { pureTree } = formatAnalyzeTrees(treePayload.tree as unknown as DomTreeNode);
+  const { pureTree } = formatAnalyzeTrees(treePayload.tree);
   const pageText = capText(pureTree);
   if (!pageText.trim()) {
     throw new Error("No readable text on this tab");

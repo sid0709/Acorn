@@ -1,5 +1,5 @@
-import { useEffect, useRef } from "react";
 import { mount, type AcornFaceHandle, type AcornFaceMode } from "@acorn/face";
+import { useEffect, useRef } from "react";
 
 type AcornFaceViewProps = {
   mode: AcornFaceMode;

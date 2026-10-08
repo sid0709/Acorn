@@ -124,9 +124,8 @@ export function findAssociatedCombobox(select: HTMLSelectElement): HTMLElement |
   // 2) Wider search only for id-linked pairs (safe across large address blocks).
   if (select.id) {
     const scope =
-      (select.closest(
-        'td, th, [class*="Field"], [class*="field"], fieldset, form',
-      ) as HTMLElement | null) || select.ownerDocument?.body;
+      select.closest('td, th, [class*="Field"], [class*="field"], fieldset, form') ||
+      select.ownerDocument?.body;
     if (scope) {
       const linked = idLinkedCombobox(select.id, comboboxCandidates(scope, select));
       if (linked) return linked;
@@ -235,7 +234,7 @@ export function findComboboxForOption(option: HTMLElement): HTMLElement | null {
     }
   }
 
-  const listbox = option.closest('[role="listbox"]') as HTMLElement | null;
+  const listbox = option.closest('[role="listbox"]');
   const listboxId = listbox?.id || "";
   const optionId = option.id || "";
 

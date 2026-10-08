@@ -1,7 +1,8 @@
-import type { GenerateCheckpoint } from "@acorn/shared/generate-checkpoint";
 import { normalizeGenerateCheckpoint } from "@acorn/shared/generate-checkpoint";
-import type { RecommendedResumeRank } from "@acorn/shared/resume-library";
+
 import type { CustomUiProgress } from "./pipeline/custom-generate-progress";
+import type { GenerateCheckpoint } from "@acorn/shared/generate-checkpoint";
+import type { RecommendedResumeRank } from "@acorn/shared/resume-library";
 
 export type CustomGenerateStatus = "idle" | "queued" | "running" | "completed" | "failed";
 

@@ -1,19 +1,22 @@
-import { useCallback, useEffect, useState } from "react";
 import { FILL_MODE, type FillMode } from "@acorn/shared/field-issues";
 import {
   IDLE_PIPELINE_PROGRESS,
   mergePipelineProgress,
   type PipelineProgress,
 } from "@acorn/shared/pipeline-types";
+import { useCallback, useEffect, useState } from "react";
+
+import { fetchStoredJobDescription } from "../pipeline/api/job-files";
 import {
   patchCustomTab,
   type CustomResumeMode,
   type AcornCustomTabBinding,
 } from "../tab-custom-session";
-import { fetchStoredJobDescription } from "../pipeline/api/job-files";
 import { MSG, type PipelineSource } from "../types";
+
 import { pushAcornNotice } from "./acorn-notice";
 import { sendMessage } from "./runtime";
+
 import type { AcornMainTab } from "./SidebarNav";
 import type { useTabSession } from "./use-tab-session";
 
@@ -44,7 +47,7 @@ export function useTabWork({
   useEffect(() => {
     if (customTab == null) return;
     setCustomResumeMode(customTab.resumeMode);
-  }, [customTab?.tabId, customTab?.resumeMode]);
+  }, [customTab]);
 
   const setTabProgress = useCallback(
     (tabId: number, next: PipelineProgress) => {

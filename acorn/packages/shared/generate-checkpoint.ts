@@ -81,9 +81,7 @@ export function normalizeGenerateCheckpoint(value: unknown): GenerateCheckpoint 
       title: readOptionalText(outputs.title),
       url: readOptionalText(outputs.url),
       partialSections:
-        partial && typeof partial === "object" && !Array.isArray(partial)
-          ? (partial as Record<string, unknown>)
-          : null,
+        partial && typeof partial === "object" && !Array.isArray(partial) ? partial : null,
       inputId: readOptionalText(outputs.inputId),
       generationId: readOptionalText(outputs.generationId),
       resumeId: readOptionalText(outputs.resumeId),

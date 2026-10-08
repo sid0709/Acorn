@@ -21,7 +21,7 @@ function dispatchKey(el: HTMLElement, type: "keydown" | "keyup", key: string): v
   el.dispatchEvent(event);
 }
 
-async function typeText(el: HTMLElement, text: string): Promise<void> {
+function typeText(el: HTMLElement, text: string): void {
   el.focus();
 
   if (el instanceof HTMLInputElement || el instanceof HTMLTextAreaElement) {
@@ -29,9 +29,10 @@ async function typeText(el: HTMLElement, text: string): Promise<void> {
       el instanceof HTMLTextAreaElement
         ? HTMLTextAreaElement.prototype
         : HTMLInputElement.prototype;
-    const setter = Object.getOwnPropertyDescriptor(proto, "value")?.set;
-    if (setter) {
-      setter.call(el, text);
+    const descriptor = Object.getOwnPropertyDescriptor(proto, "value");
+    const setValue = descriptor?.set;
+    if (setValue) {
+      setValue.call(el, text);
     } else {
       el.value = text;
     }
@@ -95,7 +96,7 @@ export async function executeActions(nodeId: number, steps: ActionStep[]): Promi
         break;
       case "type":
         if (!step.text) throw new Error("Type action requires text");
-        await typeText(target, step.text);
+        typeText(target, step.text);
         break;
       case "wait":
         await sleep(step.ms ?? 1000);
@@ -111,7 +112,7 @@ export async function executeActions(nodeId: number, steps: ActionStep[]): Promi
         dispatchKey(target, "keyup", step.key);
         break;
       default:
-        throw new Error(`Unknown action: ${(step as ActionStep).type}`);
+        throw new Error(`Unknown action: ${step.type}`);
     }
   }
 }

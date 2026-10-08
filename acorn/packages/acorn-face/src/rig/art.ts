@@ -95,7 +95,7 @@ export class Sprites {
     const key = `${width}x${height}`;
     const hit = this.bodies.get(key);
     if (hit) return hit;
-    this.bodyReady(width, height).then(onReady);
+    void this.bodyReady(width, height).then(onReady);
     return null;
   }
 

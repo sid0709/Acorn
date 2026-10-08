@@ -8,15 +8,19 @@ const CARD_COLUMNS = 4;
 export function DownloadCards({
   installUrl,
   downloadUrl,
+  extensionVersion,
 }: {
   installUrl: string | null;
   downloadUrl: string | null;
+  extensionVersion: string | null;
 }) {
   return (
     <Grid columns={{ minWidth: CARD_MIN_WIDTH, max: CARD_COLUMNS }} gap={4}>
       {DOWNLOADS.map((target) => {
         const available = target.availability === "available";
         const storeUrl = target.usesChromeListing ? installUrl : null;
+        const showVersion = target.id === "chrome" && extensionVersion;
+        const chromeReady = target.id === "chrome" && Boolean(downloadUrl);
         return (
           <Card key={target.id} padding={5}>
             <Stack gap={4}>
@@ -26,8 +30,10 @@ export function DownloadCards({
                   <Heading level={3}>{target.name}</Heading>
                 </HStack>
                 <Badge
-                  label={available ? "Available" : "Coming soon"}
-                  variant={available ? "success" : "neutral"}
+                  label={
+                    showVersion ? `v${extensionVersion}` : available ? "Available" : "Coming soon"
+                  }
+                  variant={available || chromeReady ? "success" : "neutral"}
                 />
               </HStack>
               <Text color="secondary">{target.description}</Text>

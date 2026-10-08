@@ -1,4 +1,5 @@
 import { formatGenerateFailure } from "@acorn/shared/generate-checkpoint";
+
 import { customTabHasResume, type AcornCustomTabBinding } from "../tab-custom-session";
 
 const RESUME_GENERATED = "Resume generated";

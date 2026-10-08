@@ -1,5 +1,6 @@
 import { askAiMatchOption } from "../match-option-client";
 import { stripChoiceMarker } from "../string-similarity";
+
 import { normalize, optionText } from "./options-dom";
 
 /** The option whose text is the value (ignoring case, spacing, and an "A." style marker). */

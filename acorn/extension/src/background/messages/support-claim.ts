@@ -1,4 +1,5 @@
 import { MAX_NOTES_LENGTH, SUPPORT_CLAIMS_PATH } from "@acorn/support-chat/types";
+
 import { authHeaders, getAcornApiUrl } from "../../auth/acorn-auth";
 import { usageTabKey } from "../../tab-usage-key";
 import { blobToBase64, captureFullPage, captureVisible } from "../capture/full-page";

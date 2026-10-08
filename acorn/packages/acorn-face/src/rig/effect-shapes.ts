@@ -1,6 +1,7 @@
-import type { Canvas2D } from "./art";
 import { BUBBLE, BUBBLE_EDGE, GLYPH_FONT, SPARKLE, TEAR, TEAR_HIGHLIGHT } from "./constants";
 import { clamp01 } from "./math";
+
+import type { Canvas2D } from "./art";
 
 export function sparkle(g: Canvas2D, x: number, y: number, s: number, alpha: number): void {
   if (s <= 0 || alpha <= 0) return;

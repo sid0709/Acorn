@@ -1,15 +1,21 @@
-import { useEffect, useMemo, useState } from "react";
 import { FILL_MODE } from "@acorn/shared/field-issues";
 import { isFillPhaseBusy } from "@acorn/shared/pipeline-types";
 import { RUN_OUTCOME } from "@acorn/shared/run-types";
-import { customTabHasResume } from "../tab-custom-session";
+import { useEffect, useMemo, useState } from "react";
+
 import { countBusyWorkers, tabInputFromProgress } from "../acorn-face/director";
 import { useCompanionFace } from "../acorn-face/use-companion-face";
+import { customTabHasResume } from "../tab-custom-session";
+import { MSG } from "../types";
+
 import { pushAcornNotice } from "./acorn-notice";
+import { AskPanel } from "./AskPanel";
 import { hostOf } from "./custom-tab-resume";
+import { CustomPanel } from "./CustomPanel";
+import { JobsPanel } from "./JobsPanel";
 import { NowCard } from "./NowCard";
-import { SidebarHeader } from "./SidebarHeader";
-import { SidebarNav, type AcornMainTab } from "./SidebarNav";
+import { ReportDialog } from "./ReportDialog";
+import { sendMessage } from "./runtime";
 import {
   REFILL_HINT,
   RUN_HINT,
@@ -17,24 +23,21 @@ import {
   isAnyTabWorking,
   isGenerateBusy,
 } from "./sidebar-work-state";
+import { SidebarHeader } from "./SidebarHeader";
+import { SidebarNav, type AcornMainTab } from "./SidebarNav";
+import { SidebarOverlays } from "./SidebarOverlays";
+import { SignedOutView } from "./SignedOutView";
+import { SupportPanel } from "./SupportPanel";
 import { useActiveTabId } from "./use-active-tab";
 import { usePlanInspect } from "./use-plan-inspect";
 import { useResumePreview } from "./use-resume-preview";
 import { useSidebarAuth } from "./use-sidebar-auth";
 import { useSocketStatus } from "./use-socket-status";
+import { useSupportClaims } from "./use-support-claims";
 import { useTabSession } from "./use-tab-session";
 import { useTabUi } from "./use-tab-ui";
 import { useTabWork } from "./use-tab-work";
-import { sendMessage } from "./runtime";
-import { MSG } from "../types";
-import { AskPanel } from "./AskPanel";
-import { CustomPanel } from "./CustomPanel";
-import { JobsPanel } from "./JobsPanel";
-import { SidebarOverlays } from "./SidebarOverlays";
-import { SignedOutView } from "./SignedOutView";
-import { ReportDialog } from "./ReportDialog";
-import { SupportPanel } from "./SupportPanel";
-import { useSupportClaims } from "./use-support-claims";
+
 import type { JdPreview } from "./sidebar-panel-types";
 import "./SidebarApp.css";
 

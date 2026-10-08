@@ -54,9 +54,9 @@ const IFRAME_TITLE_MAX_CHARS = 120;
 const OPTION_LIST_TAGS = new Set(["SELECT", "OPTGROUP", "DATALIST"]);
 
 let acornIdCounter = 0;
-let childCapHits = 0;
-let depthCapHits = 0;
-let fillableHits = 0;
+let _childCapHits = 0;
+let _depthCapHits = 0;
+let _fillableHits = 0;
 /** The open dialogs of the documents being serialized, read once per pass. */
 let layersOf: ((el: Element) => PageLayers) | null = null;
 /** This pass reads a posting: only what a person can see, paragraphs kept whole. */
@@ -109,9 +109,9 @@ function getChildNodes(el: Element): Node[] {
 export function serializeDom(root?: Element, opts: SerializeOptions = {}): DomNode {
   postingPass = opts.posting === true;
   acornIdCounter = 0;
-  childCapHits = 0;
-  depthCapHits = 0;
-  fillableHits = 0;
+  _childCapHits = 0;
+  _depthCapHits = 0;
+  _fillableHits = 0;
   layersOf = pageLayers();
 
   // Clean up old Acorn IDs across the whole document (including iframes)
@@ -238,12 +238,12 @@ function serializeNode(el: Element, depth: number): DomNode[] {
 
   if (nextDepth < MAX_DEPTH) {
     const childCap = childCapFor(el, rawChildEls);
-    if (rawChildEls.length > childCap) childCapHits += 1;
+    if (rawChildEls.length > childCap) _childCapHits += 1;
     for (const child of rawChildEls.slice(0, childCap)) {
       processedChildren.push(...serializeNode(child, nextDepth));
     }
   } else if (rawChildEls.length) {
-    depthCapHits += 1;
+    _depthCapHits += 1;
   }
 
   if (flatten) {
@@ -262,7 +262,7 @@ function serializeNode(el: Element, depth: number): DomNode[] {
     role === "searchbox" ||
     role === "listbox"
   ) {
-    fillableHits += 1;
+    _fillableHits += 1;
   }
 
   const classes = el.classList?.length ? Array.from(el.classList).slice(0, 3) : undefined;

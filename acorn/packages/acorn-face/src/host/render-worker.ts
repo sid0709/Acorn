@@ -1,7 +1,8 @@
 // Render worker: draws every face on the page off the main thread, into OffscreenCanvases
 // the page hands over. One worker serves all faces, so art and sprites are shared.
-import type { FaceController, ToWorker } from "./protocol";
 import { Stage } from "./stage";
+
+import type { FaceController, ToWorker } from "./protocol";
 
 const scope = self as unknown as { onmessage: ((e: MessageEvent<ToWorker>) => void) | null };
 let stage: Stage | null = null;

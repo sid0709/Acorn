@@ -2,7 +2,7 @@
 # A push to main, including a merge, deploys only the images whose inputs changed.
 # The extension is not an image. An extension-only push does not build or restart containers.
 # API inputs: acorn-backend, backend-core.
-# Website inputs: acorn-frontend, packages, acorn/packages/shared, the root package manifest, and the Bun lockfile.
+# Website inputs: acorn-frontend, acorn/extension (packed .zip on Apps), packages, acorn/packages/shared, the root package manifest, and the Bun lockfile.
 # Admin inputs: acorn-admin, shared packages (same as the website), and deploy/nginx/acornadmin.remotepairnet.net.conf.
 #
 # GitHub Environment (Settings → Environments → Production), branch: main.
@@ -155,6 +155,9 @@ jobs:
           file: src/Acorn/acorn-frontend/Dockerfile
           push: true
           platforms: linux/amd64
+          build-args: |
+            VITE_ACORN_API_URL=${{ vars.VITE_ACORN_API_URL || vars.ACORN_EXTENSION_API_URL || 'https://acornapi.remotepairnet.net' }}
+            VITE_ACORN_WEB_URL=${{ vars.VITE_ACORN_WEB_URL || vars.ACORN_EXTENSION_WEB_URL || 'https://acorn.remotepairnet.net' }}
           tags: |
             ${{ env.WEB_IMAGE }}:${{ steps.plan.outputs.image_tag }}
             ${{ env.WEB_IMAGE }}:latest

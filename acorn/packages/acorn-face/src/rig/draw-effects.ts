@@ -1,7 +1,8 @@
-import type { BodyArt, Canvas2D } from "./art";
 import { EYE_L, EYE_R, EYE_RX, EYE_RY, INK, SNORE } from "./constants";
 import { bubble, glyph, sparkle, tearDrop } from "./effect-shapes";
 import { smooth } from "./math";
+
+import type { BodyArt, Canvas2D } from "./art";
 import type { Effects, Pose } from "./poses";
 
 export function drawTear(g: Canvas2D, art: BodyArt, t: number, fx: Effects): void {

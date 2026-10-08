@@ -1,9 +1,11 @@
 // Decoded art, sprite caches, and the scheduler for one thread, plus controllers for its faces.
 import { decodeBody, Sprites, type AnyCanvas, type BodyArt } from "../rig/art";
 import { Face } from "../rig/face";
+
+import { Scheduler } from "./scheduler";
+
 import type { AcornFaceMode } from "../types";
 import type { FaceController } from "./protocol";
-import { Scheduler } from "./scheduler";
 
 export interface FaceSetup {
   cssSize: number;
@@ -27,7 +29,7 @@ export class Stage {
     const want = { ...setup, paused: false, visible: true, gone: false };
     let face: Face | null = null;
 
-    this.ready.then(({ art, sprites }) => {
+    void this.ready.then(({ art, sprites }) => {
       if (want.gone) return;
       face = new Face(canvas, art, sprites, want, this.scheduler.wake);
       face.paused = want.paused;

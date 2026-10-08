@@ -1,6 +1,7 @@
-import type { AcornFaceMode } from "@acorn/face";
-import { ACORN_FACE_BADGE_OVERHANG, ACORN_FACE_BADGE_PX } from "./constants";
 import { AcornFaceSlot } from "./AcornFaceSlot";
+import { ACORN_FACE_BADGE_OVERHANG, ACORN_FACE_BADGE_PX } from "./constants";
+
+import type { AcornFaceMode } from "@acorn/face";
 
 type AcornFaceBadgeProps = {
   mode: AcornFaceMode;

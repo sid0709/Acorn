@@ -1,9 +1,9 @@
 import { formatDuration, formatUsd } from "@acorn/shared/ai-usage";
 import { FILL_MODE, type FillMode } from "@acorn/shared/field-issues";
 import { FAST_PLAN_MODE } from "@acorn/shared/form-fields";
+import { PhaseClock } from "@acorn/shared/phase-clock";
 import { applyApplicantIdentityToActions } from "@acorn/shared/plan-runner/applicant-identity";
 import { runActionPlan } from "@acorn/shared/plan-runner/orchestrator";
-import { PhaseClock } from "@acorn/shared/phase-clock";
 import { formatPlannerTree } from "@acorn/shared/planner-tree";
 import { redactPlan } from "@acorn/shared/secret-value";
 import { formatAnalyzeTrees } from "@acorn/shared/tree-export";
@@ -86,6 +86,7 @@ export interface RunPipelineArgs {
   onProgress: PipelineEmit;
 }
 
+// eslint-disable-next-line complexity -- coordinates analyze, plan, and fill for one tab
 export async function runFabPipeline(args: RunPipelineArgs): Promise<void> {
   const {
     tabId,
@@ -393,7 +394,7 @@ export async function runFabPipeline(args: RunPipelineArgs): Promise<void> {
                 }),
               });
             },
-            onPause: async (request) => {
+            onPause: (request) => {
               emit({
                 phase: "running",
                 message:

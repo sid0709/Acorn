@@ -1,11 +1,10 @@
-import { useCallback, useEffect, useRef, useState } from "react";
-
 import {
   EMPTY_TAB_USAGE,
   formatNanosUsd,
   type TabUsageView,
   type UsageEntryRow,
 } from "@acorn/shared/tab-usage-ledger";
+import { useCallback, useEffect, useRef, useState } from "react";
 
 import { authHeaders, getAcornApiUrl } from "../auth/acorn-auth";
 import { tabUsageStorageKey, usageTabKey } from "../tab-usage-key";

@@ -1,4 +1,5 @@
 import { FILL_MODE } from "@acorn/shared/field-issues";
+
 import { getAcornSocket } from "../../acorn-socket";
 import { getAccessToken, getAcornApiUrl } from "../../auth/acorn-auth";
 import { runFabPipeline } from "../../pipeline/run-pipeline";
@@ -7,6 +8,7 @@ import { MSG, type DomTreePayload } from "../../types";
 import { broadcastPipelineProgress } from "../socket-connection";
 import { pinnedTabId } from "../tab-target";
 import { customGenerateTabIds, pipelineRunningTabIds, syncWorkKeepAlive } from "../work-state";
+
 import { SIGN_IN_FIRST, type RuntimeMessage, type SendResponse } from "./shared";
 
 export function handleStartPipeline(

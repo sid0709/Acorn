@@ -1,6 +1,3 @@
-import type { Socket } from "socket.io-client";
-
-import { recordPushedUsage } from "./tab-usage-store";
 import { sendPlanStepToTab } from "../tab-messaging";
 import {
   MSG,
@@ -10,6 +7,10 @@ import {
   type HighlightPayload,
   type PlanStepSocketPayload,
 } from "../types";
+
+import { recordPushedUsage } from "./tab-usage-store";
+
+import type { Socket } from "socket.io-client";
 
 export function bindSocketRelay(socket: Socket): void {
   socket.on(SOCKET_EVENT.aiUsageRecorded, (payload: unknown) => {

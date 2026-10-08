@@ -1,5 +1,6 @@
-import type { AcornNoticeKind, AcornNoticePayload } from "../types";
 import { flashFromNotice } from "../acorn-face/face-flash";
+
+import type { AcornNoticeKind, AcornNoticePayload } from "../types";
 
 type PushFn = (notice: AcornNoticePayload) => void;
 

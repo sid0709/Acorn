@@ -3,10 +3,9 @@
 import { useRouter } from "next/navigation";
 import { Avatar, HStack, SectionCard, Stack, Table, Text, type TableColumn } from "sid-ui";
 
-import { DeactivatedBadge } from "@/components/users/deactivated-badge";
-
 import type { AccountNames, Group } from "@/lib/statistics/types";
 
+import { DeactivatedBadge } from "@/components/users/deactivated-badge";
 import { formatCount, formatPercent, formatUSD } from "@/lib/format";
 import { ROUTES } from "@/lib/routes";
 

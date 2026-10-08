@@ -1,3 +1,4 @@
+import { fieldWrapper } from "../form-dom";
 import { inferElementRole } from "../verify-element";
 
 import { applyCheckboxSet, isCheckboxGroup, pickSingleChoice } from "./choice-decision";
@@ -11,10 +12,9 @@ import {
 import { choiceState } from "./choice-state";
 import { findAssociatedCombobox, findComboboxForOption } from "./enhanced-select";
 import { fillNativeSelect } from "./native-select";
-import { fieldWrapper } from "../form-dom";
 import { pointerActivate } from "./pointer-activate";
-import { waitMs } from "./wait";
 import { selectComboboxOption } from "./select-combobox";
+import { waitMs } from "./wait";
 
 function normalize(text: string): string {
   return text.replace(/\s+/g, " ").trim().toLowerCase();

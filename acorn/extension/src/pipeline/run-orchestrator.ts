@@ -7,8 +7,8 @@ import {
   type FieldIssueScan,
   type FillMode,
 } from "@acorn/shared/field-issues";
-import { appendPlanTurn, type PlanTurn } from "@acorn/shared/plan-history";
 import { PhaseClock } from "@acorn/shared/phase-clock";
+import { appendPlanTurn, type PlanTurn } from "@acorn/shared/plan-history";
 import {
   ACCOUNT_MODE,
   CONTROL_ROLE,
@@ -34,6 +34,7 @@ import { markTabUsage, usageSince, type UsageMark } from "../background/tab-usag
 import { rekeyCustomTab } from "../tab-custom-session";
 import { getTabJob, rekeyTabJob } from "../tab-job-session";
 
+import { nextAccountGoal } from "./account-goal";
 import {
   requestDiagnose,
   requestMailVerification,
@@ -41,17 +42,16 @@ import {
   READ_INTENT,
   type ReadIntent,
 } from "./api/run";
-import { nextAccountGoal } from "./account-goal";
 import { appliedTo, rememberApplied } from "./applied-postings";
+import { repairDriftInTab } from "./drift";
+import { fetchDomFromTab } from "./fetch-dom";
+import { RESUME_NOT_CHOSEN, type ResumeGate } from "./resume-gate";
 import {
   clearRunCheckpoint,
   restoredRun,
   saveRunCheckpoint,
   type RunCheckpoint,
 } from "./run-checkpoint";
-import { repairDriftInTab } from "./drift";
-import { fetchDomFromTab } from "./fetch-dom";
-import { RESUME_NOT_CHOSEN, type ResumeGate } from "./resume-gate";
 import {
   clickControl,
   isOpenableLink,
@@ -84,9 +84,9 @@ import {
 } from "./run-limits";
 import { logUrl, RunLog } from "./run-log";
 import { snapshotPage, type PageSnapshot } from "./run-page";
-import { isNewStep } from "./run-step";
 import { NO_RESUME_FILE, runFabPipeline } from "./run-pipeline";
 import { ensureRecommendedResume } from "./run-resume";
+import { isNewStep } from "./run-step";
 
 import type { PipelineProgress } from "@acorn/shared/pipeline-types";
 import type { RunStepRecord } from "@acorn/shared/plan-runner/types";
@@ -286,6 +286,7 @@ function newRunId(): string {
  * rejects the answers is refilled up to a limit. Every "what is this page" and
  * "what do I click" is a decision by the model (Jev), never a match on button text.
  */
+// eslint-disable-next-line complexity -- single state machine for the full apply run
 export async function runOrchestrator(args: RunOrchestratorArgs): Promise<RunReport> {
   const { apiUrl } = args;
   let tabId = args.tabId;

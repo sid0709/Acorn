@@ -1,7 +1,8 @@
-import { useLayoutEffect, useRef, useState } from "react";
-import { Badge, EmptyState, HStack, Text, VStack } from "sid-ui";
 import { canContinueGenerate } from "@acorn/shared/generate-checkpoint";
 import { isFillPhaseBusy, type PipelineProgress } from "@acorn/shared/pipeline-types";
+import { useLayoutEffect, useRef, useState } from "react";
+import { Badge, EmptyState, HStack, Text, VStack } from "sid-ui";
+
 import { FACE_WINK_MS } from "../acorn-face/constants";
 import { resolveRowHold } from "../acorn-face/director";
 import { flashAcornFace } from "../acorn-face/face-flash";
@@ -11,12 +12,14 @@ import { fetchCustomLibraryResume } from "../pipeline/api/custom-library";
 import { customUiProgress } from "../pipeline/custom-generate-progress";
 import { customRecommendProgress } from "../pipeline/custom-recommend-progress";
 import { customTabHasResume, type AcornCustomTabBinding } from "../tab-custom-session";
-import type { TabPipelineMap } from "../tab-pipeline-session";
+
+import { pushAcornNotice } from "./acorn-notice";
 import { customTabResumeLine, hostOf } from "./custom-tab-resume";
 import { triggerResumeDownload } from "./download-resume";
 import { runExtras } from "./run-extras";
-import { pushAcornNotice } from "./acorn-notice";
 import { SidebarListCard } from "./SidebarListCard";
+
+import type { TabPipelineMap } from "../tab-pipeline-session";
 
 type CustomTabListProps = {
   tabs: AcornCustomTabBinding[];

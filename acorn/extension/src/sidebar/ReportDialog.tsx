@@ -1,3 +1,4 @@
+import { MAX_NOTES_LENGTH } from "@acorn/support-chat";
 import { useState } from "react";
 import {
   Button,
@@ -11,7 +12,6 @@ import {
   Text,
   TextArea,
 } from "sid-ui";
-import { MAX_NOTES_LENGTH } from "@acorn/support-chat";
 
 /** Asks what went wrong before Acorn screenshots the page and sends the report. */
 export function ReportDialog({

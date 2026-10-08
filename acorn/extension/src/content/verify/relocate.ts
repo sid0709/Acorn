@@ -1,7 +1,8 @@
-import type { VerifyResult } from "../verify-element";
 import { associatedControl, labelCandidates, normalize } from "./element-labels";
 import { inferRole, roleMatches } from "./element-role";
 import { labelMatches } from "./label-match";
+
+import type { VerifyResult } from "../verify-element";
 
 function isDisplayed(el: HTMLElement): boolean {
   if (el.getClientRects().length === 0) return false;

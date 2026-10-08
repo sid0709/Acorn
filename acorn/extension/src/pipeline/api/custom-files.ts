@@ -1,6 +1,8 @@
-import type { RuntimeAttachedFile } from "@acorn/shared/plan-runner/types";
 import { authHeaders, getAcornApiUrl } from "../../auth/acorn-auth";
+
 import { extractError, isNestMissingRoute, readId } from "./http";
+
+import type { RuntimeAttachedFile } from "@acorn/shared/plan-runner/types";
 
 const CUSTOM_STORED_FILE_UNAVAILABLE =
   "Could not load the stored résumé. Custom preview, download, and Fill use the file from generate.";

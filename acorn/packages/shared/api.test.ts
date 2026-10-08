@@ -1,5 +1,6 @@
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
+
 import { ACORN_HOSTS, ACORN_SOCKET_PATH, acornHosts } from "./api.ts";
 
 describe("acornHosts", () => {

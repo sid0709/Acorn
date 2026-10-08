@@ -1,6 +1,7 @@
 import { QaPanel } from "./QaPanel";
-import type { AcornMainTab } from "./SidebarNav";
+
 import type { TabSession } from "./sidebar-panel-types";
+import type { AcornMainTab } from "./SidebarNav";
 
 interface Props {
   mainTab: AcornMainTab;

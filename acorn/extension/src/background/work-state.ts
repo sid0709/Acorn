@@ -16,7 +16,7 @@ export function anyTabWorking(): boolean {
 
 export function syncWorkKeepAlive(): void {
   if (anyTabWorking()) {
-    chrome.alarms.create(WORK_KEEP_ALIVE_ALARM, { periodInMinutes: 0.5 });
+    void chrome.alarms.create(WORK_KEEP_ALIVE_ALARM, { periodInMinutes: 0.5 });
     return;
   }
   void chrome.alarms.clear(WORK_KEEP_ALIVE_ALARM);

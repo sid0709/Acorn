@@ -1,6 +1,7 @@
 import { authHeaders, getAcornApiUrl } from "../../auth/acorn-auth";
-import type { MatchOptionRequest, MatchOptionResponse } from "../../types";
+
 import type { RuntimeMessage, SendResponse } from "./shared";
+import type { MatchOptionRequest, MatchOptionResponse } from "../../types";
 
 export function handleMatchOption(
   message: RuntimeMessage,
@@ -9,7 +10,7 @@ export function handleMatchOption(
 ): void {
   const incoming = message.payload as MatchOptionRequest;
   const usageTabId = sender.tab?.id;
-  (async () => {
+  void (async () => {
     try {
       const base = await getAcornApiUrl();
       const payload: Record<string, unknown> = {

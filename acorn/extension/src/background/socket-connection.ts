@@ -1,14 +1,16 @@
-import type { PipelineProgress } from "@acorn/shared/pipeline-types";
 import {
   connectAcornSocket,
   getAcornSocket,
   isAcornSocketConnected,
   type AcornSocketHandlers,
 } from "../acorn-socket";
-import { createConnectionNotice } from "./connection-notice";
 import { queueTabPipeline } from "../tab-pipeline-session";
 import { MSG } from "../types";
+
+import { createConnectionNotice } from "./connection-notice";
 import { bindSocketRelay } from "./socket-relay";
+
+import type { PipelineProgress } from "@acorn/shared/pipeline-types";
 
 export const sidebarPorts = new Set<chrome.runtime.Port>();
 const connectionNotice = createConnectionNotice();

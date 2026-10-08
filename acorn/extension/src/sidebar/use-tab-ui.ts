@@ -1,8 +1,10 @@
 import { useCallback, useEffect, useState } from "react";
+
+import { clearTabTree, getTabTree, setTabTree, type TabTreeSummary } from "./tab-tree-cache";
+
+import type { DomNode } from "../types";
 import type { PipelineProgress } from "@acorn/shared/pipeline-types";
 import type { DomTreeNode } from "@acorn/shared/tree-export";
-import type { DomNode } from "../types";
-import { clearTabTree, getTabTree, setTabTree, type TabTreeSummary } from "./tab-tree-cache";
 
 export type InspectKind = "pure" | "meta" | "plan";
 
@@ -94,7 +96,7 @@ export function useTabUi(activeTabId: number | null, progress: PipelineProgress)
 }
 
 function isValidTree(tree: unknown): tree is DomNode {
-  return Boolean(tree && typeof tree === "object" && "tag" in (tree as object));
+  return Boolean(tree && typeof tree === "object" && "tag" in tree);
 }
 
 function countNodes(node: DomNode | undefined): number {

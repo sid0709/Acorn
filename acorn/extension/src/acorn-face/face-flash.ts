@@ -1,5 +1,6 @@
-import type { AcornFaceMode } from "@acorn/face";
 import { FACE_SAD_PULSE_MS, FACE_SMILE_MS, FACE_WINK_MS } from "./constants";
+
+import type { AcornFaceMode } from "@acorn/face";
 
 export type AcornFaceFlash = {
   mode: AcornFaceMode;

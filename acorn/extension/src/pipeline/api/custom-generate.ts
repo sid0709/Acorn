@@ -1,6 +1,8 @@
-import type { GenerateEnqueueCheckpoint } from "@acorn/shared/generate-checkpoint";
 import { authHeaders, getAcornApiUrl } from "../../auth/acorn-auth";
+
 import { extractError, isNestMissingRoute, readId, readInputId } from "./http";
+
+import type { GenerateEnqueueCheckpoint } from "@acorn/shared/generate-checkpoint";
 
 const CUSTOM_EDITOR_UNAVAILABLE =
   "Custom generate needs the résumé pipeline on this Acorn API (stored config, template, and file).";

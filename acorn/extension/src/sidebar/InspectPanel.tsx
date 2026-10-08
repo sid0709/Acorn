@@ -1,4 +1,5 @@
 import { Button, Drawer, HStack } from "sid-ui";
+
 import { LoadMoreFooter } from "./LoadMoreFooter";
 import { useShownCount } from "./use-shown-count";
 
@@ -39,7 +40,7 @@ export function InspectPanel({
       <pre className="inspect-pre">{lines.length ? lines.join("\n") : "(empty)"}</pre>
       <LoadMoreFooter
         hasMore={hasMore}
-        onLoadMore={onLoadMore}
+        onLoadMore={() => onLoadMore()}
         label={`Load more (${lines.length} lines)`}
       />
     </Drawer>

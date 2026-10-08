@@ -1,5 +1,6 @@
 // Page side of the render worker. Hands canvases to one shared worker and forwards calls.
 import { bodyBlob } from "../rig/body-blob";
+
 import type { FaceController, ToWorker } from "./protocol";
 import type { FaceSetup } from "./stage";
 

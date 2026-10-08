@@ -1,7 +1,9 @@
 import { Badge, Card, HStack, Text, VStack } from "sid-ui";
-import type { RefObject } from "react";
-import type { ActionPlan, RunStepRecord } from "@acorn/shared/plan-runner/types";
+
 import { LoadMoreFooter } from "./LoadMoreFooter";
+
+import type { ActionPlan, RunStepRecord } from "@acorn/shared/plan-runner/types";
+import type { RefObject } from "react";
 
 type PlanRunSectionProps = {
   plan: ActionPlan | undefined;

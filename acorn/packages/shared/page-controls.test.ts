@@ -1,5 +1,6 @@
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
+
 import { collectPageControls, pageSignature } from "./page-controls.ts";
 
 import type { DomTreeNode } from "./tree-export.ts";

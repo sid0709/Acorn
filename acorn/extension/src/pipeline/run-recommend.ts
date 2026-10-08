@@ -6,11 +6,14 @@ import {
   markStepDone,
   type GenerateCheckpoint,
 } from "@acorn/shared/generate-checkpoint";
+
 import { broadcastOperatorNotice } from "../operator-notice";
-import type { RecommendedResumeRank } from "@acorn/shared/resume-library";
+
 import { recommendCustomLibrary } from "./api/custom-library";
 import { customRecommendProgress } from "./custom-recommend-progress";
+
 import type { ResumeGenerateSource, ResumeGenerateStore } from "./run-generate";
+import type { RecommendedResumeRank } from "@acorn/shared/resume-library";
 
 export async function runResumeRecommend(args: {
   source: ResumeGenerateSource;

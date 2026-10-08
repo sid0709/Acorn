@@ -5,6 +5,7 @@ import {
   ACORN_SUPPORT_REDEEM_PATH,
   acornHosts,
 } from "@acorn/shared/api";
+
 import { ACORN_TAB_HEADER, usageTabKey } from "../tab-usage-key";
 
 import { STORAGE_KEYS } from "./storage-keys";

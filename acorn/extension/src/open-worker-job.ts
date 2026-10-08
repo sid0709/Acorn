@@ -116,8 +116,7 @@ export async function openWorkerJobInTab(args: {
   const jobId = args.job.jobId;
   const pending = openingByJob.get(jobId);
   if (pending) return pending;
-  let work!: Promise<OpenWorkerJobResult>;
-  work = openWorkerJobNow(args).finally(() => {
+  const work = openWorkerJobNow(args).finally(() => {
     if (openingByJob.get(jobId) === work) openingByJob.delete(jobId);
   });
   openingByJob.set(jobId, work);
