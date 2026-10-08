@@ -14,7 +14,7 @@ import { useShownCount } from "./use-shown-count";
 
 import type { InspectKind, TabUi } from "./use-tab-ui";
 import type { PipelineProgress } from "@acorn/shared/pipeline-types";
-import type { ActionPlan, RunStepRecord } from "@acorn/shared/plan-runner/types";
+import type { ActionPlan } from "@acorn/shared/plan-runner/types";
 
 const STEP_PAGE = 30;
 
@@ -40,13 +40,15 @@ export function usePlanInspect({
   const splitTrees = useMemo(() => {
     if (inspectKind !== "pure" && inspectKind !== "meta") return null;
     if (activeTabId == null) return null;
+    // treeStamp bumps when the analyzed tree is refreshed for this tab.
+    void treeStamp;
     const tree = getTabTree(activeTabId)?.tree;
     if (!tree) return null;
     return splitDomTree(tree);
   }, [inspectKind, activeTabId, treeStamp]);
 
   const plan: ActionPlan | undefined = progress.plan;
-  const steps: RunStepRecord[] = progress.steps ?? [];
+  const steps = useMemo(() => progress.steps ?? [], [progress.steps]);
   const nodeCount = lastFetch?.nodeCount ?? 0;
 
   const {
@@ -77,7 +79,7 @@ export function usePlanInspect({
         copy: () => navigator.clipboard.writeText(all.join("\n")),
       };
     }
-    if (!splitTrees) return { lines: [] as string[], hasMore: false, copy: async () => undefined };
+    if (!splitTrees) return { lines: [] as string[], hasMore: false, copy: () => undefined };
     if (inspectKind === "pure") {
       const collected = collectLines(
         iteratePureTreeLines(splitTrees.pure),

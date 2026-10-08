@@ -10,7 +10,7 @@ export function handleMatchOption(
 ): void {
   const incoming = message.payload as MatchOptionRequest;
   const usageTabId = sender.tab?.id;
-  (async () => {
+  void (async () => {
     try {
       const base = await getAcornApiUrl();
       const payload: Record<string, unknown> = {

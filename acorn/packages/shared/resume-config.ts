@@ -1,10 +1,11 @@
+import { coerceString } from "./coerce-string.ts";
 import {
   RESUME_PURPOSES,
   RESUME_SECTION_LABEL,
   RESUME_SECTION_TYPES,
   type ResumePurpose,
   type ResumeSectionType,
-} from "./resume-templates";
+} from "./resume-templates.ts";
 
 export const RESUME_GENERATOR_CONFIG_VERSION = 4 as const;
 
@@ -75,7 +76,7 @@ export type ResumeCoverageSettings = {
 export type ResumeTemplateSlot = {
   index: number;
   paragraphIndex: number;
-  section: ResumePurpose | string;
+  section: string;
   companyHint?: string;
   isBullet: boolean;
   experienceIndex?: number;
@@ -299,8 +300,8 @@ function migrateTheme(value: unknown, base: ResumeTheme): ResumeTheme {
     baseSize: Number(raw.baseSize ?? raw.bodySizePt) || base.baseSize,
     nameSize: Number(raw.nameSize ?? raw.nameSizePt) || base.nameSize,
     titleSize: Number(raw.titleSize) || base.titleSize,
-    accent: String(raw.accent ?? raw.accentColor ?? base.accent),
-    text: String(raw.text ?? raw.textColor ?? base.text),
+    accent: coerceString(raw.accent ?? raw.accentColor ?? base.accent),
+    text: coerceString(raw.text ?? raw.textColor ?? base.text),
     headerAlign: raw.headerAlign === "left" ? "left" : "center",
     paper: raw.paper === "a4" || raw.paperSize === "a4" ? "a4" : "letter",
     margin: Number(raw.margin ?? raw.marginIn) || base.margin,
@@ -321,13 +322,13 @@ function migrateLayout(
     .map(record)
     .sort((left, right) => Number(left.order ?? 0) - Number(right.order ?? 0))
     .map((section, index) => {
-      const type = String(section.type ?? section.id ?? "") as ResumeSectionType;
+      const type = coerceString(section.type ?? section.id ?? "") as ResumeSectionType;
       if (!RESUME_SECTION_TYPES.includes(type)) return null;
       return {
-        id: String(section.id ?? `${type}-${index}`),
+        id: coerceString(section.id ?? `${type}-${index}`),
         type,
-        title: String(section.title ?? RESUME_SECTION_LABEL[type]),
-        titleColor: String(section.titleColor ?? section.color ?? theme.accent),
+        title: coerceString(section.title ?? RESUME_SECTION_LABEL[type]),
+        titleColor: coerceString(section.titleColor ?? section.color ?? theme.accent),
         titleSize: Number(section.titleSize ?? section.titleSizePt) || theme.titleSize,
         bodySize: Number(section.bodySize ?? section.bodySizePt) || theme.baseSize,
       } satisfies ResumeLayoutSection;
@@ -340,12 +341,12 @@ function asUploadedTemplate(value: unknown): UploadedTemplateManifest | undefine
   if (typeof raw.id !== "string" || !raw.id) return undefined;
   const sections = Array.isArray(raw.sectionsFound)
     ? raw.sectionsFound.filter((item): item is ResumePurpose =>
-        (RESUME_PURPOSES as string[]).includes(String(item)),
+        (RESUME_PURPOSES as string[]).includes(coerceString(item)),
       )
     : [];
   return {
     id: raw.id,
-    name: String(raw.name ?? "Uploaded template"),
+    name: coerceString(raw.name ?? "Uploaded template"),
     source: "uploaded",
     format: "docx",
     fileName: typeof raw.fileName === "string" ? raw.fileName : undefined,
@@ -391,14 +392,14 @@ export function mergeStoredResumeConfig(parsed: unknown): ResumeGeneratorConfig 
       ? savedSteps.map((step) => {
           const row = record(step);
           return {
-            id: String(row.id || uid()),
-            purpose: (RESUME_PURPOSES as string[]).includes(String(row.purpose))
+            id: coerceString(row.id || uid()),
+            purpose: (RESUME_PURPOSES as string[]).includes(coerceString(row.purpose))
               ? (row.purpose as ResumePurpose)
               : "summary",
             kind: row.kind === "fine-tune" ? "fine-tune" : "final",
-            name: String(row.name ?? ""),
-            prompt: String(row.prompt ?? ""),
-            schema: String(row.schema ?? ""),
+            name: coerceString(row.name ?? ""),
+            prompt: coerceString(row.prompt ?? ""),
+            schema: coerceString(row.schema ?? ""),
           };
         })
       : base.steps,

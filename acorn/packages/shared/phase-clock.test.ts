@@ -14,11 +14,7 @@ describe("PhaseClock", () => {
 
   it("counts a phase that throws", async () => {
     const clock = new PhaseClock();
-    await assert.rejects(
-      clock.time("read", async () => {
-        throw new Error("no answer");
-      }),
-    );
+    await assert.rejects(clock.time("read", () => Promise.reject(new Error("no answer"))));
     assert.ok("read" in clock.summary());
   });
 });

@@ -12,7 +12,7 @@ export function shortLabel(expectedLabel: string | null | undefined, action: str
  * - errors → always skip
  * - planned pause → continue so autofill can run when a value is present
  */
-export async function autoPauseDecision(request: PauseRequest) {
+export function autoPauseDecision(request: PauseRequest) {
   if (request.kind === "error") return "skip" as const;
   return "continue" as const;
 }

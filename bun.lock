@@ -78,12 +78,13 @@
     },
     "acorn/extension": {
       "name": "acorn-extension",
-      "version": "1.30.0",
+      "version": "1.33.0",
       "dependencies": {
         "@acorn/app-theme": "workspace:*",
         "@acorn/face": "workspace:*",
         "@acorn/shared": "workspace:*",
         "@acorn/support-chat": "workspace:*",
+        "@astryxdesign/core": "0.6.3",
         "react": "catalog:",
         "react-dom": "catalog:",
         "sid-ui": "catalog:",
@@ -165,6 +166,7 @@
     "@types/node": "20.19.43",
   },
   "catalog": {
+    "@astryxdesign/core": "0.6.3",
     "@commitlint/cli": "21.2.3",
     "@commitlint/config-conventional": "21.2.3",
     "@crxjs/vite-plugin": "2.7.1",

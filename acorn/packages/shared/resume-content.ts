@@ -1,4 +1,6 @@
-import type { ResumePurpose } from "./resume-templates";
+import { coerceString } from "./coerce-string.ts";
+
+import type { ResumePurpose } from "./resume-templates.ts";
 
 export type ResumeCareerEntry = {
   company: string;
@@ -70,7 +72,7 @@ export function normalizeGeneratedContent(
         .map((group) => {
           const row = asRecord(group);
           const items = Array.isArray(row.items) ? row.items.map(String) : [];
-          return { category: String(row.category ?? ""), items };
+          return { category: coerceString(row.category ?? ""), items };
         })
         .filter((group) => group.category || group.items.length)
     : null;
@@ -84,10 +86,10 @@ export function normalizeGeneratedContent(
     ? expArr.map((entry) => {
         const row = asRecord(entry);
         return {
-          title: String(row.title ?? row.role ?? ""),
-          company: String(row.company ?? ""),
-          location: String(row.location ?? ""),
-          period: String(row.period ?? row.dates ?? ""),
+          title: coerceString(row.title ?? row.role ?? ""),
+          company: coerceString(row.company ?? ""),
+          location: coerceString(row.location ?? ""),
+          period: coerceString(row.period ?? row.dates ?? ""),
           bullets: Array.isArray(row.bullets) ? row.bullets.map(String) : [],
         };
       })
@@ -102,7 +104,7 @@ export function normalizeGeneratedContent(
 
 export function mergeGeneratedSection(
   prev: ResumeGeneratedContent | null,
-  purpose: ResumePurpose | string,
+  purpose: ResumePurpose,
   output: unknown,
 ): ResumeGeneratedContent {
   const base = prev ?? { summary: null, skills: null, experience: null };

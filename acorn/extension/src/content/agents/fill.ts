@@ -29,8 +29,8 @@ export async function setNativeValue(
   const proto =
     el instanceof HTMLTextAreaElement ? HTMLTextAreaElement.prototype : HTMLInputElement.prototype;
   const protoDesc = Object.getOwnPropertyDescriptor(proto, "value");
-  const setter = protoDesc?.set;
-  if (setter) setter.call(el, text);
+  const setValue = protoDesc?.set;
+  if (setValue) setValue.call(el, text);
   else el.value = text;
 
   el.dispatchEvent(new Event("input", { bubbles: true }));

@@ -268,10 +268,12 @@ if (!contentWindow[CONTENT_BOOT]) {
         sendResponse({ ok: false, skipped: true, error: "Not a form frame" });
         return false;
       }
-      void runExclusive(async () =>
-        prepareControlClick(message.nodeId as number, (click) => {
-          setTimeout(click, CLICK_AFTER_REPLY_MS);
-        }),
+      void runExclusive(() =>
+        Promise.resolve(
+          prepareControlClick(message.nodeId as number, (click) => {
+            setTimeout(click, CLICK_AFTER_REPLY_MS);
+          }),
+        ),
       )
         .then((result) => sendResponse(result))
         .catch((err) =>

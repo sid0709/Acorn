@@ -286,6 +286,7 @@ function newRunId(): string {
  * rejects the answers is refilled up to a limit. Every "what is this page" and
  * "what do I click" is a decision by the model (Jev), never a match on button text.
  */
+// eslint-disable-next-line complexity -- single state machine for the full apply run
 export async function runOrchestrator(args: RunOrchestratorArgs): Promise<RunReport> {
   const { apiUrl } = args;
   let tabId = args.tabId;

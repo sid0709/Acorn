@@ -47,7 +47,7 @@ export function useTabWork({
   useEffect(() => {
     if (customTab == null) return;
     setCustomResumeMode(customTab.resumeMode);
-  }, [customTab?.tabId, customTab?.resumeMode]);
+  }, [customTab]);
 
   const setTabProgress = useCallback(
     (tabId: number, next: PipelineProgress) => {

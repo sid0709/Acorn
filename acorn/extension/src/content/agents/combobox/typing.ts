@@ -98,8 +98,8 @@ export function resolveTypeableInput(
 function setInputValue(el: HTMLInputElement | HTMLTextAreaElement, text: string): void {
   const proto =
     el instanceof HTMLTextAreaElement ? HTMLTextAreaElement.prototype : HTMLInputElement.prototype;
-  const setter = Object.getOwnPropertyDescriptor(proto, "value")?.set;
-  if (setter) setter.call(el, text);
+  const setValue = Object.getOwnPropertyDescriptor(proto, "value")?.set;
+  if (setValue) setValue.call(el, text);
   else el.value = text;
 }
 

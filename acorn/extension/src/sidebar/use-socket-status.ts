@@ -52,7 +52,7 @@ export function useSocketStatus(session: AcornStoredSession | null, apiUrl: stri
       }
     };
 
-    check();
+    void check();
     const id = setInterval(check, 3000);
     return () => {
       alive = false;

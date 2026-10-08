@@ -40,7 +40,7 @@ export function InspectPanel({
       <pre className="inspect-pre">{lines.length ? lines.join("\n") : "(empty)"}</pre>
       <LoadMoreFooter
         hasMore={hasMore}
-        onLoadMore={onLoadMore}
+        onLoadMore={() => onLoadMore()}
         label={`Load more (${lines.length} lines)`}
       />
     </Drawer>

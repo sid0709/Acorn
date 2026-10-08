@@ -29,7 +29,7 @@ export class Stage {
     const want = { ...setup, paused: false, visible: true, gone: false };
     let face: Face | null = null;
 
-    this.ready.then(({ art, sprites }) => {
+    void this.ready.then(({ art, sprites }) => {
       if (want.gone) return;
       face = new Face(canvas, art, sprites, want, this.scheduler.wake);
       face.paused = want.paused;

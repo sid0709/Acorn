@@ -86,6 +86,7 @@ export interface RunPipelineArgs {
   onProgress: PipelineEmit;
 }
 
+// eslint-disable-next-line complexity -- coordinates analyze, plan, and fill for one tab
 export async function runFabPipeline(args: RunPipelineArgs): Promise<void> {
   const {
     tabId,
@@ -393,7 +394,7 @@ export async function runFabPipeline(args: RunPipelineArgs): Promise<void> {
                 }),
               });
             },
-            onPause: async (request) => {
+            onPause: (request) => {
               emit({
                 phase: "running",
                 message:

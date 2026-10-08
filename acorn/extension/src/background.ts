@@ -26,7 +26,7 @@ function enableSidePanelOnActionClick(): void {
   void chrome.sidePanel.setPanelBehavior({ openPanelOnActionClick: true }).catch(() => undefined);
 }
 
-chrome.alarms.create(KEEP_ALIVE_ALARM, { periodInMinutes: 0.5 });
+void chrome.alarms.create(KEEP_ALIVE_ALARM, { periodInMinutes: 0.5 });
 
 chrome.alarms.onAlarm.addListener((alarm) => {
   if (alarm.name === KEEP_ALIVE_ALARM) {
