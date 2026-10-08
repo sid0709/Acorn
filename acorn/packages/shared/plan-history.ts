@@ -1,7 +1,7 @@
 /** Refill as a conversation: the plans a run already executed on one page, oldest first. */
 
-import type { FieldIssueScan, FillMode } from "./field-issues.ts";
-import type { ActionPlan, RunStepRecord } from "./plan-runner/types.ts";
+import type { FieldIssueScan, FillMode } from "./field-issues";
+import type { ActionPlan, RunStepRecord } from "./plan-runner/types";
 
 /**
  * Plans kept per page. The run allows a fill and a few refills per page; older

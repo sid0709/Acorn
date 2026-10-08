@@ -1,11 +1,11 @@
-import { coerceString } from "./coerce-string.ts";
+import { coerceString } from "./coerce-string";
 import {
   RESUME_PURPOSES,
   RESUME_SECTION_LABEL,
   RESUME_SECTION_TYPES,
   type ResumePurpose,
   type ResumeSectionType,
-} from "./resume-templates.ts";
+} from "./resume-templates";
 
 export const RESUME_GENERATOR_CONFIG_VERSION = 4 as const;
 

@@ -1,4 +1,4 @@
-import { coerceString } from "./coerce-string.ts";
+import { coerceString } from "./coerce-string";
 
 export type ResumeLibrarySource = "uploaded" | "generated";
 

@@ -1,6 +1,6 @@
-import { coerceString } from "./coerce-string.ts";
+import { coerceString } from "./coerce-string";
 
-import type { ResumePurpose } from "./resume-templates.ts";
+import type { ResumePurpose } from "./resume-templates";
 
 export type ResumeCareerEntry = {
   company: string;
