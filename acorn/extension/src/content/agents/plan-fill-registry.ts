@@ -13,12 +13,17 @@ export interface PlannedFill {
   step: PlanStepPayload;
   /** When the step ran (ms since epoch); a repair only replays steps from its own fill. */
   at: number;
+  /**
+   * What the control showed right after the step answered it. A dropdown shows the
+   * option it picked, not the planned words; the answer stands while it shows this.
+   */
+  shown: string;
 }
 
 const filledWidgets = new Set<Element>();
 const plannedFills = new Map<Element, PlannedFill>();
 
-export function rememberPlanFilled(el: Element, step?: PlanStepPayload): void {
+export function rememberPlanFilled(el: Element, step?: PlanStepPayload, shown = ""): void {
   for (const widget of filledWidgets) {
     if (!widget.isConnected) filledWidgets.delete(widget);
   }
@@ -26,7 +31,7 @@ export function rememberPlanFilled(el: Element, step?: PlanStepPayload): void {
   filledWidgets.add(widget);
   if (step && REPAIRABLE_ACTIONS.has(step.action) && step.value != null) {
     // The newest answer wins: a Refill's corrected value replaces the first one.
-    plannedFills.set(widget, { el, step: { ...step, file: undefined }, at: Date.now() });
+    plannedFills.set(widget, { el, step: { ...step, file: undefined }, at: Date.now(), shown });
   }
 }
 

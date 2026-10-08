@@ -27,8 +27,9 @@ const (
 	FactOtherPerson = "other_person"
 	// FactUnknownDetail is a detail of a school or job the profile does not hold.
 	FactUnknownDetail = "unknown_detail"
-	// FactPersonOnly is a value only the applicant can give in the moment: never
-	// filled, never written, whatever the field's required mark says.
+	// FactPersonOnly is a value only the applicant can give in the moment (a code
+	// sent to their phone): never filled, never written, whatever the field's
+	// required mark says.
 	FactPersonOnly = "person_only"
 )
 
@@ -81,6 +82,12 @@ var facts = []Fact{
 	{"notice_period", "When the applicant can start, or their notice period.", func(p applicantFacts) string { return p.str("noticePeriod") }},
 	{"pronouns", "The applicant's pronouns.", func(p applicantFacts) string { return p.str("pronouns") }},
 	{"headline", "A short professional headline.", func(p applicantFacts) string { return p.str("headline") }},
+	{FactAccountPassword, "The password for the applicant's account on this job site: signing in, creating the account, confirming the password, or setting a new one.", func(p applicantFacts) string {
+		return p.credentials.Password
+	}},
+	{FactVerificationCode, "A one-time verification or security code the job site sent to the applicant's email.", func(p applicantFacts) string {
+		return p.credentials.VerificationCode
+	}},
 }
 
 // factKinds is the decision model's menu for a free-text field: every fact, plus
@@ -91,9 +98,9 @@ func factKinds() map[string]string {
 		kinds[fact.Key] = fact.Description
 	}
 	kinds[FactWrite] = "The field asks for a written answer the profile does not hold as one fact: a reason, a description, a cover letter, or any open question."
-	kinds[FactSkip] = "Nothing in a job application profile answers it (fax, pager, middle name, address line 2, an extension, an account on a platform the profile names no URL for): leave it blank."
+	kinds[FactSkip] = "Nothing in a job application profile answers it (fax, pager, middle name, address line 2, an extension, an account on a platform the profile names no URL for), or the page tells people to leave it empty: leave it blank."
 	kinds[FactOtherPerson] = "A field about another person, not the applicant: a reference, an emergency contact, a referrer, or a supervisor — their name, email, phone, title, or relationship."
-	kinds[FactPersonOnly] = "A value only the applicant can give in the moment: a one-time code sent to them, the answer to a challenge, or a password they set for an account."
+	kinds[FactPersonOnly] = "A value only the applicant can give in the moment: a code sent to their phone, an authenticator app code, or the answer to a challenge."
 	kinds[FactUnknownDetail] = "A detail of one school or job entry the profile does not hold: that school's or job's city, department, supervisor, GPA, or minor."
 	return kinds
 }
@@ -109,9 +116,10 @@ func factValue(p applicantFacts, key string) string {
 }
 
 // applicantFacts is the applicant profile JSON (see ApplicantProfileTextWith),
-// read by the heuristic callers.
+// read by the heuristic callers, plus the credentials the profile text never holds.
 type applicantFacts struct {
-	settings map[string]any
+	settings    map[string]any
+	credentials Credentials
 }
 
 func parseApplicantFacts(applicant string) applicantFacts {

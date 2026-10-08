@@ -50,6 +50,9 @@ type Accounts interface {
 	Session(ctx context.Context, token string, now time.Time) (account.Session, error)
 	SignUp(ctx context.Context, name, email, password string, now time.Time) (string, account.User, error)
 	SignIn(ctx context.Context, email, password string, now time.Time) (string, account.User, error)
+	UserByEmail(ctx context.Context, email string) (account.User, error)
+	UserByID(ctx context.Context, id string) (account.User, error)
+	StartSession(ctx context.Context, userID string, now time.Time) (string, account.User, error)
 	Revoke(ctx context.Context, token string) error
 	SavedJobIDs(ctx context.Context, userID string) ([]string, error)
 	AppliedJobIDs(ctx context.Context, userID string) ([]string, error)
@@ -163,6 +166,7 @@ func New(accounts Accounts, listings *jobs.Store, brain *acorn.Service, opts Opt
 	mux.HandleFunc("GET /acorn/health", s.health)
 	mux.HandleFunc("POST /acorn/auth/signup", s.signUp)
 	mux.HandleFunc("POST /acorn/auth/signin", s.signIn)
+	mux.HandleFunc("POST /acorn/auth/extension/signin", s.signInExtension)
 	mux.HandleFunc("GET /acorn/auth/me", s.me)
 	mux.HandleFunc("POST /acorn/auth/signout", s.signOut)
 	mux.HandleFunc("DELETE /acorn/account", s.deleteAccount)
@@ -179,6 +183,7 @@ func New(accounts Accounts, listings *jobs.Store, brain *acorn.Service, opts Opt
 	mux.HandleFunc("POST /acorn/qa", s.requireAI(s.qa))
 	mux.HandleFunc("POST /acorn/run/read-page", s.requireAI(s.runReadPage))
 	mux.HandleFunc("POST /acorn/run/diagnose", s.requireAI(s.runDiagnose))
+	mux.HandleFunc("POST /acorn/run/mail-verification", s.requireAI(s.runMailVerification))
 	mux.HandleFunc("POST /acorn/run/log", s.runLog)
 	mux.HandleFunc("GET /acorn/runtime-file", s.runtimeFile)
 	if s.debug != nil {

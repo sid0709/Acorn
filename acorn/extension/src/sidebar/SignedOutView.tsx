@@ -45,7 +45,7 @@ export function SignedOutView({
       <SignInCard
         authBusy={authBusy}
         faceMode={companionMode}
-        onSignIn={() => void handleSignIn()}
+        onSignIn={(email, password) => void handleSignIn(email, password)}
       />
       <div className="sidebar-after">
         {lastFetch ? (

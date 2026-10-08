@@ -52,8 +52,19 @@ func (s *Service) Refill(ctx context.Context, applicant, pureTree string, scan F
 		return AnalyzeResult{}, err
 	}
 
-	plan = s.finishPlan(ctx, plan, applicant, page, issueNotes(scan))
+	plan = s.fillPasswords(s.finishPlan(ctx, plan, applicant, page, issueNotes(scan)), passwordIssues(scan))
 	return AnalyzeResult{OK: true, Plan: plan, Model: s.model.Model(), Mode: ModeRefill}, nil
+}
+
+// passwordIssues are the flagged fields the page reports as password boxes.
+func passwordIssues(scan FieldIssueScan) map[int]bool {
+	passwords := map[int]bool{}
+	for _, issue := range scan.Issues {
+		if roleToken(issue.Role) == rolePassword {
+			passwords[issue.ElementIndex] = true
+		}
+	}
+	return passwords
 }
 
 // issueNotes is each flagged field's page text, so a rewritten answer still satisfies it.

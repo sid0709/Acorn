@@ -33,6 +33,8 @@ export interface AiAnalyzeRequest {
   page?: AiAnalyzePage | null;
   /** Debug builds only: saved by a backend running with ACORN_DEBUG_DIR, never sent to the model. */
   debug?: { html?: string; domTree?: unknown; metaTree?: string };
+  /** A code the run found in the applicant's mail; the planner fills it, no model reads it. */
+  verificationCode?: string;
 }
 
 export interface AiAnalyzeResponse {

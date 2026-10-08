@@ -21,6 +21,10 @@ const (
 	maxRunIDLen = 40
 	// diagnoseDetailLines is how many evidence lines a failure report quotes.
 	diagnoseDetailLines = 3
+	// maxAccountAttempts bounds the account history one read-page request may carry.
+	maxAccountAttempts = 12
+	// maxAccountMessages bounds the page messages kept per account attempt.
+	maxAccountMessages = 3
 )
 
 var unsafeRunID = regexp.MustCompile(`[^a-zA-Z0-9_-]+`)
@@ -36,6 +40,42 @@ type runControl struct {
 	Context  string `json:"context"`
 	Disabled bool   `json:"disabled"`
 	InForm   bool   `json:"inForm"`
+	Dialog   string `json:"dialog"`
+	Covered  bool   `json:"covered"`
+}
+
+// runAccountAttempt is one account step the run already sent on this site.
+type runAccountAttempt struct {
+	Mode     string   `json:"mode"`
+	Accepted bool     `json:"accepted"`
+	Messages []string `json:"messages"`
+}
+
+// accountHistory keeps the attempts with a known mode, newest last, within bounds.
+func accountHistory(attempts []runAccountAttempt) []selector.AccountAttempt {
+	if len(attempts) > maxAccountAttempts {
+		attempts = attempts[len(attempts)-maxAccountAttempts:]
+	}
+	out := make([]selector.AccountAttempt, 0, len(attempts))
+	for _, attempt := range attempts {
+		if !selector.IsAccountMode(attempt.Mode) || attempt.Mode == selector.AccountNone {
+			continue
+		}
+		messages := attempt.Messages
+		if len(messages) > maxAccountMessages {
+			messages = messages[:maxAccountMessages]
+		}
+		out = append(out, selector.AccountAttempt{Mode: attempt.Mode, Accepted: attempt.Accepted, Messages: messages})
+	}
+	return out
+}
+
+// accountGoal keeps a goal the gateway knows; "" otherwise.
+func accountGoal(goal string) string {
+	if selector.IsAccountMode(goal) && goal != selector.AccountNone && goal != selector.AccountChoose {
+		return goal
+	}
+	return ""
 }
 
 // cleanRunID makes a run id safe to log and to put in a file name.
@@ -64,15 +104,17 @@ func (s *Server) runReadPage(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	var body struct {
-		RunID        string       `json:"runId"`
-		Step         int          `json:"step"`
-		Intent       string       `json:"intent"`
-		URL          string       `json:"url"`
-		Title        string       `json:"title"`
-		Text         string       `json:"text"`
-		Controls     []runControl `json:"controls"`
-		Flagged      int          `json:"flagged"`
-		PageMessages []string     `json:"pageMessages"`
+		RunID        string              `json:"runId"`
+		Step         int                 `json:"step"`
+		Intent       string              `json:"intent"`
+		URL          string              `json:"url"`
+		Title        string              `json:"title"`
+		Text         string              `json:"text"`
+		Controls     []runControl        `json:"controls"`
+		Flagged      int                 `json:"flagged"`
+		PageMessages []string            `json:"pageMessages"`
+		Account      []runAccountAttempt `json:"account"`
+		AccountGoal  string              `json:"accountGoal"`
 	}
 	if !decode(w, r, &body) {
 		return
@@ -102,6 +144,7 @@ func (s *Server) runReadPage(w http.ResponseWriter, r *http.Request) {
 		controls = append(controls, selector.Control{
 			ID: c.ID, Tag: c.Tag, Text: c.Text, Label: c.Label, Type: c.Type, Href: c.Href,
 			Context: c.Context, Disabled: c.Disabled, InForm: c.InForm,
+			Dialog: c.Dialog, Covered: c.Covered,
 		})
 	}
 	log.Info("acorn run read-page", "controls", len(controls), "textChars", len([]rune(body.Text)),
@@ -111,6 +154,7 @@ func (s *Server) runReadPage(w http.ResponseWriter, r *http.Request) {
 	read, err := gateway.ReadPage(s.withUsage(r, session.User.ID), selector.PageQuery{
 		URL: body.URL, Title: body.Title, Text: body.Text, Intent: intent,
 		Controls: controls, Flagged: body.Flagged, PageMessages: body.PageMessages,
+		Account: accountHistory(body.Account), AccountGoal: accountGoal(body.AccountGoal),
 	})
 	elapsed := time.Since(started)
 	s.recordRunStep(r, session.User.ID, runID, body.Step, "read-page", map[string]any{
@@ -124,12 +168,23 @@ func (s *Server) runReadPage(w http.ResponseWriter, r *http.Request) {
 
 	out := map[string]any{
 		"ok": true, "kind": read.Kind, "kindConfidence": read.KindConfidence, "control": nil, "guest": read.Guest,
-		"needsPerson": read.NeedsPerson,
-		"model":       gateway.Model(), "usage": decisionUsage(gateway.Model(), read.Usage),
+		"needsPerson": read.NeedsPerson, "verification": read.Verification, "accountMode": read.AccountMode,
+		"alreadyApplied": read.AlreadyApplied,
+		"model":          gateway.Model(), "usage": decisionUsage(gateway.Model(), read.Usage),
 	}
 	attrs := []any{
 		"kind", read.Kind, "kindConfidence", read.KindConfidence,
+		"verification", read.Verification, "accountMode", read.AccountMode,
 		"kindTop", selector.TopProbabilities(read.KindProbs, 3), "ms", elapsed.Milliseconds(), "costUsd", read.Usage.Cost,
+	}
+	if read.Kind == selector.KindAccount {
+		// The run signs in or signs up only with the profile's default account password.
+		password, err := s.accountPassword(r.Context(), session.User.ID)
+		if err != nil {
+			s.writeProfileErr(w, err)
+			return
+		}
+		out["accountPassword"] = password != ""
 	}
 	if read.Control != nil {
 		picked := byID[read.Control.ID]

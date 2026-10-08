@@ -190,7 +190,9 @@ export function ProfilePanel({ account }: { account: AcornAccount }) {
               <DisclosuresForm profile={profile} onChange={set} />
             ) : null}
             {section === "assistant" ? <AssistantForm profile={profile} onChange={set} /> : null}
-            {section === "account" ? <AccountSettings email={account.email} /> : null}
+            {section === "account" ? (
+              <AccountSettings email={account.email} profile={profile} onChange={set} />
+            ) : null}
           </Stack>
         </GridColumn>
       </GridSystem>

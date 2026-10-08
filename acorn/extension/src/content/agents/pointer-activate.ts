@@ -46,11 +46,28 @@ export function visibleActivateTarget(el: HTMLElement, intended?: string | null)
   return el;
 }
 
+/**
+ * Where a mouse lands inside the target: the deepest element at its centre, when
+ * that element is part of the target. Widgets often listen on an inner row (a
+ * radio and its label inside an option), and a click sent to the outer element
+ * never reaches a listener inside it; a click on the inner one still reaches the
+ * outer one as it bubbles.
+ */
+function landingPoint(target: HTMLElement): HTMLElement {
+  const rect = target.getBoundingClientRect();
+  if (rect.width <= 0 || rect.height <= 0) return target;
+  const root = target.getRootNode() as Document | ShadowRoot;
+  const top = root.elementFromPoint?.(rect.left + rect.width / 2, rect.top + rect.height / 2);
+  return top instanceof HTMLElement && top !== target && target.contains(top) ? top : target;
+}
+
 export function pointerActivate(el: HTMLElement, intended?: string | null): void {
-  const target = visibleActivateTarget(el, intended);
+  const chosen = visibleActivateTarget(el, intended);
   // How both looked while not chosen, so a later look can tell a click took.
   rememberLookBeforeClick(el);
-  rememberLookBeforeClick(target);
+  rememberLookBeforeClick(chosen);
+  chosen.scrollIntoView({ block: "center", behavior: "auto" });
+  const target = landingPoint(chosen);
   const view = target.ownerDocument?.defaultView || window;
   const rect = target.getBoundingClientRect();
   const clientX = rect.width ? rect.left + rect.width / 2 : 0;
@@ -64,7 +81,6 @@ export function pointerActivate(el: HTMLElement, intended?: string | null): void
     button: 0,
     buttons: 1,
   };
-  target.scrollIntoView({ block: "center", behavior: "auto" });
   target.focus?.();
   target.dispatchEvent(
     new PointerEvent("pointerdown", { ...opts, pointerId: 1, pointerType: "mouse" }),

@@ -1,5 +1,7 @@
 import { traceFromPage } from "../../../debug-trace";
+import { isSearchBox } from "../field-focus";
 import { waitMs } from "../wait";
+
 import { estimateOptionAnswer } from "./estimate-client";
 import { decideAmongOptions, findExactOption, type OptionDecision } from "./match";
 import { optionSignature, optionText } from "./options-dom";
@@ -65,7 +67,11 @@ export async function chooseOption(
   { allowTypeahead, estimateQuery = false, estimate, searchFirst = false }: ChooseOptions,
 ): Promise<ChooseResult> {
   const estimated = () => estimate ?? estimateOptionAnswer(fieldLabel);
-  if (searchFirst && allowTypeahead && resolveTypeableInput(control)) {
+  const typeable = resolveTypeableInput(control);
+  // A search box shows its real answers only once searched: its open list is a
+  // menu of categories, not the answers. Search with the value before reading.
+  const searchBox = Boolean(typeable && isSearchBox(typeable));
+  if ((searchFirst || searchBox) && allowTypeahead && typeable) {
     const query = estimateQuery ? await estimated() : value;
     traceFromPage("combo:search-first", () => ({ value, query }));
     if (query && query.trim().length >= 2) {

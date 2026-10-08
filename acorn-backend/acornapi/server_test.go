@@ -12,6 +12,7 @@ import (
 
 	"github.com/sid0709/OpenSeat/acorn-backend/account"
 	"github.com/sid0709/OpenSeat/acorn-backend/acorn"
+	"github.com/sid0709/OpenSeat/acorn-backend/profile"
 	"github.com/sid0709/OpenSeat/acorn-backend/resume"
 	"github.com/sid0709/OpenSeat/acorn-backend/selector"
 	"github.com/sid0709/OpenSeat/backend-core/jev"
@@ -41,6 +42,28 @@ func (f *fakeAccounts) SignIn(_ context.Context, email, password string, _ time.
 	if email == "j@example.com" && password == "password1" {
 		user := f.users["hunter"]
 		return "hunter", user, nil
+	}
+	return "", account.User{}, account.ErrInvalidLogin
+}
+func (f *fakeAccounts) UserByEmail(_ context.Context, email string) (account.User, error) {
+	if email == "j@example.com" {
+		return f.users["hunter"], nil
+	}
+	return account.User{}, account.ErrInvalidLogin
+}
+func (f *fakeAccounts) UserByID(_ context.Context, id string) (account.User, error) {
+	for _, user := range f.users {
+		if user.ID == id {
+			return user, nil
+		}
+	}
+	return account.User{}, account.ErrInvalidLogin
+}
+func (f *fakeAccounts) StartSession(_ context.Context, userID string, _ time.Time) (string, account.User, error) {
+	for token, user := range f.users {
+		if user.ID == userID {
+			return token, user, nil
+		}
 	}
 	return "", account.User{}, account.ErrInvalidLogin
 }
@@ -292,6 +315,35 @@ func TestSignInReturnsTheAccount(t *testing.T) {
 	}
 	if rec := call(handler, "POST", "/acorn/auth/signin", `{"email":"j@example.com","password":"nope"}`, nil, ""); rec.Code != http.StatusUnauthorized {
 		t.Fatalf("bad password = %d", rec.Code)
+	}
+}
+
+func TestExtensionSignInUsesProfilePassword(t *testing.T) {
+	accounts := &fakeAccounts{users: map[string]account.User{
+		"hunter": {ID: "u1", Name: "Jordan Lee", Email: "j@example.com"},
+	}}
+	profiles := profile.NewMemory()
+	if _, err := profiles.Save(context.Background(), "u1", profile.Document{
+		Email:             "jordan@example.com",
+		ExtensionPassword: "ext-secret",
+	}); err != nil {
+		t.Fatal(err)
+	}
+	engine := resume.New(resume.NewMemory(), fakeModel{})
+	engine.RunInline()
+	handler, gw := New(accounts, nil, acorn.New(fakeModel{}), Options{Resumes: engine, Profiles: profiles})
+	t.Cleanup(gw.Close)
+
+	ok := call(handler, "POST", "/acorn/auth/extension/signin", `{"email":"j@example.com","password":"ext-secret"}`, nil, "")
+	if ok.Code != http.StatusOK || !strings.Contains(ok.Body.String(), `"token":"hunter"`) {
+		t.Fatalf("account email signin = %d %s", ok.Code, ok.Body)
+	}
+	profileEmail := call(handler, "POST", "/acorn/auth/extension/signin", `{"email":"jordan@example.com","password":"ext-secret"}`, nil, "")
+	if profileEmail.Code != http.StatusOK || !strings.Contains(profileEmail.Body.String(), `"token":"hunter"`) {
+		t.Fatalf("profile email signin = %d %s", profileEmail.Code, profileEmail.Body)
+	}
+	if bad := call(handler, "POST", "/acorn/auth/extension/signin", `{"email":"j@example.com","password":"nope"}`, nil, ""); bad.Code != http.StatusUnauthorized {
+		t.Fatalf("bad extension password = %d", bad.Code)
 	}
 }
 

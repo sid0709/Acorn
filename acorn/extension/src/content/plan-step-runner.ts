@@ -1,21 +1,27 @@
-import type { PlanStepPayload, PlanStepResult } from "../types";
 import { rewriteApplicantIdentityValue } from "@acorn/shared/plan-runner/applicant-identity";
 import { isCustomResumeFile } from "@acorn/shared/plan-runner/step-file";
+import { shownValue } from "@acorn/shared/secret-value";
+
+import { traceFromPage } from "../debug-trace";
+
 import { controlAlreadyMatches } from "./agents/already-filled";
 import { clearElement } from "./agents/clear";
 import { fillElement } from "./agents/fill";
 import { rememberPlanFilled } from "./agents/plan-fill-registry";
 import { readControlValue } from "./agents/read-control-value";
 import { resumeUpload } from "./agents/resume-upload";
+import { selectComboboxOption } from "./agents/select-combobox";
 import { selectRadioElement } from "./agents/select-radio";
+import { opensOptionList, visibleStandIn } from "./agents/stand-in";
 import { uploadFileToElement } from "./agents/upload";
 import { validateElementIndexes } from "./agents/validate";
 import { waitMs } from "./agents/wait";
-import { highlightElement } from "./highlighter";
-import { verifyElementByPlan, type VerifyResult } from "./verify-element";
-import { relocateElementByPlan } from "./verify/relocate";
-import { traceFromPage } from "../debug-trace";
 import { comboSnapshot, describeEl, describeWidget } from "./debug-snapshot";
+import { highlightElement } from "./highlighter";
+import { relocateElementByPlan } from "./verify/relocate";
+import { verifyElementByPlan, type VerifyResult } from "./verify-element";
+
+import type { PlanStepPayload, PlanStepResult } from "../types";
 
 function nearbyQuestionText(el: Element, expectedLabel: string | null): string {
   const bits = [expectedLabel || ""];
@@ -134,7 +140,8 @@ export async function actOnVerified(
   step: PlanStepPayload,
   verified: VerifyResult,
 ): Promise<PlanStepResult> {
-  const el = verified.element;
+  // A step that names an invisible companion input acts on the visible control of its field.
+  const el = verified.element ? visibleStandIn(verified.element) : verified.element;
   // A replayed step has no node id from this read; its control was resolved already.
   const nodeId = step.element_index ?? undefined;
   if (!el) {
@@ -213,12 +220,12 @@ export async function actOnVerified(
     });
     traceFromPage("step:already-check", () => ({
       element_index: step.element_index,
-      intended,
+      intended: shownValue(el, intended),
       matched: prior.matched,
-      current: prior.current,
+      current: shownValue(el, prior.current),
     }));
     if (prior.matched) {
-      rememberPlanFilled(el, step);
+      rememberPlanFilled(el, step, readControlValue(el));
       return {
         ok: true,
         verified: true,
@@ -228,7 +235,7 @@ export async function actOnVerified(
           nodeId,
           matchedLabel: verified.matchedLabel,
           matchedRole: verified.matchedRole,
-          valueAfter: prior.current,
+          valueAfter: shownValue(el, prior.current),
         },
       };
     }
@@ -268,7 +275,10 @@ export async function actOnVerified(
         break;
       }
       case "select_radio": {
-        valueAfter = await selectRadioElement(el, intended, step.expected_label);
+        // A pick on a control that opens a list is answered by opening it and picking.
+        valueAfter = opensOptionList(el)
+          ? await selectComboboxOption(el, intended ?? "", step.expected_label)
+          : await selectRadioElement(el, intended, step.expected_label);
         break;
       }
       default:
@@ -276,12 +286,12 @@ export async function actOnVerified(
     }
 
     const after = valueAfter ?? readControlValue(el);
-    rememberPlanFilled(el, step);
+    rememberPlanFilled(el, step, readControlValue(el));
     traceFromPage("step:acted", () => ({
       element_index: step.element_index,
-      intended,
-      valueAfter,
-      readAfter: readControlValue(el),
+      intended: shownValue(el, intended),
+      valueAfter: shownValue(el, valueAfter),
+      readAfter: shownValue(el, readControlValue(el)),
       ms: Date.now() - startedAt,
     }));
     return {
@@ -292,16 +302,16 @@ export async function actOnVerified(
         nodeId,
         matchedLabel: verified.matchedLabel,
         matchedRole: verified.matchedRole,
-        valueAfter: after,
+        valueAfter: shownValue(el, after),
       },
     };
   } catch (err) {
     const error = err instanceof Error ? err.message : String(err);
     traceFromPage("step:error", () => ({
       element_index: step.element_index,
-      intended,
+      intended: shownValue(el, intended),
       error,
-      readAfter: readControlValue(el),
+      readAfter: shownValue(el, readControlValue(el)),
       ms: Date.now() - startedAt,
     }));
     return {

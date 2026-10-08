@@ -7,6 +7,8 @@ import {
 } from "@acorn/shared/api";
 import { ACORN_TAB_HEADER, usageTabKey } from "../tab-usage-key";
 
+import { STORAGE_KEYS } from "./storage-keys";
+
 const hosts = acornHosts(import.meta.env.MODE);
 
 /** Acorn's API. Override per build with VITE_ACORN_API_URL. */
@@ -26,12 +28,7 @@ export type AcornStoredSession = {
   supportBy?: string;
 };
 
-export const STORAGE_KEYS = {
-  apiUrl: "acornApiUrl",
-  session: "acornSession",
-  /** The person's own session, kept while a support session stands in for it. */
-  sessionBeforeSupport: "acornSessionBeforeSupport",
-} as const;
+export { STORAGE_KEYS };
 
 /** What every API call names this client as, for usage stats. */
 const CLIENT_NAME = `${ACORN_CLIENT.extension}/${import.meta.env.VITE_ACORN_VERSION ?? ""}`;
@@ -111,53 +108,33 @@ export async function getAccessToken(): Promise<string | null> {
 export type AcornAuthResult =
   { ok: true; session: AcornStoredSession } | { ok: false; error: string };
 
-const SIGN_UP_PATH = "/sign-up";
+export const ACORN_EXTENSION_SIGNIN_REJECTED =
+  "That email or extension password didn’t match. Set the extension password on your Acorn profile, then try again.";
 
-export const ACORN_ACCOUNT_REQUIRED =
-  "No Acorn account uses this Gmail. Create one on the Acorn site, then try again.";
-export const ACORN_SESSION_REJECTED = "Acorn didn’t accept that Google sign-in. Try again.";
-
-type GoogleStart = { url?: string; state?: string; message?: string };
-type GoogleFinish = {
+type ExtensionSignIn = {
   token?: string;
   message?: string;
   session?: { username?: string; displayName?: string; profileId?: string };
 };
 
-/** Sign in with Google. A matching Gmail uses that Acorn account. A new Gmail does not create one. */
-export async function acornSignIn(apiUrl?: string): Promise<AcornAuthResult> {
+/** Sign in with the profile email and extension password from the Acorn profile. */
+export async function acornSignIn(
+  email: string,
+  password: string,
+  apiUrl?: string,
+): Promise<AcornAuthResult> {
   const base = (apiUrl || (await getAcornApiUrl())).replace(/\/$/, "");
-  const redirectUri = chrome.identity.getRedirectURL();
+  const trimmedEmail = email.trim();
+  if (!trimmedEmail || !password) {
+    return { ok: false, error: "Enter your profile email and extension password." };
+  }
   try {
-    const started = await postJSON<GoogleStart>(`${base}/acorn/auth/google/start`, { redirectUri });
-    if (!started.ok || !started.data.url || !started.data.state) {
-      return { ok: false, error: started.data.message || "Couldn’t start Google sign-in." };
-    }
-    const returned = await chrome.identity.launchWebAuthFlow({
-      url: started.data.url,
-      interactive: true,
+    const finished = await postJSON<ExtensionSignIn>(`${base}/acorn/auth/extension/signin`, {
+      email: trimmedEmail,
+      password,
     });
-    if (chrome.runtime.lastError || !returned) {
-      return { ok: false, error: "Google sign-in was cancelled." };
-    }
-    const params = new URL(returned).searchParams;
-    if (params.get("error")) {
-      return { ok: false, error: "Google sign-in was cancelled." };
-    }
-    const code = params.get("code");
-    const state = params.get("state");
-    if (!code || state !== started.data.state) {
-      return { ok: false, error: ACORN_SESSION_REJECTED };
-    }
-    const finished = await postJSON<GoogleFinish>(`${base}/acorn/auth/google/finish`, {
-      code,
-      state,
-    });
-    if (finished.status === 404) {
-      return {
-        ok: false,
-        error: `${ACORN_ACCOUNT_REQUIRED} ${DEFAULT_ACORN_WEB_URL}${SIGN_UP_PATH}`,
-      };
+    if (finished.status === 401) {
+      return { ok: false, error: ACORN_EXTENSION_SIGNIN_REJECTED };
     }
     if (!finished.ok || !finished.data.token || !finished.data.session) {
       return { ok: false, error: finished.data.message || "Couldn’t sign in." };

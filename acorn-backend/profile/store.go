@@ -109,6 +109,7 @@ type Document struct {
 	DesiredSalary          string  `json:"desiredSalary" bson:"desiredSalary"`
 	OpenrouterApiKey       string  `json:"openrouterApiKey" bson:"openrouterApiKey"`
 	DefaultAccountPassword string  `json:"defaultAccountPassword" bson:"defaultAccountPassword"`
+	ExtensionPassword      string  `json:"extensionPassword" bson:"extensionPassword"`
 	ResumeFolderPath       string  `json:"resumeFolderPath" bson:"resumeFolderPath"`
 	Timeline               []Entry `json:"timeline" bson:"timeline"`
 }
@@ -167,6 +168,44 @@ func (s *Store) Delete(ctx context.Context, accountID string) error {
 	}
 	return nil
 }
+// AccountIDByProfileEmail finds the account whose profile contact email matches.
+func (s *Store) AccountIDByProfileEmail(ctx context.Context, email string) (string, bool, error) {
+	email = strings.ToLower(strings.TrimSpace(email))
+	if email == "" {
+		return "", false, nil
+	}
+	s.mu.Lock()
+	for id, doc := range s.rows {
+		if strings.ToLower(strings.TrimSpace(doc.Email)) == email {
+			s.mu.Unlock()
+			return id, true, nil
+		}
+	}
+	s.mu.Unlock()
+	if s.coll == nil {
+		return "", false, nil
+	}
+	filter := bson.D{{Key: "$expr", Value: bson.D{
+		{Key: "$eq", Value: bson.A{
+			bson.D{{Key: "$toLower", Value: bson.D{{Key: "$trim", Value: bson.M{"input": "$profile.email"}}}}},
+			email,
+		}},
+	}}}
+	var row storedProfile
+	err := s.coll.FindOne(ctx, filter).Decode(&row)
+	if errors.Is(err, mongo.ErrNoDocuments) {
+		return "", false, nil
+	}
+	if err != nil {
+		return "", false, err
+	}
+	doc := normalize(row.Profile)
+	s.mu.Lock()
+	s.rows[row.AccountID] = doc
+	s.mu.Unlock()
+	return row.AccountID, true, nil
+}
+
 func (s *Store) Load(ctx context.Context, accountID string) (Document, bool, error) {
 	s.mu.Lock()
 	doc, ok := s.rows[accountID]
@@ -255,6 +294,7 @@ func normalize(doc Document) Document {
 	doc.DesiredSalary = clip(doc.DesiredSalary, maxContact)
 	doc.OpenrouterApiKey = clip(doc.OpenrouterApiKey, maxSecret)
 	doc.DefaultAccountPassword = clip(doc.DefaultAccountPassword, maxSecret)
+	doc.ExtensionPassword = clip(doc.ExtensionPassword, maxSecret)
 	doc.ResumeFolderPath = clip(doc.ResumeFolderPath, maxContact)
 	if len(doc.Timeline) > maxTimeline {
 		doc.Timeline = doc.Timeline[:maxTimeline]

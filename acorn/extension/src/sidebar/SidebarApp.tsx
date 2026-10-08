@@ -107,6 +107,7 @@ export default function SidebarApp() {
     remembering,
     startPipeline,
     startRun,
+    stopRun,
     rememberFocusedTab,
     forgetCustomTab,
     focusCustomTab,
@@ -196,6 +197,26 @@ export default function SidebarApp() {
       disabled: tabWorkBusy || !session || activeTabId == null,
       onClick: () => void startRun(),
     },
+    // Shown when the last run on this tab stopped partway: carry on from that point.
+    continueRun:
+      progress.run?.canContinue && !tabWorkBusy && session && activeTabId != null
+        ? {
+            label: "Continue",
+            title: "Carry on from where the run stopped, without starting over",
+            disabled: false,
+            onClick: () => void startRun(true),
+          }
+        : null,
+    // Shown only while a Run works on this tab.
+    stop:
+      fillBusy && progress.run
+        ? {
+            label: "Stop",
+            title: "Stop the run now; the page is left as it is",
+            disabled: false,
+            onClick: () => void stopRun(),
+          }
+        : null,
     fill: {
       label: fillLabel,
       title: customLocked ? rememberFirst : fillLabel,
@@ -308,7 +329,6 @@ export default function SidebarApp() {
               value={mainTab}
               onChange={setMainTab}
               busyJobs={busyTotal}
-              rememberedTabs={customList.length}
               unreadSupport={support.unread}
             />
           </div>

@@ -68,6 +68,8 @@
     "test:go": "go test ./acorn-backend/...",
     "vet:go": "go vet ./acorn-backend/...",
     "check:deps": "bun tools/check-single-node-modules.mjs",
+    "e2e:mock-apply:setup": "bun tests/e2e/mock-apply/setup.ts",
+    "e2e:mock-apply": "bun run build:acorn && bun tests/e2e/mock-apply/run.ts",
     "prepare": "husky",
     "commitlint": "commitlint"
   },
@@ -82,6 +84,7 @@
     "husky": "catalog:",
     "lint-staged": "catalog:",
     "prettier": "catalog:",
+    "puppeteer": "catalog:",
     "turbo": "catalog:",
     "typescript-eslint": "catalog:"
   },

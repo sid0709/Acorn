@@ -35,6 +35,31 @@ export function isVisible(el: Element): boolean {
   return !style || (style.display !== "none" && style.visibility !== "hidden");
 }
 
+/** Smallest box, in px, a person can see and type into. */
+const MIN_FIELD_PX = 2;
+
+/**
+ * Whether the field itself is fully transparent. Only its own opacity counts: a
+ * dialog fading in animates its container, and its fields are still real.
+ */
+function isTransparent(el: Element): boolean {
+  const style = el.ownerDocument?.defaultView?.getComputedStyle(el);
+  return Boolean(style && Number(style.opacity) === 0);
+}
+
+/**
+ * A text field a person can see and type into: visible, not fully transparent,
+ * bigger than a pixel or two, and not placed outside the page. A field built for
+ * robots to fill (and people to leave empty) fails one of these.
+ */
+export function isPersonFacing(el: Element): boolean {
+  if (!isVisible(el) || isTransparent(el)) return false;
+  const rect = el.getBoundingClientRect();
+  if (rect.width < MIN_FIELD_PX || rect.height < MIN_FIELD_PX) return false;
+  const view = el.ownerDocument?.defaultView;
+  return rect.right + (view?.scrollX ?? 0) > 0 && rect.bottom + (view?.scrollY ?? 0) > 0;
+}
+
 export function matchesSafe(el: Element, selector: string): boolean {
   try {
     return el.matches(selector);

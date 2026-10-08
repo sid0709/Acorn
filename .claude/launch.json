@@ -1,0 +1,11 @@
+{
+  "version": "0.0.1",
+  "configurations": [
+    {
+      "name": "acorn-api",
+      "runtimeExecutable": "bun",
+      "runtimeArgs": ["run", "dev:acorn-api"],
+      "port": 8083
+    }
+  ]
+}

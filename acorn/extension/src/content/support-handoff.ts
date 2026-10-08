@@ -7,6 +7,7 @@ import {
   type AcornExtensionHello,
   type AcornSupportHandoffAck,
 } from "@acorn/shared/api";
+
 import { DEFAULT_ACORN_WEB_URL, getAcornSession } from "../auth/acorn-auth";
 import { MSG } from "../types";
 

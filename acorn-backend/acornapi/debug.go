@@ -6,6 +6,7 @@ import (
 	"net/http"
 	"net/url"
 
+	"github.com/sid0709/OpenSeat/acorn-backend/acorn"
 	"github.com/sid0709/OpenSeat/acorn-backend/debugtrace"
 )
 
@@ -59,13 +60,13 @@ func recordFieldIssues(ctx context.Context, scan any) {
 	debugtrace.RunFrom(ctx).WriteJSON("field-issues.json", scan)
 }
 
-func finishAnalyzeRun(ctx context.Context, result any, err error) {
+func finishAnalyzeRun(ctx context.Context, result acorn.AnalyzeResult, err error) {
 	run := debugtrace.RunFrom(ctx)
 	if err != nil {
 		run.WriteFile("analyze-error.txt", []byte(err.Error()))
 		return
 	}
-	run.WriteJSON("plan.json", result)
+	run.WriteJSON("plan.json", acorn.RedactedResult(result))
 }
 
 // debugLog appends the extension's step trace to the user's current run.

@@ -12,6 +12,15 @@ export const PAGE_CONTROLS_MAX = 120;
 /** Longest text kept per control. */
 const CONTROL_TEXT_MAX = 100;
 
+/**
+ * Tree attributes the serializer sets on a control from the page's layers: the
+ * open dialog it sits in, and whether an open dialog covers it.
+ */
+export const LAYER_ATTR = {
+  dialog: "acorn-dialog",
+  covered: "acorn-covered",
+} as const;
+
 /** Regions whose controls are site chrome, not part of the application. */
 const CHROME_TAGS = new Set(["nav", "header", "footer", "aside"]);
 
@@ -30,6 +39,10 @@ export interface PageControl {
   context: string;
   disabled: boolean;
   inForm: boolean;
+  /** The open dialog the control sits in (its name, or "dialog"); "" outside every dialog. */
+  dialog: string;
+  /** An open dialog covers the control: a person could not click it right now. */
+  covered: boolean;
 }
 
 function squash(text: string | undefined): string {
@@ -84,6 +97,8 @@ export function collectPageControls(root: DomTreeNode): PageControl[] {
           context: nextChrome || (nextForm && nextForm !== "form" ? nextForm : ""),
           disabled: isDisabled(node),
           inForm: nextForm != null,
+          dialog: node.attrs?.[LAYER_ATTR.dialog] ?? "",
+          covered: node.attrs?.[LAYER_ATTR.covered] === "true",
         });
       }
     }
@@ -93,9 +108,17 @@ export function collectPageControls(root: DomTreeNode): PageControl[] {
   return prioritize(out).slice(0, PAGE_CONTROLS_MAX);
 }
 
-/** In-form, enabled, non-chrome controls first, so a long page cannot push the real one out. */
+/**
+ * Controls in an open dialog first, then in-form, enabled, non-chrome ones; controls a
+ * dialog covers last. A long page cannot push the real one out.
+ */
 function prioritize(controls: PageControl[]): PageControl[] {
-  const rank = (c: PageControl) => (c.disabled ? 3 : 0) + (c.context ? 2 : 0) + (c.inForm ? 0 : 1);
+  const rank = (c: PageControl) =>
+    (c.dialog ? 0 : 1) +
+    (c.covered ? 8 : 0) +
+    (c.disabled ? 3 : 0) +
+    (c.context ? 2 : 0) +
+    (c.inForm ? 0 : 1);
   return controls
     .map((control, index) => ({ control, index }))
     .sort((a, b) => rank(a.control) - rank(b.control) || a.index - b.index)

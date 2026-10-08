@@ -147,7 +147,7 @@ func (s *Service) FastPlan(ctx context.Context, applicant string, fields []FormF
 		return AnalyzeResult{}, fmt.Errorf("%w: formFields are required", ErrInvalid)
 	}
 	texts, files, choices := splitFields(fields)
-	profile := parseApplicantFacts(applicant)
+	profile := s.facts(applicant)
 
 	var (
 		wg                   sync.WaitGroup
@@ -453,7 +453,14 @@ func textRole(field FormField) string {
 	if field.Kind == fieldTextarea {
 		return "textarea"
 	}
+	if isPasswordField(field) {
+		return rolePassword
+	}
 	return "textbox"
+}
+
+func isPasswordField(field FormField) bool {
+	return strings.EqualFold(strings.TrimSpace(field.InputType), inputTypePassword)
 }
 
 func textareas(fields []FormField) []FormField {
@@ -484,9 +491,19 @@ func writeFields(fields []FormField) []typingField {
 // field the profile cannot answer). Neither means it stays blank; another
 // person's details are never made up.
 func textAnswer(profile applicantFacts, field FormField, kind string) (fact string, write bool) {
+	// A password box (the browser's own input type, not its wording) takes the
+	// account password and nothing else, whatever the field was classified as; no
+	// model writes into it. Blank only when the profile has no password.
+	if isPasswordField(field) {
+		return profile.credentials.Password, false
+	}
 	if kind != FactWrite && !blankKinds[kind] && kind != "" {
 		if value := factValue(profile, kind); value != "" {
 			return value, false
+		}
+		// A secret the account does not hold is left blank, never made up.
+		if secretFacts[kind] {
+			return "", false
 		}
 		kind = FactSkip
 	}
@@ -500,7 +517,7 @@ func textAnswer(profile applicantFacts, field FormField, kind string) (fact stri
 // addTextFills fills profile facts, keeps blanks blank, and uses the writer's
 // answers already written for "write" fields; any it still lacks are written now.
 func (s *Service) addTextFills(ctx context.Context, plan Plan, fields []FormField, kinds map[int]string, written map[int]string, applicant string, page map[string]any) {
-	profile := parseApplicantFacts(applicant)
+	profile := s.facts(applicant)
 	var write []FormField
 	for _, field := range fields {
 		fact, needsWriting := textAnswer(profile, field, kinds[field.ElementIndex])

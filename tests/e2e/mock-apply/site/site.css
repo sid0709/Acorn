@@ -1,0 +1,142 @@
+/* Plain styling for the local test site; it is not product UI. */
+body {
+  font-family: system-ui, sans-serif;
+  margin: 0;
+  background: #f6f7f9;
+  color: #222;
+}
+.top {
+  display: flex;
+  justify-content: space-between;
+  padding: 12px 24px;
+  background: #fff;
+  border-bottom: 1px solid #ddd;
+}
+main {
+  max-width: 760px;
+  margin: 24px auto;
+  background: #fff;
+  padding: 24px;
+  border-radius: 8px;
+}
+.steps {
+  display: flex;
+  gap: 12px;
+  font-size: 12px;
+  color: #777;
+  margin-bottom: 16px;
+  flex-wrap: wrap;
+}
+.steps .current {
+  color: #222;
+  font-weight: 700;
+}
+label {
+  display: block;
+  margin-top: 14px;
+  font-weight: 600;
+}
+input[type="text"],
+input[type="email"],
+input[type="password"],
+input[type="tel"],
+input:not([type]),
+select,
+textarea {
+  width: 100%;
+  max-width: 420px;
+  padding: 8px;
+  box-sizing: border-box;
+}
+textarea {
+  height: 80px;
+}
+.err {
+  color: #c00;
+  font-size: 13px;
+}
+.summary {
+  border: 1px solid #c00;
+  padding: 8px 16px;
+  margin-bottom: 12px;
+}
+.btn-wrap {
+  position: relative;
+  display: inline-block;
+  margin-top: 20px;
+}
+.btn-wrap button {
+  padding: 10px 24px;
+}
+.catcher {
+  position: absolute;
+  inset: 0;
+  cursor: pointer;
+}
+.backdrop {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.45);
+}
+.dialog {
+  position: fixed;
+  top: 15%;
+  left: 50%;
+  transform: translateX(-50%);
+  background: #fff;
+  padding: 24px;
+  width: 360px;
+  border-radius: 8px;
+}
+.dialog button {
+  display: block;
+  width: 100%;
+  margin: 8px 0;
+  padding: 10px;
+}
+.trap {
+  position: absolute;
+  left: -9999px;
+}
+.pill {
+  display: inline-block;
+  border: 1px solid #888;
+  border-radius: 12px;
+  padding: 2px 8px;
+  margin: 4px 4px 0 0;
+}
+[role="listbox"] {
+  border: 1px solid #888;
+  max-width: 420px;
+  background: #fff;
+}
+[role="option"] {
+  padding: 6px;
+  cursor: pointer;
+}
+.banner {
+  background: #c00;
+  color: #fff;
+  padding: 10px;
+  margin: 8px 0;
+}
+.note {
+  background: #eef;
+  padding: 10px;
+  margin: 8px 0;
+}
+.row {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  padding: 6px;
+}
+[role="option"]:has(.row) {
+  padding: 0;
+}
+.companion {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  opacity: 0;
+}

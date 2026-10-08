@@ -57,13 +57,21 @@ Acorn HTTP in `acorn-backend/acornapi` should compose the existing My Resume Edi
 
 ---
 
-## 6. Change discipline
+## 6. Accounts and emailed verification in Run
+
+- Run goes on without an account whenever the page offers it. When the account is mandatory, it signs in, creates the account, or resets the password with the profile email and the profile's **Default account password**. The order is a fixed mechanism in code (`extension/src/pipeline/account-goal.ts`): create the account, then sign in, and when signing in is refused, reset the password and sign in again. A refusal needs evidence (an alert, a flagged field, new text); a page asking to verify by email means the site took the step. The SelectorGateway only reads which account form the page shows and picks the control that sends or opens the goal's form; the run never matches button wording or DOM.
+- The account password is a planner fact (`account_password`) filled straight from the profile. It never reaches a model prompt, the pure tree, field issues, progress, plans shown in the sidebar, or logs (`@acorn/shared/secret-value`). A password box takes nothing else.
+- An emailed code or link comes from the connected Gmail through `POST /acorn/run/mail-verification` (`acorn-backend/mailcode`): each look lists the newest 10 inbox emails (rows only); when that list changed, Jev judges all 10 together and only the picked email (then the second best) is opened. Looks repeat until the email arrives or the wait runs out. A code is filled through the plan runner (`verification_code` fact); a link is opened in the run's own tab (`chrome.tabs.update`), never a new one.
+
+---
+
+## 7. Change discipline
 
 - **Bump the Acorn extension version on every shipped change.** It lives only in `extension/package.json`; the build copies it into the manifest, `VITE_ACORN_VERSION`, and the build log. Rules: [`.claude/CLAUDE.md`](.claude/CLAUDE.md), [`.cursor/rules/acorn-versioning.mdc`](.cursor/rules/acorn-versioning.mdc).
 - Update `acorn/README.md` when routes or operator steps change.
 
 ---
 
-## 7. UI language
+## 8. UI language
 
 Acorn UI follows [`design/README.md`](design/README.md) and [`design/tokens.md`](design/tokens.md). Cursor enforcement: [`.cursor/rules/acorn-ui-design.mdc`](.cursor/rules/acorn-ui-design.mdc).

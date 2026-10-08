@@ -185,9 +185,9 @@ func TestReadPageSaysWhenThePageWaitsForThePerson(t *testing.T) {
 	decider := &scriptedDecider{answers: map[string]jev.Answer{
 		pageKindQuestion: {Choice: KindForm},
 		controlQuestion:  {Choice: "control_1"},
-		personQuestion:   {Noul: yes(0.92)},
+		verifyQuestion:   {Choice: VerifyOther},
 	}}
-	read, err := New(decider).ReadPage(context.Background(), PageQuery{Text: "Enter the code we sent you", Intent: IntentAdvance, Controls: formControls})
+	read, err := New(decider).ReadPage(context.Background(), PageQuery{Text: "Enter the code we texted you", Intent: IntentAdvance, Controls: formControls})
 	if err != nil || !read.NeedsPerson {
 		t.Fatalf("read = %+v err = %v, want a page waiting on the person", read, err)
 	}

@@ -80,6 +80,8 @@ export const MSG = {
   START_PIPELINE: "acorn:start-pipeline",
   /** Run: recommend, fill, advance, and refill until the application is done. */
   START_RUN: "acorn:start-run",
+  /** Sidebar → service worker: stop the Run working on this tab, at once. */
+  STOP_RUN: "acorn:stop-run",
   PIPELINE_PROGRESS: "acorn:pipeline-progress",
   SOCKET_STATUS: "acorn:socket-status",
   OPERATOR_NOTICE: "acorn:operator-notice",
@@ -166,6 +168,10 @@ export interface PageProbe {
   fields: string;
   /** Visible fields marked invalid plus visible alerts. */
   refusals: number;
+  /** Clickable controls in the document: grows while an app renders. */
+  controls: number;
+  /** Length of the visible text: grows while an app renders. */
+  textLength: number;
 }
 
 export interface PlanStepPayload {

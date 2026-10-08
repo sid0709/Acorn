@@ -1,4 +1,5 @@
 import { sameApplyPage } from "@acorn/shared/apply-site";
+
 import { focusChromeTab } from "./focus-tab";
 import {
   bindTabJob,

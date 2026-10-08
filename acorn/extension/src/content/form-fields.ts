@@ -6,6 +6,8 @@
  * exist once opened); the runtime's leftover pass answers them.
  */
 
+import { PASSWORD_INPUT_TYPE } from "@acorn/shared/secret-value";
+
 import { choiceOptionLabel, hasClickableBox, inputOptionLabel } from "./agents/choice-group";
 import { optionLabel, realOptions } from "./agents/native-select";
 import { groupRoot } from "./agents/select-radio";
@@ -21,7 +23,7 @@ import {
   groupMembers,
   groupQuestion,
   isRequired,
-  isVisible,
+  isPersonFacing,
   normalize,
   queryDeep,
   sectionTitle,
@@ -38,9 +40,10 @@ const MAX_FORM_FIELDS = 150;
 const TEXT_FIELD_NOTES = 2;
 /** Short texts beside a file input that describe what it takes. */
 const FILE_HINT_TEXTS = 3;
-/** Native input types a person types into. */
+/** Native input types a person types into. A password box takes the account password. */
 const TEXT_INPUT_TYPES = new Set([
   "text",
+  PASSWORD_INPUT_TYPE,
   "email",
   "tel",
   "url",
@@ -206,8 +209,9 @@ function describeControl(control: Element, seenGroups: Set<string>): FormField |
       }
       return choiceField(control);
     }
-    // aria-hidden marks a control no person reads or fills (a widget's mirror input).
-    if (!isVisible(control) || control.closest('[aria-hidden="true"]')) return null;
+    // aria-hidden marks a control no person reads or fills (a widget's mirror input); a
+    // field no person could see or reach is a trap for robots. Neither is filled.
+    if (!isPersonFacing(control) || control.closest('[aria-hidden="true"]')) return null;
     if (inferRole(control) === "combobox" || !TEXT_INPUT_TYPES.has(type)) return null;
     const text = label();
     return {
@@ -225,7 +229,7 @@ function describeControl(control: Element, seenGroups: Set<string>): FormField |
     (control as HTMLElement).isContentEditable ||
     role === "textbox"
   ) {
-    if (!isVisible(control)) return null;
+    if (!isPersonFacing(control)) return null;
     const text = label();
     return {
       elementIndex: nodeId(control),

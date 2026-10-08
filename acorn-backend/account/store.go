@@ -177,6 +177,61 @@ func (s *Store) SignUp(ctx context.Context, name, email, password string, now ti
 	return token, user, nil
 }
 
+// UserByID loads one account by id.
+func (s *Store) UserByID(ctx context.Context, id string) (User, error) {
+	id = strings.TrimSpace(id)
+	if id == "" {
+		return User{}, ErrInvalidLogin
+	}
+	var doc storedAccount
+	err := s.accounts.FindOne(ctx, bson.D{{Key: "id", Value: id}}).Decode(&doc)
+	if errors.Is(err, mongo.ErrNoDocuments) {
+		return User{}, ErrInvalidLogin
+	}
+	if err != nil {
+		return User{}, err
+	}
+	return User{ID: doc.ID, Name: doc.Name, Email: doc.Email}, nil
+}
+
+// UserByEmail loads the account behind a sign-in email.
+func (s *Store) UserByEmail(ctx context.Context, email string) (User, error) {
+	email = normalizeEmail(email)
+	if email == "" {
+		return User{}, ErrInvalidLogin
+	}
+	var doc storedAccount
+	err := s.accounts.FindOne(ctx, bson.D{{Key: "email", Value: email}}).Decode(&doc)
+	if errors.Is(err, mongo.ErrNoDocuments) {
+		return User{}, ErrInvalidLogin
+	}
+	if err != nil {
+		return User{}, err
+	}
+	return User{ID: doc.ID, Name: doc.Name, Email: doc.Email}, nil
+}
+
+// StartSession opens a new session for an existing account.
+func (s *Store) StartSession(ctx context.Context, userID string, now time.Time) (string, User, error) {
+	userID = strings.TrimSpace(userID)
+	if userID == "" {
+		return "", User{}, ErrInvalid
+	}
+	var doc storedAccount
+	err := s.accounts.FindOne(ctx, bson.D{{Key: "id", Value: userID}}).Decode(&doc)
+	if errors.Is(err, mongo.ErrNoDocuments) {
+		return "", User{}, ErrInvalidLogin
+	}
+	if err != nil {
+		return "", User{}, err
+	}
+	token, err := s.insertSession(ctx, doc.ID, now)
+	if err != nil {
+		return "", User{}, err
+	}
+	return token, User{ID: doc.ID, Name: doc.Name, Email: doc.Email}, nil
+}
+
 // SignIn checks the password and opens a session.
 func (s *Store) SignIn(ctx context.Context, email, password string, now time.Time) (string, User, error) {
 	email = normalizeEmail(email)

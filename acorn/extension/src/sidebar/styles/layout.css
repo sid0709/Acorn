@@ -21,6 +21,18 @@
   border-bottom: 1px solid var(--color-border);
 }
 
+.acorn-pill-nav {
+  display: flex;
+  justify-content: center;
+  width: 100%;
+}
+
+.acorn-support-avatar {
+  display: block;
+  flex-shrink: 0;
+  line-height: 0;
+}
+
 .acorn-header-face {
   width: var(--acorn-face-brand-px);
   height: var(--acorn-face-brand-px);

@@ -21,6 +21,15 @@ func (s *Server) openRouterKey(ctx context.Context, accountID string) (string, e
 	return doc.OpenrouterApiKey, nil
 }
 
+// accountPassword is the profile's default password for job-site accounts; "" when it has none.
+func (s *Server) accountPassword(ctx context.Context, accountID string) (string, error) {
+	doc, stored, err := s.profiles.Load(ctx, accountID)
+	if err != nil || !stored {
+		return "", err
+	}
+	return doc.DefaultAccountPassword, nil
+}
+
 // openRouter is the signed-in account's model. An empty profile key is not ready.
 func (s *Server) openRouter(ctx context.Context, accountID string) (*openai.Client, error) {
 	key, err := s.openRouterKey(ctx, accountID)
