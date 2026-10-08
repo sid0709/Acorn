@@ -1,4 +1,5 @@
 import { pointerActivate } from "../pointer-activate";
+import { isSearchBox, pressEnter } from "../field-focus";
 import { waitMs } from "../wait";
 import { isDisplayed, ownedPopupOpen } from "./options-dom";
 import { comboboxWidgetRoot } from "./widget-value";
@@ -131,5 +132,7 @@ export async function typeQueryIntoOpenCombobox(el: HTMLElement, query: string):
     input.dispatchEvent(new KeyboardEvent("keyup", { key: ch, bubbles: true, cancelable: true }));
     await waitMs(SMOOTH_TYPE_DELAY_MS);
   }
+  // A search box shows its results only once the search runs.
+  if (isSearchBox(input)) pressEnter(input);
   await waitMs(WORD_SEARCH_SETTLE_MS);
 }

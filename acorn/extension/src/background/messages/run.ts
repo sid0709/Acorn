@@ -1,6 +1,7 @@
 import { getAccessToken, getAcornApiUrl } from "../../auth/acorn-auth";
 import { runOrchestrator } from "../../pipeline/run-orchestrator";
 import { syncAutoFocus } from "../auto-focus";
+import { getStopBeforeSubmit } from "../../run-settings";
 import { beginRunStop, claimRunStopTab, endRunStop, stopRunOnTab } from "../run-stop";
 import { broadcastPipelineProgress } from "../socket-connection";
 import { pinnedTabId } from "../tab-target";
@@ -56,6 +57,11 @@ export function handleStartRun(
         preferredFrameId: sender.tab ? (sender.frameId ?? null) : null,
         apiUrl: await getAcornApiUrl(),
         signal: stop.signal,
+        // The message may ask for it (a test run); otherwise the sidebar switch decides.
+        stopBeforeSubmit:
+          typeof message.stopBeforeSubmit === "boolean"
+            ? message.stopBeforeSubmit
+            : await getStopBeforeSubmit(),
         emit: (tabIds, progress) => {
           for (const id of tabIds) broadcastPipelineProgress(id, progress);
         },

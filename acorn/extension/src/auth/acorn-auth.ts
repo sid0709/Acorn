@@ -7,6 +7,8 @@ import {
 } from "@acorn/shared/api";
 import { ACORN_TAB_HEADER, usageTabKey } from "../tab-usage-key";
 
+import { STORAGE_KEYS } from "./storage-keys";
+
 const hosts = acornHosts(import.meta.env.MODE);
 
 /** Acorn's API. Override per build with VITE_ACORN_API_URL. */
@@ -26,12 +28,7 @@ export type AcornStoredSession = {
   supportBy?: string;
 };
 
-export const STORAGE_KEYS = {
-  apiUrl: "acornApiUrl",
-  session: "acornSession",
-  /** The person's own session, kept while a support session stands in for it. */
-  sessionBeforeSupport: "acornSessionBeforeSupport",
-} as const;
+export { STORAGE_KEYS };
 
 /** What every API call names this client as, for usage stats. */
 const CLIENT_NAME = `${ACORN_CLIENT.extension}/${import.meta.env.VITE_ACORN_VERSION ?? ""}`;

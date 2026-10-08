@@ -6,6 +6,7 @@ import type {
   AccountAttempt,
   AccountMode,
   ControlRole,
+  MailRow,
   MailVerificationStatus,
   PageKind,
   Verification,
@@ -30,6 +31,8 @@ export interface ReadPageRequest {
   pageMessages: string[];
   /** Account steps the run already sent on this site, oldest first. */
   account: AccountAttempt[];
+  /** The account step the run tries next on this site (create, sign in, or reset); absent off account steps. */
+  accountGoal?: AccountMode;
 }
 
 export interface ReadPageResponse {
@@ -66,8 +69,8 @@ export interface MailVerificationRequest {
   text: string;
   /** When the site was asked to send the email (ms since epoch); 0 reads every recent email. */
   since: number;
-  /** Emails an earlier search judged unrelated; sent back unchanged from the last answer. */
-  ruledOut: string[];
+  /** The `seen` of the last answer: when the newest emails are the same, Jev is not asked again. */
+  seen: string;
 }
 
 export interface MailVerificationResponse {
@@ -76,7 +79,12 @@ export interface MailVerificationResponse {
   status?: MailVerificationStatus;
   /** The code to enter, or the link to open. Set only when found. */
   value?: string;
-  ruledOut?: string[];
+  /** Names the newest emails this look read; sent back with the next look. */
+  seen?: string;
+  /** The newest emails were the same as last time; nothing was judged. */
+  unchanged?: boolean;
+  /** The newest emails this look read (sender and subject), with Jev's chance once judged. */
+  emails?: MailRow[];
   usage?: AiUsageSummary;
 }
 

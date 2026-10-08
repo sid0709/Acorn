@@ -70,6 +70,14 @@ func accountHistory(attempts []runAccountAttempt) []selector.AccountAttempt {
 	return out
 }
 
+// accountGoal keeps a goal the gateway knows; "" otherwise.
+func accountGoal(goal string) string {
+	if selector.IsAccountMode(goal) && goal != selector.AccountNone && goal != selector.AccountChoose {
+		return goal
+	}
+	return ""
+}
+
 // cleanRunID makes a run id safe to log and to put in a file name.
 func cleanRunID(id string) string {
 	id = unsafeRunID.ReplaceAllString(strings.TrimSpace(id), "")
@@ -106,6 +114,7 @@ func (s *Server) runReadPage(w http.ResponseWriter, r *http.Request) {
 		Flagged      int                 `json:"flagged"`
 		PageMessages []string            `json:"pageMessages"`
 		Account      []runAccountAttempt `json:"account"`
+		AccountGoal  string              `json:"accountGoal"`
 	}
 	if !decode(w, r, &body) {
 		return
@@ -145,7 +154,7 @@ func (s *Server) runReadPage(w http.ResponseWriter, r *http.Request) {
 	read, err := gateway.ReadPage(s.withUsage(r, session.User.ID), selector.PageQuery{
 		URL: body.URL, Title: body.Title, Text: body.Text, Intent: intent,
 		Controls: controls, Flagged: body.Flagged, PageMessages: body.PageMessages,
-		Account: accountHistory(body.Account),
+		Account: accountHistory(body.Account), AccountGoal: accountGoal(body.AccountGoal),
 	})
 	elapsed := time.Since(started)
 	s.recordRunStep(r, session.User.ID, runID, body.Step, "read-page", map[string]any{

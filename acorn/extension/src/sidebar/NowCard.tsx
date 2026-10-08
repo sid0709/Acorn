@@ -1,15 +1,20 @@
 import { Badge, Button, Card, Glyph, HStack, ProgressBar, Text, VStack } from "sid-ui";
 import type { PipelineProgress } from "@acorn/shared/pipeline-types";
+import { PAGE_KIND, RUN_OUTCOME, RUN_STAGE, type MailRow } from "@acorn/shared/run-types";
 import type { RecommendedResumeRank } from "@acorn/shared/resume-library";
 import type { CustomUiProgress } from "../pipeline/custom-generate-progress";
 import { customTabResumeLine, hostOf } from "./custom-tab-resume";
 import { JOBS_NOW_CARD_RUN_ONLY } from "./sidebar-work-state";
 import { GenerateProgressBar } from "./GenerateProgressBar";
 import { RunTimer } from "./RunTimer";
+import { useDefaultPassword } from "./use-default-password";
 import type { AcornMainTab } from "./SidebarNav";
 import type { useTabSession } from "./use-tab-session";
 
 type TabSession = ReturnType<typeof useTabSession>;
+
+/** Jev's chance at or above which an email shows as its pick. */
+const MAIL_PICK_SHOWN = 0.5;
 
 export type NowAction = {
   label: string;
@@ -144,11 +149,58 @@ function RecommendTop({ top }: { top: RecommendedResumeRank[] }) {
   );
 }
 
+/** The newest emails the run hands to Jev while it looks for a code or link. */
+function MailList({ mail }: { mail: MailRow[] }) {
+  return (
+    <VStack gap={1}>
+      <Text type="supporting" weight="semibold">
+        {`Emails read · latest ${mail.length} sent to Jev`}
+      </Text>
+      {mail.map((row, i) => (
+        <HStack key={`${i}-${row.subject}`} gap={2} align="center" justify="between">
+          <VStack gap={0}>
+            <Text type="supporting" weight="semibold" maxLines={1}>
+              {row.from}
+            </Text>
+            <Text type="supporting" maxLines={1}>
+              {row.subject || "(no subject)"}
+            </Text>
+          </VStack>
+          {row.probability > 0 ? (
+            <Badge
+              variant={row.probability >= MAIL_PICK_SHOWN ? "green" : "neutral"}
+              label={`${Math.round(row.probability * 100)}%`}
+            />
+          ) : null}
+        </HStack>
+      ))}
+    </VStack>
+  );
+}
+
+/** Says which default account password the run fills into the site's account forms. */
+function PasswordLine({ password }: { password: string | null }) {
+  if (password == null) return null;
+  return (
+    <Text type="supporting">
+      {password ? `Using default password: ${password}` : "No default password in your profile"}
+    </Text>
+  );
+}
+
 function RunStatus({ progress }: { progress: PipelineProgress }) {
   const run = progress.run;
+  const failure = run?.report?.failure;
+  const onAccount = run?.kind === PAGE_KIND.accountStep || failure?.stage === RUN_STAGE.account;
+  const password = useDefaultPassword(Boolean(onAccount));
   if (!run) return null;
   const timer = run.startedAt ? <RunTimer startedAt={run.startedAt} endedAt={run.endedAt} /> : null;
-  const failure = run.report?.failure;
+  const extras = (
+    <>
+      <PasswordLine password={password} />
+      {run.mail?.length ? <MailList mail={run.mail} /> : null}
+    </>
+  );
   if (failure) {
     return (
       <VStack gap={1}>
@@ -160,15 +212,24 @@ function RunStatus({ progress }: { progress: PipelineProgress }) {
           {failure.label}
         </Text>
         {failure.detail ? <Text type="supporting">{failure.detail}</Text> : null}
+        {extras}
       </VStack>
     );
   }
+  const ready = run.report?.outcome === RUN_OUTCOME.readyToSubmit;
   const parts = [`Page ${Math.max(run.page, 1)}`];
   if (run.refills > 0) parts.push(`refill ${run.refills}/${run.maxRefills}`);
   return (
     <VStack gap={1}>
       {timer}
+      {ready ? (
+        <HStack gap={2} align="center">
+          <Badge variant="green" label="Ready to submit" />
+          <Text type="supporting">Every step is filled; review it and submit.</Text>
+        </HStack>
+      ) : null}
       <Text type="supporting">{parts.join(" · ")}</Text>
+      {extras}
     </VStack>
   );
 }

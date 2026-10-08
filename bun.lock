@@ -15,6 +15,7 @@
         "husky": "catalog:",
         "lint-staged": "catalog:",
         "prettier": "catalog:",
+        "puppeteer": "catalog:",
         "turbo": "catalog:",
         "typescript-eslint": "catalog:",
       },
@@ -77,7 +78,7 @@
     },
     "acorn/extension": {
       "name": "acorn-extension",
-      "version": "1.26.0",
+      "version": "1.30.0",
       "dependencies": {
         "@acorn/app-theme": "workspace:*",
         "@acorn/face": "workspace:*",

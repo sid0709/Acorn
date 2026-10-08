@@ -1,14 +1,18 @@
 // Package mailcode finds the verification code or link a job site emailed the
-// applicant. TypeSafe Jev ranks the newest emails, then picks the code or link
-// among the ones the best email holds; nothing is matched on wording. When the
-// best email holds none, the second best is opened; after that the search stops.
+// applicant. Each look lists the newest inbox emails (their rows only: sender,
+// subject, plain-text preview, time) and, when that list changed since the last
+// look, TypeSafe Jev judges all of them together. Only the email Jev picks is
+// opened, and Jev then picks the code or link among the ones it holds; nothing is
+// matched on wording. When the best email holds none, the second best is opened;
+// after that the search stops.
 package mailcode
 
 import (
 	"context"
 	"errors"
 	"fmt"
-	"slices"
+	"hash/fnv"
+	"strconv"
 	"time"
 
 	"github.com/sid0709/OpenSeat/acorn-backend/mailbox"
@@ -17,21 +21,24 @@ import (
 )
 
 const (
-	// RecentMessages is how many of the newest inbox emails are read.
-	RecentMessages = 20
+	// RecentMessages is how many of the newest inbox emails each look reads.
+	RecentMessages = 10
 	// MaxOpened is how many of the best-ranked emails are opened before the search stops.
 	MaxOpened = 2
-	// arrivalSkew lets an email stamped a little before the site's step still count.
+	// arrivalSkew lets an email stamped a little before the site's step still count as after it.
 	arrivalSkew = 2 * time.Minute
-	// maxRuledOut bounds the email ids a caller can hand back as already judged.
-	maxRuledOut = 200
+	// minOpenProbability is the least chance Jev must give an email before it is opened.
+	minOpenProbability = 0.05
+	// confidentMail is the chance at or above which Jev's pick of the email is trusted
+	// enough to take its most probable link or code when Jev answers none of them.
+	confidentMail = 0.5
 )
 
 // Statuses a search ends in.
 const (
 	// StatusFound carries the code or link.
 	StatusFound = "found"
-	// StatusPending means no email from the site has arrived yet; look again later.
+	// StatusPending means no email holds it yet: look again later.
 	StatusPending = "pending"
 	// StatusNotFound means the site's best emails hold no code or link: stop.
 	StatusNotFound = "not_found"
@@ -56,41 +63,68 @@ type Reader interface {
 // Query is the step a site is waiting on.
 type Query struct {
 	Ask selector.MailAsk
-	// Since is when the site was asked to send the email; zero reads every recent email.
+	// Since is when the site was asked to send the email; zero when unknown.
 	Since time.Time
-	// RuledOut are emails an earlier search already judged unrelated to this step.
-	RuledOut []string
+	// Seen is the Seen of the last look: when the newest emails are still the same,
+	// Jev is not asked again.
+	Seen string
 }
 
-// Result is how a search ended. Value is set only when Status is StatusFound.
+// Judged is one email Jev weighed, for the debug trace.
+type Judged struct {
+	ID          string
+	From        string
+	Subject     string
+	After       bool
+	Probability float64
+}
+
+// Opened is one email the search opened, for the debug trace (never the values).
+type Opened struct {
+	ID         string
+	Subject    string
+	Candidates []string
+	Picked     int
+	Fallback   bool
+	// Unconfirmed is true when the picked value was not found written in the email.
+	Unconfirmed bool
+}
+
+// Result is how a look ended. Value is set only when Status is StatusFound.
 type Result struct {
 	Status    string
 	Value     string
 	MessageID string
-	// RuledOut grows by the emails this search judged unrelated; the caller sends it back next time.
-	RuledOut []string
-	// Opened is how many emails were opened.
-	Opened int
+	// Seen names the newest emails this look read; the caller sends it back next time.
+	Seen string
+	// Unchanged is true when the emails were the same as last time and Jev was not asked.
+	Unchanged bool
+	// Emails are the newest emails this look read, newest first; Probability is set once judged.
+	Emails []Judged
+	// Judged is every email Jev weighed, most probable first.
+	Judged []Judged
+	// Opened is every email opened, in order.
+	Opened []Opened
 	Calls  int
 	Usage  jev.Usage
 }
 
-// Find looks for the code or link the site sent.
+// Find takes one look at the newest emails for the code or link the site sent.
 func Find(ctx context.Context, decide Selector, mail Reader, q Query) (Result, error) {
 	if !selector.IsMailVerification(q.Ask.Kind) {
 		return Result{}, fmt.Errorf("%w: kind must be %s or %s", ErrInvalid, selector.VerifyEmailCode, selector.VerifyEmailLink)
 	}
-	if len(q.RuledOut) > maxRuledOut {
-		q.RuledOut = q.RuledOut[len(q.RuledOut)-maxRuledOut:]
-	}
-	result := Result{Status: StatusPending, RuledOut: slices.Clone(q.RuledOut)}
-
 	recent, err := mail.Recent(ctx, RecentMessages)
 	if err != nil {
-		return result, fmt.Errorf("read recent mail: %w", err)
+		return Result{Status: StatusPending, Seen: q.Seen}, fmt.Errorf("read recent mail: %w", err)
 	}
-	items, subjects := fresh(recent, q)
-	if len(items) == 0 {
+	items, subjects := mailItems(recent, q.Since)
+	result := Result{Status: StatusPending, Seen: seenOf(recent), Emails: listed(items)}
+	if len(recent) == 0 {
+		return result, nil
+	}
+	if result.Seen == q.Seen {
+		result.Unchanged = true
 		return result, nil
 	}
 
@@ -99,16 +133,18 @@ func Find(ctx context.Context, decide Selector, mail Reader, q Query) (Result, e
 		return result, fmt.Errorf("rank mail: %w", err)
 	}
 	result.add(rank.Usage)
+	result.Judged = judged(items, rank)
+	result.Emails = withProbabilities(result.Emails, result.Judged)
 	if rank.None {
-		for _, item := range items {
-			result.RuledOut = append(result.RuledOut, item.ID)
-		}
 		return result, nil
 	}
 
 	for _, ranked := range rank.Ranked[:min(MaxOpened, len(rank.Ranked))] {
-		value, usage, called, err := secretIn(ctx, decide, mail, q.Ask, ranked.ID, subjects[ranked.ID])
-		result.Opened++
+		if ranked.Probability < minOpenProbability {
+			break
+		}
+		value, opened, usage, called, err := secretIn(ctx, decide, mail, q.Ask, ranked, subjects[ranked.ID])
+		result.Opened = append(result.Opened, opened)
 		if called {
 			result.add(usage)
 		}
@@ -124,60 +160,116 @@ func Find(ctx context.Context, decide Selector, mail Reader, q Query) (Result, e
 	return result, nil
 }
 
-// fresh are the recent emails that arrived since the site's step and were not
-// already judged unrelated, as Jev reads them.
-func fresh(recent []mailbox.Message, q Query) ([]selector.MailItem, map[string]string) {
-	ruledOut := make(map[string]bool, len(q.RuledOut))
-	for _, id := range q.RuledOut {
-		ruledOut[id] = true
+// seenOf names a list of emails by their ids, so two looks can tell whether anything arrived.
+func seenOf(messages []mailbox.Message) string {
+	h := fnv.New64a()
+	for _, message := range messages {
+		h.Write([]byte(message.ID))
+		h.Write([]byte{0})
 	}
-	var items []selector.MailItem
-	subjects := map[string]string{}
+	return strconv.FormatUint(h.Sum64(), 36)
+}
+
+// mailItems are the emails as Jev reads them: their list rows only, each marked
+// with whether it arrived after the site was asked to send.
+func mailItems(recent []mailbox.Message, since time.Time) ([]selector.MailItem, map[string]string) {
+	items := make([]selector.MailItem, 0, len(recent))
+	subjects := make(map[string]string, len(recent))
 	for _, message := range recent {
-		if ruledOut[message.ID] {
-			continue
-		}
-		if !q.Since.IsZero() && message.ReceivedAt.Before(q.Since.Add(-arrivalSkew)) {
-			continue
-		}
 		from := message.Sender
 		if message.SenderEmail != "" {
 			from += " <" + message.SenderEmail + ">"
 		}
 		items = append(items, selector.MailItem{
-			ID: message.ID, From: from, Subject: message.Subject, Snippet: message.Snippet, ReceivedAt: message.ReceivedAt,
+			ID: message.ID, From: from, Subject: message.Subject, Snippet: message.Snippet,
+			ReceivedAt: message.ReceivedAt,
+			After:      !since.IsZero() && !message.ReceivedAt.Before(since.Add(-arrivalSkew)),
+			AfterKnown: !since.IsZero(),
 		})
 		subjects[message.ID] = message.Subject
 	}
 	return items, subjects
 }
 
+func judged(items []selector.MailItem, rank selector.MailRank) []Judged {
+	byID := make(map[string]selector.MailItem, len(items))
+	for _, item := range items {
+		byID[item.ID] = item
+	}
+	out := make([]Judged, 0, len(rank.Ranked))
+	for _, ranked := range rank.Ranked {
+		item := byID[ranked.ID]
+		out = append(out, Judged{ID: item.ID, From: item.From, Subject: item.Subject, After: item.After, Probability: ranked.Probability})
+	}
+	return out
+}
+
 // secretIn opens one email and asks Jev which of its codes or links the page
 // wants. "" when the email holds none; called is false when Jev was not asked.
-func secretIn(ctx context.Context, decide Selector, mail Reader, ask selector.MailAsk, id, subject string) (string, jev.Usage, bool, error) {
-	message, err := mail.Open(ctx, id)
+// When Jev was sure of the email but answers none of its links or codes, its
+// most probable one is taken: the email itself is the site's answer.
+func secretIn(ctx context.Context, decide Selector, mail Reader, ask selector.MailAsk, ranked selector.Ranked, subject string) (string, Opened, jev.Usage, bool, error) {
+	opened := Opened{ID: ranked.ID, Subject: subject, Picked: -1}
+	message, err := mail.Open(ctx, ranked.ID)
 	if err != nil {
-		return "", jev.Usage{}, false, fmt.Errorf("open mail: %w", err)
+		return "", opened, jev.Usage{}, false, fmt.Errorf("open mail: %w", err)
 	}
 	found := codeCandidates(message)
 	if ask.Kind == selector.VerifyEmailLink {
 		found = linkCandidates(message)
 	}
-	if len(found) == 0 {
-		return "", jev.Usage{}, false, nil
-	}
 	candidates := make([]selector.SecretCandidate, len(found))
 	for i, candidate := range found {
 		candidates[i] = selector.SecretCandidate{Description: candidate.Description}
+		opened.Candidates = append(opened.Candidates, candidate.Description)
+	}
+	if len(found) == 0 {
+		return "", opened, jev.Usage{}, false, nil
 	}
 	pick, err := decide.PickSecret(ctx, ask, firstNonEmpty(message.Subject, subject), candidates)
 	if err != nil {
-		return "", jev.Usage{}, false, fmt.Errorf("pick from mail: %w", err)
+		return "", opened, jev.Usage{}, false, fmt.Errorf("pick from mail: %w", err)
 	}
-	if !pick.Found || pick.Index >= len(found) {
-		return "", pick.Usage, true, nil
+	index := -1
+	switch {
+	case pick.Found && pick.Index < len(found):
+		index = pick.Index
+	case ranked.Probability >= confidentMail && pick.Best >= 0 && pick.Best < len(found):
+		index, opened.Fallback = pick.Best, true
 	}
-	return found[pick.Index].Value, pick.Usage, true, nil
+	opened.Picked = index
+	if index < 0 {
+		return "", opened, pick.Usage, true, nil
+	}
+	// Jev chose a number; the value is read from the email by code, and confirmed
+	// once more to be written in this email before the run uses it.
+	value := found[index].Value
+	if !confirmed(message, value) {
+		opened.Unconfirmed = true
+		return "", opened, pick.Usage, true, nil
+	}
+	return value, opened, pick.Usage, true, nil
+}
+
+// listed are the emails as the sidebar shows them: sender and subject.
+func listed(items []selector.MailItem) []Judged {
+	out := make([]Judged, len(items))
+	for i, item := range items {
+		out[i] = Judged{ID: item.ID, From: item.From, Subject: item.Subject, After: item.After}
+	}
+	return out
+}
+
+// withProbabilities puts Jev's judgment on each listed email.
+func withProbabilities(emails, judged []Judged) []Judged {
+	byID := make(map[string]float64, len(judged))
+	for _, j := range judged {
+		byID[j.ID] = j.Probability
+	}
+	for i := range emails {
+		emails[i].Probability = byID[emails[i].ID]
+	}
+	return emails
 }
 
 func (r *Result) add(usage jev.Usage) {

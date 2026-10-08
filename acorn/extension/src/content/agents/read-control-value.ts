@@ -1,5 +1,6 @@
 import { isChoiceSelected, isChoiceWidget } from "./choice-state";
-import { readWidgetTextParts } from "./combobox/widget-value";
+import { comboboxWidgetRoot, readWidgetTextParts } from "./combobox/widget-value";
+import { isSearchBox } from "./field-focus";
 
 const PLACEHOLDER_VALUES = new Set(["", "select...", "select", "choose...", "choose"]);
 
@@ -50,6 +51,15 @@ function isComboboxControl(el: HTMLElement): boolean {
 }
 
 /** Read the user-visible value of a form control for validate / reporting. */
+/** The options listed inside the field itself: the items a search box has picked. */
+function pickedInField(el: HTMLElement): string {
+  const field = comboboxWidgetRoot(el);
+  return Array.from(field.querySelectorAll('[role="option"]'))
+    .map((option) => (option.textContent || "").replace(/\s+/g, " ").trim())
+    .filter(Boolean)
+    .join(", ");
+}
+
 export function readControlValue(el: Element | null): string {
   if (!el) return "";
 
@@ -65,6 +75,10 @@ export function readControlValue(el: Element | null): string {
       const displayed = readComboboxDisplayValue(el);
       if (displayed) return displayed;
     }
+
+    // A search box's answer is what was picked from its results, listed inside
+    // its own field; the box itself is empty once a pick is made.
+    if (!el.value && isSearchBox(el)) return pickedInField(el);
 
     return el.value;
   }

@@ -158,28 +158,33 @@ func codeShape(token string) string {
 func linkCandidates(message mailbox.FullMessage) []secret {
 	seen := map[string]bool{}
 	var out []secret
-	add := func(raw, text string) {
-		parsed, err := url.Parse(strings.TrimSpace(raw))
+	add := func(raw, text, before string) {
+		// The value is the address exactly as the email writes it, so it can be
+		// confirmed against the email's own content before it is used.
+		value := strings.TrimSpace(raw)
+		parsed, err := url.Parse(value)
 		if err != nil || (parsed.Scheme != "http" && parsed.Scheme != "https") || parsed.Host == "" {
 			return
 		}
-		value := parsed.String()
-		if seen[value] || len(out) == maxCandidates {
+		if seen[parsed.String()] || len(out) == maxCandidates {
 			return
 		}
-		seen[value] = true
+		seen[parsed.String()] = true
 		description := "Link to " + parsed.Host + parsed.EscapedPath()
-		if text = strings.TrimSpace(spaces.ReplaceAllString(text, " ")); text != "" {
+		if text = strings.TrimSpace(spaces.ReplaceAllString(text, " ")); text != "" && !webAddress.MatchString(text) {
 			description = "Link text \"" + text + "\" · " + description
+		}
+		if before = strings.TrimSpace(spaces.ReplaceAllString(before, " ")); before != "" {
+			description = "After the words \"" + before + "\" · " + description
 		}
 		out = append(out, secret{Value: value, Description: description})
 	}
 	for _, anchor := range htmlAnchors(message.HTML) {
-		add(anchor.href, anchor.text)
+		add(anchor.href, anchor.text, anchor.before)
 	}
 	text := bodyText(message)
 	for _, span := range webAddress.FindAllStringIndex(text, -1) {
-		add(text[span[0]:span[1]], lineAround(text, span[0]))
+		add(text[span[0]:span[1]], "", lineAround(text, span[0]))
 	}
 	return out
 }
@@ -202,6 +207,8 @@ func lineAround(text string, at int) string {
 type anchor struct {
 	href string
 	text string
+	// before is the email's text right before the link, which often says what it is for.
+	before string
 }
 
 // htmlAnchors lists every <a href> with its text (or an image's alt text).
@@ -213,6 +220,8 @@ func htmlAnchors(source string) []anchor {
 		out     []anchor
 		current *anchor
 		text    strings.Builder
+		// seen is the email's text so far, outside links.
+		seen strings.Builder
 	)
 	tokens := html.NewTokenizer(strings.NewReader(source))
 	for {
@@ -224,7 +233,7 @@ func htmlAnchors(source string) []anchor {
 			switch token.DataAtom {
 			case atom.A:
 				if href := attr(token, "href"); href != "" {
-					current = &anchor{href: href}
+					current = &anchor{href: href, before: tail(seen.String(), codeContext)}
 					text.Reset()
 				}
 			case atom.Img:
@@ -235,6 +244,9 @@ func htmlAnchors(source string) []anchor {
 		case html.TextToken:
 			if current != nil {
 				text.Write(tokens.Text())
+			} else {
+				seen.Write(tokens.Text())
+				seen.WriteString(" ")
 			}
 		case html.EndTagToken:
 			if name, _ := tokens.TagName(); current != nil && string(name) == atom.A.String() {
@@ -295,4 +307,33 @@ func attr(token html.Token, name string) string {
 		}
 	}
 	return ""
+}
+
+// tail is the last max runes of text, starting on a whole word.
+func tail(text string, max int) string {
+	runes := []rune(strings.TrimSpace(spaces.ReplaceAllString(text, " ")))
+	if len(runes) <= max {
+		return string(runes)
+	}
+	cut := string(runes[len(runes)-max:])
+	if i := strings.IndexRune(cut, ' '); i >= 0 {
+		cut = cut[i+1:]
+	}
+	return cut
+}
+
+// confirmed says whether value is written in the message itself: in its HTML (as
+// a link's address or its text) or in its plain text. A value that is not there
+// is never used, whatever picked it.
+func confirmed(message mailbox.FullMessage, value string) bool {
+	value = strings.TrimSpace(value)
+	if value == "" {
+		return false
+	}
+	for _, source := range []string{html.UnescapeString(message.HTML), message.Text, bodyText(message)} {
+		if strings.Contains(source, value) {
+			return true
+		}
+	}
+	return false
 }

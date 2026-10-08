@@ -1,5 +1,6 @@
 import type { ReactNode } from "react";
 import { AutoFocusSwitch } from "./AutoFocusSwitch";
+import { StopBeforeSubmitSwitch } from "./StopBeforeSubmitSwitch";
 import type { AcornMainTab } from "./SidebarNav";
 import { UsageHistoryList } from "./UsageHistoryList";
 import { useAiUsage } from "./use-ai-usage";
@@ -13,7 +14,7 @@ interface Props {
   socketConnected: boolean;
 }
 
-/** The Jobs tab: the tab's job, the Auto-Focus switch, and that tab's AI usage. */
+/** The Jobs tab: the tab's job, the run switches, and that tab's AI usage. */
 export function JobsPanel({ mainTab, nowCard, tabId, signedIn, socketConnected }: Props) {
   const usage = useAiUsage(tabId, mainTab === "fill", signedIn, socketConnected);
   return (
@@ -24,6 +25,7 @@ export function JobsPanel({ mainTab, nowCard, tabId, signedIn, socketConnected }
       hidden={mainTab !== "fill"}
     >
       {nowCard}
+      <StopBeforeSubmitSwitch />
       <AutoFocusSwitch />
       <UsageHistoryList
         entries={usage.entries}

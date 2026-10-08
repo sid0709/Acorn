@@ -20,6 +20,8 @@ const (
 	maxVerificationCode = 64
 	// maxMailPageText bounds the page copy a mail search reads.
 	maxMailPageText = 8000
+	// maxSeen bounds the list name the extension hands back.
+	maxSeen = 64
 	// statusNoMailbox means the account has no connected Gmail to read.
 	statusNoMailbox = "no_mailbox"
 )
@@ -51,14 +53,14 @@ func (s *Server) runMailVerification(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	var body struct {
-		RunID    string   `json:"runId"`
-		Step     int      `json:"step"`
-		Kind     string   `json:"kind"`
-		URL      string   `json:"url"`
-		Title    string   `json:"title"`
-		Text     string   `json:"text"`
-		Since    int64    `json:"since"`
-		RuledOut []string `json:"ruledOut"`
+		RunID string `json:"runId"`
+		Step  int    `json:"step"`
+		Kind  string `json:"kind"`
+		URL   string `json:"url"`
+		Title string `json:"title"`
+		Text  string `json:"text"`
+		Since int64  `json:"since"`
+		Seen  string `json:"seen"`
 	}
 	if !decode(w, r, &body) {
 		return
@@ -102,12 +104,13 @@ func (s *Server) runMailVerification(w http.ResponseWriter, r *http.Request) {
 		Ask: selector.MailAsk{
 			Kind: body.Kind, URL: body.URL, Title: body.Title, PageText: string(text), Now: started,
 		},
-		Since: since, RuledOut: body.RuledOut,
+		Since: since, Seen: clipField(body.Seen, maxSeen),
 	})
 	elapsed := time.Since(started)
 	s.recordRunStep(r, session.User.ID, runID, body.Step, "mail-verification", map[string]any{
-		"kind": body.Kind, "status": result.Status, "messageId": result.MessageID, "opened": result.Opened,
-		"ruledOut": len(result.RuledOut), "error": errText(err), "ms": elapsed.Milliseconds(),
+		"kind": body.Kind, "status": result.Status, "messageId": result.MessageID,
+		"unchanged": result.Unchanged, "judged": result.Judged, "opened": result.Opened,
+		"error": errText(err), "ms": elapsed.Milliseconds(),
 	})
 	if err != nil {
 		log.Warn("acorn run mail-verification failed", "error", err, "ms", elapsed.Milliseconds())
@@ -118,13 +121,14 @@ func (s *Server) runMailVerification(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, http.StatusOK, map[string]any{"ok": false, "error": err.Error()})
 		return
 	}
-	log.Info("acorn run mail-verification", "status", result.Status, "opened", result.Opened,
+	log.Info("acorn run mail-verification", "status", result.Status, "unchanged", result.Unchanged, "opened", len(result.Opened),
 		"calls", result.Calls, "ms", elapsed.Milliseconds(), "costUsd", result.Usage.Cost)
 	usage := decisionUsage(gateway.Model(), result.Usage)
 	usage["calls"] = result.Calls
 	out := map[string]any{
-		"ok": true, "status": result.Status, "kind": body.Kind, "ruledOut": result.RuledOut,
-		"model": gateway.Model(), "usage": usage,
+		"ok": true, "status": result.Status, "kind": body.Kind, "seen": result.Seen, "unchanged": result.Unchanged,
+		"emails": mailRows(result.Emails),
+		"model":  gateway.Model(), "usage": usage,
 	}
 	if result.Status == mailcode.StatusFound {
 		out["value"] = result.Value
@@ -155,4 +159,19 @@ func (s *Server) verificationMailbox(w http.ResponseWriter, r *http.Request, acc
 		return nil, false
 	}
 	return &gmailReader{google: s.gmailGoogle, mailboxID: box.ID, token: token}, true
+}
+
+// mailRow is one email as the sidebar lists it while the run reads the mail.
+type mailRow struct {
+	From        string  `json:"from"`
+	Subject     string  `json:"subject"`
+	Probability float64 `json:"probability"`
+}
+
+func mailRows(emails []mailcode.Judged) []mailRow {
+	rows := make([]mailRow, len(emails))
+	for i, email := range emails {
+		rows[i] = mailRow{From: email.From, Subject: email.Subject, Probability: email.Probability}
+	}
+	return rows
 }

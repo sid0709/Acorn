@@ -5,6 +5,8 @@ import {
   RUN_SETTLE_MAX_MS,
   RUN_SETTLE_MIN_MS,
   RUN_SETTLE_POLL_MS,
+  RUN_PAGE_QUIET_MS,
+  RUN_PAGE_SETTLE_MAX_MS,
   RUN_PERSON_POLL_MS,
   RUN_PERSON_WAIT_MAX_MS,
   RUN_PROBE_TIMEOUT_MS,
@@ -99,6 +101,37 @@ async function waitForTabComplete(tabId: number): Promise<void> {
   }
 }
 
+/** The main document: a page that just loaded is read from here, not from its helper frames. */
+const MAIN_FRAME_ID = 0;
+
+const sameProbe = (a: PageProbe, b: PageProbe) =>
+  a.url === b.url &&
+  a.fields === b.fields &&
+  a.controls === b.controls &&
+  a.textLength === b.textLength;
+
+/**
+ * Wait until a page that just loaded is done rendering: its main document answers
+ * and its address, fields, controls, and text stay the same for a quiet spell. An
+ * app that draws itself after the load (most job sites) is read only once drawn.
+ */
+export async function waitForPageSettled(tabId: number): Promise<void> {
+  const started = Date.now();
+  let last: PageProbe | null = null;
+  let quietSince = Date.now();
+  while (Date.now() - started < RUN_PAGE_SETTLE_MAX_MS) {
+    await sleep(RUN_SETTLE_POLL_MS);
+    const probe = await probePage(tabId, MAIN_FRAME_ID);
+    const drawn = probe != null && (probe.controls > 0 || probe.textLength > 0);
+    if (!probe || !last || !sameProbe(probe, last) || !drawn) {
+      last = probe;
+      quietSince = Date.now();
+      continue;
+    }
+    if (Date.now() - quietSince >= RUN_PAGE_QUIET_MS) return;
+  }
+}
+
 export type SettleHow = "new-tab" | "navigated" | "changed" | "unchanged";
 
 /** Schemes an emailed link may use; anything else is never opened. */
@@ -121,6 +154,7 @@ export async function openLinkInTab(tabId: number, link: string): Promise<Settle
   await chrome.tabs.update(tabId, { url: link });
   await sleep(RUN_SETTLE_MIN_MS);
   await waitForTabComplete(tabId);
+  await waitForPageSettled(tabId);
   const snapshot = await snapshotPage(tabId, { form: true });
   return { tabId, how: "navigated", snapshot };
 }
@@ -184,6 +218,7 @@ export async function settleAfterClick(args: {
   }
 
   await waitForTabComplete(tabId);
+  await waitForPageSettled(tabId);
   const snapshot = await snapshotPage(tabId, { form: true });
   return { tabId, how, snapshot };
 }

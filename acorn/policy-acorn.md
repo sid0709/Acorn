@@ -59,9 +59,9 @@ Acorn HTTP in `acorn-backend/acornapi` should compose the existing My Resume Edi
 
 ## 6. Accounts and emailed verification in Run
 
-- Run goes on without an account whenever the page offers it. When the account is mandatory, it signs in, creates the account, or resets the password with the profile email and the profile's **Default account password**. The SelectorGateway reads the page's account mode and the run's account history on that site and picks the next control; the run never matches button wording.
+- Run goes on without an account whenever the page offers it. When the account is mandatory, it signs in, creates the account, or resets the password with the profile email and the profile's **Default account password**. The order is a fixed mechanism in code (`extension/src/pipeline/account-goal.ts`): create the account, then sign in, and when signing in is refused, reset the password and sign in again. A refusal needs evidence (an alert, a flagged field, new text); a page asking to verify by email means the site took the step. The SelectorGateway only reads which account form the page shows and picks the control that sends or opens the goal's form; the run never matches button wording or DOM.
 - The account password is a planner fact (`account_password`) filled straight from the profile. It never reaches a model prompt, the pure tree, field issues, progress, plans shown in the sidebar, or logs (`@acorn/shared/secret-value`). A password box takes nothing else.
-- An emailed code or link comes from the connected Gmail through `POST /acorn/run/mail-verification` (`acorn-backend/mailcode`): Jev ranks the newest 20 inbox emails, opens the best, then the second best, then stops. A code is filled through the plan runner (`verification_code` fact); a link is opened in the run's own tab (`chrome.tabs.update`), never a new one.
+- An emailed code or link comes from the connected Gmail through `POST /acorn/run/mail-verification` (`acorn-backend/mailcode`): each look lists the newest 10 inbox emails (rows only); when that list changed, Jev judges all 10 together and only the picked email (then the second best) is opened. Looks repeat until the email arrives or the wait runs out. A code is filled through the plan runner (`verification_code` fact); a link is opened in the run's own tab (`chrome.tabs.update`), never a new one.
 
 ---
 

@@ -3,6 +3,7 @@ import {
   isEnhancedSelect,
   resolveDropdownInteractionTarget,
 } from "./enhanced-select";
+import { enterField, isSearchBox, leaveField } from "./field-focus";
 import { formatForInputType } from "./input-format";
 import { fillNativeSelect } from "./native-select";
 import { selectComboboxOption, type ComboboxFillOptions } from "./select-combobox";
@@ -16,14 +17,15 @@ function looksLikeCombobox(el: HTMLElement): boolean {
   if (el.getAttribute("aria-haspopup") === "listbox") return true;
   if (el.getAttribute("aria-autocomplete") === "list") return true;
   if (el.hasAttribute("aria-expanded") && el.hasAttribute("aria-controls")) return true;
-  return false;
+  // A search box whose results are picked works like a combobox: type, search, pick.
+  return isSearchBox(el);
 }
 
 export async function setNativeValue(
   el: HTMLInputElement | HTMLTextAreaElement,
   text: string,
 ): Promise<void> {
-  el.focus();
+  enterField(el);
   const proto =
     el instanceof HTMLTextAreaElement ? HTMLTextAreaElement.prototype : HTMLInputElement.prototype;
   const protoDesc = Object.getOwnPropertyDescriptor(proto, "value");
@@ -57,7 +59,8 @@ export async function setNativeValue(
     /* host page has no jQuery bridge */
   }
 
-  el.dispatchEvent(new Event("blur", { bubbles: true }));
+  // Leave the field: many forms commit and check a typed value only then.
+  leaveField(el);
   // Let the host framework's change handlers settle before the caller reads back.
   await waitMs(50);
 }

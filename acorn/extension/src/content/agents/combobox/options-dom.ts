@@ -1,5 +1,5 @@
 import { visibleOptions } from "./option-mirror";
-import { POPUP_ITEM_SELECTOR, POPUP_SELECTOR } from "./popup-roles";
+import { POPUP_ITEM_SELECTOR, POPUP_OWNER_SELECTOR, POPUP_SELECTOR } from "./popup-roles";
 
 export function normalize(text: string): string {
   return text.replace(/\s+/g, " ").replace(/[–—]/g, "-").trim().toLowerCase();
@@ -92,9 +92,9 @@ function scoreListbox(listbox: HTMLElement, control: HTMLElement): number {
 }
 
 function nearestComboboxTo(listbox: HTMLElement, doc: Document): HTMLElement | null {
-  const combos = Array.from(
-    doc.querySelectorAll('[role="combobox"], select, [aria-haspopup="listbox"]'),
-  ).filter((node): node is HTMLElement => node instanceof HTMLElement && isDisplayed(node));
+  const combos = Array.from(doc.querySelectorAll(POPUP_OWNER_SELECTOR)).filter(
+    (node): node is HTMLElement => node instanceof HTMLElement && isDisplayed(node),
+  );
   if (!combos.length) return null;
   let best: HTMLElement | null = null;
   let bestScore = Number.POSITIVE_INFINITY;

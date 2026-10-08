@@ -12,6 +12,8 @@ import type { PageProbe } from "../types";
 
 /** Inputs that are buttons or carry no answer, as the page signature leaves them out. */
 const NON_FIELD_INPUTS = new Set(["hidden", "submit", "button", "image", "reset"]);
+/** What a person clicks: counted so a page still rendering shows it is not done. */
+const CONTROL_SELECTOR = 'button, a[href], [role="button"], [role="link"]';
 /** Marks a page puts up when it refuses what was entered. */
 const REFUSAL_SELECTOR = '[aria-invalid="true"], [role="alert"]';
 
@@ -37,5 +39,11 @@ export function probePage(): PageProbe {
       isVisible(el) &&
       Boolean((el as HTMLElement).innerText?.trim() || el.matches("[aria-invalid]")),
   ).length;
-  return { url: location.href, fields: shortHash(fields.join("|")), refusals };
+  return {
+    url: location.href,
+    fields: shortHash(fields.join("|")),
+    refusals,
+    controls: queryDeep(document, CONTROL_SELECTOR).length,
+    textLength: document.body?.innerText.length ?? 0,
+  };
 }

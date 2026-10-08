@@ -45,6 +45,10 @@ type MailItem struct {
 	Subject    string
 	Snippet    string
 	ReceivedAt time.Time
+	// After is true when the email arrived after the site was asked to send it;
+	// AfterKnown is false when the run does not know when that was.
+	After      bool
+	AfterKnown bool
 }
 
 // MailRank orders the emails by Jev's probability that the site sent it for
@@ -67,7 +71,10 @@ type SecretPick struct {
 	Index      int
 	Found      bool
 	Confidence float64
-	Usage      jev.Usage
+	// Best is the most probable candidate even when Jev chose none, and BestP its probability.
+	Best  int
+	BestP float64
+	Usage jev.Usage
 }
 
 // IsMailVerification says whether kind is a verification the applicant's mail can answer.
@@ -93,9 +100,11 @@ func (g *Gateway) RankMail(ctx context.Context, ask MailAsk, items []MailItem) (
 		State: mailState(ask),
 		Questions: map[string]jev.Question{mailQuestion: {
 			Type: jev.TypeChoice,
-			Instructions: "Which email did this job site send the applicant for the step the page is waiting on? " +
-				"Match the sender and subject to the site and the step, and prefer the most recent matching email. " +
-				"Choose none when no listed email was sent by this site for this step.",
+			Instructions: "Which of these emails carries the link or code for the step the page is waiting on? " +
+				"The email may come from the job site or from the hiring platform it runs on, under either name. " +
+				"Match its subject and preview to the step (verifying the email, activating the account, resetting " +
+				"the password, a security code), and prefer one that arrived after the site was asked to send it, " +
+				"most recent first. Choose none only when no email could be it.",
 			Criteria: criteria,
 		}},
 	})
@@ -157,10 +166,14 @@ func (g *Gateway) PickSecret(ctx context.Context, ask MailAsk, subject string, c
 	if !ok {
 		return SecretPick{}, errors.New("jev returned no candidate answer")
 	}
-	pick := SecretPick{Confidence: answer.Confidence, Usage: res.Usage}
+	pick := SecretPick{Confidence: answer.Confidence, Best: -1, Usage: res.Usage}
 	for i := range candidates {
-		if answer.Choice == fmt.Sprintf("%s_%d", secretPrefix, i) {
+		key := fmt.Sprintf("%s_%d", secretPrefix, i)
+		if answer.Choice == key {
 			pick.Index, pick.Found = i, true
+		}
+		if p := answer.Probabilities[key]; p > pick.BestP {
+			pick.Best, pick.BestP = i, p
 		}
 	}
 	return pick, nil
@@ -184,7 +197,14 @@ func mailState(ask MailAsk) string {
 }
 
 func describeMail(item MailItem) string {
-	return fmt.Sprintf("From: %s · Subject: %s · Received: %s · Preview: %s",
+	arrived := ""
+	if item.AfterKnown {
+		arrived = " (before the site was asked)"
+		if item.After {
+			arrived = " (after the site was asked)"
+		}
+	}
+	return fmt.Sprintf("From: %s · Subject: %s · Received: %s%s · Preview: %s",
 		clip(item.From, maxMailField), clip(item.Subject, maxMailField),
-		item.ReceivedAt.UTC().Format(mailTimeLayout), clip(item.Snippet, maxMailField))
+		item.ReceivedAt.UTC().Format(mailTimeLayout), arrived, clip(item.Snippet, maxMailField))
 }

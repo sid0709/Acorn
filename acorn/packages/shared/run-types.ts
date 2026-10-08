@@ -96,6 +96,8 @@ export const RUN_OUTCOME = {
   failed: "failed",
   /** The person pressed Stop. */
   stopped: "stopped",
+  /** Stop before Submit: every step is filled and the run stopped at the control that sends it. */
+  readyToSubmit: "ready_to_submit",
 } as const;
 
 export type RunOutcome = (typeof RUN_OUTCOME)[keyof typeof RUN_OUTCOME];
@@ -138,6 +140,14 @@ export interface RunReport {
   usage?: AiUsageSummary | null;
 }
 
+/** One email the run is reading for a code or link: what the sidebar lists. */
+export interface MailRow {
+  from: string;
+  subject: string;
+  /** Jev's chance that this is the site's email; 0 until judged. */
+  probability: number;
+}
+
 /** Live Run state shown in the sidebar. */
 export interface RunProgress {
   runId: string;
@@ -155,5 +165,7 @@ export interface RunProgress {
   kind?: PageKind;
   /** What the run is about to click, or just clicked. */
   control?: string;
+  /** While the run reads the mail: the newest emails it hands to Jev. */
+  mail?: MailRow[];
   report?: RunReport;
 }

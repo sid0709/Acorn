@@ -13,3 +13,6 @@ secrets/
 client_secret*.json
 *service-account*.json
 *.pem
+
+# Local e2e test account (generated test credentials)
+tests/e2e/mock-apply/.e2e-account.json

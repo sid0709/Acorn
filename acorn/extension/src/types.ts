@@ -168,6 +168,10 @@ export interface PageProbe {
   fields: string;
   /** Visible fields marked invalid plus visible alerts. */
   refusals: number;
+  /** Clickable controls in the document: grows while an app renders. */
+  controls: number;
+  /** Length of the visible text: grows while an app renders. */
+  textLength: number;
 }
 
 export interface PlanStepPayload {

@@ -168,6 +168,9 @@ export async function fetchDomFromTab(
     if (b.formScore !== a.formScore) return b.formScore - a.formScore;
     if (a.frameId === preferredFrameId) return -1;
     if (b.frameId === preferredFrameId) return 1;
+    // No frame holds a form: the page is its main document, never a helper frame
+    // (a sign-in widget, a prefetch) that happened to answer.
+    if (a.formScore === 0) return (a.frameId ?? 0) - (b.frameId ?? 0);
     // Prefer nested frames over shell when scores tie.
     return (b.frameId ?? 0) - (a.frameId ?? 0);
   });

@@ -51,8 +51,10 @@ const (
 var verifications = map[string]string{
 	VerifyNone: "The page asks for no verification. A sign-in, sign-up, or password form is not a verification " +
 		"(the run fills those from the applicant's profile), and neither is a field the page tells people to leave empty.",
-	VerifyEmailCode: "The page asks the applicant to enter a code that was sent to their email.",
-	VerifyEmailLink: "The page asks the applicant to open a link sent to their email (to verify the address, activate the account, or reset the password) before going on.",
+	VerifyEmailCode: "The site has sent the applicant an email with a code, and the page asks for that code.",
+	VerifyEmailLink: "The site says it has sent the applicant an email with a link to open before going on (to verify the address, " +
+		"activate the account, or reset the password): check your email, or an account step answered with that. A form that " +
+		"only says an email will be sent once it is submitted has not sent one yet.",
 	VerifyOther: "The page waits for something only the applicant can give in the moment: a code sent to their phone, " +
 		"an authenticator app code, or a challenge they must solve themselves.",
 }
@@ -66,6 +68,13 @@ const (
 	AccountReset  = "reset_password"
 	AccountChoose = "choose"
 )
+
+// accountGoals say, for the decision, what each account goal asks the page to do.
+var accountGoals = map[string]string{
+	AccountSignIn: "sign in to the applicant's existing account",
+	AccountCreate: "create a new account for the applicant",
+	AccountReset:  "recover the account by resetting its password (request the reset, or save the new password)",
+}
 
 var accountModes = map[string]string{
 	AccountNone:   "Not an account step.",
@@ -146,6 +155,9 @@ type PageQuery struct {
 	PageMessages []string
 	// Account is what the run already tried on this site's account steps, oldest first.
 	Account []AccountAttempt
+	// AccountGoal is the account step the run works toward on this page (an Account*
+	// key); the run decides it, Jev only finds the control that does it.
+	AccountGoal string
 }
 
 // ControlPick is the control to click and what it does.
@@ -247,7 +259,8 @@ func (g *Gateway) ReadPage(ctx context.Context, q PageQuery) (PageRead, error) {
 				Type:         jev.TypeNoul,
 				Instructions: "Does this page offer a way to go on with the application without signing in or creating an account?",
 				Criteria: map[string]string{
-					"true":  "A control continues the application without signing in or creating an account.",
+					"true": "A control continues the application itself without any account (apply as a guest). A control that " +
+						"sends or switches between account forms (sign in, create an account, reset a password) is not one.",
 					"false": "Going on requires signing in or creating an account, or the page asks neither.",
 				},
 			},
@@ -345,14 +358,10 @@ func controlRole(kind string, final jev.Answer) string {
 // without one comes first; otherwise the run signs in or creates the account with
 // the details on the page, and the account history says which to try next.
 const accountSteps = "When the page offers a way to go on with the application without signing in or creating an account, " +
-	"pick that control over signing in or creating an account. Otherwise, on a step that needs an account, pick the control that " +
-	"sends the account form on the page (signs in, creates the account, requests a password reset, or saves a new password), " +
-	"never one that signs in through another service. With no account history on this site, sign in first: on a page that only " +
-	"offers choices, pick the way to sign in with an email and password. Then follow the account history and the page's own " +
-	"words: after a sign-in was rejected because no account exists for that email (or the page does not say why), pick the " +
-	"control that creates an account; after a sign-in was rejected for a wrong password, or creating an account was rejected " +
-	"because the account already exists, pick the control that recovers or resets the password; after a new password was saved " +
-	"or the account was verified, sign in again. "
+	"pick that control over signing in or creating an account. Otherwise, on a step that needs an account, do the account goal " +
+	"given in the page state: when the page shows the goal's own form, pick the control that sends it; when it shows another " +
+	"form or only choices, pick the control that opens the goal's form, or the one that leads toward it (the way to use an " +
+	"email and password, where the other account forms are offered). Never pick one that signs in through another service. "
 
 // dialogSteps steer every pick when a dialog is open over the page: the dialog is
 // the step, and what it covers cannot be clicked. A dialog that asks how to start
@@ -394,6 +403,9 @@ func pageState(q PageQuery, controls []Control) string {
 	}
 	if dialog := openDialog(controls); dialog != "" {
 		fmt.Fprintf(&b, "An open dialog is over the page: %q. The page text below includes what it covers.\n", clip(dialog, maxControlLine))
+	}
+	if goal, ok := accountGoals[q.AccountGoal]; ok {
+		fmt.Fprintf(&b, "Account goal on this page: %s (%s).\n", q.AccountGoal, goal)
 	}
 	writeAccountHistory(&b, q.Account)
 	b.WriteString("\nPage text:\n")
