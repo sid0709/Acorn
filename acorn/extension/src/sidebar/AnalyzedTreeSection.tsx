@@ -1,4 +1,5 @@
 import { Badge, Button, Card, HStack, Text, VStack } from "sid-ui";
+
 import type { TabTreeSummary } from "./tab-tree-cache";
 import type { InspectKind } from "./use-tab-ui";
 

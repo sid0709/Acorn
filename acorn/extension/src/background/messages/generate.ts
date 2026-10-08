@@ -13,6 +13,7 @@ import {
   pipelineRunningTabIds,
   syncWorkKeepAlive,
 } from "../work-state";
+
 import { SIGN_IN_FIRST, type RuntimeMessage, type SendResponse } from "./shared";
 
 export function handleStartCustomGenerate(

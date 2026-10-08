@@ -1,10 +1,12 @@
 import { useCallback, useState } from "react";
+
 import { fetchCustomResume, fetchCustomResumePreview } from "../pipeline/api/custom-files";
 import {
   fetchCustomLibraryResume,
   fetchCustomLibraryResumePreview,
 } from "../pipeline/api/custom-library";
 import { fetchGeneratedResumePreview, fetchRecommendedResume } from "../pipeline/api/job-files";
+
 import type { AcornCustomTabBinding } from "../tab-custom-session";
 import type { ResumePreviewDownload } from "./ResumePreviewPanel";
 import type { useTabSession } from "./use-tab-session";

@@ -1,5 +1,6 @@
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
+
 import { historyQueryString } from "./resume-api.ts";
 import { defaultResumeConfig, mergeStoredResumeConfig } from "./resume-config.ts";
 import { mergeGeneratedSection, normalizeGeneratedContent } from "./resume-content.ts";

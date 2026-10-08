@@ -1,7 +1,8 @@
-import type { ReactNode } from "react";
-import type { CustomUiProgress } from "../pipeline/custom-generate-progress";
 import { GenerateProgressBar } from "./GenerateProgressBar";
+
 import type { SidebarListCardAction } from "./SidebarListCard";
+import type { CustomUiProgress } from "../pipeline/custom-generate-progress";
+import type { ReactNode } from "react";
 
 type RunExtrasInput = {
   progress: CustomUiProgress | null;

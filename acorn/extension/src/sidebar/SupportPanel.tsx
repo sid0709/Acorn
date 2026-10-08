@@ -1,4 +1,12 @@
 import {
+  CLAIM_AUTHOR,
+  ClaimListItem,
+  ClaimStatusBadge,
+  ClaimThread,
+  claimTitle,
+  pageHost,
+} from "@acorn/support-chat";
+import {
   Banner,
   Button,
   EmptyState,
@@ -11,17 +19,10 @@ import {
   StackItem,
   Text,
 } from "sid-ui";
-import {
-  CLAIM_AUTHOR,
-  ClaimListItem,
-  ClaimStatusBadge,
-  ClaimThread,
-  claimTitle,
-  pageHost,
-} from "@acorn/support-chat";
 
-import { ACORN_FACE_CARD_PX } from "../acorn-face/constants";
 import { AcornFaceView } from "../acorn-face/AcornFaceView";
+import { ACORN_FACE_CARD_PX } from "../acorn-face/constants";
+
 import type { AcornMainTab } from "./SidebarNav";
 import type { useSupportClaims } from "./use-support-claims";
 

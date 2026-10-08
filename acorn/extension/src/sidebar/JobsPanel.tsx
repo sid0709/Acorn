@@ -1,9 +1,10 @@
-import type { ReactNode } from "react";
 import { AutoFocusSwitch } from "./AutoFocusSwitch";
 import { StopBeforeSubmitSwitch } from "./StopBeforeSubmitSwitch";
-import type { AcornMainTab } from "./SidebarNav";
 import { UsageHistoryList } from "./UsageHistoryList";
 import { useAiUsage } from "./use-ai-usage";
+
+import type { AcornMainTab } from "./SidebarNav";
+import type { ReactNode } from "react";
 
 interface Props {
   mainTab: AcornMainTab;

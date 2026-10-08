@@ -1,8 +1,9 @@
-import type { AcornFaceMode } from "@acorn/face";
 import { AnalyzedTreeSection } from "./AnalyzedTreeSection";
 import { PlanRunSection } from "./PlanRunSection";
 import { SignInCard } from "./SignInCard";
+
 import type { PlanInspect, SidebarAuth } from "./sidebar-panel-types";
+import type { AcornFaceMode } from "@acorn/face";
 
 interface Props {
   authBusy: SidebarAuth["authBusy"];

@@ -1,6 +1,7 @@
 import { authHeaders, getAcornApiUrl } from "../../auth/acorn-auth";
-import type { MatchOptionRequest, MatchOptionResponse } from "../../types";
+
 import type { RuntimeMessage, SendResponse } from "./shared";
+import type { MatchOptionRequest, MatchOptionResponse } from "../../types";
 
 export function handleMatchOption(
   message: RuntimeMessage,

@@ -1,5 +1,6 @@
-import type { AiUsageSummary } from "@acorn/shared/ai-usage";
 import { authHeaders, getAcornApiUrl } from "../../auth/acorn-auth";
+
+import type { AiUsageSummary } from "@acorn/shared/ai-usage";
 
 export type ChoiceItem = {
   id: number;

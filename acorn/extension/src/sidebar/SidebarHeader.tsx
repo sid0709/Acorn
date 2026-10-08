@@ -1,5 +1,3 @@
-import type { CSSProperties } from "react";
-import type { AcornFaceMode } from "@acorn/face";
 import {
   Avatar,
   AvatarStatusDot,
@@ -11,10 +9,14 @@ import {
   Text,
   VStack,
 } from "sid-ui";
-import type { AcornStoredSession } from "../auth/acorn-auth";
-import { ACORN_FACE_BADGE_PX, ACORN_FACE_BRAND_PX } from "../acorn-face/constants";
+
 import { AcornFaceView } from "../acorn-face/AcornFaceView";
+import { ACORN_FACE_BADGE_PX, ACORN_FACE_BRAND_PX } from "../acorn-face/constants";
+
 import type { countBusyWorkers } from "../acorn-face/director";
+import type { AcornStoredSession } from "../auth/acorn-auth";
+import type { AcornFaceMode } from "@acorn/face";
+import type { CSSProperties } from "react";
 
 type SidebarHeaderProps = {
   session: AcornStoredSession;

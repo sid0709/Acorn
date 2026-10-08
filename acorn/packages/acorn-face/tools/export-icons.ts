@@ -2,7 +2,9 @@
 // Run: bun run --cwd acorn/packages/acorn-face icons -- <out-dir> [mode]
 // Writes icon-16.png, icon-48.png, icon-128.png into <out-dir>.
 import { join, resolve } from "node:path";
+
 import puppeteer from "puppeteer";
+
 import { ACORN_FACE_MODES, type AcornFaceMode } from "../src/types";
 
 const SIZES = [16, 48, 128];

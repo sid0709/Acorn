@@ -1,15 +1,15 @@
-import { extractVisiblePageText } from "@acorn/shared/page-text";
+import {
+  EMPTY_FIELD_ISSUE_SCAN,
+  countFlaggedFields,
+  type FieldIssueScan,
+} from "@acorn/shared/field-issues";
 import {
   collectPageControls,
   countFormFields,
   pageSignature,
   type PageControl,
 } from "@acorn/shared/page-controls";
-import {
-  EMPTY_FIELD_ISSUE_SCAN,
-  countFlaggedFields,
-  type FieldIssueScan,
-} from "@acorn/shared/field-issues";
+import { extractVisiblePageText } from "@acorn/shared/page-text";
 import { formatAnalyzeTrees } from "@acorn/shared/tree-export";
 
 import { traceFromBackground } from "../background/debug-trace-sink";

@@ -11,6 +11,7 @@ import {
   Glyph,
   Stack,
 } from "sid-ui";
+
 import { FACE_SMILE_MS } from "../acorn-face/constants";
 import { flashAcornFace } from "../acorn-face/face-flash";
 import { requestQaAnswer, type AcornQaPage } from "../pipeline/api/qa";

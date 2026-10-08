@@ -1,7 +1,8 @@
+import { EXTRACT_LABEL, LOAD_JD_LABEL } from "../pipeline/custom-generate-progress";
+
+import type { CustomGenerateStatus } from "../tab-custom-session";
 import type { AcornFaceMode } from "@acorn/face";
 import type { PipelinePhase, PipelineProgress } from "@acorn/shared/pipeline-types";
-import { EXTRACT_LABEL, LOAD_JD_LABEL } from "../pipeline/custom-generate-progress";
-import type { CustomGenerateStatus } from "../tab-custom-session";
 
 export type RowFaceInput = {
   fillPhase?: PipelinePhase | null;

@@ -1,6 +1,6 @@
 /** Debug-capture snapshots of form controls, built only when a trace is sent (VITE_ACORN_DEBUG). */
-import { readControlValue } from "./agents/read-control-value";
 import { comboboxWidgetRoot, readWidgetTextParts } from "./agents/combobox/widget-value";
+import { readControlValue } from "./agents/read-control-value";
 
 function labelOf(el: Element): string {
   const ids = (el.getAttribute("aria-labelledby") || "").split(/\s+/).filter(Boolean);

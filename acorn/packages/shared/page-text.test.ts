@@ -1,7 +1,9 @@
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
-import type { PureNode } from "./tree-export.ts";
+
 import { PAGE_TEXT_MAX_CHARS, combineFrameTexts, extractVisiblePageText } from "./page-text.ts";
+
+import type { PureNode } from "./tree-export.ts";
 
 function node(tag: string, text: string | undefined, children: PureNode[] = []): PureNode {
   return { tag, id: 1, text, children };

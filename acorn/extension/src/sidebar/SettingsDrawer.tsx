@@ -1,4 +1,5 @@
 import { Card, Drawer, HStack, StatusDot, Text, TextInput, VStack } from "sid-ui";
+
 import { DEFAULT_ACORN_API_URL, setAcornApiUrl } from "../auth/acorn-auth";
 
 type SettingsDrawerProps = {

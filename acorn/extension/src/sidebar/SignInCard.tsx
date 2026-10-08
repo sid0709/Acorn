@@ -1,8 +1,10 @@
 import { useState } from "react";
-import type { AcornFaceMode } from "@acorn/face";
 import { Button, Text, TextInput, VStack } from "sid-ui";
-import { ACORN_FACE_HELP_PX } from "../acorn-face/constants";
+
 import { AcornFaceView } from "../acorn-face/AcornFaceView";
+import { ACORN_FACE_HELP_PX } from "../acorn-face/constants";
+
+import type { AcornFaceMode } from "@acorn/face";
 
 type SignInCardProps = {
   authBusy: boolean;

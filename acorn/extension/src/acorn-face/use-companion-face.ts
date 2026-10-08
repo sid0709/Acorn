@@ -1,8 +1,10 @@
 import { useEffect, useRef, useState } from "react";
-import type { AcornFaceMode } from "@acorn/face";
+
 import { FACE_AFK_MS, FACE_EMPTY_SLEEP_MS, FACE_SMILE_MS, FACE_THINK_GLANCE_MS } from "./constants";
 import { resolveCompanionHold, mergeFaceShot, type CompanionFaceInput } from "./director";
 import { subscribeAcornFaceFlash } from "./face-flash";
+
+import type { AcornFaceMode } from "@acorn/face";
 
 export function useCompanionFace(
   input: Omit<CompanionFaceInput, "afk" | "emptyIdle">,

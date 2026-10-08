@@ -1,6 +1,7 @@
 import { mountOnMain } from "./host/main-host";
-import type { FaceController } from "./host/protocol";
 import { mountOnWorker } from "./host/worker-host";
+
+import type { FaceController } from "./host/protocol";
 import type { AcornFaceHandle, AcornFaceMountOptions } from "./types";
 
 const DEFAULT_SIZE_PX = 280;

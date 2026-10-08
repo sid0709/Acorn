@@ -2,14 +2,13 @@ import { ACORN_DEBUG, DEBUG_HTML_MAX_CHARS, traceFromPage } from "../debug-trace
 import { MSG, PLAN_STEP_PAGE_TIMEOUT_MS, type PlanStepPayload } from "../types";
 
 import { executeActions, getElementContent } from "./action-runner";
-import { CLICK_AFTER_REPLY_MS, prepareControlClick } from "./click-control";
 import { fillLeftoverComboboxes } from "./agents/leftover-combobox";
 import { waitForDomQuiet } from "./agents/wait";
 import { collectChoiceItems, type ChoiceBatchStep } from "./choice-batch";
+import { CLICK_AFTER_REPLY_MS, prepareControlClick } from "./click-control";
 import { comboSnapshot } from "./debug-snapshot";
-import { repairDrift } from "./drift-repair";
-import { probePage } from "./page-probe";
 import { serializeDom } from "./dom-serializer";
+import { repairDrift } from "./drift-repair";
 import { resolveElementByNodeId } from "./element-resolver";
 import { scanFieldIssues } from "./field-errors";
 import { scanFormFields } from "./form-fields";
@@ -20,6 +19,7 @@ import {
   waitForFormSurface,
 } from "./form-frame";
 import { clearHighlight, highlightElement } from "./highlighter";
+import { probePage } from "./page-probe";
 import { scanPendingFormFields } from "./pending-fields";
 import { runPlanStep } from "./plan-step-runner";
 import { initSelectionQa } from "./selection-qa";

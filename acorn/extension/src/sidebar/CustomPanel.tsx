@@ -1,7 +1,8 @@
-import type { ReactNode } from "react";
 import { CustomTabList } from "./CustomTabList";
-import type { AcornMainTab } from "./SidebarNav";
+
 import type { JdPreview, ResumePreview, TabSession, TabWork } from "./sidebar-panel-types";
+import type { AcornMainTab } from "./SidebarNav";
+import type { ReactNode } from "react";
 
 interface Props {
   mainTab: AcornMainTab;

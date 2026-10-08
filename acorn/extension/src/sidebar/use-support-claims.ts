@@ -1,4 +1,3 @@
-import { useCallback, useEffect, useState } from "react";
 import {
   SUPPORT_CLAIMS_PATH,
   supportClaimMessagesPath,
@@ -7,6 +6,7 @@ import {
   type ClaimThreadData,
   type SupportClaim,
 } from "@acorn/support-chat";
+import { useCallback, useEffect, useState } from "react";
 
 import { authHeaders, getAcornApiUrl } from "../auth/acorn-auth";
 import { MSG } from "../types";

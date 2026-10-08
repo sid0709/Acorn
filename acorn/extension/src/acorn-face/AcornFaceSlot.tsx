@@ -1,8 +1,10 @@
 import { useEffect, useRef, useState } from "react";
-import type { AcornFaceMode } from "@acorn/face";
+
+import { AcornFaceView } from "./AcornFaceView";
 import { ACORN_FACE_BADGE_PX } from "./constants";
 import { isLiveRowMode } from "./director";
-import { AcornFaceView } from "./AcornFaceView";
+
+import type { AcornFaceMode } from "@acorn/face";
 
 type AcornFaceSlotProps = {
   mode: AcornFaceMode;

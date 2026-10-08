@@ -1,7 +1,10 @@
-import type { RuntimeAttachedFile } from "@acorn/shared/plan-runner/types";
 import { readRecommendedTop, type RecommendedResumeRank } from "@acorn/shared/resume-library";
+
 import { authHeaders, getAcornApiUrl } from "../../auth/acorn-auth";
+
 import { extractError, isNestMissingRoute, readId } from "./http";
+
+import type { RuntimeAttachedFile } from "@acorn/shared/plan-runner/types";
 
 const CUSTOM_RECOMMEND_UNAVAILABLE = "Custom Recommend needs Library matching on this Acorn API.";
 

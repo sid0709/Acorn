@@ -1,6 +1,7 @@
 // One frame loop for every face on a thread. Each face is updated at its own frame-rate cap,
 // hidden or paused faces cost nothing, and the loop stops entirely when nothing animates.
 import { MAX_STEP_SECONDS } from "../rig/constants";
+
 import type { Face } from "../rig/face";
 
 /** Treat a face as due slightly early so a 30fps cap doesn't slip to 20fps on 60Hz frames. */

@@ -1,6 +1,7 @@
 import { focusChromeTab } from "../../focus-tab";
 import { getCustomTab, rememberCustomTab, unbindCustomTab } from "../../tab-custom-session";
 import { closeTabsQuietly, pinnedTabId } from "../tab-target";
+
 import type { RuntimeMessage, SendResponse } from "./shared";
 
 export function handleRememberCustomTab(

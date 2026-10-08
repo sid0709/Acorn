@@ -1,4 +1,5 @@
 import { waitMs } from "../wait";
+
 import {
   collectOptionsInRoot,
   displayedListboxes,

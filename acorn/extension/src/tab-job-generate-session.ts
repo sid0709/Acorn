@@ -1,8 +1,9 @@
-import type { GenerateCheckpoint } from "@acorn/shared/generate-checkpoint";
 import { normalizeGenerateCheckpoint } from "@acorn/shared/generate-checkpoint";
-import type { RecommendedResumeRank } from "@acorn/shared/resume-library";
+
 import type { CustomUiProgress } from "./pipeline/custom-generate-progress";
 import type { CustomGenerateStatus, CustomWorkKind } from "./tab-custom-session";
+import type { GenerateCheckpoint } from "@acorn/shared/generate-checkpoint";
+import type { RecommendedResumeRank } from "@acorn/shared/resume-library";
 
 export type AcornJobGenerateBinding = {
   jobId: string;

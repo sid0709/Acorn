@@ -1,5 +1,6 @@
 import { mainStage } from "./host/main-host";
 import { Face } from "./rig/face";
+
 import type { AcornFaceFraming, AcornFaceMode } from "./types";
 
 /**

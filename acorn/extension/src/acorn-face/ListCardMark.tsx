@@ -1,6 +1,8 @@
 import { useState } from "react";
-import type { AcornFaceMode } from "@acorn/face";
+
 import { AcornFaceBadge } from "./AcornFaceBadge";
+
+import type { AcornFaceMode } from "@acorn/face";
 
 type ListCardMarkProps = {
   itemId: string;

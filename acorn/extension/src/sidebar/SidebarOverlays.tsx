@@ -2,6 +2,7 @@ import { FaceGuidePanel } from "./FaceGuidePanel";
 import { InspectPanel } from "./InspectPanel";
 import { ResumePreviewPanel } from "./ResumePreviewPanel";
 import { SettingsDrawer } from "./SettingsDrawer";
+
 import type {
   BusyCounts,
   JdPreview,

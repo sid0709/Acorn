@@ -1,9 +1,11 @@
 import { useEffect, useRef, useState } from "react";
-import type { AcornFaceMode } from "@acorn/face";
-import type { PipelinePhase } from "@acorn/shared/pipeline-types";
-import type { CustomGenerateStatus } from "../tab-custom-session";
+
 import { FACE_SMILE_MS, FACE_WINK_MS } from "./constants";
 import { mergeFaceShot } from "./director";
+
+import type { CustomGenerateStatus } from "../tab-custom-session";
+import type { AcornFaceMode } from "@acorn/face";
+import type { PipelinePhase } from "@acorn/shared/pipeline-types";
 
 /** Smile once when fill or generate completes. */
 export function useCompletionSmile(input: {

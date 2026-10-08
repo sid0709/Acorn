@@ -1,8 +1,10 @@
 // Main-thread rendering: used where a worker can't run (content scripts on other sites,
 // browsers without OffscreenCanvas) and for still renders.
 import { bodyBlob } from "../rig/body-blob";
-import type { FaceController } from "./protocol";
+
 import { Stage, type FaceSetup } from "./stage";
+
+import type { FaceController } from "./protocol";
 
 let stage: Stage | null = null;
 

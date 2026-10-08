@@ -1,4 +1,3 @@
-import type { BodyArt, Canvas2D, Sprites } from "./art";
 import {
   EYE_RX,
   EYE_RY,
@@ -10,6 +9,8 @@ import {
   LOW_DETAIL_EYE_PX,
   SOCKET_ALPHA,
 } from "./constants";
+
+import type { BodyArt, Canvas2D, Sprites } from "./art";
 import type { Pose } from "./poses";
 
 /** One eye. `side` is -1 for the left eye, +1 for the right; inner corners face the middle. */

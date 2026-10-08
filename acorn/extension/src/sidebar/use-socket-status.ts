@@ -1,7 +1,10 @@
 import { useEffect, useState } from "react";
-import type { AcornStoredSession } from "../auth/acorn-auth";
+
 import { MSG, ACORN_SIDEBAR_PORT } from "../types";
+
 import { sendMessage } from "./runtime";
+
+import type { AcornStoredSession } from "../auth/acorn-auth";
 
 /**
  * Whether the service worker's socket is connected. Holds a port to the worker (which

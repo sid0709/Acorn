@@ -1,7 +1,9 @@
-import type { RuntimeAttachedFile } from "../../types";
 import { resolveElementByNodeId } from "../element-resolver";
+
 import { pageMentionsFilename, rememberUploadedFile } from "./upload-registry";
 import { waitForUploadComplete, waitMs } from "./wait";
+
+import type { RuntimeAttachedFile } from "../../types";
 
 function base64ToUint8Array(base64: string): Uint8Array {
   const binary = atob(base64);

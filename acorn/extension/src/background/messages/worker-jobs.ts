@@ -2,6 +2,7 @@ import { authHeaders, getAccessToken, getAcornApiUrl } from "../../auth/acorn-au
 import { openWorkerJobInTab } from "../../open-worker-job";
 import { findTabIdsForJob, getTabJob, unbindJobFromAllTabs } from "../../tab-job-session";
 import { closeTabsQuietly, resolvePreferredTabId } from "../tab-target";
+
 import type { RuntimeMessage, SendResponse } from "./shared";
 
 export function handleOpenWorkerJob(

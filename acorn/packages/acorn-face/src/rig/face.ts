@@ -1,5 +1,4 @@
 // One acorn on one canvas: mood state, motion, and drawing. Host-agnostic (main thread or worker).
-import type { AcornFaceFraming, AcornFaceMode } from "../types";
 import { context2d, type AnyCanvas, type BodyArt, type Canvas2D, type Sprites } from "./art";
 import {
   BLINK_GAP,
@@ -39,6 +38,8 @@ import {
   type Pose,
   type PoseKey,
 } from "./poses";
+
+import type { AcornFaceFraming, AcornFaceMode } from "../types";
 
 const POSE_KEYS = Object.keys(REST_POSE) as PoseKey[];
 const EFFECT_KEYS = Object.keys(NO_EFFECTS) as (keyof Effects)[];

@@ -1,4 +1,5 @@
 import { useEffect, useState } from "react";
+
 import {
   DEFAULT_ACORN_API_URL,
   STORAGE_KEYS,
@@ -7,6 +8,7 @@ import {
   type AcornStoredSession,
 } from "../auth/acorn-auth";
 import { MSG } from "../types";
+
 import { pushAcornNotice } from "./acorn-notice";
 import { sendMessage } from "./runtime";
 

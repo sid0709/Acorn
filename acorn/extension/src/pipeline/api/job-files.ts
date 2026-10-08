@@ -1,7 +1,10 @@
 import { readStoredJobDescription } from "@acorn/shared/job-description";
-import type { RuntimeAttachedFile } from "@acorn/shared/plan-runner/types";
+
 import { authHeaders, getAcornApiUrl } from "../../auth/acorn-auth";
+
 import { extractError, isNestMissingRoute } from "./http";
+
+import type { RuntimeAttachedFile } from "@acorn/shared/plan-runner/types";
 
 export async function fetchRuntimeFile(_apiUrl?: string): Promise<RuntimeAttachedFile | null> {
   const base = (_apiUrl || (await getAcornApiUrl())).replace(/\/$/, "");

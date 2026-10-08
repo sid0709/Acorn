@@ -1,6 +1,3 @@
-import { useEffect, useMemo, useRef } from "react";
-import type { PipelineProgress } from "@acorn/shared/pipeline-types";
-import type { ActionPlan, RunStepRecord } from "@acorn/shared/plan-runner/types";
 import {
   collectLines,
   formatMetaTreePreview,
@@ -9,10 +6,15 @@ import {
   iteratePureTreeLines,
   splitDomTree,
 } from "@acorn/shared/tree-export";
+import { useEffect, useMemo, useRef } from "react";
+
 import { useInspectWindow } from "./InspectPanel";
 import { getTabTree } from "./tab-tree-cache";
 import { useShownCount } from "./use-shown-count";
+
 import type { InspectKind, TabUi } from "./use-tab-ui";
+import type { PipelineProgress } from "@acorn/shared/pipeline-types";
+import type { ActionPlan, RunStepRecord } from "@acorn/shared/plan-runner/types";
 
 const STEP_PAGE = 30;
 

@@ -1,6 +1,8 @@
 import { acornWebOrigins } from "@acorn/shared/api";
+
 import { DEFAULT_ACORN_WEB_URL, acornSupportSignIn } from "../../auth/acorn-auth";
 import { connectSocket } from "../socket-connection";
+
 import type { RuntimeMessage, SendResponse } from "./shared";
 
 /** Only the Acorn site's own top frame may hand the extension a support sign-in. */

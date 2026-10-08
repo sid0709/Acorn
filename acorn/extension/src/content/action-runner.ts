@@ -111,7 +111,7 @@ export async function executeActions(nodeId: number, steps: ActionStep[]): Promi
         dispatchKey(target, "keyup", step.key);
         break;
       default:
-        throw new Error(`Unknown action: ${(step as ActionStep).type}`);
+        throw new Error(`Unknown action: ${step.type}`);
     }
   }
 }

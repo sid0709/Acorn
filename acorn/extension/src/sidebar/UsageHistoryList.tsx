@@ -1,5 +1,5 @@
-import { useEffect, useMemo, useRef, useState } from "react";
 import { Dialog, DialogHeader } from "@astryxdesign/core";
+import { useEffect, useMemo, useRef, useState } from "react";
 import {
   Banner,
   Button,
@@ -14,12 +14,7 @@ import {
   VStack,
   type ChartTone,
 } from "sid-ui";
-import {
-  fetchUsageDetail,
-  formatUsagePrice,
-  type AiUsageEntry,
-  type UsageDetail,
-} from "./use-ai-usage";
+
 import {
   USAGE_FAILED_TONE,
   chronological,
@@ -31,6 +26,12 @@ import {
   usageScale,
   type UsageScale,
 } from "./usage-chart";
+import {
+  fetchUsageDetail,
+  formatUsagePrice,
+  type AiUsageEntry,
+  type UsageDetail,
+} from "./use-ai-usage";
 
 type UsageHistoryListProps = {
   entries: AiUsageEntry[];

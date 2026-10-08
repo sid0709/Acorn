@@ -1,8 +1,10 @@
 import path from "node:path";
 import { fileURLToPath } from "node:url";
-import { defineConfig, type Plugin } from "vite";
-import react from "@vitejs/plugin-react";
+
 import { crx } from "@crxjs/vite-plugin";
+import react from "@vitejs/plugin-react";
+import { defineConfig, type Plugin } from "vite";
+
 import manifest from "./manifest.json" with { type: "json" };
 import pkg from "./package.json" with { type: "json" };
 

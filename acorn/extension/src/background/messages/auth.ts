@@ -1,6 +1,7 @@
 import { isAcornSocketConnected } from "../../acorn-socket";
 import { acornSignIn, acornSignOut, getAcornSession } from "../../auth/acorn-auth";
 import { connectSocket } from "../socket-connection";
+
 import type { RuntimeMessage, SendResponse } from "./shared";
 
 export function handleSocketStatus(sendResponse: SendResponse): void {

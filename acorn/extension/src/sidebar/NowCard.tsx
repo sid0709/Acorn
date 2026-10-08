@@ -1,15 +1,17 @@
-import { Badge, Button, Card, Glyph, HStack, ProgressBar, Text, VStack } from "sid-ui";
-import type { PipelineProgress } from "@acorn/shared/pipeline-types";
 import { PAGE_KIND, RUN_OUTCOME, RUN_STAGE, type MailRow } from "@acorn/shared/run-types";
-import type { RecommendedResumeRank } from "@acorn/shared/resume-library";
-import type { CustomUiProgress } from "../pipeline/custom-generate-progress";
+import { Badge, Button, Card, Glyph, HStack, ProgressBar, Text, VStack } from "sid-ui";
+
 import { customTabResumeLine, hostOf } from "./custom-tab-resume";
-import { JOBS_NOW_CARD_RUN_ONLY } from "./sidebar-work-state";
 import { GenerateProgressBar } from "./GenerateProgressBar";
 import { RunTimer } from "./RunTimer";
+import { JOBS_NOW_CARD_RUN_ONLY } from "./sidebar-work-state";
 import { useDefaultPassword } from "./use-default-password";
+
 import type { AcornMainTab } from "./SidebarNav";
 import type { useTabSession } from "./use-tab-session";
+import type { CustomUiProgress } from "../pipeline/custom-generate-progress";
+import type { PipelineProgress } from "@acorn/shared/pipeline-types";
+import type { RecommendedResumeRank } from "@acorn/shared/resume-library";
 
 type TabSession = ReturnType<typeof useTabSession>;
 

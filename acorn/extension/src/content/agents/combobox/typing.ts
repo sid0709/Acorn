@@ -1,6 +1,7 @@
-import { pointerActivate } from "../pointer-activate";
 import { isSearchBox, pressEnter } from "../field-focus";
+import { pointerActivate } from "../pointer-activate";
 import { waitMs } from "../wait";
+
 import { isDisplayed, ownedPopupOpen } from "./options-dom";
 import { comboboxWidgetRoot } from "./widget-value";
 

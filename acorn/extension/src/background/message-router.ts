@@ -1,5 +1,5 @@
 import { MSG } from "../types";
-import type { TraceEntry } from "../debug-trace";
+
 import { sinkTrace } from "./debug-trace-sink";
 import {
   handleAuthSignIn,
@@ -13,21 +13,23 @@ import {
   handleForgetCustomTab,
   handleRememberCustomTab,
 } from "./messages/custom-tabs";
+import { handleEstimateOption } from "./messages/estimate-option";
 import {
   handleStartCustomGenerate,
   handleStartCustomRecommend,
   handleStartJobWork,
 } from "./messages/generate";
 import { handleMatchOption } from "./messages/match-option";
-import { handleEstimateOption } from "./messages/estimate-option";
 import { handleFetchDom, handleStartPipeline } from "./messages/pipeline";
 import { handleStartRun, handleStopRun } from "./messages/run";
 import { handleSelectionQa } from "./messages/selection-qa";
-import type { RuntimeMessage, SendResponse } from "./messages/shared";
-import { handleGetTabJob, handleMarkJobApplied, handleOpenWorkerJob } from "./messages/worker-jobs";
 import { handleSubmitSupportClaim } from "./messages/support-claim";
 import { handleSupportHandoff } from "./messages/support-session";
+import { handleGetTabJob, handleMarkJobApplied, handleOpenWorkerJob } from "./messages/worker-jobs";
 import { refreshTabUsage } from "./tab-usage-store";
+
+import type { TraceEntry } from "../debug-trace";
+import type { RuntimeMessage, SendResponse } from "./messages/shared";
 
 /** Sends each sidebar/content message to its handler. Returns true to keep `sendResponse` open. */
 export function routeMessage(

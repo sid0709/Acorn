@@ -1,9 +1,11 @@
 // Decoded art, sprite caches, and the scheduler for one thread, plus controllers for its faces.
 import { decodeBody, Sprites, type AnyCanvas, type BodyArt } from "../rig/art";
 import { Face } from "../rig/face";
+
+import { Scheduler } from "./scheduler";
+
 import type { AcornFaceMode } from "../types";
 import type { FaceController } from "./protocol";
-import { Scheduler } from "./scheduler";
 
 export interface FaceSetup {
   cssSize: number;
