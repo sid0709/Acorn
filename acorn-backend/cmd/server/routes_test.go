@@ -79,6 +79,15 @@ func (noAccounts) SignUp(context.Context, string, string, string, time.Time) (st
 func (noAccounts) SignIn(context.Context, string, string, time.Time) (string, account.User, error) {
 	return "", account.User{}, account.ErrInvalidLogin
 }
+func (noAccounts) UserByEmail(context.Context, string) (account.User, error) {
+	return account.User{}, account.ErrInvalidLogin
+}
+func (noAccounts) UserByID(context.Context, string) (account.User, error) {
+	return account.User{}, account.ErrInvalidLogin
+}
+func (noAccounts) StartSession(context.Context, string, time.Time) (string, account.User, error) {
+	return "", account.User{}, account.ErrInvalidLogin
+}
 func (noAccounts) Revoke(context.Context, string) error { return nil }
 func (noAccounts) SavedJobIDs(context.Context, string) ([]string, error) {
 	return nil, nil
