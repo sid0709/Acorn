@@ -1,5 +1,3 @@
-import { flashFromNotice } from "../acorn-face/face-flash";
-
 import type { AcornNoticeKind, AcornNoticePayload } from "../types";
 
 type PushFn = (notice: AcornNoticePayload) => void;
@@ -22,7 +20,6 @@ export function bindAcornNoticePush(fn: PushFn): () => void {
 
 export function pushAcornNotice(notice: AcornNoticePayload): void {
   pushImpl?.(notice);
-  flashFromNotice(notice.kind, notice.title);
 }
 
 export function noticeKindDuration(kind: AcornNoticeKind): number {

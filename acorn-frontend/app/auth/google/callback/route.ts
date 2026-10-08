@@ -7,7 +7,7 @@ import {
   seeOther,
   signInErrorPath,
 } from "@acorn/google-signin";
-import { writeSessionCookie } from "@/lib/auth/cookie";
+import { establishSession } from "@/lib/auth/session";
 import { acornApiUrl } from "@/lib/config";
 import { ROUTES, safeNextPath } from "@/lib/routes";
 
@@ -25,6 +25,6 @@ export async function GET(request: Request) {
   });
   const next = safeNextPath(result.next);
   if (!result.ok) return seeOther(signInErrorPath(ROUTES.signIn, result.error, next));
-  await writeSessionCookie(result.token);
+  await establishSession(result.token);
   return seeOther(next);
 }

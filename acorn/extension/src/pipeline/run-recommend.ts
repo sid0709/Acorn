@@ -79,6 +79,7 @@ export async function runResumeRecommend(args: {
           error: message,
           checkpoint,
         }) || message,
+      ...(typeof tabId === "number" ? { tabId } : {}),
     });
     throw error instanceof Error ? error : new Error(message);
   };

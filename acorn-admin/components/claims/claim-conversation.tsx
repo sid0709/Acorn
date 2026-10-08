@@ -3,7 +3,7 @@
 import {
   CLAIM_AUTHOR,
   CLAIM_STATUS,
-  CLAIM_STATUS_LABEL,
+  ClaimStatusBadge,
   ClaimThread,
   claimTitle,
   type ClaimStatus,
@@ -13,6 +13,7 @@ import { useRouter } from "next/navigation";
 import { useEffect } from "react";
 import {
   Avatar,
+  Button,
   HStack,
   Heading,
   IconButton,
@@ -20,8 +21,6 @@ import {
   Layout,
   LayoutContent,
   LayoutHeader,
-  SegmentedControl,
-  SegmentedControlItem,
   Stack,
   StackItem,
   Text,
@@ -37,7 +36,7 @@ import { unwrap } from "@/lib/actions/result";
 
 const AVATAR_SIZE = 40;
 
-/** The open claim: who reported what, Opened/Closed, and the conversation with a composer. */
+/** The open claim: who reported what, resolve or reopen, and the conversation with a composer. */
 export function ClaimConversation({
   thread,
   isDetailsOpen,
@@ -92,20 +91,17 @@ export function ClaimConversation({
                 </Text>
               </Stack>
             </StackItem>
-            <SegmentedControl
-              label="Status"
+            <ClaimStatusBadge status={claim.status} />
+            <Button
+              label={claim.status === CLAIM_STATUS.open ? "Resolve" : "Reopen"}
+              variant={claim.status === CLAIM_STATUS.open ? "primary" : "secondary"}
               size="sm"
-              value={claim.status}
-              onChange={(value) => void setStatus(value as ClaimStatus)}
-            >
-              {[CLAIM_STATUS.open, CLAIM_STATUS.closed].map((status) => (
-                <SegmentedControlItem
-                  key={status}
-                  value={status}
-                  label={CLAIM_STATUS_LABEL[status]}
-                />
-              ))}
-            </SegmentedControl>
+              onClick={() =>
+                void setStatus(
+                  claim.status === CLAIM_STATUS.open ? CLAIM_STATUS.closed : CLAIM_STATUS.open,
+                )
+              }
+            />
             <IconButton
               label={isDetailsOpen ? "Hide details" : "Show details"}
               tooltip={isDetailsOpen ? "Hide details" : "Show details"}

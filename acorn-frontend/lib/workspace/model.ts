@@ -4,6 +4,34 @@ import { isApplicantProfile, withDefaults, type ApplicantProfile } from "./profi
 export const WORKSPACE_STORAGE_KEY = "acorn.workspace.v2";
 const WORKSPACE_CHANGE = "acorn-workspace-change";
 
+/** The signed-in account this tab's workspace belongs to. A support session uses the user's id. */
+let boundAccountId = "";
+let boundSupport = false;
+
+function storageKey() {
+  return boundAccountId ? `${WORKSPACE_STORAGE_KEY}:${boundAccountId}` : WORKSPACE_STORAGE_KEY;
+}
+
+/**
+ * Points workspace storage at this account before children read it.
+ * A support session does not inherit another account's browser cache, so edits
+ * start from the user's saved profile and save back to that account.
+ */
+export function bindWorkspaceAccount(accountId: string, support: boolean) {
+  const nextId = accountId.trim();
+  if (boundAccountId === nextId && boundSupport === support) return;
+  boundAccountId = nextId;
+  boundSupport = support;
+  snapshotRaw = null;
+  snapshot = EMPTY_WORKSPACE;
+  if (typeof window === "undefined" || support || !nextId) return;
+  const key = storageKey();
+  if (!localStorage.getItem(key)) {
+    const legacy = localStorage.getItem(WORKSPACE_STORAGE_KEY);
+    if (legacy) localStorage.setItem(key, legacy);
+  }
+}
+
 const EMPTY_WORKSPACE: Workspace = {
   profile: null,
   resumes: [],
@@ -103,7 +131,7 @@ let snapshot: Workspace = EMPTY_WORKSPACE;
 
 /** Cached browser snapshot. Same reference until the stored JSON changes. */
 export function readWorkspaceSnapshot(): Workspace {
-  const raw = localStorage.getItem(WORKSPACE_STORAGE_KEY);
+  const raw = localStorage.getItem(storageKey());
   if (raw === snapshotRaw) return snapshot;
   snapshotRaw = raw;
   snapshot = raw ? parseWorkspace(raw) : EMPTY_WORKSPACE;
@@ -119,8 +147,13 @@ export function subscribeWorkspace(onChange: () => void) {
   };
 }
 
+export function clearWorkspaceStorage() {
+  localStorage.removeItem(storageKey());
+  localStorage.removeItem(WORKSPACE_STORAGE_KEY);
+}
+
 export function writeWorkspace(workspace: Workspace) {
-  localStorage.setItem(WORKSPACE_STORAGE_KEY, JSON.stringify(workspace));
+  localStorage.setItem(storageKey(), JSON.stringify(workspace));
   snapshotRaw = null;
   window.dispatchEvent(new Event(WORKSPACE_CHANGE));
 }

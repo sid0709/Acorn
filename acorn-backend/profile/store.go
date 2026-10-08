@@ -168,21 +168,22 @@ func (s *Store) Delete(ctx context.Context, accountID string) error {
 	}
 	return nil
 }
+
 // AccountIDByProfileEmail finds the account whose profile contact email matches.
 func (s *Store) AccountIDByProfileEmail(ctx context.Context, email string) (string, bool, error) {
 	email = strings.ToLower(strings.TrimSpace(email))
 	if email == "" {
 		return "", false, nil
 	}
-	s.mu.Lock()
-	for id, doc := range s.rows {
-		if strings.ToLower(strings.TrimSpace(doc.Email)) == email {
-			s.mu.Unlock()
-			return id, true, nil
-		}
-	}
-	s.mu.Unlock()
 	if s.coll == nil {
+		s.mu.Lock()
+		for id, doc := range s.rows {
+			if strings.ToLower(strings.TrimSpace(doc.Email)) == email {
+				s.mu.Unlock()
+				return id, true, nil
+			}
+		}
+		s.mu.Unlock()
 		return "", false, nil
 	}
 	filter := bson.D{{Key: "$expr", Value: bson.D{
@@ -207,14 +208,16 @@ func (s *Store) AccountIDByProfileEmail(ctx context.Context, email string) (stri
 }
 
 func (s *Store) Load(ctx context.Context, accountID string) (Document, bool, error) {
-	s.mu.Lock()
-	doc, ok := s.rows[accountID]
-	s.mu.Unlock()
-	if ok {
-		return normalize(doc), true, nil
-	}
+	// With Mongo configured, the collection is the account profile. Memory is only
+	// a cache of that read, so a support-session save is what the user loads next.
 	if s.coll == nil {
-		return Document{}, false, nil
+		s.mu.Lock()
+		doc, ok := s.rows[accountID]
+		s.mu.Unlock()
+		if !ok {
+			return Document{}, false, nil
+		}
+		return normalize(doc), true, nil
 	}
 	var row storedProfile
 	err := s.coll.FindOne(ctx, bson.D{{Key: "accountId", Value: accountID}}).Decode(&row)
@@ -224,7 +227,7 @@ func (s *Store) Load(ctx context.Context, accountID string) (Document, bool, err
 	if err != nil {
 		return Document{}, false, err
 	}
-	doc = normalize(row.Profile)
+	doc := normalize(row.Profile)
 	s.mu.Lock()
 	s.rows[accountID] = doc
 	s.mu.Unlock()
@@ -237,7 +240,11 @@ func (s *Store) Save(ctx context.Context, accountID string, doc Document) (Docum
 	if s.coll != nil {
 		_, err := s.coll.UpdateOne(ctx,
 			bson.D{{Key: "accountId", Value: accountID}},
-			bson.D{{Key: "$set", Value: storedProfile{AccountID: accountID, Profile: doc, UpdatedAt: time.Now().UTC()}}},
+			bson.D{{Key: "$set", Value: bson.D{
+				{Key: "accountId", Value: accountID},
+				{Key: "profile", Value: doc},
+				{Key: "updatedAt", Value: time.Now().UTC()},
+			}}},
 			options.UpdateOne().SetUpsert(true),
 		)
 		if err != nil {

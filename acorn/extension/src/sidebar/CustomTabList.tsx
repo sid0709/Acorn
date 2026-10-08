@@ -165,6 +165,7 @@ function CustomTabRow({
           detail: recommending
             ? "Could not download the Library résumé"
             : "Could not download the stored editor résumé",
+          tabId: tab.tabId,
         });
         return;
       }
@@ -174,6 +175,7 @@ function CustomTabRow({
         kind: "error",
         title: "Couldn’t download résumé",
         detail: err instanceof Error ? err.message : String(err),
+        tabId: tab.tabId,
       });
     } finally {
       setBusy(false);

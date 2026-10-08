@@ -23,7 +23,7 @@ export function resumeMetaText(job: AcornWorkerJob): string {
   return resumeLabel(job) ?? "No resume assigned";
 }
 
-export async function downloadJobResume(job: AcornWorkerJob): Promise<void> {
+export async function downloadJobResume(job: AcornWorkerJob, tabId?: number | null): Promise<void> {
   try {
     const gen = await getJobGenerate(job.id);
     const generationId = String(gen?.generationId || "").trim();
@@ -41,6 +41,7 @@ export async function downloadJobResume(job: AcornWorkerJob): Promise<void> {
           job.generatedResume || generationId
             ? "Could not download the generated résumé"
             : "Could not download the Library résumé",
+        ...(typeof tabId === "number" ? { tabId } : {}),
       });
       return;
     }
@@ -50,6 +51,7 @@ export async function downloadJobResume(job: AcornWorkerJob): Promise<void> {
       kind: "error",
       title: "Couldn’t download résumé",
       detail: err instanceof Error ? err.message : String(err),
+      ...(typeof tabId === "number" ? { tabId } : {}),
     });
   }
 }

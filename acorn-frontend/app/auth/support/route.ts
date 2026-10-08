@@ -1,6 +1,6 @@
 import { seeOther } from "@acorn/google-signin";
 import { AUTH_SUPPORT_REDEEM_PATH } from "@/lib/auth/constants";
-import { writeSessionCookie } from "@/lib/auth/cookie";
+import { establishSession } from "@/lib/auth/session";
 import { acornApiUrl } from "@/lib/config";
 import { ROUTES } from "@/lib/routes";
 import { SUPPORT_PARAM } from "@/lib/support";
@@ -40,6 +40,6 @@ export async function GET(request: Request) {
   const maxAge = Number.isFinite(expiresAt)
     ? Math.max(0, Math.floor((expiresAt - Date.now()) / 1000))
     : undefined;
-  await writeSessionCookie(body.token, maxAge);
+  await establishSession(body.token, maxAge);
   return landing(body.extensionCode ? { [SUPPORT_PARAM.extensionCode]: body.extensionCode } : {});
 }

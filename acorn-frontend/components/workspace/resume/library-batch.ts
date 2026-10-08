@@ -3,6 +3,7 @@ import {
   RESUME_BULK_UPLOAD_CONCURRENCY,
   RESUME_BULK_UPLOAD_MAX_FILES,
 } from "@acorn/shared/resume-library";
+import { pdfText } from "@/lib/workspace/pdf-text";
 
 const RESUME_FILE_NAME = /\.(pdf|docx?|txt)$/i;
 
@@ -57,15 +58,27 @@ export function stackCounts(items: FolderResume[]): { stack: string; count: numb
 
 const base64Chunk = 8192;
 
-export function fileBase64(file: File): Promise<string> {
-  return file.arrayBuffer().then((buffer) => {
-    const bytes = new Uint8Array(buffer);
-    const parts: string[] = [];
-    for (let i = 0; i < bytes.length; i += base64Chunk) {
-      parts.push(String.fromCharCode(...bytes.subarray(i, i + base64Chunk)));
-    }
-    return btoa(parts.join(""));
-  });
+function bytesBase64(bytes: Uint8Array): string {
+  const parts: string[] = [];
+  for (let i = 0; i < bytes.length; i += base64Chunk) {
+    parts.push(String.fromCharCode(...bytes.subarray(i, i + base64Chunk)));
+  }
+  return btoa(parts.join(""));
+}
+
+const isPdf = (file: File) =>
+  file.type === "application/pdf" || file.name.toLowerCase().endsWith(".pdf");
+
+/** File bytes plus, for a PDF, the text pdf.js read so analyze is not limited to raw operators. */
+export async function libraryUploadInput(file: File, title: string) {
+  const bytes = new Uint8Array(await file.arrayBuffer());
+  const extractedText = isPdf(file) ? await pdfText(bytes).catch(() => "") : "";
+  return {
+    fileName: file.name,
+    title,
+    contentBase64: bytesBase64(bytes),
+    ...(extractedText.trim() ? { extractedText } : {}),
+  };
 }
 
 export function failureSummary(action: string, total: number, failed: BatchFailure[]): string {

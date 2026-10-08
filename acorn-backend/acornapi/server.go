@@ -188,6 +188,7 @@ func New(accounts Accounts, listings *jobs.Store, brain *acorn.Service, opts Opt
 	mux.HandleFunc("GET /acorn/runtime-file", s.runtimeFile)
 	if s.debug != nil {
 		mux.HandleFunc("POST /acorn/debug/log", s.debugLog)
+		mux.HandleFunc("POST /acorn/debug/shot", s.debugShot)
 	}
 
 	mux.HandleFunc("GET /acorn/ai-usage", s.listAIUsage)

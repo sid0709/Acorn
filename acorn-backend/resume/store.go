@@ -66,6 +66,23 @@ func (s *Store) EnsureIndexes(ctx context.Context) error {
 }
 
 func (s *Store) config(accountID string) map[string]any {
+	// Mongo is the account's copy. A support session and the user's own session
+	// can hit different processes, so memory must not hide a saved config.
+	if s.db != nil {
+		var row struct {
+			Config map[string]any `bson:"config"`
+		}
+		err := s.db.Collection(configsCollection).FindOne(context.Background(), bson.D{{Key: "accountId", Value: accountID}}).Decode(&row)
+		if err == nil && row.Config != nil {
+			cfg, _ := plainValue(row.Config).(map[string]any)
+			if cfg != nil {
+				s.mu.Lock()
+				s.configs[accountID] = cloneMap(cfg)
+				s.mu.Unlock()
+				return cloneMap(cfg)
+			}
+		}
+	}
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	if cfg, ok := s.configs[accountID]; ok {
@@ -74,18 +91,21 @@ func (s *Store) config(accountID string) map[string]any {
 	return nil
 }
 
-func (s *Store) saveConfig(accountID string, cfg map[string]any) {
+func (s *Store) saveConfig(accountID string, cfg map[string]any) error {
+	if s.db != nil {
+		_, err := s.db.Collection(configsCollection).UpdateOne(context.Background(),
+			bson.D{{Key: "accountId", Value: accountID}},
+			bson.D{{Key: "$set", Value: bson.D{{Key: "accountId", Value: accountID}, {Key: "config", Value: cfg}, {Key: "updatedAt", Value: time.Now().UTC()}}}},
+			options.UpdateOne().SetUpsert(true),
+		)
+		if err != nil {
+			return fmt.Errorf("save résumé config: %w", err)
+		}
+	}
 	s.mu.Lock()
 	s.configs[accountID] = cloneMap(cfg)
 	s.mu.Unlock()
-	if s.db == nil {
-		return
-	}
-	_, _ = s.db.Collection(configsCollection).UpdateOne(context.Background(),
-		bson.D{{Key: "accountId", Value: accountID}},
-		bson.D{{Key: "$set", Value: bson.D{{Key: "accountId", Value: accountID}, {Key: "config", Value: cfg}, {Key: "updatedAt", Value: time.Now().UTC()}}}},
-		options.UpdateOne().SetUpsert(true),
-	)
+	return nil
 }
 
 func (s *Store) putTemplate(row UploadedTemplate) {
@@ -272,13 +292,13 @@ func (s *Store) putLibrary(row LibraryRow) error {
 }
 
 func (s *Store) libraryItem(accountID, id string) (LibraryRow, bool) {
-	s.mu.Lock()
-	row, ok := s.library[id]
-	s.mu.Unlock()
-	if ok && row.AccountID == accountID && (s.db == nil || len(row.Bytes) > 0) {
-		return row, true
-	}
 	if s.db == nil {
+		s.mu.Lock()
+		row, ok := s.library[id]
+		s.mu.Unlock()
+		if ok && row.AccountID == accountID {
+			return row, true
+		}
 		return LibraryRow{}, false
 	}
 	var found LibraryRow
@@ -456,6 +476,44 @@ func (s *Store) DeleteAccount(ctx context.Context, accountID string) error {
 		}
 	}
 	return nil
+}
+
+// plainValue turns BSON documents the driver decoded into interface{} back into maps.
+func plainValue(value any) any {
+	switch typed := value.(type) {
+	case bson.D:
+		out := make(map[string]any, len(typed))
+		for _, elem := range typed {
+			out[elem.Key] = plainValue(elem.Value)
+		}
+		return out
+	case bson.M:
+		out := make(map[string]any, len(typed))
+		for key, item := range typed {
+			out[key] = plainValue(item)
+		}
+		return out
+	case map[string]any:
+		out := make(map[string]any, len(typed))
+		for key, item := range typed {
+			out[key] = plainValue(item)
+		}
+		return out
+	case bson.A:
+		out := make([]any, len(typed))
+		for i, item := range typed {
+			out[i] = plainValue(item)
+		}
+		return out
+	case []any:
+		out := make([]any, len(typed))
+		for i, item := range typed {
+			out[i] = plainValue(item)
+		}
+		return out
+	default:
+		return value
+	}
 }
 
 func cloneMap(in map[string]any) map[string]any {

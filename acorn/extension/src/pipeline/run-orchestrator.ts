@@ -462,7 +462,8 @@ export async function runOrchestrator(args: RunOrchestratorArgs): Promise<RunRep
       }),
     );
     const failed = last?.phase === "error";
-    log.event(mode === FILL_MODE.refill ? "refill:done" : "fill:done", {
+    const fillShot = mode === FILL_MODE.refill ? "refill:done" : "fill:done";
+    log.event(fillShot, {
       ok: !failed,
       message: last?.message,
       error: last?.error,
@@ -471,6 +472,7 @@ export async function runOrchestrator(args: RunOrchestratorArgs): Promise<RunRep
       costUsd: last?.usage?.costUsd,
       phases: last?.phases,
     });
+    await log.screenshot(fillShot);
     clock.add(mode === FILL_MODE.refill ? "refill" : "fill", Date.now() - started);
     // The fill stopped before anything else for want of a résumé file.
     const resumeMissing = failed && last?.message === NO_RESUME_FILE;
@@ -1084,6 +1086,7 @@ export async function runOrchestrator(args: RunOrchestratorArgs): Promise<RunRep
       calls: usage?.calls,
       costUsd: usage?.costUsd,
     });
+    await log.screenshot("run:end");
     const cost = usage ? ` · ${formatUsd(usage.costUsd)}` : "";
     const message = halted
       ? `Stopped by you · ${seconds}s${cost}`
@@ -1174,6 +1177,7 @@ export async function runOrchestrator(args: RunOrchestratorArgs): Promise<RunRep
         };
         refillsOnPage = 0;
         log.event("page", { page: pageCount, url: logUrl(page.url), flagged: page.flagged });
+        await log.screenshot("page");
         await enterNewPage(page, current);
       }
       const state = current as PageState;

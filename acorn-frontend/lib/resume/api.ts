@@ -132,6 +132,8 @@ export async function uploadLibraryFile(input: {
   fileName: string;
   title: string;
   contentBase64: string;
+  /** Text pdf.js read from a PDF. The server uses it when it is clearer than its own extract. */
+  extractedText?: string;
 }): Promise<ResumeCall<{ resume: ResumeLibraryRow }>> {
   return read(RESUME_API.library, { method: "POST", body: JSON.stringify(input) });
 }

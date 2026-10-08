@@ -9,6 +9,7 @@ import { redactPlan } from "@acorn/shared/secret-value";
 import { formatAnalyzeTrees } from "@acorn/shared/tree-export";
 
 import { DEFAULT_ACORN_API_URL } from "../auth/acorn-auth";
+import { queueDebugShot } from "../background/debug-shot";
 import { traceFromBackground } from "../background/debug-trace-sink";
 import { ACORN_DEBUG } from "../debug-trace";
 import { customTabHasResume, getCustomTab } from "../tab-custom-session";
@@ -279,6 +280,7 @@ export async function runFabPipeline(args: RunPipelineArgs): Promise<void> {
         null,
     };
 
+    if (ACORN_DEBUG && !pendingOnly) await queueDebugShot(tabId, "analyze", true);
     const analyze = pendingOnly
       ? { mode: FAST_PLAN_MODE, plan: emptyPlan() }
       : await clock.time("plan", () =>

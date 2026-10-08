@@ -87,8 +87,9 @@ export default function SidebarApp() {
       kind: "error",
       title: runErrored ? "Run stopped" : "Fill couldn’t finish",
       detail: fillErrorText,
+      ...(activeTabId == null ? {} : { tabId: activeTabId }),
     });
-  }, [fillErrorText, runErrored]);
+  }, [activeTabId, fillErrorText, runErrored]);
 
   const runDoneText =
     progress.phase === "done" && progress.run?.report?.outcome === RUN_OUTCOME.completed
@@ -96,15 +97,25 @@ export default function SidebarApp() {
       : null;
   useEffect(() => {
     if (!runDoneText) return;
-    pushAcornNotice({ kind: "success", title: "Run finished", detail: runDoneText });
-  }, [runDoneText]);
+    pushAcornNotice({
+      kind: "success",
+      title: "Run finished",
+      detail: runDoneText,
+      ...(activeTabId == null ? {} : { tabId: activeTabId }),
+    });
+  }, [activeTabId, runDoneText]);
 
   const refillDoneText =
     progress.phase === "done" && progress.mode === FILL_MODE.refill ? progress.message : null;
   useEffect(() => {
     if (!refillDoneText) return;
-    pushAcornNotice({ kind: "info", title: "Refill finished", detail: refillDoneText });
-  }, [refillDoneText]);
+    pushAcornNotice({
+      kind: "info",
+      title: "Refill finished",
+      detail: refillDoneText,
+      ...(activeTabId == null ? {} : { tabId: activeTabId }),
+    });
+  }, [activeTabId, refillDoneText]);
 
   const {
     remembering,
@@ -279,6 +290,7 @@ export default function SidebarApp() {
           kind: "error",
           title: "Couldn’t send report",
           detail: res?.error ?? "Try again in a moment.",
+          tabId: activeTabId,
         });
         return false;
       }
@@ -287,6 +299,7 @@ export default function SidebarApp() {
         kind: "success",
         title: "Report sent",
         detail: "Support has the page and your notes. Replies show in the Support tab.",
+        tabId: activeTabId,
       });
       setMainTab("support");
       await support.open(res.claimId ?? null);

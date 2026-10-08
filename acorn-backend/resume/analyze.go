@@ -95,11 +95,12 @@ func (s *Service) AnalyzeLibrary(ctx context.Context, accountID, id string, forc
 		row.Bytes = nil
 		return row, nil
 	}
-	if strings.TrimSpace(row.ExtractedText) == "" {
-		row.ExtractedText = extractFileText(row.FileName, row.Bytes)
-	}
+	row.ExtractedText = bestResumeText(row.FileName, row.ExtractedText, row.Bytes)
 	text := truncateRunes(strings.TrimSpace(row.ExtractedText), analyzeTextMaxRunes)
 	if text == "" {
+		if strings.EqualFold(filepathExt(row.FileName), ".pdf") {
+			return LibraryRow{}, fmt.Errorf("%w: couldn’t read text from this PDF — use a PDF with selectable text, or a .docx", ErrInvalid)
+		}
 		return LibraryRow{}, fmt.Errorf("%w: no extracted text available for analysis", ErrInvalid)
 	}
 	if model == nil || !model.Ready() {

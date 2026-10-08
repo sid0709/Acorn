@@ -2,13 +2,20 @@ package acornapi
 
 import (
 	"context"
+	"encoding/base64"
 	"encoding/json"
 	"net/http"
 	"net/url"
+	"strings"
+	"time"
+	"unicode"
 
 	"github.com/sid0709/OpenSeat/acorn-backend/acorn"
 	"github.com/sid0709/OpenSeat/acorn-backend/debugtrace"
 )
+
+// debugShotMaxBytes is a JPEG small enough that its base64 form fits maxBody.
+const debugShotMaxBytes = 4 << 20
 
 // analyzeDebug is what a debug build of the extension attaches to Analyze.
 // It is ignored unless this server runs with debug capture on.
@@ -83,6 +90,76 @@ func (s *Server) debugLog(w http.ResponseWriter, r *http.Request) {
 	}
 	s.debug.Latest(session.User.ID).AppendSteps(body.Entries)
 	w.WriteHeader(http.StatusNoContent)
+}
+
+// debugShot stores one JPEG in the user's current run and notes the file in steps.ndjson.
+func (s *Server) debugShot(w http.ResponseWriter, r *http.Request) {
+	session, ok := s.session(w, r)
+	if !ok {
+		return
+	}
+	var body struct {
+		Image string `json:"image"`
+		Label string `json:"label"`
+	}
+	if !decode(w, r, &body) {
+		return
+	}
+	raw, err := base64.StdEncoding.DecodeString(body.Image)
+	if err != nil || !jpeg(raw) {
+		writeError(w, http.StatusBadRequest, "screenshot must be a JPEG")
+		return
+	}
+	run := s.debug.Latest(session.User.ID)
+	if run == nil {
+		w.WriteHeader(http.StatusNoContent)
+		return
+	}
+	file := run.WriteFile(shotFileName(body.Label), raw)
+	if file == "" {
+		w.WriteHeader(http.StatusNoContent)
+		return
+	}
+	line, err := json.Marshal(map[string]any{
+		"t":     time.Now().UnixMilli(),
+		"from":  "background",
+		"event": "screen",
+		"data":  map[string]string{"file": file, "label": strings.TrimSpace(body.Label)},
+	})
+	if err == nil {
+		run.AppendSteps([]json.RawMessage{line})
+	}
+	w.WriteHeader(http.StatusNoContent)
+}
+
+func jpeg(raw []byte) bool {
+	return len(raw) >= 3 && len(raw) <= debugShotMaxBytes && raw[0] == 0xff && raw[1] == 0xd8 && raw[2] == 0xff
+}
+
+// shotFileName turns a step label into a filename the run folder can list, like screen-fill-done.jpg.
+func shotFileName(label string) string {
+	var b strings.Builder
+	b.WriteString("screen")
+	lastDash := true
+	for _, r := range strings.ToLower(strings.TrimSpace(label)) {
+		if b.Len() >= 48 {
+			break
+		}
+		if unicode.IsLetter(r) || unicode.IsDigit(r) {
+			b.WriteRune(r)
+			lastDash = false
+			continue
+		}
+		if !lastDash {
+			b.WriteByte('-')
+			lastDash = true
+		}
+	}
+	name := strings.Trim(b.String(), "-")
+	if name == "" {
+		name = "screen"
+	}
+	return name + ".jpg"
 }
 
 // pageLabel names a run folder after the page host and title.

@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import {
   Banner,
   Button,
@@ -47,8 +47,16 @@ const STATUSES: { value: ResumeHistoryStatus; label: string }[] = [
   { value: "failed", label: "Failed" },
 ];
 
+type HistoryStart = Awaited<ReturnType<typeof listGenerations>>;
+
 /** Searchable generation history: filters, preview, DOCX download, and delete. */
-export function ResumeHistory({ account }: { account: AcornAccount }) {
+export function ResumeHistory({
+  account,
+  initial,
+}: {
+  account: AcornAccount;
+  initial: HistoryStart;
+}) {
   const [search, setSearch] = useState("");
   const [debounced, setDebounced] = useState("");
   const [searchIn, setSearchIn] = useState<ResumeHistorySearchIn>("all");
@@ -59,12 +67,16 @@ export function ResumeHistory({ account }: { account: AcornAccount }) {
   const [to, setTo] = useState("");
   const [sort, setSort] = useState<ResumeHistorySort>("newest");
   const [offset, setOffset] = useState(0);
-  const [total, setTotal] = useState(0);
-  const [runs, setRuns] = useState<ResumeHistoryRun[]>([]);
-  const [models, setModels] = useState<string[]>([]);
+  const [total, setTotal] = useState(initial.ok ? initial.data.total : 0);
+  const [runs, setRuns] = useState<ResumeHistoryRun[]>(initial.ok ? initial.data.runs : []);
+  const [models, setModels] = useState<string[]>(
+    initial.ok ? (initial.data.facets?.models ?? []) : [],
+  );
   const [selected, setSelected] = useState<string | null>(null);
   const [html, setHtml] = useState("");
-  const [error, setError] = useState("");
+  const [error, setError] = useState(initial.ok ? "" : initial.message);
+  // Two skips cover React strict mode mounting the effect twice.
+  const skipInitialFetch = useRef(initial.ok ? 2 : 0);
 
   useEffect(() => {
     const timer = setTimeout(() => setDebounced(search), RESUME_HISTORY_SEARCH_DEBOUNCE_MS);
@@ -72,6 +84,10 @@ export function ResumeHistory({ account }: { account: AcornAccount }) {
   }, [search]);
 
   useEffect(() => {
+    if (skipInitialFetch.current > 0) {
+      skipInitialFetch.current -= 1;
+      return;
+    }
     let cancel = false;
     void (async () => {
       const result = await listGenerations({
