@@ -31,7 +31,15 @@ const NEW_TAB_FEATURES = "noopener";
  * "Sign in as user": asks why, then opens the client site signed in as this user
  * in a new tab. The site hands the same support session to the Acorn extension.
  */
-export function SupportActions({ userId, userName }: { userId: string; userName: string }) {
+export function SupportActions({
+  userId,
+  userName,
+  deactivated = false,
+}: {
+  userId: string;
+  userName: string;
+  deactivated?: boolean;
+}) {
   const notice = useNotice();
   const [open, setOpen] = useState(false);
   const [reason, setReason] = useState("");
@@ -79,12 +87,14 @@ export function SupportActions({ userId, userName }: { userId: string; userName:
 
   return (
     <HStack gap={2} vAlign="center">
-      <Button
-        label="Sign in as user"
-        variant="primary"
-        icon={<Glyph name="eye" />}
-        onClick={() => setOpen(true)}
-      />
+      {deactivated ? null : (
+        <Button
+          label="Sign in as user"
+          variant="primary"
+          icon={<Glyph name="eye" />}
+          onClick={() => setOpen(true)}
+        />
+      )}
       <MoreMenu
         label="Support actions"
         variant="ghost"

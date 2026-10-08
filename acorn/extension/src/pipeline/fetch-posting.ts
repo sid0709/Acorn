@@ -13,14 +13,13 @@ function treeTextLength(node: DomNode): number {
 }
 
 /**
- * Snapshot the tab for reading a job posting: every frame at once, no waiting for
- * a form to hydrate, and the frame with the most text wins (the posting can live
- * in an embedded job-board frame).
+ * Snapshot every frame of the tab for reading a job posting, at once and with no
+ * waiting for a form to hydrate. Each frame serializes only what a person can see.
  */
-export async function fetchPostingDomFromTab(
+export async function fetchPostingFramesFromTab(
   tabId: number,
   opts: { fieldIssues?: boolean } = {},
-): Promise<DomTreePayload> {
+): Promise<DomTreePayload[]> {
   let frameIds = [0];
   try {
     const frames = await chrome.webNavigation.getAllFrames({ tabId });
@@ -44,6 +43,15 @@ export async function fetchPostingDomFromTab(
   if (!trees.length) {
     throw new Error("Could not read this tab. Refresh the page, then try again.");
   }
+  return trees;
+}
+
+/** The one frame with the most visible text (the posting can live in an embedded job-board frame). */
+export async function fetchPostingDomFromTab(
+  tabId: number,
+  opts: { fieldIssues?: boolean } = {},
+): Promise<DomTreePayload> {
+  const trees = await fetchPostingFramesFromTab(tabId, opts);
   return trees.reduce((best, next) =>
     treeTextLength(next.tree) > treeTextLength(best.tree) ? next : best,
   );

@@ -68,6 +68,12 @@ func (c *Client) Ready() bool {
 }
 
 func (c *Client) JSON(ctx context.Context, system, user string, schema json.RawMessage) ([]byte, error) {
+	return c.Conversation(ctx, system, []Message{{Role: RoleUser, Content: user}}, schema)
+}
+
+// Conversation is JSON over several turns: earlier user and assistant messages,
+// oldest first, then the user message being answered last.
+func (c *Client) Conversation(ctx context.Context, system string, turns []Message, schema json.RawMessage) ([]byte, error) {
 	if c == nil {
 		return nil, ErrMissingAPIKey
 	}
@@ -76,7 +82,7 @@ func (c *Client) JSON(ctx context.Context, system, user string, schema json.RawM
 		return nil, c.missingKey
 	}
 
-	body, err := json.Marshal(c.chatRequest(system, user, schema))
+	body, err := json.Marshal(c.chatRequest(system, turns, schema))
 	if err != nil {
 		return nil, err
 	}
@@ -165,13 +171,10 @@ func (n callNote) note(ctx context.Context, err error) {
 	Note(ctx, usage)
 }
 
-func (c *Client) chatRequest(system, user string, schema json.RawMessage) chatRequest {
+func (c *Client) chatRequest(system string, turns []Message, schema json.RawMessage) chatRequest {
 	request := chatRequest{
-		Model: c.model,
-		Messages: []chatMessage{
-			{Role: "system", Content: system},
-			{Role: "user", Content: user},
-		},
+		Model:    c.model,
+		Messages: append([]Message{{Role: roleSystem, Content: system}}, turns...),
 		ResponseFormat: responseFormat{
 			Type: "json_schema",
 			JSONSchema: &jsonSchemaBody{
@@ -253,7 +256,7 @@ func statusError(status int, message string) error {
 
 type chatRequest struct {
 	Model          string           `json:"model"`
-	Messages       []chatMessage    `json:"messages"`
+	Messages       []Message        `json:"messages"`
 	ResponseFormat responseFormat   `json:"response_format"`
 	Thinking       *thinking        `json:"thinking,omitempty"`
 	Reasoning      *reasoningEffort `json:"reasoning,omitempty"`
@@ -267,7 +270,15 @@ type thinking struct {
 	Type string `json:"type"`
 }
 
-type chatMessage struct {
+// Message roles in a chat request.
+const (
+	roleSystem    = "system"
+	RoleUser      = "user"
+	RoleAssistant = "assistant"
+)
+
+// Message is one turn of a chat request.
+type Message struct {
 	Role    string `json:"role"`
 	Content string `json:"content"`
 }

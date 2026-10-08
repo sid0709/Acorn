@@ -32,8 +32,9 @@ type growth struct {
 }
 
 type accountName struct {
-	Name  string `json:"name"`
-	Email string `json:"email"`
+	Name          string     `json:"name"`
+	Email         string     `json:"email"`
+	DeactivatedAt *time.Time `json:"deactivatedAt,omitempty"`
 }
 
 func (s *Server) adminStatistics(w http.ResponseWriter, r *http.Request) {
@@ -93,7 +94,12 @@ func accountNames(ctx context.Context, accounts *account.Store, stats aiusage.St
 	}
 	out := make(map[string]accountName, len(rows))
 	for id, row := range rows {
-		out[id] = accountName{Name: row.Name, Email: row.Email}
+		named := accountName{Name: row.Name, Email: row.Email}
+		if row.Deactivated() {
+			at := row.DeactivatedAt.UTC()
+			named.DeactivatedAt = &at
+		}
+		out[id] = named
 	}
 	return out, nil
 }

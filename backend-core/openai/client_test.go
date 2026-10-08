@@ -39,6 +39,26 @@ func TestJSONSendsStrictSchemaByDefault(t *testing.T) {
 	}
 }
 
+func TestConversationSendsTurnsAfterTheSystemPrompt(t *testing.T) {
+	server, got := captureChat(t)
+	turns := []Message{
+		{Role: RoleUser, Content: "plan"},
+		{Role: RoleAssistant, Content: "{}"},
+		{Role: RoleUser, Content: "fix"},
+	}
+	if _, err := New("key", "m", server.URL).Conversation(context.Background(), "sys", turns, json.RawMessage(`{"type":"object"}`)); err != nil {
+		t.Fatal(err)
+	}
+	var sent []string
+	for _, raw := range (*got)["messages"].([]any) {
+		message := raw.(map[string]any)
+		sent = append(sent, message["role"].(string)+":"+message["content"].(string))
+	}
+	if strings.Join(sent, "|") != "system:sys|user:plan|assistant:{}|user:fix" {
+		t.Fatalf("messages = %v", sent)
+	}
+}
+
 func TestJSONObjectModePutsSchemaInPromptAndDisablesThinking(t *testing.T) {
 	server, got := captureChat(t)
 	client := New("key", "m", server.URL).ForProvider(ErrMissingAPIKey, true, true)

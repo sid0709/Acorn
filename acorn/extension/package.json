@@ -1,11 +1,13 @@
 {
   "name": "acorn-extension",
-  "version": "1.32.2",
+  "version": "1.33.0",
   "private": true,
   "type": "module",
   "scripts": {
     "dev": "vite build --watch --mode development",
-    "build": "tsc && vite build"
+    "build": "tsc && vite build",
+    "lint": "eslint . --max-warnings=0",
+    "lint:fix": "eslint . --fix --max-warnings=0"
   },
   "dependencies": {
     "@acorn/app-theme": "workspace:*",

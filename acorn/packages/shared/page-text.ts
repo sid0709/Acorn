@@ -38,3 +38,48 @@ export function extractVisiblePageText(
   const combined = header ? `${header}\n\n${body}` : body;
   return combined.length > PAGE_TEXT_MAX_CHARS ? combined.slice(0, PAGE_TEXT_MAX_CHARS) : combined;
 }
+
+/** One frame's visible copy, for a read that spans every frame of a tab. */
+export interface FrameText {
+  title: string;
+  url: string;
+  text: string;
+  /** The tab's own document, not an embedded frame. */
+  top: boolean;
+}
+
+function frameHost(url: string): string {
+  try {
+    return new URL(url).host;
+  } catch {
+    return "";
+  }
+}
+
+/**
+ * Every frame's copy as one text for the model, which decides where the posting
+ * is: a job board often embeds it in a frame of the company's careers page.
+ * Empty and repeated frames are dropped. The frame with the most copy leads, so
+ * the cap trims the page around a posting, not the posting itself.
+ */
+export function combineFrameTexts(frames: FrameText[]): string {
+  const seen = new Set<string>();
+  const kept = frames
+    .map((frame) => ({ ...frame, text: frame.text.trim() }))
+    .filter((frame) => {
+      if (!frame.text || seen.has(frame.text)) return false;
+      seen.add(frame.text);
+      return true;
+    })
+    .sort((a, b) => b.text.length - a.text.length);
+  if (!kept.length) return "";
+  const page = frames.find((frame) => frame.top) ?? kept[0];
+  const header = [page.title.trim(), page.url.trim()].filter(Boolean).join("\n");
+  const sections = kept.map((frame) => {
+    const where = [frame.title.trim(), frameHost(frame.url)].filter(Boolean).join(" · ");
+    const label = frame.top ? "Page" : "Embedded frame";
+    return `--- ${label}${where ? `: ${where}` : ""} ---\n${frame.text}`;
+  });
+  const combined = [header, ...sections].filter(Boolean).join("\n\n");
+  return combined.length > PAGE_TEXT_MAX_CHARS ? combined.slice(0, PAGE_TEXT_MAX_CHARS) : combined;
+}

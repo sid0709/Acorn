@@ -45,8 +45,10 @@ var (
 	ErrGoogleMismatch = errors.New("this email is linked to a different Google account")
 	// ErrGoogleUnknown is a Google account with no Acorn account for that email.
 	ErrGoogleUnknown = errors.New("no Acorn account uses this Gmail")
-	// ErrNotFound is a delete for an account id Acorn does not have.
+	// ErrNotFound is an account id Acorn does not have.
 	ErrNotFound = errors.New("account not found")
+	// ErrDeactivated is a sign-in for an account the user deleted.
+	ErrDeactivated = errors.New("this account is deactivated")
 )
 
 // User is one Acorn account.
@@ -58,10 +60,16 @@ type User struct {
 
 // AccountRow is a user account for the support console list.
 type AccountRow struct {
-	ID        string
-	Name      string
-	Email     string
-	CreatedAt time.Time
+	ID            string
+	Name          string
+	Email         string
+	CreatedAt     time.Time
+	DeactivatedAt time.Time
+}
+
+// Deactivated reports whether the user deleted this account.
+func (row AccountRow) Deactivated() bool {
+	return !row.DeactivatedAt.IsZero()
 }
 
 // Session is a live sign-in. SupportBy is the admin email when an admin opened
@@ -74,15 +82,16 @@ type Session struct {
 }
 
 type storedAccount struct {
-	ID           string    `bson:"id"`
-	Name         string    `bson:"name"`
-	Email        string    `bson:"email"`
-	PasswordHash []byte    `bson:"passwordHash,omitempty"`
-	PasswordSalt []byte    `bson:"passwordSalt,omitempty"`
-	GoogleID     string    `bson:"googleId,omitempty"`
-	SavedJobIDs  []string  `bson:"savedJobIds,omitempty"`
-	AppliedIDs   []string  `bson:"appliedJobIds,omitempty"`
-	CreatedAt    time.Time `bson:"createdAt"`
+	ID            string    `bson:"id"`
+	Name          string    `bson:"name"`
+	Email         string    `bson:"email"`
+	PasswordHash  []byte    `bson:"passwordHash,omitempty"`
+	PasswordSalt  []byte    `bson:"passwordSalt,omitempty"`
+	GoogleID      string    `bson:"googleId,omitempty"`
+	SavedJobIDs   []string  `bson:"savedJobIds,omitempty"`
+	AppliedIDs    []string  `bson:"appliedJobIds,omitempty"`
+	CreatedAt     time.Time `bson:"createdAt"`
+	DeactivatedAt time.Time `bson:"deactivatedAt,omitempty"`
 }
 
 type storedSession struct {
@@ -225,6 +234,9 @@ func (s *Store) StartSession(ctx context.Context, userID string, now time.Time) 
 	if err != nil {
 		return "", User{}, err
 	}
+	if doc.deactivated() {
+		return "", User{}, ErrDeactivated
+	}
 	token, err := s.insertSession(ctx, doc.ID, now)
 	if err != nil {
 		return "", User{}, err
@@ -245,6 +257,9 @@ func (s *Store) SignIn(ctx context.Context, email, password string, now time.Tim
 	}
 	if !passwordMatches(password, doc.PasswordHash, doc.PasswordSalt) {
 		return "", User{}, ErrInvalidLogin
+	}
+	if doc.deactivated() {
+		return "", User{}, ErrDeactivated
 	}
 	token, err := s.insertSession(ctx, doc.ID, now)
 	if err != nil {
@@ -275,6 +290,9 @@ func (s *Store) Session(ctx context.Context, token string, now time.Time) (Sessi
 	if err != nil {
 		return Session{}, err
 	}
+	if user.deactivated() {
+		return Session{}, ErrInvalidLogin
+	}
 	return Session{
 		User:          User{ID: user.ID, Name: user.Name, Email: user.Email},
 		SupportBy:     doc.SupportBy,
@@ -293,23 +311,36 @@ func (s *Store) Revoke(ctx context.Context, token string) error {
 	return err
 }
 
-// Delete removes the account and every session for it. Saved and applied job ids live on the account.
+// Delete deactivates the account and ends every session for it. The account row stays.
 func (s *Store) Delete(ctx context.Context, userID string) error {
 	userID = strings.TrimSpace(userID)
 	if userID == "" {
 		return ErrInvalid
 	}
+	res, err := s.accounts.UpdateOne(ctx, bson.D{
+		{Key: "id", Value: userID},
+		{Key: "deactivatedAt", Value: bson.D{{Key: "$exists", Value: false}}},
+	}, bson.D{{Key: "$set", Value: bson.D{{Key: "deactivatedAt", Value: time.Now().UTC()}}}})
+	if err != nil {
+		return fmt.Errorf("deactivate account: %w", err)
+	}
+	if res.MatchedCount == 0 {
+		err := s.accounts.FindOne(ctx, bson.D{{Key: "id", Value: userID}}).Err()
+		if errors.Is(err, mongo.ErrNoDocuments) {
+			return ErrNotFound
+		}
+		if err != nil {
+			return fmt.Errorf("deactivate account: %w", err)
+		}
+	}
 	if _, err := s.sessions.DeleteMany(ctx, bson.D{{Key: "userId", Value: userID}}); err != nil {
 		return fmt.Errorf("delete sessions: %w", err)
 	}
-	res, err := s.accounts.DeleteOne(ctx, bson.D{{Key: "id", Value: userID}})
-	if err != nil {
-		return fmt.Errorf("delete account: %w", err)
-	}
-	if res.DeletedCount == 0 {
-		return ErrNotFound
-	}
 	return nil
+}
+
+func (doc storedAccount) deactivated() bool {
+	return !doc.DeactivatedAt.IsZero()
 }
 
 func (s *Store) SavedJobIDs(ctx context.Context, userID string) ([]string, error) {
@@ -364,7 +395,7 @@ func (s *Store) GetAccount(ctx context.Context, id string) (AccountRow, error) {
 	}
 	var doc storedAccount
 	err := s.accounts.FindOne(ctx, bson.M{"id": id}, options.FindOne().
-		SetProjection(bson.M{"id": 1, "name": 1, "email": 1, "createdAt": 1})).
+		SetProjection(accountRowProjection)).
 		Decode(&doc)
 	if errors.Is(err, mongo.ErrNoDocuments) {
 		return AccountRow{}, ErrNotFound
@@ -372,7 +403,7 @@ func (s *Store) GetAccount(ctx context.Context, id string) (AccountRow, error) {
 	if err != nil {
 		return AccountRow{}, err
 	}
-	return AccountRow{ID: doc.ID, Name: doc.Name, Email: doc.Email, CreatedAt: doc.CreatedAt}, nil
+	return accountFrom(doc), nil
 }
 
 func (s *Store) insertSession(ctx context.Context, userID string, now time.Time) (string, error) {

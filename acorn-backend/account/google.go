@@ -108,6 +108,9 @@ func checkedGoogleEmail(id GoogleIdentity) (string, error) {
 }
 
 func (s *Store) sessionForGoogle(ctx context.Context, doc storedAccount, id GoogleIdentity, now time.Time) (string, User, error) {
+	if doc.deactivated() {
+		return "", User{}, ErrDeactivated
+	}
 	link, err := googleLink(doc.GoogleID, id.Subject)
 	if err != nil {
 		return "", User{}, err

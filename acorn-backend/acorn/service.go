@@ -132,6 +132,28 @@ func (s *Service) ask(ctx context.Context, purpose Purpose, system, user string,
 	return string(raw), err
 }
 
+// askTurns is ask over a conversation: earlier turns, then the message to answer.
+// A model that takes only one message gets the turns as one transcript.
+func (s *Service) askTurns(ctx context.Context, purpose Purpose, system string, turns []openai.Message, schema json.RawMessage) (string, error) {
+	chat, ok := s.model.(ConversationModel)
+	if !ok || len(turns) < 2 {
+		return s.ask(ctx, purpose, system, transcript(turns), schema)
+	}
+	if !s.model.Ready() {
+		return "", ErrModelUnavailable
+	}
+	started := time.Now()
+	ctx = openai.WithCall(ctx, string(purpose))
+	raw, err := chat.Conversation(ctx, system, turns, schema)
+	if s.tracer != nil {
+		s.tracer(ctx, Call{
+			Purpose: purpose, Model: s.model.Model(), System: system, User: transcript(turns), Schema: schema,
+			Output: raw, Err: err, Duration: time.Since(started),
+		})
+	}
+	return string(raw), err
+}
+
 // AnalyzeResult is what the extension runs: a plan of form actions.
 type AnalyzeResult struct {
 	OK         bool    `json:"ok"`

@@ -21,8 +21,12 @@ func (s *Store) IssueSupportSession(ctx context.Context, userID, adminEmail, rea
 	if userID == "" || adminEmail == "" {
 		return "", time.Time{}, ErrInvalid
 	}
-	if _, err := s.GetAccount(ctx, userID); err != nil {
+	row, err := s.GetAccount(ctx, userID)
+	if err != nil {
 		return "", time.Time{}, err
+	}
+	if row.Deactivated() {
+		return "", time.Time{}, ErrDeactivated
 	}
 	expires := now.Add(SupportSessionTTL).UTC()
 	token, err := s.storeSession(ctx, storedSession{

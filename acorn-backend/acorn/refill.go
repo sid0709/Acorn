@@ -30,17 +30,22 @@ type FieldIssueScan struct {
 
 // Refill plans fixes for the flagged fields only: clear rejected filler, refill
 // rejected or missing answers, then let the writer rewrite typed answers with
-// the page's error in view.
-func (s *Service) Refill(ctx context.Context, applicant, pureTree string, scan FieldIssueScan, page map[string]any) (AnalyzeResult, error) {
+// the page's error in view. history is the plans already run on this page,
+// oldest first: the planner continues that conversation instead of starting over.
+func (s *Service) Refill(ctx context.Context, applicant, pureTree string, scan FieldIssueScan, page map[string]any, history []PlanTurn) (AnalyzeResult, error) {
 	if strings.TrimSpace(pureTree) == "" {
 		return AnalyzeResult{}, fmt.Errorf("%w: pureTree is required", ErrInvalid)
 	}
 	if len(scan.Issues) == 0 {
 		return AnalyzeResult{}, fmt.Errorf("%w: fieldIssues are required for refill", ErrInvalid)
 	}
+	if err := validateHistory(history); err != nil {
+		return AnalyzeResult{}, err
+	}
 	page = withResumeAvailable(page)
 
-	text, err := s.ask(ctx, PurposeRefill, refillSystem, refillUserPrompt(applicant, pureTree, scan, page), refillPlanSchema())
+	turns := refillTurns(history, refillUserPrompt(applicant, pureTree, scan, page))
+	text, err := s.askTurns(ctx, PurposeRefill, refillSystem, turns, refillPlanSchema())
 	if err != nil {
 		return AnalyzeResult{}, err
 	}

@@ -16,4 +16,4 @@ bun install
 
 The API compiles against `backend-core` in this repo (`acorn-backend/go.mod` replaces it with `../backend-core`). Google sign-in is `packages/google-signin` (`@acorn/google-signin`).
 
-`bun run format:check` is the Prettier check. `bun run lint` is ESLint.
+`bun run ci` is the GitHub CI check: Prettier, ESLint, dependencies, and `bun test`. `bun run ci:fix` writes Prettier and auto-fixable ESLint issues, including import order.

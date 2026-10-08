@@ -57,7 +57,7 @@ export function AccountSettings({
       </SectionCard>
       <SectionCard
         title="Delete account"
-        description="Deleting the account also deletes the profile, résumé library, templates, and generation history."
+        description="Deactivates this account. You are signed out and cannot sign in again."
       >
         <Stack gap={3}>
           {error ? <Banner status="error" title={error} /> : null}
@@ -69,7 +69,7 @@ export function AccountSettings({
             if (!busy) setOpen(next);
           }}
           title="Delete this account?"
-          description={`This permanently deletes ${email}, including the profile, résumés, templates, and generation history.`}
+          description={`This deactivates ${email}. You are signed out and cannot sign in again.`}
           actionLabel="Delete account"
           isActionLoading={busy}
           onAction={() => {

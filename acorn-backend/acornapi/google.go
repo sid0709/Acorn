@@ -186,6 +186,8 @@ func writeGoogleAccountError(w http.ResponseWriter, err error) {
 		writeError(w, http.StatusNotFound, err.Error())
 	case errors.Is(err, account.ErrGoogleMismatch), errors.Is(err, account.ErrEmailTaken):
 		writeError(w, http.StatusConflict, err.Error())
+	case errors.Is(err, account.ErrDeactivated):
+		writeError(w, http.StatusForbidden, err.Error())
 	default:
 		slog.Error("google sign-in", "error", err)
 		writeError(w, http.StatusInternalServerError, "could not complete sign in")

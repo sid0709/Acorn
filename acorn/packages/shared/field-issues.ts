@@ -62,3 +62,27 @@ export function countFlaggedSince(before: FieldIssueScan | null, after: FieldIss
 export function countRequiredEmpty(scan: FieldIssueScan): number {
   return scan.issues.filter((issue) => issue.required && !issue.value.trim()).length;
 }
+
+function noteKey(issue: FieldIssue, message: string): string {
+  return [issue.label, issue.role, message].join("\u0000");
+}
+
+/**
+ * Fields showing text beside them that was not there in `before` (the page as it
+ * stood before the fill). A page that rejects an answer in plain copy, with no
+ * ARIA and no invalid state, can only say so this way. Help text it showed all
+ * along is not counted, and fields already flagged by a hard signal are counted
+ * by countFlaggedSince instead. The Refill planner reads the text and decides
+ * whether it is an error.
+ */
+export function countNotedSince(before: FieldIssueScan | null, after: FieldIssueScan): number {
+  const earlier = new Set(
+    (before?.issues ?? []).flatMap((issue) => issue.nearbyMessages.map((m) => noteKey(issue, m))),
+  );
+  return after.issues.filter(
+    (issue) =>
+      !issue.invalid &&
+      issue.linkedMessages.length === 0 &&
+      issue.nearbyMessages.some((message) => !earlier.has(noteKey(issue, message))),
+  ).length;
+}

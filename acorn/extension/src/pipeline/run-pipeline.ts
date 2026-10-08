@@ -35,6 +35,7 @@ import { autoPauseDecision, countDomNodes, mergeReports, shortLabel } from "./ru
 import { beginPipelineUsageTracking, endPipelineUsageTracking } from "./usage-tracker";
 
 import type { PipelineProgress } from "@acorn/shared/pipeline-types";
+import type { PlanTurn } from "@acorn/shared/plan-history";
 import type { ActionPlan, PlanStepPayload, RunStepRecord } from "@acorn/shared/plan-runner/types";
 
 /** Run requires a résumé file; a fill that has none stops here, before any model call or step. */
@@ -65,6 +66,8 @@ export interface RunPipelineArgs {
   source?: PipelineSource;
   /** Fill every field (default), or Refill only the fields the page flagged. */
   mode?: FillMode;
+  /** Refill: the plans already run on this page and what came of them, oldest first. */
+  history?: PlanTurn[];
   /** Run: a fill with no résumé file stops before touching the page. Fill page leaves it off. */
   requireResume?: boolean;
   /** Run: a code found in the applicant's mail, filled into the field that asks for it. */
@@ -90,6 +93,7 @@ export async function runFabPipeline(args: RunPipelineArgs): Promise<void> {
     aiServerUrl = DEFAULT_ACORN_API_URL,
     source = "fill",
     mode = FILL_MODE.fill,
+    history,
     requireResume = false,
     pendingOnly = false,
     verificationCode,
@@ -282,6 +286,7 @@ export async function runFabPipeline(args: RunPipelineArgs): Promise<void> {
               pureTree,
               mode,
               fieldIssues: refill ? fieldIssues : undefined,
+              history: refill && history?.length ? history : undefined,
               page,
               verificationCode,
               debug: ACORN_DEBUG

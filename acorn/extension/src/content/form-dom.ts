@@ -103,15 +103,41 @@ function checkboxSetGroup(el: Element): Element | null {
   return onlyBoxes && controls.length > 1 ? group : null;
 }
 
-/** Stable per-page keys for checkbox-set groups, which have no shared name to key by. */
+function isNamelessRadio(el: Element): el is HTMLInputElement {
+  return el instanceof HTMLInputElement && el.type === "radio" && !el.name;
+}
+
+/**
+ * Radios with no shared name (a script, not the browser, makes them exclusive):
+ * the nearest container holding more than one control, when every control in it
+ * is such a radio, is one question.
+ */
+function namelessRadioSet(el: Element): Element | null {
+  if (!isNamelessRadio(el)) return null;
+  let node = el.parentElement;
+  for (let depth = 0; node && depth < MAX_WRAPPER_DEPTH; depth += 1) {
+    if (node === node.ownerDocument.body) return null;
+    const controls = Array.from(node.querySelectorAll(FILLABLE_SELECTOR));
+    if (controls.length > 1) return controls.every(isNamelessRadio) ? node : null;
+    node = node.parentElement;
+  }
+  return null;
+}
+
+/** A choice question its controls' names do not tie together. */
+function choiceSetGroup(el: Element): Element | null {
+  return checkboxSetGroup(el) ?? namelessRadioSet(el);
+}
+
+/** Stable per-page keys for choice-set groups, which have no shared name to key by. */
 const groupKeys = new WeakMap<Element, string>();
 let nextGroupKey = 0;
 
-function checkboxSetKey(group: Element): string {
+function choiceSetKey(group: Element): string {
   let key = groupKeys.get(group);
   if (!key) {
     nextGroupKey += 1;
-    key = `checkbox-set:${nextGroupKey}`;
+    key = `choice-set:${nextGroupKey}`;
     groupKeys.set(group, key);
   }
   return key;
@@ -119,8 +145,8 @@ function checkboxSetKey(group: Element): string {
 
 export function choiceGroupKey(el: Element): string | null {
   if (!(el instanceof HTMLInputElement) || !CHOICE_TYPES.has(el.type)) return null;
-  const set = checkboxSetGroup(el);
-  if (set) return checkboxSetKey(set);
+  const set = choiceSetGroup(el);
+  if (set) return choiceSetKey(set);
   return el.name ? `${el.type}:${el.form?.id ?? ""}:${el.name}` : null;
 }
 
@@ -247,8 +273,9 @@ export function groupQuestion(wrapper: Element, first: Element, members: Element
 }
 
 export function groupMembers(control: Element): Element[] {
-  const set = checkboxSetGroup(control);
-  if (set) return Array.from(set.querySelectorAll('input[type="checkbox"]'));
+  const set = choiceSetGroup(control);
+  if (set)
+    return Array.from(set.querySelectorAll(`input[type="${(control as HTMLInputElement).type}"]`));
   const key = choiceGroupKey(control);
   if (!key) return [control];
   const input = control as HTMLInputElement;

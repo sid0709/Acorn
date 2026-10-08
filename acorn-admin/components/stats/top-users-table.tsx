@@ -3,6 +3,8 @@
 import { useRouter } from "next/navigation";
 import { Avatar, HStack, SectionCard, Stack, Table, Text, type TableColumn } from "sid-ui";
 
+import { DeactivatedBadge } from "@/components/users/deactivated-badge";
+
 import type { AccountNames, Group } from "@/lib/statistics/types";
 
 import { formatCount, formatPercent, formatUSD } from "@/lib/format";
@@ -10,7 +12,7 @@ import { ROUTES } from "@/lib/routes";
 
 const AVATAR_SIZE = 32;
 
-type Row = Group & { name: string; email: string };
+type Row = Group & { name: string; email: string; deactivatedAt?: string | null };
 
 const columns: TableColumn<Row>[] = [
   {
@@ -20,9 +22,12 @@ const columns: TableColumn<Row>[] = [
       <HStack gap={2} vAlign="center">
         <Avatar name={r.name} size={AVATAR_SIZE} tooltip={false} />
         <Stack gap={0}>
-          <Text weight="medium" maxLines={1}>
-            {r.name}
-          </Text>
+          <HStack gap={2} vAlign="center">
+            <Text weight="medium" maxLines={1}>
+              {r.name}
+            </Text>
+            {r.deactivatedAt ? <DeactivatedBadge /> : null}
+          </HStack>
           <Text type="supporting" color="secondary" maxLines={1}>
             {r.email}
           </Text>
@@ -47,6 +52,7 @@ export function TopUsersTable({ groups, accounts }: { groups: Group[]; accounts:
     ...g,
     name: accounts[g.key]?.name || "Deleted account",
     email: accounts[g.key]?.email ?? g.key,
+    deactivatedAt: accounts[g.key]?.deactivatedAt,
   }));
   return (
     <SectionCard title="Top users by spend">

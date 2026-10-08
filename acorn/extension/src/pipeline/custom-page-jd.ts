@@ -1,9 +1,13 @@
-import { PAGE_TEXT_MAX_CHARS, extractVisiblePageText } from "@acorn/shared/page-text";
+import {
+  PAGE_TEXT_MAX_CHARS,
+  combineFrameTexts,
+  extractVisiblePageText,
+} from "@acorn/shared/page-text";
 import { formatAnalyzeTrees, type DomTreeNode } from "@acorn/shared/tree-export";
 
 import { extractCustomJd } from "./api/custom-generate";
 import { fetchDomFromTab } from "./fetch-dom";
-import { fetchPostingDomFromTab } from "./fetch-posting";
+import { fetchPostingFramesFromTab } from "./fetch-posting";
 
 export const NO_JD = "No job description on this page";
 
@@ -18,16 +22,23 @@ function capText(text: string): string {
 }
 
 /**
- * Custom Recommend: the tab's visible copy, as-is. The SelectorGateway (Jev) decides
- * whether it is a posting and which Library résumé fits it, so no text model
- * rewrites it first.
+ * Custom Recommend: the tab's visible copy, as-is, from every frame. The
+ * SelectorGateway (Jev) decides whether a posting is there and which Library
+ * résumé fits it, so no text model rewrites it first and no frame is guessed.
  */
 export async function readRememberedTabPosting(tabId: number): Promise<RememberedTabJd> {
-  const treePayload = await fetchPostingDomFromTab(tabId);
-  const { pure } = formatAnalyzeTrees(treePayload.tree as unknown as DomTreeNode);
-  const title = treePayload.title || "Untitled";
-  const url = treePayload.url || "";
-  const jobDescription = extractVisiblePageText(pure, { title, url });
+  const frames = await fetchPostingFramesFromTab(tabId);
+  const top = frames.find((frame) => frame.frameId === 0) ?? frames[0];
+  const title = top.title || "Untitled";
+  const url = top.url || "";
+  const jobDescription = combineFrameTexts(
+    frames.map((frame) => ({
+      title: frame.title || "",
+      url: frame.url || "",
+      text: extractVisiblePageText(formatAnalyzeTrees(frame.tree as unknown as DomTreeNode).pure),
+      top: frame === top,
+    })),
+  );
   if (!jobDescription.trim()) {
     throw new Error("No readable text on this tab");
   }
