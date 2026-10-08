@@ -1,5 +1,5 @@
 import { HStack, Link, Stack, Text } from "sid-ui";
-import { AcornMark } from "@/components/brand/acorn-mark";
+import { AcornWordmark } from "@/components/brand/acorn-wordmark";
 import { BRAND } from "@/lib/config";
 import { LANDING_SECTIONS, POSITIONING, SLOGAN } from "@/lib/landing";
 import { ROUTES } from "@/lib/routes";
@@ -43,12 +43,7 @@ export function LandingFooter() {
         <Stack gap={10}>
           <div className="lp-footer-grid">
             <Stack gap={3}>
-              <HStack gap={2} vAlign="center">
-                <AcornMark size="md" />
-                <Text type="large" weight="bold">
-                  {BRAND}
-                </Text>
-              </HStack>
+              <AcornWordmark />
               <Text weight="semibold">{POSITIONING}.</Text>
               <Text color="secondary" display="block">
                 {SLOGAN}

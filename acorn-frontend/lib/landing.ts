@@ -9,7 +9,8 @@ import { BRAND } from "./config";
  */
 
 export const SLOGAN_LEAD = "Two hands were never enough.";
-export const SLOGAN_PAYOFF = `Now you have ${BRAND}.`;
+export const SLOGAN_PAYOFF_LEAD = "Now you have";
+export const SLOGAN_PAYOFF = `${SLOGAN_PAYOFF_LEAD} ${BRAND}.`;
 export const SLOGAN = `${SLOGAN_LEAD} ${SLOGAN_PAYOFF}`;
 
 /** The one-line category Acorn owns. */

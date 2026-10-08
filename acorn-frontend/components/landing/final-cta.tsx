@@ -1,8 +1,9 @@
 import { Button, Glyph, HStack, Heading, PAGE_WIDTHS, Stack, Text } from "sid-ui";
 import { AcornMark } from "@/components/brand/acorn-mark";
-import { SLOGAN_LEAD, SLOGAN_PAYOFF } from "@/lib/landing";
+import { SLOGAN_LEAD } from "@/lib/landing";
 import { INSTALL_SECTION_ID, ROUTES } from "@/lib/routes";
 import { LandingContainer } from "./landing-section";
+import { SloganPayoff } from "./slogan-payoff";
 
 /** The closing call to action, and the in-page install target when there is no store listing. */
 export function FinalCta({
@@ -29,7 +30,7 @@ export function FinalCta({
                 justify="center"
                 className="lp-title"
               >
-                {SLOGAN_LEAD} {SLOGAN_PAYOFF}
+                {SLOGAN_LEAD} <SloganPayoff />
               </Heading>
               <Text display="block" justify="center" className="lp-lede lp-on-dark-muted">
                 Create a free account, add the extension, and let the auto-bid agent send your next

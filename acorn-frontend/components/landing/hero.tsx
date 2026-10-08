@@ -1,9 +1,10 @@
 import { Badge, Button, Glyph, HStack, Heading, Stack, Text } from "sid-ui";
 import { AcornMark } from "@/components/brand/acorn-mark";
-import { HERO_LEDE, POSITIONING, SLOGAN_LEAD, SLOGAN_PAYOFF } from "@/lib/landing";
+import { HERO_LEDE, POSITIONING, SLOGAN_LEAD } from "@/lib/landing";
 import { ROUTES } from "@/lib/routes";
 import { AgentConsole } from "./agent-console";
 import { LandingContainer } from "./landing-section";
+import { SloganPayoff } from "./slogan-payoff";
 
 const REASSURANCES = ["Free plan", "No credit card", "Chrome, Edge, Brave, and Arc"];
 
@@ -21,7 +22,7 @@ export function Hero({ installHref }: { installHref: string }) {
             <Heading level={1} id="hero-title" className="lp-display lp-rise">
               {SLOGAN_LEAD}{" "}
               <Text type="inherit" color="inherit" display="block" className="lp-gradient-text">
-                {SLOGAN_PAYOFF}
+                <SloganPayoff />
               </Text>
             </Heading>
             <Text color="secondary" display="block" className="lp-lede lp-rise">
