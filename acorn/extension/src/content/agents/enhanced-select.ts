@@ -285,7 +285,7 @@ export function findComboboxForOption(option: HTMLElement): HTMLElement | null {
     }
   }
 
-  if (listbox) {
+  if (listbox instanceof HTMLElement) {
     const owner = findAriaOwner(listbox);
     if (owner) {
       const near = comboboxNearOwner(owner, option);
@@ -293,7 +293,7 @@ export function findComboboxForOption(option: HTMLElement): HTMLElement | null {
     }
   }
 
-  let node: HTMLElement | null = listbox || option;
+  let node: HTMLElement | null = listbox instanceof HTMLElement ? listbox : option;
   for (let depth = 0; depth < 8 && node; depth += 1) {
     const parent: HTMLElement | null = node.parentElement;
     if (!parent) break;

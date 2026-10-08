@@ -1,5 +1,5 @@
 import type { DomNode } from "../types";
-import type { PauseRequest, RunReport } from "@acorn/shared/plan-runner/types";
+import type { PauseDecision, PauseRequest, RunReport } from "@acorn/shared/plan-runner/types";
 
 export function shortLabel(expectedLabel: string | null | undefined, action: string): string {
   const label = (expectedLabel || "").trim();
@@ -12,9 +12,9 @@ export function shortLabel(expectedLabel: string | null | undefined, action: str
  * - errors → always skip
  * - planned pause → continue so autofill can run when a value is present
  */
-export function autoPauseDecision(request: PauseRequest) {
-  if (request.kind === "error") return "skip" as const;
-  return "continue" as const;
+export function autoPauseDecision(request: PauseRequest): Promise<PauseDecision> {
+  if (request.kind === "error") return Promise.resolve("skip");
+  return Promise.resolve("continue");
 }
 
 export function countDomNodes(node: DomNode): number {
