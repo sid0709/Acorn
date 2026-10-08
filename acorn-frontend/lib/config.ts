@@ -26,7 +26,10 @@ export function extensionVersion(): string | null {
 export function extensionDownloadUrl(): string | null {
   const override = process.env.ACORN_EXTENSION_DOWNLOAD_URL?.trim();
   if (override) return override;
-  return extensionVersion() ? EXTENSION_DOWNLOAD_PATH : null;
+  if (extensionVersion()) return EXTENSION_DOWNLOAD_PATH;
+  // Website Docker images always run extension-release before `next build`.
+  if (process.env.NODE_ENV === "production") return EXTENSION_DOWNLOAD_PATH;
+  return null;
 }
 
 /** Gmail on the web, for "Open in Gmail". */

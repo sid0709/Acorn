@@ -12,10 +12,7 @@ while IFS= read -r path || [[ -n "${path}" ]]; do
     acorn-backend/* | backend-core/*)
       api=1
       ;;
-    acorn-frontend/*)
-      web=1
-      ;;
-    acorn/extension/* | tools/extension-release.mjs)
+    acorn-frontend/* | acorn/extension/* | tools/extension-release.mjs | docker/deploy-remote.sh | docker/sync-deploy-env.sh | .github/workflows/docker-publish.yml)
       web=1
       ;;
     acorn-admin/*)
