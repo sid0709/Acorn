@@ -1,7 +1,9 @@
 import { mount, type AcornFaceHandle } from "@acorn/face";
+
 import { FACE_SMILE_MS, FACE_WINK_MS } from "../acorn-face/constants";
-import { CHIP_SIZE_PX, attachSheet } from "./selection-qa-style";
+
 import { requestSelectionQa } from "./selection-qa-request";
+import { CHIP_SIZE_PX, attachSheet } from "./selection-qa-style";
 
 const MIN_SELECTION_CHARS = 8;
 const MAX_SELECTION_CHARS = 8000;

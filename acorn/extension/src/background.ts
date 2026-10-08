@@ -1,14 +1,7 @@
 import { isAcornSocketConnected, scheduleConnectAcornSocket } from "./acorn-socket";
-import { rekeyPipelineUsage } from "./pipeline/usage-tracker";
-import { bindContentScriptInjection, injectIntoOpenTabs } from "./inject-content";
-import { rekeyTabJob, unbindTabJob } from "./tab-job-session";
-import { rekeyUsageTab } from "./tab-usage-key";
-import { rekeyCustomTab, refreshCustomTabMeta, unbindCustomTab } from "./tab-custom-session";
-import { clearTabPipeline, rekeyTabPipeline } from "./tab-pipeline-session";
-import { MSG, ACORN_SIDEBAR_PORT } from "./types";
+import { bindAutoFocusSetting } from "./background/auto-focus";
 import { routeMessage } from "./background/message-router";
 import { connectSocket, sidebarPorts, socketHandlers } from "./background/socket-connection";
-import { bindAutoFocusSetting } from "./background/auto-focus";
 import {
   KEEP_ALIVE_ALARM,
   WORK_KEEP_ALIVE_ALARM,
@@ -17,6 +10,13 @@ import {
   pipelineRunningTabIds,
   runTabIds,
 } from "./background/work-state";
+import { bindContentScriptInjection, injectIntoOpenTabs } from "./inject-content";
+import { rekeyPipelineUsage } from "./pipeline/usage-tracker";
+import { rekeyCustomTab, refreshCustomTabMeta, unbindCustomTab } from "./tab-custom-session";
+import { rekeyTabJob, unbindTabJob } from "./tab-job-session";
+import { clearTabPipeline, rekeyTabPipeline } from "./tab-pipeline-session";
+import { rekeyUsageTab } from "./tab-usage-key";
+import { MSG, ACORN_SIDEBAR_PORT } from "./types";
 
 function enableSidePanelOnActionClick(): void {
   void chrome.sidePanel.setPanelBehavior({ openPanelOnActionClick: true }).catch(() => undefined);

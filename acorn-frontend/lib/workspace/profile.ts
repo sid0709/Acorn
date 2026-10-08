@@ -71,6 +71,7 @@ export type ApplicantProfile = {
   desiredSalary: string;
   openrouterApiKey: string;
   defaultAccountPassword: string;
+  extensionPassword: string;
   resumeFolderPath: string;
   timeline: CareerEntry[];
 };
@@ -201,6 +202,7 @@ export function sampleProfile(account: AcornAccount): ApplicantProfile {
     desiredSalary: "150000",
     openrouterApiKey: "",
     defaultAccountPassword: "sample-account-password",
+    extensionPassword: "",
     resumeFolderPath: "~/Documents/Resumes",
     timeline: [
       {
@@ -273,6 +275,7 @@ const LATER_FIELDS = {
   willingToTravel: "",
   noticePeriod: "",
   openrouterApiKey: "",
+  extensionPassword: "",
 } satisfies Partial<ApplicantProfile>;
 
 /** What an empty answer starts as. Matches the backend's defaults. */

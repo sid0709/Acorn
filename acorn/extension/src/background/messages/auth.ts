@@ -19,7 +19,11 @@ export function handleAuthStatus(sendResponse: SendResponse): void {
 
 export function handleAuthSignIn(message: RuntimeMessage, sendResponse: SendResponse): void {
   void (async () => {
+    const email = typeof message.email === "string" ? message.email : "";
+    const password = typeof message.password === "string" ? message.password : "";
     const result = await acornSignIn(
+      email,
+      password,
       typeof message.apiUrl === "string" ? message.apiUrl : undefined,
     );
     if (!result.ok) {

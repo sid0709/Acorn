@@ -2,15 +2,7 @@
   "manifest_version": 3,
   "name": "Acorn",
   "description": "Fill forms from the Acorn side panel and inspect DOM trees",
-  "permissions": [
-    "activeTab",
-    "storage",
-    "scripting",
-    "alarms",
-    "webNavigation",
-    "sidePanel",
-    "identity"
-  ],
+  "permissions": ["activeTab", "storage", "scripting", "alarms", "webNavigation", "sidePanel"],
   "side_panel": {
     "default_path": "sidebar.html"
   },

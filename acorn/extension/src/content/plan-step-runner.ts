@@ -1,24 +1,27 @@
-import type { PlanStepPayload, PlanStepResult } from "../types";
 import { rewriteApplicantIdentityValue } from "@acorn/shared/plan-runner/applicant-identity";
 import { isCustomResumeFile } from "@acorn/shared/plan-runner/step-file";
 import { shownValue } from "@acorn/shared/secret-value";
+
+import { traceFromPage } from "../debug-trace";
+
 import { controlAlreadyMatches } from "./agents/already-filled";
 import { clearElement } from "./agents/clear";
 import { fillElement } from "./agents/fill";
 import { rememberPlanFilled } from "./agents/plan-fill-registry";
-import { selectComboboxOption } from "./agents/select-combobox";
-import { opensOptionList, visibleStandIn } from "./agents/stand-in";
 import { readControlValue } from "./agents/read-control-value";
 import { resumeUpload } from "./agents/resume-upload";
+import { selectComboboxOption } from "./agents/select-combobox";
 import { selectRadioElement } from "./agents/select-radio";
+import { opensOptionList, visibleStandIn } from "./agents/stand-in";
 import { uploadFileToElement } from "./agents/upload";
 import { validateElementIndexes } from "./agents/validate";
 import { waitMs } from "./agents/wait";
-import { highlightElement } from "./highlighter";
-import { verifyElementByPlan, type VerifyResult } from "./verify-element";
-import { relocateElementByPlan } from "./verify/relocate";
-import { traceFromPage } from "../debug-trace";
 import { comboSnapshot, describeEl, describeWidget } from "./debug-snapshot";
+import { highlightElement } from "./highlighter";
+import { relocateElementByPlan } from "./verify/relocate";
+import { verifyElementByPlan, type VerifyResult } from "./verify-element";
+
+import type { PlanStepPayload, PlanStepResult } from "../types";
 
 function nearbyQuestionText(el: Element, expectedLabel: string | null): string {
   const bits = [expectedLabel || ""];

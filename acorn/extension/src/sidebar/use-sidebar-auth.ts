@@ -30,7 +30,7 @@ export function useSidebarAuth({ onSignedOut }: { onSignedOut: () => void }) {
     return () => chrome.storage.onChanged.removeListener(onChanged);
   }, []);
 
-  const handleSignIn = async () => {
+  const handleSignIn = async (email: string, password: string) => {
     setAuthBusy(true);
     try {
       const res = await sendMessage<{
@@ -40,12 +40,14 @@ export function useSidebarAuth({ onSignedOut }: { onSignedOut: () => void }) {
       }>({
         type: MSG.AUTH_SIGNIN,
         apiUrl,
+        email,
+        password,
       });
       if (!res?.ok || !res.session) {
         pushAcornNotice({
           kind: "error",
           title: "Couldn’t sign in",
-          detail: res?.error || "Google sign-in didn’t finish. Try again.",
+          detail: res?.error || "Check your profile email and extension password.",
         });
         return;
       }
