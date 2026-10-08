@@ -1,13 +1,10 @@
 import type { Metadata } from "next";
 import type { ReactNode } from "react";
 import { Providers } from "@/components/providers";
-import { BRAND } from "@/lib/config";
+import { rootMetadata } from "@/lib/seo";
 import "./globals.css";
 
-export const metadata: Metadata = {
-  title: { default: BRAND, template: `%s · ${BRAND}` },
-  description: "Acorn fills job applications from your resume, in the browser.",
-};
+export const metadata: Metadata = rootMetadata();
 
 export default function RootLayout({ children }: { children: ReactNode }) {
   return (

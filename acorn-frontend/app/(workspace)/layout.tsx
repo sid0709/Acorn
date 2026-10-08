@@ -1,3 +1,4 @@
+import type { Metadata } from "next";
 import type { ReactNode } from "react";
 import { redirect } from "next/navigation";
 import { PageContainer } from "sid-ui";
@@ -9,6 +10,9 @@ import { ProfileSync } from "@/components/workspace/profile-sync";
 import { WorkspaceScope } from "@/components/workspace/workspace-scope";
 import { currentAccount } from "@/lib/auth/session";
 import { ROUTES } from "@/lib/routes";
+import { NO_INDEX } from "@/lib/seo";
+
+export const metadata: Metadata = { robots: NO_INDEX };
 
 export default async function WorkspaceLayout({ children }: { children: ReactNode }) {
   const account = await currentAccount();

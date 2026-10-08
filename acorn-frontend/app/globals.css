@@ -77,3 +77,52 @@ html {
   border-radius: var(--radius-inner);
   background: var(--color-background-surface);
 }
+
+/* The Acorn "A" (AcornMark). Sizes sit on the spacing scale; the ribbon uses the orange data tokens. */
+.acorn-mark {
+  display: block;
+  flex-shrink: 0;
+  overflow: visible;
+  fill: none;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+
+.acorn-mark-sm {
+  width: var(--spacing-6);
+  height: var(--spacing-6);
+}
+
+.acorn-mark-md {
+  width: var(--spacing-10);
+  height: var(--spacing-10);
+}
+
+.acorn-mark-lg {
+  width: calc(var(--spacing-12) * 2);
+  height: calc(var(--spacing-12) * 2);
+}
+
+.acorn-mark-xl {
+  width: calc(var(--spacing-12) * 3);
+  height: calc(var(--spacing-12) * 3);
+}
+
+.acorn-mark-rim {
+  stroke: var(--color-data-orange-3);
+}
+
+.acorn-mark-core {
+  stroke: var(--color-data-orange-1);
+}
+
+/* The glowing tube from the brand art. */
+.acorn-mark-neon {
+  filter: drop-shadow(0 0 var(--spacing-1) var(--color-data-orange-3))
+    drop-shadow(0 0 var(--spacing-4) var(--color-data-orange-2));
+}
+
+/* The second half of the slogan in the hero h1. Doubled to outrank the Text color class. */
+.landing-slogan-payoff.landing-slogan-payoff {
+  color: var(--color-data-orange-4);
+}

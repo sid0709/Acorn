@@ -1,7 +1,15 @@
 /** Local acorn-backend. Override with ACORN_API_URL. */
 const DEFAULT_API_URL = "http://127.0.0.1:8083";
 
+/** Local acorn-frontend. Production sets ACORN_WEB_URL to the public origin. */
+const DEFAULT_WEB_URL = "http://localhost:6005";
+
 export const BRAND = "Acorn";
+
+/** The public origin: canonical links, the sitemap, and social cards resolve against it. */
+export function siteUrl(): string {
+  return (process.env.ACORN_WEB_URL || DEFAULT_WEB_URL).replace(/\/$/, "");
+}
 
 export function acornApiUrl(): string {
   return (process.env.ACORN_API_URL || DEFAULT_API_URL).replace(/\/$/, "");

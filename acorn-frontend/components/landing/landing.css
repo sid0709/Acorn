@@ -1,0 +1,647 @@
+/* The public home page. Every color, space, radius, shadow, and timing is a sid-ui
+   token; layout breakpoints and track counts are the only literals. */
+
+/* Theme colors are light-dark() pairs, which gradients cannot read directly.
+   Registering them as <color> resolves each token before a gradient uses it. */
+@property --lp-orange {
+  syntax: "<color>";
+  inherits: true;
+  initial-value: transparent;
+}
+@property --lp-orange-deep {
+  syntax: "<color>";
+  inherits: true;
+  initial-value: transparent;
+}
+@property --lp-orange-soft {
+  syntax: "<color>";
+  inherits: true;
+  initial-value: transparent;
+}
+@property --lp-amber {
+  syntax: "<color>";
+  inherits: true;
+  initial-value: transparent;
+}
+@property --lp-blue {
+  syntax: "<color>";
+  inherits: true;
+  initial-value: transparent;
+}
+@property --lp-blue-soft {
+  syntax: "<color>";
+  inherits: true;
+  initial-value: transparent;
+}
+@property --lp-blue-deep {
+  syntax: "<color>";
+  inherits: true;
+  initial-value: transparent;
+}
+@property --lp-night {
+  syntax: "<color>";
+  inherits: true;
+  initial-value: transparent;
+}
+@property --lp-ink {
+  syntax: "<color>";
+  inherits: true;
+  initial-value: transparent;
+}
+
+.lp {
+  --lp-orange: var(--color-data-orange-3);
+  --lp-orange-deep: var(--color-data-orange-4);
+  --lp-orange-soft: var(--color-data-orange-1);
+  --lp-amber: var(--color-data-yellow-3);
+  --lp-blue: var(--color-accent);
+  --lp-blue-soft: var(--color-data-blue-1);
+  --lp-blue-deep: var(--color-data-blue-4);
+  --lp-night: var(--color-data-blue-5);
+  --lp-ink: var(--color-on-accent);
+  --lp-section-gap: calc(var(--spacing-12) * 2);
+  --lp-gutter: var(--spacing-5);
+
+  overflow-x: clip;
+}
+
+/* ---- Motion ------------------------------------------------------------ */
+
+@keyframes lp-rise {
+  from {
+    opacity: 0;
+    transform: translateY(var(--spacing-4));
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+
+@keyframes lp-float {
+  0%,
+  100% {
+    transform: translateY(0);
+  }
+  50% {
+    transform: translateY(calc(var(--spacing-3) * -1));
+  }
+}
+
+@keyframes lp-marquee {
+  to {
+    transform: translateX(-50%);
+  }
+}
+
+@keyframes lp-glow {
+  0%,
+  100% {
+    opacity: 0.55;
+  }
+  50% {
+    opacity: 0.9;
+  }
+}
+
+.lp-rise {
+  animation: lp-rise var(--duration-slow) var(--ease-standard) both;
+  animation-delay: calc(var(--lp-index, 0) * 90ms);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .lp-rise,
+  .lp-float,
+  .lp-marquee-track,
+  .lp-hero-visual::before {
+    animation: none;
+  }
+}
+
+/* ---- Frame ------------------------------------------------------------- */
+
+.lp-nav {
+  position: sticky;
+  top: 0;
+  z-index: 10;
+  backdrop-filter: saturate(1.6) blur(var(--spacing-4));
+  background: color-mix(in srgb, var(--color-background-body) 78%, transparent);
+  border-bottom: var(--border-width) solid var(--color-border);
+}
+
+.lp-container {
+  width: 100%;
+  max-width: 1200px;
+  margin-inline: auto;
+  padding-inline: var(--lp-gutter);
+  box-sizing: border-box;
+}
+
+.lp-main {
+  display: flex;
+  flex-direction: column;
+  gap: var(--lp-section-gap);
+  padding-bottom: var(--lp-section-gap);
+}
+
+.lp-section {
+  scroll-margin-top: calc(var(--spacing-12) * 2);
+}
+
+/* ---- Type -------------------------------------------------------------- */
+
+.lp-gradient-text.lp-gradient-text {
+  background: linear-gradient(
+    100deg,
+    var(--lp-orange-deep) 0%,
+    var(--lp-orange) 45%,
+    var(--lp-amber) 100%
+  );
+  -webkit-background-clip: text;
+  background-clip: text;
+  color: transparent;
+}
+
+.lp-display.lp-display {
+  font-size: clamp(var(--font-size-4xl), 6vw, calc(var(--font-size-5xl) * 1.35));
+  line-height: 1.04;
+  letter-spacing: -0.035em;
+  font-weight: var(--font-weight-bold);
+  text-wrap: balance;
+}
+
+.lp-title.lp-title {
+  font-size: clamp(var(--font-size-3xl), 4vw, var(--font-size-5xl));
+  line-height: 1.1;
+  letter-spacing: -0.025em;
+  font-weight: var(--font-weight-bold);
+  text-wrap: balance;
+}
+
+.lp-lede.lp-lede {
+  font-size: var(--font-size-xl);
+  line-height: 1.55;
+  text-wrap: pretty;
+}
+
+.lp-figure-value.lp-figure-value {
+  font-size: var(--font-size-5xl);
+  line-height: 1;
+  letter-spacing: -0.04em;
+  font-weight: var(--font-weight-bold);
+  font-variant-numeric: tabular-nums;
+}
+
+/* ---- Hero -------------------------------------------------------------- */
+
+.lp-hero {
+  position: relative;
+  isolation: isolate;
+  padding-block: calc(var(--spacing-12) * 1.5) var(--spacing-12);
+}
+
+/* Two soft lights and a dotted field behind the hero. */
+.lp-hero::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  z-index: -2;
+  background:
+    radial-gradient(
+      60% 55% at 85% 20%,
+      color-mix(in srgb, var(--lp-orange) 30%, transparent),
+      transparent 70%
+    ),
+    radial-gradient(
+      50% 50% at 10% 10%,
+      color-mix(in srgb, var(--lp-blue) 18%, transparent),
+      transparent 70%
+    );
+}
+
+.lp-hero::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  z-index: -1;
+  background-image: radial-gradient(var(--color-border) var(--border-width), transparent 0);
+  background-size: var(--spacing-6) var(--spacing-6);
+  mask-image: radial-gradient(70% 60% at 50% 30%, black, transparent);
+  opacity: 0.6;
+}
+
+.lp-hero-grid {
+  display: grid;
+  gap: var(--spacing-12);
+  align-items: center;
+}
+
+@media (min-width: 1024px) {
+  .lp-hero-grid {
+    grid-template-columns: minmax(0, 1.15fr) minmax(0, 1fr);
+  }
+}
+
+.lp-hero-visual {
+  position: relative;
+  isolation: isolate;
+  padding-top: calc(var(--spacing-12) * 2);
+}
+
+/* The mark's halo behind the console. */
+.lp-hero-visual::before {
+  content: "";
+  position: absolute;
+  z-index: -1;
+  top: 0;
+  left: 50%;
+  width: 80%;
+  aspect-ratio: 1;
+  translate: -50% -10%;
+  border-radius: var(--radius-full);
+  background: radial-gradient(
+    circle,
+    color-mix(in srgb, var(--lp-orange) 45%, transparent),
+    transparent 65%
+  );
+  filter: blur(var(--spacing-8));
+  animation: lp-glow 6s var(--ease-standard) infinite;
+}
+
+.lp-hero-mark {
+  position: absolute;
+  z-index: -1;
+  top: 0;
+  left: 50%;
+  translate: -50% 0;
+}
+
+.lp-float {
+  animation: lp-float 7s var(--ease-standard) infinite;
+}
+
+.lp-console.lp-console {
+  border: var(--border-width) solid color-mix(in srgb, var(--lp-orange) 35%, var(--color-border));
+  box-shadow:
+    var(--shadow-high),
+    0 var(--spacing-6) calc(var(--spacing-12) * 1.5)
+      color-mix(in srgb, var(--lp-orange) 22%, transparent);
+}
+
+/* ---- Marquee ----------------------------------------------------------- */
+
+.lp-marquee {
+  width: 100%;
+  overflow: hidden;
+  mask-image: linear-gradient(90deg, transparent, black 12%, black 88%, transparent);
+}
+
+.lp-marquee-track {
+  display: flex;
+  width: max-content;
+  gap: var(--spacing-10);
+  animation: lp-marquee 40s linear infinite;
+}
+
+.lp-marquee-list {
+  display: flex;
+  gap: var(--spacing-10);
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.lp-marquee:hover .lp-marquee-track {
+  animation-play-state: paused;
+}
+
+.lp-marquee-item {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--spacing-2);
+  white-space: nowrap;
+  font-size: var(--font-size-xl);
+  font-weight: var(--font-weight-semibold);
+  color: var(--color-text-secondary);
+  letter-spacing: -0.01em;
+}
+
+/* ---- Figures ----------------------------------------------------------- */
+
+.lp-figures {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(13rem, 1fr));
+  margin: 0;
+  border: var(--border-width) solid var(--color-border);
+  border-radius: var(--radius-container);
+  background: var(--color-background-surface);
+  box-shadow: var(--shadow-low);
+  overflow: hidden;
+}
+
+.lp-figure {
+  display: flex;
+  flex-direction: column;
+  gap: var(--spacing-2);
+  padding: var(--spacing-8) var(--spacing-6);
+  border-inline-end: var(--border-width) solid var(--color-border);
+}
+
+.lp-figure:last-child {
+  border-inline-end: 0;
+}
+
+.lp-figure dd {
+  margin: 0;
+}
+
+/* The value reads first; the label stays the <dt> it describes. */
+.lp-figure dt {
+  order: 2;
+}
+
+/* ---- Icon tiles and step markers ---------------------------------------- */
+
+.lp-icon-tile {
+  display: inline-grid;
+  place-items: center;
+  width: var(--spacing-12);
+  height: var(--spacing-12);
+  flex-shrink: 0;
+  border-radius: var(--radius-element);
+  color: var(--lp-orange-deep);
+  background: linear-gradient(
+    135deg,
+    var(--lp-orange-soft),
+    color-mix(in srgb, var(--lp-orange) 35%, var(--lp-orange-soft))
+  );
+  box-shadow: inset 0 0 0 var(--border-width) color-mix(in srgb, var(--lp-orange) 40%, transparent);
+}
+
+.lp-icon-tile-blue {
+  color: var(--lp-blue-deep);
+  background: linear-gradient(
+    135deg,
+    var(--lp-blue-soft),
+    color-mix(in srgb, var(--lp-blue) 25%, var(--lp-blue-soft))
+  );
+  box-shadow: inset 0 0 0 var(--border-width) color-mix(in srgb, var(--lp-blue) 30%, transparent);
+}
+
+.lp-step-index {
+  display: inline-grid;
+  place-items: center;
+  width: var(--spacing-8);
+  height: var(--spacing-8);
+  border-radius: var(--radius-full);
+  font-size: var(--font-size-sm);
+  font-weight: var(--font-weight-bold);
+  font-variant-numeric: tabular-nums;
+  color: var(--lp-ink);
+  background: linear-gradient(135deg, var(--lp-orange), var(--lp-orange-deep));
+  box-shadow: 0 0 0 var(--spacing-1) var(--color-background-body);
+}
+
+/* ---- Agent flow -------------------------------------------------------- */
+
+.lp-flow {
+  position: relative;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  display: grid;
+  gap: var(--spacing-4);
+  grid-template-columns: repeat(auto-fit, minmax(15rem, 1fr));
+}
+
+@media (min-width: 1200px) {
+  .lp-flow {
+    grid-template-columns: repeat(6, minmax(0, 1fr));
+  }
+
+  /* The wire that runs through the six step markers. */
+  .lp-flow::before {
+    content: "";
+    position: absolute;
+    top: calc(var(--spacing-5) + var(--spacing-6));
+    left: var(--spacing-6);
+    right: var(--spacing-6);
+    height: calc(var(--border-width) * 2);
+    background: linear-gradient(90deg, var(--lp-orange), var(--lp-amber), var(--lp-blue));
+    opacity: 0.6;
+  }
+}
+
+.lp-flow > * {
+  position: relative;
+}
+
+/* ---- Bento ------------------------------------------------------------- */
+
+.lp-bento {
+  display: grid;
+  gap: var(--spacing-4);
+  grid-template-columns: repeat(auto-fit, minmax(17rem, 1fr));
+}
+
+@media (min-width: 1024px) {
+  .lp-bento {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
+
+  .lp-bento-wide {
+    grid-column: span 2;
+  }
+}
+
+.lp-bento > * {
+  height: 100%;
+  transition:
+    transform var(--duration-medium) var(--ease-standard),
+    box-shadow var(--duration-medium) var(--ease-standard);
+}
+
+.lp-bento > *:hover {
+  transform: translateY(calc(var(--spacing-1) * -1));
+  box-shadow: var(--shadow-high);
+}
+
+.lp-tile-glow.lp-tile-glow {
+  background:
+    radial-gradient(
+      90% 120% at 100% 0%,
+      color-mix(in srgb, var(--lp-orange) 22%, transparent),
+      transparent 60%
+    ),
+    var(--color-background-surface);
+}
+
+/* ---- Dark band --------------------------------------------------------- */
+
+.lp-band {
+  position: relative;
+  isolation: isolate;
+  overflow: hidden;
+  padding: calc(var(--spacing-12) * 1.5) var(--spacing-8);
+  border-radius: calc(var(--radius-container) * 2);
+  color: var(--lp-ink);
+  background: linear-gradient(
+    140deg,
+    var(--lp-night) 0%,
+    var(--lp-blue-deep) 70%,
+    var(--lp-blue) 130%
+  );
+  box-shadow: var(--shadow-high);
+}
+
+.lp-band::before {
+  content: "";
+  position: absolute;
+  z-index: -1;
+  width: 60%;
+  aspect-ratio: 1;
+  right: -15%;
+  top: -40%;
+  border-radius: var(--radius-full);
+  background: radial-gradient(
+    circle,
+    color-mix(in srgb, var(--lp-orange) 45%, transparent),
+    transparent 65%
+  );
+  filter: blur(var(--spacing-6));
+}
+
+.lp-band-grid {
+  display: grid;
+  gap: var(--spacing-10);
+  align-items: center;
+}
+
+@media (min-width: 1024px) {
+  .lp-band-grid {
+    grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+  }
+}
+
+.lp-glass.lp-glass {
+  color: var(--lp-ink);
+  background: color-mix(in srgb, var(--lp-ink) 8%, transparent);
+  border: var(--border-width) solid color-mix(in srgb, var(--lp-ink) 16%, transparent);
+  backdrop-filter: blur(var(--spacing-4));
+}
+
+.lp-on-dark.lp-on-dark {
+  color: inherit;
+}
+
+.lp-on-dark-muted.lp-on-dark-muted {
+  color: color-mix(in srgb, var(--lp-ink) 74%, transparent);
+}
+
+/* ---- Final call to action ---------------------------------------------- */
+
+.lp-cta {
+  position: relative;
+  isolation: isolate;
+  overflow: hidden;
+  padding: calc(var(--spacing-12) * 1.5) var(--spacing-8);
+  border-radius: calc(var(--radius-container) * 2);
+  color: var(--lp-ink);
+  text-align: center;
+  background: linear-gradient(
+    120deg,
+    var(--lp-orange-deep) 0%,
+    var(--lp-orange) 45%,
+    var(--lp-blue) 120%
+  );
+  box-shadow: var(--shadow-high);
+}
+
+.lp-cta::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  z-index: -1;
+  background-image: radial-gradient(
+    color-mix(in srgb, var(--lp-ink) 30%, transparent) var(--border-width),
+    transparent 0
+  );
+  background-size: var(--spacing-5) var(--spacing-5);
+  mask-image: radial-gradient(60% 80% at 50% 50%, transparent, black);
+}
+
+/* On a colored surface the primary button turns light and ghost labels use the ink. */
+.lp-cta .astryx-button[data-variant="primary"],
+.lp-band .astryx-button[data-variant="primary"] {
+  --color-accent: var(--color-background-surface);
+  --color-on-accent: var(--color-text-primary);
+}
+
+.lp-cta .astryx-button[data-variant="secondary"],
+.lp-band .astryx-button[data-variant="secondary"] {
+  --color-neutral: color-mix(in srgb, var(--lp-ink) 16%, transparent);
+  --color-text-primary: var(--lp-ink);
+}
+
+/* ---- Topics ------------------------------------------------------------ */
+
+.lp-topics {
+  display: grid;
+  gap: var(--spacing-4);
+  grid-template-columns: repeat(auto-fit, minmax(20rem, 1fr));
+}
+
+.lp-token-list {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--spacing-2);
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+/* ---- Footer ------------------------------------------------------------ */
+
+.lp-footer {
+  border-top: var(--border-width) solid var(--color-border);
+  background: var(--color-background-surface);
+  padding-block: var(--spacing-12) var(--spacing-8);
+}
+
+.lp-footer-grid {
+  display: grid;
+  gap: var(--spacing-10);
+  grid-template-columns: repeat(auto-fit, minmax(11rem, 1fr));
+}
+
+@media (min-width: 1024px) {
+  .lp-footer-grid {
+    grid-template-columns: minmax(0, 2fr) repeat(3, minmax(0, 1fr));
+  }
+}
+
+.lp-footer-list {
+  display: flex;
+  flex-direction: column;
+  gap: var(--spacing-2);
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+@media (max-width: 640px) {
+  .lp {
+    --lp-gutter: var(--spacing-4);
+    --lp-section-gap: var(--spacing-12);
+  }
+
+  .lp-band,
+  .lp-cta {
+    padding: var(--spacing-10) var(--spacing-5);
+  }
+
+  .lp-figure {
+    border-inline-end: 0;
+    border-bottom: var(--border-width) solid var(--color-border);
+  }
+}

@@ -7,7 +7,12 @@ import { SiteHeader } from "@/components/site-header";
 import { currentAccount } from "@/lib/auth/session";
 import { ROUTES } from "@/lib/routes";
 
-export const metadata: Metadata = { title: "Create account" };
+export const metadata: Metadata = {
+  title: "Create your free account",
+  description:
+    "Create a free Acorn account and let the No. 1 auto-bid agent apply to jobs for you: AI autofill, ATS-friendly resumes, and recruiter reply tracking.",
+  alternates: { canonical: ROUTES.signUp },
+};
 
 export default async function SignUpPage({
   searchParams,
