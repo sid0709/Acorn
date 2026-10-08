@@ -20,8 +20,22 @@ import {
   pageHost,
 } from "@acorn/support-chat";
 
+import { ACORN_FACE_CARD_PX } from "../acorn-face/constants";
+import { AcornFaceView } from "../acorn-face/AcornFaceView";
 import type { AcornMainTab } from "./SidebarNav";
 import type { useSupportClaims } from "./use-support-claims";
+
+function SupportStaffAvatar() {
+  return (
+    <span
+      className="acorn-support-avatar"
+      style={{ width: ACORN_FACE_CARD_PX, height: ACORN_FACE_CARD_PX }}
+      aria-hidden
+    >
+      <AcornFaceView mode="smile" size={ACORN_FACE_CARD_PX} live label="Acorn Support" />
+    </span>
+  );
+}
 
 type SupportState = ReturnType<typeof useSupportClaims>;
 
@@ -80,6 +94,7 @@ export function SupportPanel({
                 viewer={CLAIM_AUTHOR.user}
                 density="compact"
                 placeholder="Message Acorn Support"
+                staffAvatar={<SupportStaffAvatar />}
                 onSend={send}
               />
             ) : (

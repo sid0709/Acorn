@@ -40,6 +40,7 @@ export function ClaimThread({
   density = "balanced",
   placeholder,
   emptyState,
+  staffAvatar,
 }: {
   claim: SupportClaim;
   messages: SupportMessage[];
@@ -49,6 +50,8 @@ export function ClaimThread({
   density?: ChatDensity;
   placeholder?: string;
   emptyState?: ReactNode;
+  /** Shown beside support replies; initials are used when omitted. */
+  staffAvatar?: ReactNode;
 }) {
   const [draft, setDraft] = useState("");
   const [sending, setSending] = useState(false);
@@ -111,6 +114,12 @@ export function ClaimThread({
           {runs.map((run, index) => {
             const isMine = run.author === viewer;
             const name = nameFor(run.author, run.name);
+            const isStaff = run.author === CLAIM_AUTHOR.admin;
+            const peerAvatar = isMine ? undefined : isStaff && staffAvatar ? (
+              staffAvatar
+            ) : (
+              <Avatar name={name} size="sm" tooltip={false} />
+            );
             const showDay = index > 0 && runs[index - 1].day !== run.day;
             return (
               <Fragment key={run.messages[0].id}>
@@ -120,7 +129,7 @@ export function ClaimThread({
                 <ChatMessage
                   sender={isMine ? "user" : "assistant"}
                   density={density}
-                  avatar={isMine ? undefined : <Avatar name={name} size="sm" tooltip={false} />}
+                  avatar={peerAvatar}
                 >
                   {run.messages.map((message, position) => (
                     <ChatMessageBubble

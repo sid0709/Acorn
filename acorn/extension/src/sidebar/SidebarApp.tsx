@@ -329,7 +329,6 @@ export default function SidebarApp() {
               value={mainTab}
               onChange={setMainTab}
               busyJobs={busyTotal}
-              rememberedTabs={customList.length}
               unreadSupport={support.unread}
             />
           </div>
