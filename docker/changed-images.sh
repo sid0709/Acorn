@@ -15,6 +15,9 @@ while IFS= read -r path || [[ -n "${path}" ]]; do
     acorn-frontend/*)
       web=1
       ;;
+    acorn/extension/* | tools/extension-release.mjs)
+      web=1
+      ;;
     acorn-admin/*)
       admin=1
       ;;

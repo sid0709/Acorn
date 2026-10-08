@@ -58,6 +58,7 @@
     "build": "turbo run build",
     "build:web": "bun --filter acorn-frontend build",
     "build:acorn": "bun --filter acorn-extension build",
+    "package:extension": "bun tools/extension-release.mjs",
     "ci": "bun tools/ci.mjs",
     "ci:fix": "bun tools/ci.mjs --fix",
     "lint": "code=0; bun run lint:workspaces || code=1; bun run lint:repo || code=1; exit $code",

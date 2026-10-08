@@ -1,5 +1,4 @@
 import { AutoFocusSwitch } from "./AutoFocusSwitch";
-import { StopBeforeSubmitSwitch } from "./StopBeforeSubmitSwitch";
 import { UsageHistoryList } from "./UsageHistoryList";
 import { useAiUsage } from "./use-ai-usage";
 
@@ -26,7 +25,6 @@ export function JobsPanel({ mainTab, nowCard, tabId, signedIn, socketConnected }
       hidden={mainTab !== "fill"}
     >
       {nowCard}
-      <StopBeforeSubmitSwitch />
       <AutoFocusSwitch />
       <UsageHistoryList
         entries={usage.entries}

@@ -7,16 +7,26 @@ export function acornApiUrl(): string {
   return (process.env.ACORN_API_URL || DEFAULT_API_URL).replace(/\/$/, "");
 }
 
+/** Packed Chrome extension served from the website image after deploy. */
+export const EXTENSION_DOWNLOAD_PATH = "/downloads/acorn-chrome.zip";
+
 /** Chrome Web Store or sideload URL. Empty until a listing exists. */
 export function extensionInstallUrl(): string | null {
   const url = process.env.ACORN_EXTENSION_INSTALL_URL?.trim();
   return url ? url.replace(/\/$/, "") : null;
 }
 
+/** Version baked into the website image when the extension is built in CI/CD. */
+export function extensionVersion(): string | null {
+  const version = process.env.NEXT_PUBLIC_ACORN_EXTENSION_VERSION?.trim();
+  return version || null;
+}
+
 /** A packed build (.zip) for sideloading while there is no store listing. */
 export function extensionDownloadUrl(): string | null {
-  const url = process.env.ACORN_EXTENSION_DOWNLOAD_URL?.trim();
-  return url || null;
+  const override = process.env.ACORN_EXTENSION_DOWNLOAD_URL?.trim();
+  if (override) return override;
+  return extensionVersion() ? EXTENSION_DOWNLOAD_PATH : null;
 }
 
 /** Gmail on the web, for "Open in Gmail". */
