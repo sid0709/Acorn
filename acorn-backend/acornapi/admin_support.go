@@ -54,6 +54,10 @@ func (s *Server) adminStartSupportSession(w http.ResponseWriter, r *http.Request
 		writeError(w, http.StatusInternalServerError, "could not start the support session")
 		return
 	}
+	if user.Deactivated() {
+		writeError(w, http.StatusForbidden, account.ErrDeactivated.Error())
+		return
+	}
 	now := time.Now()
 	code, err := s.supportAccess.CreateHandoff(r.Context(), supportaccess.Handoff{
 		UserID: user.ID, AdminEmail: adminEmail, Reason: reason, Purpose: supportaccess.PurposeWeb,
@@ -143,6 +147,10 @@ func (s *Server) redeemSupportCode(w http.ResponseWriter, r *http.Request) {
 	token, expires, err := accounts.IssueSupportSession(r.Context(), grant.UserID, grant.AdminEmail, grant.Reason, now)
 	if errors.Is(err, account.ErrNotFound) {
 		writeError(w, http.StatusNotFound, "user not found")
+		return
+	}
+	if errors.Is(err, account.ErrDeactivated) {
+		writeError(w, http.StatusForbidden, err.Error())
 		return
 	}
 	if err != nil {

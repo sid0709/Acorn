@@ -67,7 +67,8 @@ func (s *Server) signOut(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, map[string]bool{"success": true})
 }
 
-// deleteAccount removes the signed-in account and the profile, résumés, and sessions that belong to it.
+// deleteAccount deactivates the signed-in account and ends its sessions.
+// The account row, profile, and résumés stay.
 func (s *Server) deleteAccount(w http.ResponseWriter, r *http.Request) {
 	session, ok := s.session(w, r)
 	if !ok {
@@ -75,14 +76,6 @@ func (s *Server) deleteAccount(w http.ResponseWriter, r *http.Request) {
 	}
 	if session.SupportBy != "" {
 		writeError(w, http.StatusForbidden, "a support session cannot delete the account")
-		return
-	}
-	if err := s.resumes.DeleteAccount(r.Context(), session.User.ID); err != nil {
-		writeError(w, http.StatusInternalServerError, "could not delete résumés")
-		return
-	}
-	if err := s.profiles.Delete(r.Context(), session.User.ID); err != nil {
-		writeError(w, http.StatusInternalServerError, "could not delete the profile")
 		return
 	}
 	if err := s.accounts.Delete(r.Context(), session.User.ID); err != nil {
@@ -131,6 +124,8 @@ func writeAccountError(w http.ResponseWriter, err error) {
 		writeError(w, http.StatusBadRequest, err.Error())
 	case errors.Is(err, account.ErrInvalidLogin):
 		writeError(w, http.StatusUnauthorized, err.Error())
+	case errors.Is(err, account.ErrDeactivated):
+		writeError(w, http.StatusForbidden, err.Error())
 	default:
 		writeError(w, http.StatusInternalServerError, "could not sign in")
 	}

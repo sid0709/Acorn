@@ -17,7 +17,14 @@ const (
 	maxAdminLookup = 5000
 )
 
-var accountRowProjection = bson.M{"id": 1, "name": 1, "email": 1, "createdAt": 1}
+var accountRowProjection = bson.M{"id": 1, "name": 1, "email": 1, "createdAt": 1, "deactivatedAt": 1}
+
+func accountFrom(doc storedAccount) AccountRow {
+	return AccountRow{
+		ID: doc.ID, Name: doc.Name, Email: doc.Email,
+		CreatedAt: doc.CreatedAt, DeactivatedAt: doc.DeactivatedAt,
+	}
+}
 
 // SearchAccounts is one page of accounts whose name or email contains query
 // (case-insensitive), newest first, and how many match in total.
@@ -85,7 +92,7 @@ func (s *Store) findRows(ctx context.Context, filter bson.M, opts *options.FindO
 	}
 	rows := make([]AccountRow, 0, len(docs))
 	for _, doc := range docs {
-		rows = append(rows, AccountRow{ID: doc.ID, Name: doc.Name, Email: doc.Email, CreatedAt: doc.CreatedAt})
+		rows = append(rows, accountFrom(doc))
 	}
 	return rows, nil
 }

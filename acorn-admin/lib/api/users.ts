@@ -16,11 +16,16 @@ export type AccountUsage = {
   lastCallAt: string | null;
 };
 
-export type UserRow = {
+export type AccountIdentity = {
   id: string;
   name: string;
   email: string;
   createdAt: string;
+  /** Set when the user deleted the account. The row stays. */
+  deactivatedAt?: string | null;
+};
+
+export type UserRow = AccountIdentity & {
   usage: AccountUsage;
 };
 
@@ -63,7 +68,7 @@ export type AuditEntry = {
 };
 
 export type UserDetail = {
-  user: { id: string; name: string; email: string; createdAt: string };
+  user: AccountIdentity;
   statistics: Statistics;
 };
 

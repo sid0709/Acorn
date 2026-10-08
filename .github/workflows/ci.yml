@@ -19,7 +19,5 @@ jobs:
         with:
           bun-version-file: package.json
       - run: bun install --frozen-lockfile
-      - run: bun run format:check
-      - run: bun run lint
-      - run: bun run check:deps
-      - run: bun test
+      # Same checks as `bun run ci` (tools/ci.mjs).
+      - run: bun run ci

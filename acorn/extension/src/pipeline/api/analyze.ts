@@ -5,6 +5,7 @@ import { extractError } from "./http";
 import type { AiUsageSummary } from "@acorn/shared/ai-usage";
 import type { FieldIssueScan, FillMode } from "@acorn/shared/field-issues";
 import type { FAST_PLAN_MODE, FormField } from "@acorn/shared/form-fields";
+import type { PlanTurn } from "@acorn/shared/plan-history";
 import type { ActionPlan } from "@acorn/shared/plan-runner/types";
 
 export interface AiAnalyzePage {
@@ -29,6 +30,8 @@ export interface AiAnalyzeRequest {
   /** Refill plans fixes for `fieldIssues` only; fast plans from `formFields`; Fill (default) plans every field. */
   mode?: FillMode | typeof FAST_PLAN_MODE;
   fieldIssues?: FieldIssueScan;
+  /** Refill only: the plans already run on this page, so the planner continues its own conversation. */
+  history?: PlanTurn[];
   formFields?: FormField[];
   page?: AiAnalyzePage | null;
   /** Debug builds only: saved by a backend running with ACORN_DEBUG_DIR, never sent to the model. */

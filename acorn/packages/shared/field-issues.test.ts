@@ -1,7 +1,12 @@
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 
-import { countFlaggedSince, type FieldIssue, type FieldIssueScan } from "./field-issues.ts";
+import {
+  countFlaggedSince,
+  countNotedSince,
+  type FieldIssue,
+  type FieldIssueScan,
+} from "./field-issues.ts";
 
 function issue(overrides: Partial<FieldIssue>): FieldIssue {
   return {
@@ -40,5 +45,24 @@ describe("countFlaggedSince", () => {
 
   it("counts every linked message with no earlier scan", () => {
     assert.equal(countFlaggedSince(null, scan(hint)), 1);
+  });
+});
+
+describe("countNotedSince", () => {
+  const phone = issue({ label: "Phone Number *", role: "textbox", value: "(424) 320-7354" });
+  const help = issue({ label: "Bio", role: "textbox", nearbyMessages: ["Max 500 characters"] });
+
+  it("counts plain text that appeared beside a field after the fill", () => {
+    const rejected = { ...phone, nearbyMessages: ["Please, enter a valid phone number"] };
+    assert.equal(countNotedSince(scan(help), scan(help, rejected)), 1);
+  });
+
+  it("ignores help text the page showed before the fill", () => {
+    assert.equal(countNotedSince(scan(help), scan(help)), 0);
+  });
+
+  it("leaves fields with a hard signal to countFlaggedSince", () => {
+    const flagged = { ...phone, invalid: true, nearbyMessages: ["Invalid"] };
+    assert.equal(countNotedSince(scan(), scan(flagged)), 0);
   });
 });

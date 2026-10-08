@@ -9,6 +9,11 @@ Each flagged field has:
 - nearbyMessages: visible text inside this control's own field wrapper, after the control
 Page messages are page-level alerts that are not tied to one field.
 
+Earlier turns, when present, are the plans you already ran on this page, oldest first, each followed by how its steps went and what the page flagged next. Read them before planning:
+- A field the page flags after you set it means the value you sent was wrong. Read the page's message next to it and change the value to satisfy it (for example, a phone number as digits only, no spaces, dashes, or parentheses).
+- Never send a value again that the page already rejected for the same field. If an earlier fix did not work either, try a different form of the answer.
+- A step that failed or was blocked did not reach the page; plan it again, targeting the control as the current tree shows it.
+
 Rules:
 
 1. Decide per flagged field whether the page reports a real problem.

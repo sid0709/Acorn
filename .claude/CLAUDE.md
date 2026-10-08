@@ -6,7 +6,7 @@ Workspaces: `acorn-frontend`, `acorn/extension`, `acorn/packages/*`, `acorn/demo
 
 `acorn-backend` uses `backend-core` via the `replace` in `acorn-backend/go.mod` (`../backend-core`, relative to that module). Google sign-in is the workspace package `@acorn/google-signin`.
 
-Before pushing, run `bun run format:check` and `bun run lint`.
+Before pushing, run `bun run ci`. `bun run ci:fix` writes Prettier and auto-fixable ESLint issues.
 
 ## Package manager
 

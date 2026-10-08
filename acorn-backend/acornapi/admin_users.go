@@ -123,9 +123,13 @@ func (s *Server) adminListUserUsage(w http.ResponseWriter, r *http.Request) {
 }
 
 func accountRow(row account.AccountRow) map[string]any {
-	return map[string]any{
+	out := map[string]any{
 		"id": row.ID, "name": row.Name, "email": row.Email, "createdAt": row.CreatedAt,
 	}
+	if row.Deactivated() {
+		out["deactivatedAt"] = row.DeactivatedAt.UTC()
+	}
+	return out
 }
 
 // usageEntryRow is one call for the support console: the user row plus where it came from.

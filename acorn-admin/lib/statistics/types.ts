@@ -80,7 +80,10 @@ export type Statistics = {
 };
 
 export type Growth = { signups: number; activated: number; activationRate: number };
-export type AccountNames = Record<string, { name: string; email: string }>;
+export type AccountNames = Record<
+  string,
+  { name: string; email: string; deactivatedAt?: string | null }
+>;
 
 export const STATS_RANGES = ["24h", "7d", "30d", "90d"] as const;
 export type StatsRange = (typeof STATS_RANGES)[number];

@@ -68,7 +68,7 @@ if (!contentWindow[CONTENT_BOOT]) {
         }
 
         try {
-          const tree = serializeDom();
+          const tree = serializeDom(undefined, { posting });
           sendResponse({
             url: window.location.href,
             title: document.title,

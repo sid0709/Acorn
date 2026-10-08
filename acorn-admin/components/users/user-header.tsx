@@ -1,5 +1,6 @@
 import { Avatar, Badge, Button, Glyph, HStack, Heading, Stack, StackItem, Text } from "sid-ui";
 
+import { DeactivatedBadge } from "./deactivated-badge";
 import { SupportActions } from "./support-actions";
 
 import type { UserDetail } from "@/lib/api/users";
@@ -31,10 +32,15 @@ export function UserHeader({ user }: { user: UserDetail["user"] }) {
             <HStack gap={2} vAlign="center" wrap="wrap">
               <Text color="secondary">{user.email}</Text>
               <Badge label={`Joined ${formatDate(user.createdAt)}`} variant="neutral" />
+              {user.deactivatedAt ? <DeactivatedBadge at={user.deactivatedAt} /> : null}
             </HStack>
           </Stack>
         </StackItem>
-        <SupportActions userId={user.id} userName={name} />
+        <SupportActions
+          userId={user.id}
+          userName={name}
+          deactivated={Boolean(user.deactivatedAt)}
+        />
       </HStack>
     </Stack>
   );

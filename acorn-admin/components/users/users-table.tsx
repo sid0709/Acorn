@@ -3,6 +3,8 @@
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import { Avatar, Badge, HStack, Pagination, Stack, Table, Text, type TableColumn } from "sid-ui";
 
+import { DeactivatedBadge } from "./deactivated-badge";
+
 import type { UserRow } from "@/lib/api/users";
 
 import { formatCount, formatDate, formatDateTime, formatPercent, formatUSD } from "@/lib/format";
@@ -20,9 +22,12 @@ const columns: TableColumn<UserRow>[] = [
       <HStack gap={3} vAlign="center">
         <Avatar name={r.name || r.email} size={AVATAR_SIZE} tooltip={false} />
         <Stack gap={0}>
-          <Text weight="medium" maxLines={1}>
-            {r.name || "—"}
-          </Text>
+          <HStack gap={2} vAlign="center">
+            <Text weight="medium" maxLines={1}>
+              {r.name || "—"}
+            </Text>
+            {r.deactivatedAt ? <DeactivatedBadge /> : null}
+          </HStack>
           <Text type="supporting" color="secondary" maxLines={1}>
             {r.email}
           </Text>

@@ -2,10 +2,12 @@ import { formatUsd } from "@acorn/shared/ai-usage";
 import {
   FILL_MODE,
   countFlaggedSince,
+  countNotedSince,
   countRequiredEmpty,
   type FieldIssueScan,
   type FillMode,
 } from "@acorn/shared/field-issues";
+import { appendPlanTurn, type PlanTurn } from "@acorn/shared/plan-history";
 import { PhaseClock } from "@acorn/shared/phase-clock";
 import {
   ACCOUNT_MODE,
@@ -148,6 +150,13 @@ interface PageState {
   noEffect: number;
   /** The fields as they stood right before the last forward click. */
   scanBeforeClick: FieldIssueScan | null;
+  /**
+   * The fields before the fill: text that shows up beside a field after it is the
+   * page answering the fill. Moves forward when Refill finds nothing in it to fix.
+   */
+  scanBeforeFill: FieldIssueScan | null;
+  /** Plans run on this page, oldest first; a Refill continues from them. */
+  turns: PlanTurn[];
   /** When this page's fill began; drift repair replays only answers given since. */
   fillStartedAt: number;
   /** The last click never landed; the next look is a fresh read, not a click's outcome. */
@@ -421,7 +430,7 @@ export async function runOrchestrator(args: RunOrchestratorArgs): Promise<RunRep
   const fill = async (
     mode: FillMode,
     within: PageSnapshot,
-    opts: { pendingOnly?: boolean; verificationCode?: string } = {},
+    opts: { pendingOnly?: boolean; verificationCode?: string; history?: PlanTurn[] } = {},
   ) => {
     await checkBudget(within);
     checkStop();
@@ -435,6 +444,7 @@ export async function runOrchestrator(args: RunOrchestratorArgs): Promise<RunRep
         aiServerUrl: apiUrl,
         source: "fill",
         mode,
+        history: opts.history,
         requireResume: true,
         pendingOnly: opts.pendingOnly,
         verificationCode: opts.verificationCode,
@@ -463,7 +473,34 @@ export async function runOrchestrator(args: RunOrchestratorArgs): Promise<RunRep
     clock.add(mode === FILL_MODE.refill ? "refill" : "fill", Date.now() - started);
     // The fill stopped before anything else for want of a résumé file.
     const resumeMissing = failed && last?.message === NO_RESUME_FILE;
-    return { failed, resumeMissing, error: last?.error, steps: last?.steps };
+    return { failed, resumeMissing, error: last?.error, steps: last?.steps, plan: last?.plan };
+  };
+
+  /** A forward click the page ignored; past the limit the run stops. */
+  const countNoEffect = (state: PageState, page: PageSnapshot) => {
+    state.noEffect += 1;
+    log.event("no-effect", { count: state.noEffect, limit: RUN_MAX_NO_EFFECT });
+    if (state.noEffect > RUN_MAX_NO_EFFECT) {
+      throw new RunStop(RUN_STAGE.advancing, page, [
+        `Clicking "${control ?? "the control"}" ${state.noEffect} times changed nothing and the page flagged no field`,
+      ]);
+    }
+  };
+
+  /** Keep a plan the page ran, so a later Refill on this page continues from it. */
+  const remember = (
+    state: PageState,
+    mode: FillMode,
+    done: Awaited<ReturnType<typeof fill>>,
+    fieldIssues?: FieldIssueScan,
+  ) => {
+    if (!done.plan?.actions?.length) return;
+    state.turns = appendPlanTurn(state.turns, {
+      mode,
+      fieldIssues,
+      plan: done.plan,
+      steps: done.steps ?? [],
+    });
   };
 
   const read = async (intent: ReadIntent, within: PageSnapshot) => {
@@ -1126,6 +1163,8 @@ export async function runOrchestrator(args: RunOrchestratorArgs): Promise<RunRep
           refills: 0,
           noEffect: 0,
           scanBeforeClick: null,
+          scanBeforeFill: null,
+          turns: [],
           fillStartedAt: 0,
           retryClick: false,
           blockedPasses: 0,
@@ -1152,8 +1191,11 @@ export async function runOrchestrator(args: RunOrchestratorArgs): Promise<RunRep
         // Only what the click flagged: a hint the page always shows is no rejection.
         const flagged = countFlaggedSince(state.scanBeforeClick, page.scan);
         const missing = countRequiredEmpty(page.scan);
-        log.event("after-click", { flagged, missing, shown: page.flagged });
-        if (flagged > 0 || missing > 0) {
+        // A page with no ARIA rejects an answer in plain copy beside the field.
+        const noted = countNotedSince(state.scanBeforeFill ?? state.scanBeforeClick, page.scan);
+        log.event("after-click", { flagged, missing, noted, shown: page.flagged });
+        const onlyNoted = flagged === 0 && missing === 0;
+        if (flagged > 0 || missing > 0 || noted > 0) {
           if (state.refills >= RUN_MAX_REFILLS_PER_PAGE) {
             throw new RunStop(RUN_STAGE.refilling, page, [
               `Still flagged after ${state.refills} refills (limit ${RUN_MAX_REFILLS_PER_PAGE})`,
@@ -1164,9 +1206,10 @@ export async function runOrchestrator(args: RunOrchestratorArgs): Promise<RunRep
           refillsTotal += 1;
           enter(
             RUN_STAGE.refilling,
-            `Refill ${state.refills}/${RUN_MAX_REFILLS_PER_PAGE} · ${flagged + missing} to fix`,
+            `Refill ${state.refills}/${RUN_MAX_REFILLS_PER_PAGE} · ${flagged + missing + noted} to fix`,
           );
-          const refilled = await fill(FILL_MODE.refill, page);
+          const flaggedScan = page.scan;
+          const refilled = await fill(FILL_MODE.refill, page, { history: state.turns });
           if (refilled.failed) {
             throw new RunStop(
               RUN_STAGE.refilling,
@@ -1175,14 +1218,16 @@ export async function runOrchestrator(args: RunOrchestratorArgs): Promise<RunRep
               refilled.steps,
             );
           }
-        } else {
-          state.noEffect += 1;
-          log.event("no-effect", { count: state.noEffect, limit: RUN_MAX_NO_EFFECT });
-          if (state.noEffect > RUN_MAX_NO_EFFECT) {
-            throw new RunStop(RUN_STAGE.advancing, page, [
-              `Clicking "${control ?? "the control"}" ${state.noEffect} times changed nothing and the page flagged no field`,
-            ]);
+          remember(state, FILL_MODE.refill, refilled, flaggedScan);
+          // The planner read the new text and found nothing to fix: it is the page's
+          // copy, not a rejection. Stop asking about it; the click changed nothing.
+          if (onlyNoted && !refilled.steps?.length) {
+            state.scanBeforeFill = flaggedScan;
+            log.event("refill:nothing-to-fix", { noted });
+            countNoEffect(state, page);
           }
+        } else {
+          countNoEffect(state, page);
         }
         page = await snap({ form: true, frameId: page.frameId });
         snapshot = page;
@@ -1267,6 +1312,7 @@ export async function runOrchestrator(args: RunOrchestratorArgs): Promise<RunRep
         } else {
           enter(RUN_STAGE.filling);
           state.fillStartedAt = Date.now();
+          state.scanBeforeFill = page.scan;
           const filled = await fill(FILL_MODE.fill, page);
           if (filled.resumeMissing) {
             throw noResumeStop(RUN_STAGE.filling, page, filled.error ?? RESUME_NOT_CHOSEN);
@@ -1279,6 +1325,7 @@ export async function runOrchestrator(args: RunOrchestratorArgs): Promise<RunRep
               filled.steps,
             );
           }
+          remember(state, FILL_MODE.fill, filled);
           state.filled = true;
           page = await snap({ form: true, frameId: page.frameId });
           snapshot = page;

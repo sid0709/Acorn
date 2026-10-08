@@ -46,6 +46,8 @@ const MAX_CHILDREN = 120;
  */
 const MAX_OPTION_CHILDREN = 600;
 const MAX_TEXT = 120;
+/** A posting read keeps whole paragraphs: the job description is the point of it. */
+const POSTING_MAX_TEXT = 4_000;
 /** An iframe's title is the embedded widget's accessible name; nothing else of it is readable. */
 const IFRAME_TITLE_MAX_CHARS = 120;
 
@@ -57,6 +59,13 @@ let depthCapHits = 0;
 let fillableHits = 0;
 /** The open dialogs of the documents being serialized, read once per pass. */
 let layersOf: ((el: Element) => PageLayers) | null = null;
+/** This pass reads a posting: only what a person can see, paragraphs kept whole. */
+let postingPass = false;
+
+export type SerializeOptions = {
+  /** Reading a job posting, not a form: drop hidden subtrees (menus, drawers) and keep long text. */
+  posting?: boolean;
+};
 
 function tn(el: Element): string {
   return el.tagName.toUpperCase();
@@ -97,7 +106,8 @@ function getChildNodes(el: Element): Node[] {
   return nodes;
 }
 
-export function serializeDom(root?: Element): DomNode {
+export function serializeDom(root?: Element, opts: SerializeOptions = {}): DomNode {
+  postingPass = opts.posting === true;
   acornIdCounter = 0;
   childCapHits = 0;
   depthCapHits = 0;
@@ -158,14 +168,21 @@ function isHeadNoise(el: Element): boolean {
   return false;
 }
 
+/** Hidden by its own style, so nothing inside it is shown (a closed menu, an off-canvas drawer). */
+function isStyleHidden(el: Element): boolean {
+  const style = el.ownerDocument?.defaultView?.getComputedStyle(el);
+  return Boolean(style && (style.display === "none" || style.visibility === "hidden"));
+}
+
 function shouldOmitElement(el: Element): boolean {
   if (SKIP_TAGS.has(tn(el))) return true;
   if (MEDIA_TAGS.has(tn(el))) return true;
   if (isHeadNoise(el)) return true;
+  if (postingPass && isStyleHidden(el)) return true;
   return false;
 }
 
-export function getDirectText(el: Element): string | undefined {
+export function getDirectText(el: Element, max = MAX_TEXT): string | undefined {
   let text = "";
   for (const node of getChildNodes(el)) {
     if (node.nodeType === Node.TEXT_NODE) {
@@ -173,7 +190,7 @@ export function getDirectText(el: Element): string | undefined {
     }
   }
   text = text.replace(/\s+/g, " ").trim();
-  return text.length > 0 ? text.slice(0, MAX_TEXT) : undefined;
+  return text.length > 0 ? text.slice(0, max) : undefined;
 }
 
 function isFlattenableWrapper(el: Element): boolean {
@@ -292,7 +309,7 @@ function serializeNode(el: Element, depth: number): DomNode[] {
   if (attrs["value"] && isSecretControl(el)) attrs["value"] = HIDDEN_VALUE;
   if (isClickable(el)) markLayers(el, attrs);
 
-  const text = getDirectText(el);
+  const text = getDirectText(el, postingPass ? POSTING_MAX_TEXT : MAX_TEXT);
 
   if (!text && processedChildren.length === 0 && !isInteractive(el) && tag !== "iframe") {
     return [];

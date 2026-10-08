@@ -1,4 +1,5 @@
 node_modules
+debug-runs
 .next
 .turbo
 out
