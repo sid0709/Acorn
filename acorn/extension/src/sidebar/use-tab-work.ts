@@ -112,32 +112,44 @@ export function useTabWork({
     [activeTabId, customTab, tabWorkBusy, setTabProgress],
   );
 
-  const startRun = useCallback(async () => {
-    const tabId = activeTabId;
-    if (tabWorkBusy || tabId == null) return;
-    setTabProgress(tabId, { phase: "fetching", message: "Starting…" });
-    try {
-      const res = await sendMessage<{ ok?: boolean; error?: string }>({
-        type: MSG.START_RUN,
-        tabId,
-      });
-      if (res?.error) {
-        const err = String(res.error);
-        if (/sign in/i.test(err)) {
-          setTabProgress(tabId, { phase: "idle", message: "Sign in to Acorn to run" });
-          pushAcornNotice({ kind: "error", title: "Sign in required", detail: "Sign in to Run." });
-          return;
-        }
-        setTabProgress(tabId, { phase: "error", message: "Failed to start", error: err });
-      }
-    } catch (err) {
+  /** Run on the active tab; `continueRun` carries on from where the last run stopped. */
+  const startRun = useCallback(
+    async (continueRun = false) => {
+      const tabId = activeTabId;
+      if (tabWorkBusy || tabId == null) return;
       setTabProgress(tabId, {
-        phase: "error",
-        message: "Failed to start",
-        error: err instanceof Error ? err.message : String(err),
+        phase: "fetching",
+        message: continueRun ? "Continuing…" : "Starting…",
       });
-    }
-  }, [activeTabId, tabWorkBusy, setTabProgress]);
+      try {
+        const res = await sendMessage<{ ok?: boolean; error?: string }>({
+          type: MSG.START_RUN,
+          tabId,
+          continueRun,
+        });
+        if (res?.error) {
+          const err = String(res.error);
+          if (/sign in/i.test(err)) {
+            setTabProgress(tabId, { phase: "idle", message: "Sign in to Acorn to run" });
+            pushAcornNotice({
+              kind: "error",
+              title: "Sign in required",
+              detail: "Sign in to Run.",
+            });
+            return;
+          }
+          setTabProgress(tabId, { phase: "error", message: "Failed to start", error: err });
+        }
+      } catch (err) {
+        setTabProgress(tabId, {
+          phase: "error",
+          message: "Failed to start",
+          error: err instanceof Error ? err.message : String(err),
+        });
+      }
+    },
+    [activeTabId, tabWorkBusy, setTabProgress],
+  );
 
   /** Stop the Run on the active tab at once; the page is left as it is. */
   const stopRun = useCallback(async () => {

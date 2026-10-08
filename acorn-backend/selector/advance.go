@@ -107,6 +107,7 @@ const (
 	guestQuestion    = "continues_without_account"
 	diagnoseQuestion = "failure"
 	verifyQuestion   = "verification"
+	appliedQuestion  = "already_applied"
 	accountQuestion  = "account_mode"
 
 	controlKeyPrefix = "control"
@@ -192,7 +193,9 @@ type PageRead struct {
 	Verification string
 	// AccountMode is what an account step asks for (an Account* key); AccountNone elsewhere.
 	AccountMode string
-	Usage       jev.Usage
+	// AlreadyApplied is true when the site says this applicant already applied to this job.
+	AlreadyApplied bool
+	Usage          jev.Usage
 }
 
 var pageKinds = []struct{ key, description string }{
@@ -264,6 +267,15 @@ func (g *Gateway) ReadPage(ctx context.Context, q PageQuery) (PageRead, error) {
 					"false": "Going on requires signing in or creating an account, or the page asks neither.",
 				},
 			},
+			appliedQuestion: {
+				Type: jev.TypeNoul,
+				Instructions: "Does this page say the applicant has already applied to this job: an application to this role " +
+					"that was already submitted before, as opposed to one being filled in now or just completed?",
+				Criteria: map[string]string{
+					"true":  "The site says an application to this job was already submitted earlier.",
+					"false": "Nothing on the page says this job was applied to before.",
+				},
+			},
 			verifyQuestion: {
 				Type:         jev.TypeChoice,
 				Instructions: "Does this page ask the applicant to verify something before it can go on, and how?",
@@ -296,6 +308,9 @@ func (g *Gateway) ReadPage(ctx context.Context, q PageQuery) (PageRead, error) {
 
 	if guest := res.Answers[guestQuestion]; guest.Noul != nil {
 		read.Guest = *guest.Noul > checkThreshold
+	}
+	if applied := res.Answers[appliedQuestion]; applied.Noul != nil {
+		read.AlreadyApplied = *applied.Noul > checkThreshold
 	}
 	read.Verification = listedChoice(res.Answers[verifyQuestion], verifications, VerifyNone)
 	read.NeedsPerson = read.Verification == VerifyOther

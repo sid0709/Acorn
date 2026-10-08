@@ -12,10 +12,17 @@ import {
 } from "@acorn/shared/field-issues";
 import { formatAnalyzeTrees } from "@acorn/shared/tree-export";
 
+import { traceFromBackground } from "../background/debug-trace-sink";
+import { canInjectIntoUrl, injectContentScripts } from "../inject-content";
+
 import { fetchDomFromTab } from "./fetch-dom";
 import { fetchPostingDomFromTab } from "./fetch-posting";
 import { embeddedFrames } from "./run-frames";
-import { RUN_PAGE_TEXT_MAX_CHARS } from "./run-limits";
+import {
+  RUN_PAGE_READ_PATIENCE_MS,
+  RUN_PAGE_READ_RETRY_MS,
+  RUN_PAGE_TEXT_MAX_CHARS,
+} from "./run-limits";
 
 import type { DomTreeNode } from "@acorn/shared/tree-export";
 
@@ -41,7 +48,36 @@ export interface PageSnapshot {
  * Read the page. A first look takes the frame with the most text, so a posting is
  * read at once; a form read takes the frame that holds the form and waits for it.
  */
+/**
+ * Read the page, patiently: a read that fails while the page is still loading or
+ * before its content script answers is tried again (the script is injected again
+ * when the page lost it) until RUN_PAGE_READ_PATIENCE_MS runs out.
+ */
 export async function snapshotPage(
+  tabId: number,
+  opts: { form: boolean; frameId?: number | null },
+): Promise<PageSnapshot> {
+  const started = Date.now();
+  for (let attempt = 1; ; attempt += 1) {
+    try {
+      return await readPage(tabId, opts);
+    } catch (err) {
+      if (Date.now() - started >= RUN_PAGE_READ_PATIENCE_MS) throw err;
+      traceFromBackground("run:page-read-retry", () => ({
+        attempt,
+        error: err instanceof Error ? err.message : String(err),
+      }));
+      await new Promise((resolve) => setTimeout(resolve, RUN_PAGE_READ_RETRY_MS));
+      const tab = await chrome.tabs.get(tabId).catch(() => null);
+      if (!tab) throw err;
+      if (tab.status === "complete" && canInjectIntoUrl(tab.url)) {
+        await injectContentScripts(tabId).catch(() => undefined);
+      }
+    }
+  }
+}
+
+async function readPage(
   tabId: number,
   opts: { form: boolean; frameId?: number | null },
 ): Promise<PageSnapshot> {

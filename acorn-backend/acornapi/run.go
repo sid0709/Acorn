@@ -169,7 +169,8 @@ func (s *Server) runReadPage(w http.ResponseWriter, r *http.Request) {
 	out := map[string]any{
 		"ok": true, "kind": read.Kind, "kindConfidence": read.KindConfidence, "control": nil, "guest": read.Guest,
 		"needsPerson": read.NeedsPerson, "verification": read.Verification, "accountMode": read.AccountMode,
-		"model": gateway.Model(), "usage": decisionUsage(gateway.Model(), read.Usage),
+		"alreadyApplied": read.AlreadyApplied,
+		"model":          gateway.Model(), "usage": decisionUsage(gateway.Model(), read.Usage),
 	}
 	attrs := []any{
 		"kind", read.Kind, "kindConfidence", read.KindConfidence,

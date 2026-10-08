@@ -43,7 +43,23 @@ function isCombobox(el: HTMLElement): boolean {
   );
 }
 
+/**
+ * A dropdown's name, with its question: a control inside a fieldset is asked the
+ * fieldset's legend (HTML's own label for a group), which a bare name such as
+ * "Select One" leaves out.
+ */
 function fieldLabel(el: HTMLElement): string {
+  const own = ownLabel(el);
+  const legend = el
+    .closest("fieldset")
+    ?.querySelector("legend")
+    ?.textContent?.replace(/\s+/g, " ")
+    .trim();
+  if (!legend || own.toLowerCase().includes(legend.toLowerCase())) return own;
+  return own ? `${legend} — ${own}` : legend;
+}
+
+function ownLabel(el: HTMLElement): string {
   const labelled = el.getAttribute("aria-labelledby");
   if (labelled) {
     const parts = labelled

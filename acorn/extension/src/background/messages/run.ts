@@ -1,6 +1,7 @@
 import { getAccessToken, getAcornApiUrl } from "../../auth/acorn-auth";
 import { runOrchestrator } from "../../pipeline/run-orchestrator";
 import { syncAutoFocus } from "../auto-focus";
+import { getRunCheckpoint } from "../../pipeline/run-checkpoint";
 import { getStopBeforeSubmit } from "../../run-settings";
 import { beginRunStop, claimRunStopTab, endRunStop, stopRunOnTab } from "../run-stop";
 import { broadcastPipelineProgress } from "../socket-connection";
@@ -57,11 +58,10 @@ export function handleStartRun(
         preferredFrameId: sender.tab ? (sender.frameId ?? null) : null,
         apiUrl: await getAcornApiUrl(),
         signal: stop.signal,
+        // Continue: carry on from where the last run on this tab stopped.
+        resumeFrom: message.continueRun === true ? await getRunCheckpoint(tabId) : null,
         // The message may ask for it (a test run); otherwise the sidebar switch decides.
-        stopBeforeSubmit:
-          typeof message.stopBeforeSubmit === "boolean"
-            ? message.stopBeforeSubmit
-            : await getStopBeforeSubmit(),
+        stopBeforeSubmit: await stopBeforeSubmitFor(message),
         emit: (tabIds, progress) => {
           for (const id of tabIds) broadcastPipelineProgress(id, progress);
         },
@@ -89,6 +89,12 @@ export function handleStartRun(
       void syncAutoFocus();
     }
   })();
+}
+
+/** Stop before Submit as the start message asks for it, else as the sidebar switch says. */
+async function stopBeforeSubmitFor(message: RuntimeMessage): Promise<boolean> {
+  const asked: unknown = (message as { stopBeforeSubmit?: unknown }).stopBeforeSubmit;
+  return typeof asked === "boolean" ? asked : getStopBeforeSubmit();
 }
 
 /** Stop: the Run working on this tab stops at once and leaves the page as it is. */

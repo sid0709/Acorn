@@ -58,6 +58,13 @@ export const RUN_PAGE_SETTLE_MAX_MS = 15_000;
 export const RUN_UNCLEAR_REREADS = 3;
 /** The wait before each of those looks. */
 export const RUN_UNCLEAR_WAIT_MS = 3_000;
+/**
+ * How long a page read keeps trying while the page loads or its content script is
+ * not ready yet (a slow network, a page drawn after a redirect).
+ */
+export const RUN_PAGE_READ_PATIENCE_MS = 30_000;
+/** The wait between those tries. */
+export const RUN_PAGE_READ_RETRY_MS = 2_000;
 /** A tab that has not finished loading by this point is read anyway. */
 export const RUN_TAB_LOAD_MAX_MS = 20_000;
 

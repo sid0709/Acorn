@@ -118,6 +118,8 @@ export const RUN_FAILURE_REASON = {
   noAccountPassword: "no_account_password",
   /** The person pressed Stop. */
   stoppedByUser: "stopped_by_user",
+  /** This job was applied to already (by an earlier run, or the site says so). */
+  alreadyApplied: "already_applied",
 } as const;
 
 /** Why a run could not finish, in the decision model's words (mirrors the backend's reasons). */
@@ -167,5 +169,7 @@ export interface RunProgress {
   control?: string;
   /** While the run reads the mail: the newest emails it hands to Jev. */
   mail?: MailRow[];
+  /** The run stopped partway and kept a checkpoint: Continue carries on from here. */
+  canContinue?: boolean;
   report?: RunReport;
 }

@@ -197,6 +197,16 @@ export default function SidebarApp() {
       disabled: tabWorkBusy || !session || activeTabId == null,
       onClick: () => void startRun(),
     },
+    // Shown when the last run on this tab stopped partway: carry on from that point.
+    continueRun:
+      progress.run?.canContinue && !tabWorkBusy && session && activeTabId != null
+        ? {
+            label: "Continue",
+            title: "Carry on from where the run stopped, without starting over",
+            disabled: false,
+            onClick: () => void startRun(true),
+          }
+        : null,
     // Shown only while a Run works on this tab.
     stop:
       fillBusy && progress.run

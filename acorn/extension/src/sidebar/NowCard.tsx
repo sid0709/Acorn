@@ -34,6 +34,8 @@ type NowCardProps = {
   run: NowAction;
   /** Stops the Run working on this tab; null when none is. */
   stop: NowAction | null;
+  /** Carries on from where the last run on this tab stopped; null when none did. */
+  continueRun: NowAction | null;
   fill: NowAction;
   /** Fixes only the fields the page flagged after Submit / Next. */
   refill: NowAction;
@@ -255,6 +257,7 @@ export function NowCard(props: NowCardProps) {
     fillBusy,
     run: runAction,
     stop,
+    continueRun,
     fill,
     refill,
     generate,
@@ -315,8 +318,19 @@ export function NowCard(props: NowCardProps) {
           </VStack>
         ) : (
           <VStack gap={2}>
+            {continueRun ? (
+              <Button
+                variant="primary"
+                icon={<Glyph name="play" />}
+                label={continueRun.label}
+                tooltip={continueRun.title}
+                isDisabled={continueRun.disabled}
+                width="100%"
+                onClick={continueRun.onClick}
+              />
+            ) : null}
             <Button
-              variant="primary"
+              variant={continueRun ? "secondary" : "primary"}
               icon={<Glyph name="play" />}
               label={runAction.label}
               tooltip={runAction.title}

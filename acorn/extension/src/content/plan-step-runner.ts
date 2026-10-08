@@ -6,6 +6,8 @@ import { controlAlreadyMatches } from "./agents/already-filled";
 import { clearElement } from "./agents/clear";
 import { fillElement } from "./agents/fill";
 import { rememberPlanFilled } from "./agents/plan-fill-registry";
+import { selectComboboxOption } from "./agents/select-combobox";
+import { opensOptionList, visibleStandIn } from "./agents/stand-in";
 import { readControlValue } from "./agents/read-control-value";
 import { resumeUpload } from "./agents/resume-upload";
 import { selectRadioElement } from "./agents/select-radio";
@@ -135,7 +137,8 @@ export async function actOnVerified(
   step: PlanStepPayload,
   verified: VerifyResult,
 ): Promise<PlanStepResult> {
-  const el = verified.element;
+  // A step that names an invisible companion input acts on the visible control of its field.
+  const el = verified.element ? visibleStandIn(verified.element) : verified.element;
   // A replayed step has no node id from this read; its control was resolved already.
   const nodeId = step.element_index ?? undefined;
   if (!el) {
@@ -219,7 +222,7 @@ export async function actOnVerified(
       current: shownValue(el, prior.current),
     }));
     if (prior.matched) {
-      rememberPlanFilled(el, step);
+      rememberPlanFilled(el, step, readControlValue(el));
       return {
         ok: true,
         verified: true,
@@ -269,7 +272,10 @@ export async function actOnVerified(
         break;
       }
       case "select_radio": {
-        valueAfter = await selectRadioElement(el, intended, step.expected_label);
+        // A pick on a control that opens a list is answered by opening it and picking.
+        valueAfter = opensOptionList(el)
+          ? await selectComboboxOption(el, intended ?? "", step.expected_label)
+          : await selectRadioElement(el, intended, step.expected_label);
         break;
       }
       default:
@@ -277,7 +283,7 @@ export async function actOnVerified(
     }
 
     const after = valueAfter ?? readControlValue(el);
-    rememberPlanFilled(el, step);
+    rememberPlanFilled(el, step, readControlValue(el));
     traceFromPage("step:acted", () => ({
       element_index: step.element_index,
       intended: shownValue(el, intended),

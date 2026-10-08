@@ -134,3 +134,9 @@ textarea {
 [role="option"]:has(.row) {
   padding: 0;
 }
+.companion {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  opacity: 0;
+}

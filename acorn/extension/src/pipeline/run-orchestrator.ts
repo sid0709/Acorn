@@ -40,6 +40,13 @@ import {
   type ReadIntent,
 } from "./api/run";
 import { nextAccountGoal } from "./account-goal";
+import { appliedTo, rememberApplied } from "./applied-postings";
+import {
+  clearRunCheckpoint,
+  restoredRun,
+  saveRunCheckpoint,
+  type RunCheckpoint,
+} from "./run-checkpoint";
 import { repairDriftInTab } from "./drift";
 import { fetchDomFromTab } from "./fetch-dom";
 import { RESUME_NOT_CHOSEN, type ResumeGate } from "./resume-gate";
@@ -125,6 +132,8 @@ export interface RunOrchestratorArgs {
   signal?: AbortSignal;
   /** Stop before Submit: on the last step, stop at the control that sends the application. */
   stopBeforeSubmit?: boolean;
+  /** Continue: carry on from where an earlier run on this tab stopped. */
+  resumeFrom?: RunCheckpoint | null;
 }
 
 /** Where the run is on one page. */
@@ -196,6 +205,8 @@ const BUDGET_SPENT = "The run reached its limit on AI work";
 const VERIFICATION_NOT_FOUND = "The code or link the site emailed was not found in your Gmail";
 /** The site kept refusing the account step. */
 const ACCOUNT_REJECTED = "The site kept rejecting the sign-in or sign-up";
+/** The posting was applied to already. */
+const ALREADY_APPLIED = "You already applied to this job";
 /** Every account step was tried on the site and refused. */
 const ACCOUNT_EXHAUSTED = "Tried creating an account, signing in, and resetting the password";
 /** The person pressed Stop. */
@@ -236,6 +247,26 @@ function noResumeStop(stage: RunStage, snapshot: PageSnapshot | null, detail: st
   });
 }
 
+/**
+ * What a run leaves behind when it ends: a finished application is remembered so
+ * it is never sent twice; a run stopped partway keeps a checkpoint so Continue
+ * carries on from there. True when Continue is offered.
+ */
+async function keepRunEnd(
+  tabId: number,
+  outcome: RunReport["outcome"],
+  title: string,
+  checkpoint: RunCheckpoint,
+): Promise<boolean> {
+  if (outcome === RUN_OUTCOME.completed && checkpoint.startUrl) {
+    await rememberApplied([checkpoint.startUrl], title).catch(() => undefined);
+  }
+  const canContinue = outcome === RUN_OUTCOME.failed || outcome === RUN_OUTCOME.stopped;
+  if (canContinue) await saveRunCheckpoint(tabId, checkpoint).catch(() => undefined);
+  else await clearRunCheckpoint(tabId).catch(() => undefined);
+  return canContinue;
+}
+
 function newRunId(): string {
   return crypto.randomUUID().slice(0, 8);
 }
@@ -259,7 +290,13 @@ export async function runOrchestrator(args: RunOrchestratorArgs): Promise<RunRep
   let stage: RunStage = RUN_STAGE.reading;
   let kind: PageKind | undefined;
   let control: string | undefined;
-  let pageCount = 0;
+  // Continue starts from where the last run on this tab stopped; a new run from nothing.
+  const restored = restoredRun(args.resumeFrom);
+  let pageCount = restored.pages;
+  /** The page the run started on: the posting it applies to. */
+  let startUrl = restored.startUrl;
+  /** On Continue, the page already filled before the stop is not filled again. */
+  let resumeFilledSignature = restored.filledSignature;
   let refillsTotal = 0;
   let refillsOnPage = 0;
   let current: PageState | null = null;
@@ -270,7 +307,7 @@ export async function runOrchestrator(args: RunOrchestratorArgs): Promise<RunRep
   /** A résumé recommend in flight; it must settle before any click or fill. */
   let recommending: Promise<ResumeGate> | null = null;
   /** Account steps sent so far, with the site each was sent on. */
-  const accountHistory: { site: string; attempt: AccountAttempt }[] = [];
+  const accountHistory: { site: string; attempt: AccountAttempt }[] = restored.accountHistory;
   /** The account step the last click sent; its outcome is the page that follows. */
   let accountSent: {
     site: string;
@@ -281,7 +318,7 @@ export async function runOrchestrator(args: RunOrchestratorArgs): Promise<RunRep
   /** A reset request was just sent: its answer is an email, read before anything else. */
   let mailExpected = false;
   /** Sites where a reset link from the mail was opened: their next reset form sets the password. */
-  const resetLinkSites = new Set<string>();
+  const resetLinkSites = new Set<string>(restored.resetLinkSites);
   /** The account form the current page shows, from its last read; null on a new page. */
   let pageAccountMode: AccountMode | null = null;
   /** This site's account attempts, oldest first. */
@@ -292,7 +329,7 @@ export async function runOrchestrator(args: RunOrchestratorArgs): Promise<RunRep
   /** When the run last clicked: an email the site sent for this step arrived after it. */
   let lastClickAt = 0;
   /** Codes and links taken from the applicant's mail so far. */
-  let mailVerifications = 0;
+  let mailVerifications = restored.mailVerifications;
   /** The newest emails the current mail look hands to Jev, for the sidebar. */
   let mailRows: MailRow[] | undefined;
   const clock = new PhaseClock();
@@ -494,6 +531,8 @@ export async function runOrchestrator(args: RunOrchestratorArgs): Promise<RunRep
       guest: res.guest === true,
       needsPerson: res.needsPerson === true,
       verification: res.verification ?? VERIFICATION.none,
+      /** The site says this applicant has already applied to this job. */
+      alreadyApplied: res.alreadyApplied === true,
       accountMode: res.accountMode ?? ACCOUNT_MODE.none,
       /** False only when the backend says the profile has no default account password. */
       accountPassword: res.accountPassword !== false,
@@ -665,6 +704,35 @@ export async function runOrchestrator(args: RunOrchestratorArgs): Promise<RunRep
       messagesBefore: page.scan.pageMessages,
     };
     log.event("account:send", { mode });
+  };
+
+  const alreadyApplied = (page: PageSnapshot, detail: string) =>
+    new RunStop(RUN_STAGE.reading, page, [ALREADY_APPLIED, detail], undefined, {
+      reason: RUN_FAILURE_REASON.alreadyApplied,
+      label: ALREADY_APPLIED,
+      detail,
+    });
+
+  /**
+   * A new page: the first one is the posting, checked against the postings applied
+   * to already; on Continue, the page filled before the stop is not filled again.
+   */
+  const enterNewPage = async (page: PageSnapshot, state: PageState) => {
+    if (!startUrl) {
+      startUrl = page.url;
+      const earlier = await appliedTo(startUrl);
+      if (earlier) throw alreadyApplied(page, `Applied ${new Date(earlier.at).toLocaleString()}`);
+    }
+    if (resumeFilledSignature && page.signature === resumeFilledSignature) {
+      state.filled = true;
+      log.event("continue:filled-page", {});
+    }
+    resumeFilledSignature = null;
+  };
+
+  /** The site says this job was applied to already: stop before touching it. */
+  const stopIfApplied = (r: { alreadyApplied: boolean }, page: PageSnapshot) => {
+    if (r.alreadyApplied) throw alreadyApplied(page, "The site says this job was applied to");
   };
 
   /** An account step the run cannot sign in to or sign up on: the profile has no password. */
@@ -986,7 +1054,15 @@ export async function runOrchestrator(args: RunOrchestratorArgs): Promise<RunRep
         : failed
           ? `Stopped · ${result.failure?.label ?? UNKNOWN_FAILURE_LABEL}`
           : `Done · ${result.pages} page${result.pages === 1 ? "" : "s"} · ${seconds}s${cost}`;
-    const run: RunProgress = { ...runState(), endedAt: Date.now(), report: result };
+    const canContinue = await keepRunEnd(tabId, result.outcome, snapshot?.title ?? "", {
+      accountHistory,
+      resetLinkSites: [...resetLinkSites],
+      mailVerifications,
+      filledSignature: current?.filled ? current.signature : null,
+      startUrl,
+      pages: pageCount,
+    });
+    const run: RunProgress = { ...runState(), endedAt: Date.now(), report: result, canContinue };
     args.emit(tabs, {
       phase: failed ? "error" : halted ? "idle" : "done",
       message,
@@ -1058,6 +1134,7 @@ export async function runOrchestrator(args: RunOrchestratorArgs): Promise<RunRep
         };
         refillsOnPage = 0;
         log.event("page", { page: pageCount, url: logUrl(page.url), flagged: page.flagged });
+        await enterNewPage(page, current);
       }
       const state = current as PageState;
       const retrying = state.retryClick;
@@ -1119,6 +1196,7 @@ export async function runOrchestrator(args: RunOrchestratorArgs): Promise<RunRep
         if (first.kind === PAGE_KIND.confirmation) {
           return await finish(report(RUN_OUTCOME.completed));
         }
+        stopIfApplied(first, page);
         if (first.kind === PAGE_KIND.blocked || first.kind === PAGE_KIND.other) {
           throw new RunStop(RUN_STAGE.reading, page, [
             `This page is ${first.kind.replace("_", " ")}`,
@@ -1224,6 +1302,7 @@ export async function runOrchestrator(args: RunOrchestratorArgs): Promise<RunRep
       if (next.kind === PAGE_KIND.confirmation) {
         return await finish(report(RUN_OUTCOME.completed));
       }
+      stopIfApplied(next, page);
       const handed = await verifyOrWait(next, page, state);
       if (handed) {
         pending = handed.pending;
@@ -1247,6 +1326,10 @@ export async function runOrchestrator(args: RunOrchestratorArgs): Promise<RunRep
       }
       state.clicks += 1;
       state.scanBeforeClick = page.scan;
+      // The next look is compared with the page as it was clicked: the fill itself
+      // changes a page's fields (rows added, follow-ups revealed).
+      state.signature = page.signature;
+      state.url = page.url;
       const label = target.picked.text || target.picked.label;
       if (target.fallback) {
         log.event("click:fallback", { text: label, disabled: target.picked.disabled });

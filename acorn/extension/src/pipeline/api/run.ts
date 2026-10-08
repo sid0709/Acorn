@@ -57,6 +57,8 @@ export interface ReadPageResponse {
   accountMode?: AccountMode;
   /** On an account step: whether the profile holds a default account password. */
   accountPassword?: boolean;
+  /** The site says this applicant has already applied to this job. */
+  alreadyApplied?: boolean;
   usage?: AiUsageSummary;
 }
 

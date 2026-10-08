@@ -212,7 +212,15 @@ export async function settleAfterClick(args: {
     const timedOut = elapsed >= RUN_SETTLE_UNCHANGED_MS;
     if (!moved && !refused && !timedOut) continue;
     const snapshot = await snapshotPage(tabId, { form: true, frameId: args.frameId });
-    if (snapshot.signature !== before.signature) return { tabId, how: "changed", snapshot };
+    if (snapshot.signature !== before.signature) {
+      // The page is mid-change (saving, drawing the next step): read it once it settles.
+      await waitForPageSettled(tabId);
+      return {
+        tabId,
+        how: "changed",
+        snapshot: await snapshotPage(tabId, { form: true, frameId: args.frameId }),
+      };
+    }
     if (refused || timedOut) return { tabId, how: "unchanged", snapshot };
     baseline = probe;
   }

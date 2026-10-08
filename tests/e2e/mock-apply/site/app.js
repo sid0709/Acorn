@@ -12,6 +12,8 @@
 // Every step's name is on <body data-step>, so the test can screenshot each one.
 
 const RENDER_DELAY_MS = 600;
+/** Saving a step takes a while: the page shows a half-way state before the next step. */
+const SAVE_DELAY_MS = 2500;
 const ACCOUNTS_KEY = "mockApplyAccounts";
 const SESSION_KEY = "mockApplySession";
 const ANSWERS_KEY = "mockApplyAnswers";
@@ -597,7 +599,11 @@ function formStep(stepKey, heading, fields, next) {
           )
         : "",
     );
-    if (!missing.length) next();
+    if (!missing.length) {
+      // Like real platforms, a save shows a half-way page before the next step draws.
+      app.replaceChildren(el("section", {}, el("p", { role: "status" }, "Saving…"), summary));
+      setTimeout(next, SAVE_DELAY_MS);
+    }
   };
   return el(
     "section",
@@ -647,6 +653,67 @@ function experienceView() {
   );
 }
 
+/**
+ * A dropdown as large platforms draw it: a visible button that opens a list, named
+ * only "Select One Required", an invisible companion input beside it, and the
+ * question in the fieldset's legend. Options react on their inner row only.
+ */
+function listButtonField(id, question, options) {
+  const popup = el("div", { class: "popup" });
+  const button = el("button", {
+    type: "button",
+    id,
+    "aria-haspopup": "listbox",
+    "aria-label": " Select One Required",
+    "aria-required": "true",
+  });
+  const companion = el("input", { type: "text", class: "companion", tabindex: "-1" });
+  const show = () => (button.textContent = answers[id] || "Select One");
+  button.addEventListener("click", () =>
+    popup.replaceChildren(
+      el(
+        "div",
+        { role: "listbox" },
+        ["Select One", ...options].map((option) =>
+          el(
+            "div",
+            { role: "option" },
+            el(
+              "div",
+              {
+                class: "row",
+                on: {
+                  click: () => {
+                    answers[id] = option === "Select One" ? "" : option;
+                    saveAnswers();
+                    popup.replaceChildren();
+                    show();
+                  },
+                },
+              },
+              option,
+            ),
+          ),
+        ),
+      ),
+    ),
+  );
+  show();
+  return {
+    id,
+    label: question,
+    required: true,
+    node: el(
+      "fieldset",
+      {},
+      el("legend", {}, `${question}*`),
+      el("div", {}, button, companion),
+      popup,
+      errorLine(id),
+    ),
+  };
+}
+
 function questionsView() {
   return formStep(
     "questions",
@@ -656,10 +723,15 @@ function questionsView() {
         "Yes",
         "No",
       ]),
-      selectField("sponsorship", "Will you now or in the future require visa sponsorship?", [
+      listButtonField("sponsorship", "Will you now or in the future require visa sponsorship?", [
         "Yes",
         "No",
       ]),
+      listButtonField(
+        "certify",
+        "I certify that all information I have provided in support of my application is true and accurate.",
+        ["Yes", "No"],
+      ),
       selectField("sqlYears", "How many years of experience do you have with SQL?", [
         "0-2 years",
         "3-5 years",
