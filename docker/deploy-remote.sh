@@ -52,8 +52,19 @@ fi
 docker network inspect "$NETWORK" >/dev/null 2>&1 || docker network create "$NETWORK"
 
 if [[ "$want_api" == true ]]; then
-  echo "Pulling $API_REF"
-  docker pull "$API_REF"
+  if [[ "${API_RECREATE_ONLY:-}" == true ]]; then
+    if docker inspect "$API_CONTAINER" >/dev/null 2>&1; then
+      API_REF="$(docker inspect --format='{{.Config.Image}}' "$API_CONTAINER")"
+      echo "Recreating $API_CONTAINER from $API_REF (no pull)"
+    else
+      API_REF="${API_IMAGE_DEFAULT}:latest"
+      echo "Pulling $API_REF"
+      docker pull "$API_REF"
+    fi
+  else
+    echo "Pulling $API_REF"
+    docker pull "$API_REF"
+  fi
   docker rm -f "$API_CONTAINER" >/dev/null 2>&1 || true
   docker run -d \
     --name "$API_CONTAINER" \

@@ -291,17 +291,16 @@ jobs:
             set -eu
             printf '%s' "$DOCKERHUB_TOKEN" | docker login -u "$DOCKERHUB_USERNAME" --password-stdin
             chmod 755 /opt/acorn/deploy-remote.sh
+            api_recreate_only=false
+            if [ -f /tmp/acorn-api-restart-needed ]; then
+              rm -f /tmp/acorn-api-restart-needed
+              if [ "$DEPLOY_API" != true ]; then
+                api_recreate_only=true
+              fi
+            fi
             services=""
             if [ "$DEPLOY_API" = true ]; then
               services=api
-            fi
-            if [ -f /tmp/acorn-api-restart-needed ]; then
-              if [ -z "$services" ]; then
-                services=api
-              elif [[ ",$services," != *",api,"* ]]; then
-                services="$services,api"
-              fi
-              rm -f /tmp/acorn-api-restart-needed
             fi
             if [ "$DEPLOY_WEB" = true ]; then
               if [ -n "$services" ]; then
@@ -317,4 +316,9 @@ jobs:
                 services=admin
               fi
             fi
-            /opt/acorn/deploy-remote.sh "$IMAGE_TAG" "$services"
+            if [ -n "$services" ]; then
+              /opt/acorn/deploy-remote.sh "$IMAGE_TAG" "$services"
+            fi
+            if [ "$api_recreate_only" = true ]; then
+              API_RECREATE_ONLY=true /opt/acorn/deploy-remote.sh "$IMAGE_TAG" api
+            fi
