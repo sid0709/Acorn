@@ -1,4 +1,8 @@
-import { isAcornSocketConnected, scheduleConnectAcornSocket } from "./acorn-socket";
+import {
+  isAcornSocketConnected,
+  reconnectAcornSocketNow,
+  scheduleConnectAcornSocket,
+} from "./acorn-socket";
 import { bindAutoFocusSetting } from "./background/auto-focus";
 import { routeMessage } from "./background/message-router";
 import { connectSocket, sidebarPorts, socketHandlers } from "./background/socket-connection";
@@ -54,6 +58,8 @@ chrome.runtime.onConnect.addListener((port) => {
 });
 
 void connectSocket().catch(() => undefined);
+// Back online: dial now instead of waiting out socket.io's backoff.
+self.addEventListener("online", () => reconnectAcornSocketNow(socketHandlers));
 enableSidePanelOnActionClick();
 bindContentScriptInjection();
 bindAutoFocusSetting();

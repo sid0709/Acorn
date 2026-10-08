@@ -5,14 +5,13 @@ import {
   isAcornSocketConnected,
   type AcornSocketHandlers,
 } from "../acorn-socket";
-import { broadcastOperatorNotice, socketErrorDetail } from "../operator-notice";
+import { createConnectionNotice } from "./connection-notice";
 import { queueTabPipeline } from "../tab-pipeline-session";
 import { MSG } from "../types";
 import { bindSocketRelay } from "./socket-relay";
 
-let socketErrorToastAt = 0;
-const SOCKET_TOAST_MS = 12_000;
 export const sidebarPorts = new Set<chrome.runtime.Port>();
+const connectionNotice = createConnectionNotice();
 
 export function broadcastPipelineProgress(tabId: number, progress: PipelineProgress): void {
   getAcornSocket()?.emit("pipeline:progress", { tabId, progress });
@@ -36,31 +35,21 @@ function pushSocketStatus(connected: boolean): void {
 export const socketHandlers: AcornSocketHandlers = {
   bindEvents: bindSocketRelay,
   onConnected: () => {
-    const recovered = socketErrorToastAt > 0;
     pushSocketStatus(true);
-    if (recovered) {
-      socketErrorToastAt = 0;
-      broadcastOperatorNotice({
-        kind: "success",
-        title: "Connected",
-        detail: "Connected to Acorn.",
-      });
-    }
+    connectionNotice.markConnected();
   },
   onDisconnected: () => {
     pushSocketStatus(false);
+    connectionNotice.markDown(null);
   },
   onConnectError: (err) => {
     if (isAcornSocketConnected()) return;
     pushSocketStatus(false);
-    const now = Date.now();
-    if (now - socketErrorToastAt < SOCKET_TOAST_MS) return;
-    socketErrorToastAt = now;
-    broadcastOperatorNotice({
-      kind: "error",
-      title: "Couldn’t connect",
-      detail: socketErrorDetail(err.message),
-    });
+    connectionNotice.markDown(err);
+  },
+  onIdle: () => {
+    pushSocketStatus(false);
+    connectionNotice.reset();
   },
 };
 

@@ -16,10 +16,13 @@ export function socketErrorDetail(message: string): string {
   ) {
     return "Couldn’t reach Acorn. Check the API URL and that the backend is running.";
   }
-  if (text.includes("auth") || text.includes("unauthorized") || text.includes("jwt")) {
-    return "Session expired. Sign in again.";
-  }
+  if (isSocketAuthError(message)) return "Session expired. Sign in again.";
   return message.trim() || "Couldn’t reach Acorn.";
+}
+
+/** The server refused the socket's token, so retrying won't help until sign-in. */
+export function isSocketAuthError(message: string): boolean {
+  return /auth|unauthorized|jwt/i.test(message);
 }
 
 export function networkErrorDetail(err: unknown, fallback: string): string {

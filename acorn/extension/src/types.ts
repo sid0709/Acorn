@@ -107,6 +107,8 @@ export const MSG = {
 export type AcornNoticeKind = "error" | "success" | "info";
 
 export type AcornNoticePayload = {
+  /** Notices sharing an id replace each other on screen instead of stacking. */
+  id?: string;
   kind: AcornNoticeKind;
   title: string;
   detail?: string;
