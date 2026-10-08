@@ -11,10 +11,13 @@ export function AcornNoticeHost() {
   const toast = useToast();
 
   useEffect(() => {
-    return bindAcornNoticePush(({ kind, title, detail }) => {
+    return bindAcornNoticePush(({ id, kind, title, detail }) => {
       toast({
         type: kind === "error" ? "error" : "info",
+        // sid-ui keeps error toasts up until closed unless told otherwise.
+        isAutoHide: true,
         autoHideDuration: noticeKindDuration(kind),
+        uniqueID: id,
         body: (
           <VStack gap={0.5}>
             <Text weight="semibold" color="inherit">
@@ -34,9 +37,9 @@ export function AcornNoticeHost() {
   useEffect(() => {
     const onMessage = (message: { type?: string; notice?: AcornNoticePayload }) => {
       if (message.type !== MSG.OPERATOR_NOTICE || !message.notice?.title) return;
-      const { kind, title, detail } = message.notice;
+      const { id, kind, title, detail } = message.notice;
       if (kind !== "error" && kind !== "success" && kind !== "info") return;
-      pushAcornNotice({ kind, title, detail });
+      pushAcornNotice({ id, kind, title, detail });
     };
     chrome.runtime.onMessage.addListener(onMessage);
     return () => chrome.runtime.onMessage.removeListener(onMessage);
