@@ -20,7 +20,7 @@ Port `6010` on the VPS is reserved for JoinedHQ admin; do not point Acorn admin 
 
 ## GitHub Environment `Production` (branch `main`)
 
-Secrets: `DOCKERHUB_USERNAME`, `DOCKERHUB_TOKEN`, `VPS_HOST`, `VPS_USER`, `VPS_SSH_KEY`. Optional: `VPS_SSH_PORT`, `ACORN_ADMIN_SESSION_SECRET`, vars `ACORN_API_IMAGE`, `ACORN_WEB_IMAGE`, `ACORN_ADMIN_IMAGE`, `ACORN_ADMIN_USERNAME`, `ACORN_ADMIN_PWD`, `ACORN_EXTENSION_API_URL`, `ACORN_EXTENSION_WEB_URL` (baked into the extension zip at website image build; defaults match production hosts).
+Secrets: `DOCKERHUB_USERNAME`, `DOCKERHUB_TOKEN`, `VPS_HOST`, `VPS_USER`, `VPS_SSH_KEY`. Optional: `VPS_SSH_PORT`, `ACORN_ADMIN_SESSION_SECRET`, vars `ACORN_API_IMAGE`, `ACORN_WEB_IMAGE`, `ACORN_ADMIN_IMAGE`, `ACORN_ADMIN_USERNAME`, `ACORN_ADMIN_PWD`, and optionally `VITE_ACORN_API_URL` / `VITE_ACORN_WEB_URL` (same names as `acorn/.env`; baked into the extension zip at website image build; defaults match production hosts).
 
 When the website image builds, it runs `tools/extension-release.mjs`: production `acorn/.env` from those vars, `bun run build:acorn`, zip to `/downloads/acorn-chrome.zip`, and sets `NEXT_PUBLIC_ACORN_EXTENSION_VERSION` for the Apps page. Bump `acorn/extension/package.json` version with extension changes so deploy shows the new number.
 

@@ -156,8 +156,8 @@ jobs:
           push: true
           platforms: linux/amd64
           build-args: |
-            VITE_ACORN_API_URL=${{ vars.ACORN_EXTENSION_API_URL || 'https://acornapi.remotepairnet.net' }}
-            VITE_ACORN_WEB_URL=${{ vars.ACORN_EXTENSION_WEB_URL || 'https://acorn.remotepairnet.net' }}
+            VITE_ACORN_API_URL=${{ vars.VITE_ACORN_API_URL || vars.ACORN_EXTENSION_API_URL || 'https://acornapi.remotepairnet.net' }}
+            VITE_ACORN_WEB_URL=${{ vars.VITE_ACORN_WEB_URL || vars.ACORN_EXTENSION_WEB_URL || 'https://acorn.remotepairnet.net' }}
           tags: |
             ${{ env.WEB_IMAGE }}:${{ steps.plan.outputs.image_tag }}
             ${{ env.WEB_IMAGE }}:latest
