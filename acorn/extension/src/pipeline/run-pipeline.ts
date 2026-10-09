@@ -4,6 +4,7 @@ import { FAST_PLAN_MODE } from "@acorn/shared/form-fields";
 import { PhaseClock } from "@acorn/shared/phase-clock";
 import { applyApplicantIdentityToActions } from "@acorn/shared/plan-runner/applicant-identity";
 import { runActionPlan } from "@acorn/shared/plan-runner/orchestrator";
+import { planWantsCoverLetter } from "@acorn/shared/plan-runner/step-file";
 import { formatPlannerTree } from "@acorn/shared/planner-tree";
 import { redactPlan } from "@acorn/shared/secret-value";
 import { formatAnalyzeTrees } from "@acorn/shared/tree-export";
@@ -19,10 +20,12 @@ import { MSG, type DomTreePayload, type PipelineSource } from "../types";
 
 import { fetchRuntimeFile } from "./api/job-files";
 import { decideChoicesInBatch } from "./choice-batch";
+import { loadCoverLetter } from "./cover-letter";
 import { repairDriftInTab } from "./drift";
 import { fetchDomFromTab } from "./fetch-dom";
 import { keepResumeIfSameSite, loadFillResume } from "./fill-resume";
 import { planLateFields } from "./late-fields";
+import { localIsoDate } from "./local-date";
 import { requestPlan, wantsFastPlan } from "./plan-request";
 import {
   REFILL_NOTHING_FLAGGED,
@@ -37,7 +40,12 @@ import { beginPipelineUsageTracking, endPipelineUsageTracking } from "./usage-tr
 
 import type { PipelineProgress } from "@acorn/shared/pipeline-types";
 import type { PlanTurn } from "@acorn/shared/plan-history";
-import type { ActionPlan, PlanStepPayload, RunStepRecord } from "@acorn/shared/plan-runner/types";
+import type {
+  ActionPlan,
+  PlanStepPayload,
+  RunStepRecord,
+  RuntimeAttachedFile,
+} from "@acorn/shared/plan-runner/types";
 
 /** Run requires a résumé file; a fill that has none stops here, before any model call or step. */
 export const NO_RESUME_FILE = "No résumé file to attach";
@@ -257,6 +265,8 @@ export async function runFabPipeline(args: RunPipelineArgs): Promise<void> {
       title: treePayload.title || "Untitled",
       url: treePayload.url,
       fetchedAt: treePayload.fetchedAt,
+      // The applicant's own date: a date-of-signing field takes today as they see it.
+      today: localIsoDate(),
       job:
         source === "custom"
           ? null
@@ -341,14 +351,37 @@ export async function runFabPipeline(args: RunPipelineArgs): Promise<void> {
       tabId,
     );
 
-    const runPlan = (target: ActionPlan, total: number) =>
-      clock.time("steps", () =>
+    // A cover letter is chosen only when the plan uploads one, once per fill.
+    let coverLetterLoad: Promise<RuntimeAttachedFile | null> | null = null;
+    const coverLetterFor = (target: ActionPlan) => {
+      if (!planWantsCoverLetter(target.actions)) return Promise.resolve(null);
+      coverLetterLoad ??= clock
+        .time("cover-letter", () =>
+          loadCoverLetter({
+            tabId,
+            customTab,
+            tabJob,
+            pageText: pureTree,
+            apiUrl: aiServerUrl,
+          }),
+        )
+        .catch((err) => {
+          traceFromBackground("cover-letter:failed", () => ({ error: String(err) }), tabId);
+          return null;
+        });
+      return coverLetterLoad;
+    };
+
+    const runPlan = async (target: ActionPlan, total: number) => {
+      const coverLetter = await coverLetterFor(target);
+      return clock.time("steps", () =>
         runActionPlan({
           plan: target,
           runtimeFile,
           recommendedResume,
           customResume,
           resumeFileKind,
+          coverLetter,
           force: refill,
           executeStep: async (step: PlanStepPayload) => {
             const sentAt = Date.now();
@@ -426,6 +459,7 @@ export async function runFabPipeline(args: RunPipelineArgs): Promise<void> {
           },
         }),
       );
+    };
 
     let report = await runPlan(plan, stepTotal);
 

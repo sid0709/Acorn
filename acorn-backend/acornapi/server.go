@@ -228,6 +228,7 @@ func New(accounts Accounts, listings *jobs.Store, brain *acorn.Service, opts Opt
 	mux.HandleFunc("POST /acorn/custom/generate/{inputId}/continue", s.requireAI(s.continueGenerate))
 	mux.HandleFunc("GET /acorn/custom/generate/{inputId}", s.pollGenerate)
 	mux.HandleFunc("POST /acorn/custom/recommend", s.requireAI(s.recommendLibrary))
+	mux.HandleFunc("POST /acorn/custom/cover-letter", s.requireAI(s.coverLetter))
 	mux.HandleFunc("GET /acorn/custom/library-resumes/{resumeId}/preview", s.customLibraryPreview)
 	mux.HandleFunc("GET /acorn/custom/library-resumes/{resumeId}", s.customLibraryResume)
 	mux.HandleFunc("GET /acorn/custom/resumes/{generationId}/preview", s.customGeneratedPreview)

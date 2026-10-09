@@ -32,6 +32,7 @@ var routeFeatures = map[string]string{
 	"POST /acorn/jobs/{jobId}/generate":              featureResumeGenerate,
 	"POST /acorn/resume/library/{resumeId}/analyze":  featureResumeAnalyze,
 	"POST /acorn/custom/recommend":                   featureRecommend,
+	"POST /acorn/custom/cover-letter":                featureRecommend,
 	"POST /acorn/profile/from-resume":                featureProfileImport,
 	"POST /acorn/gmail/autolabel":                    featureGmailLabel,
 }

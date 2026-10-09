@@ -9,10 +9,30 @@ export type PlanStepFiles = {
   /** Custom-tab editor-generated résumé. */
   customResume: RuntimeAttachedFile | null;
   resumeFileKind?: "library" | "custom";
+  /** The Library cover letter chosen for this application; null when there is none. */
+  coverLetter?: RuntimeAttachedFile | null;
 };
 
 const RECOMMENDED_FILE_KEYS = new Set(["recommended_resume"]);
 const CUSTOM_FILE_KEYS = new Set(["custom_resume"]);
+/** The plan names the cover letter by this file key. */
+export const COVER_LETTER_FILE_KEY = "cover_letter";
+
+function fileKey(action: Pick<PlanAction, "file">): string {
+  return String(action.file || "")
+    .trim()
+    .toLowerCase();
+}
+
+/** An upload the plan meant for the applicant's cover letter. */
+export function wantsCoverLetter(action: Pick<PlanAction, "action" | "file">): boolean {
+  return action.action === "upload" && fileKey(action) === COVER_LETTER_FILE_KEY;
+}
+
+/** Whether a plan uploads a cover letter anywhere: then one is fetched for it. */
+export function planWantsCoverLetter(actions: PlanAction[] | null | undefined): boolean {
+  return (actions ?? []).some(wantsCoverLetter);
+}
 
 export function isCustomResumeFile(
   file: Pick<RuntimeAttachedFile, "key"> | null | undefined,
@@ -58,7 +78,7 @@ export function executionIndexOrder(actions: PlanAction[]): number[] {
 
 export function wantsRecommendedResume(action: PlanAction): boolean {
   if (action.action === "resume_upload") return true;
-  if (action.action !== "upload") return false;
+  if (action.action !== "upload" || wantsCoverLetter(action)) return false;
   const key = String(action.file || "")
     .trim()
     .toLowerCase();
@@ -78,6 +98,7 @@ export function resolveStepFile(
   action: PlanAction,
   files: PlanStepFiles,
 ): RuntimeAttachedFile | null {
+  if (wantsCoverLetter(action)) return files.coverLetter ?? null;
   if (wantsRecommendedResume(action)) return resolveResumeUploadFile(files);
   if (action.action === "upload") return files.runtimeFile;
   return null;

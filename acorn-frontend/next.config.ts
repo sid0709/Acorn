@@ -16,7 +16,7 @@ const extensionVersion = extensionPackageVersion();
 
 /** Revisits of a dynamic page within this window skip the server round trip. */
 const DYNAMIC_ROUTE_CACHE_SECONDS = 30;
-/** A fully prefetched route (nav links) stays warm this long. */
+/** A prefetched route (a link's frame and loading state) stays warm this long. */
 const PREFETCHED_ROUTE_CACHE_SECONDS = 180;
 
 const nextConfig: NextConfig = {

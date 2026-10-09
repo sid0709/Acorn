@@ -19,6 +19,8 @@ export interface FormField {
   /** The heading of the form section the field sits in ("References", "Education"). */
   section?: string;
   inputType?: string;
+  /** A file input's own list of the file types it takes (".pdf,application/pdf"). */
+  accept?: string;
   autocomplete?: string;
   placeholder?: string;
   name?: string;

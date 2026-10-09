@@ -15,6 +15,10 @@ API_CONTAINER="${API_CONTAINER:-acorn-api}"
 WEB_CONTAINER="${WEB_CONTAINER:-acorn-web}"
 ADMIN_CONTAINER="${ADMIN_CONTAINER:-acorn-admin}"
 NETWORK="${ACORN_NETWORK:-acorn}"
+# The website and admin call the API from their servers. All three run on this
+# host in the same Docker network, so they reach it by container name: no public
+# DNS, TLS, or nginx hop on every page load. Browsers still use the public host.
+INTERNAL_API_URL="${ACORN_INTERNAL_API_URL:-http://${API_CONTAINER}:8083}"
 API_HEALTH_URL="${API_HEALTH_URL:-http://127.0.0.1:8083/health}"
 WEB_URL="${WEB_URL:-http://127.0.0.1:6005/}"
 ADMIN_URL="${ADMIN_URL:-http://127.0.0.1:6011/}"
@@ -84,7 +88,7 @@ if [[ "$want_web" == true ]]; then
     --name "$WEB_CONTAINER" \
     --restart unless-stopped \
     --network "$NETWORK" \
-    -e ACORN_API_URL=https://acornapi.remotepairnet.net \
+    -e ACORN_API_URL="$INTERNAL_API_URL" \
     -e PORT=3000 \
     -e HOSTNAME=0.0.0.0 \
     -p 127.0.0.1:6005:3000 \
@@ -99,7 +103,7 @@ if [[ "$want_admin" == true ]]; then
     --name "$ADMIN_CONTAINER" \
     --restart unless-stopped \
     --network "$NETWORK" \
-    -e ACORN_API_URL=https://acornapi.remotepairnet.net \
+    -e ACORN_API_URL="$INTERNAL_API_URL" \
     -e PORT=3000 \
     -e HOSTNAME=0.0.0.0 \
     -p 127.0.0.1:6011:3000 \

@@ -200,9 +200,15 @@ func (s *Service) GenerationPreview(accountID, id string) (string, error) {
 	return renderHTML(gen.Identity, gen.Sections, gen.Config), nil
 }
 
-func (s *Service) UploadLibrary(accountID, name, title string, data []byte, extractedText string) (LibraryRow, error) {
+func (s *Service) UploadLibrary(accountID, name, title, kind string, data []byte, extractedText string) (LibraryRow, error) {
 	if len(data) == 0 || len(data) > maxFileBytes {
 		return LibraryRow{}, fmt.Errorf("%w: file is empty or too large", ErrInvalid)
+	}
+	if kind == "" {
+		kind = KindResume
+	}
+	if !IsLibraryKind(kind) {
+		return LibraryRow{}, fmt.Errorf("%w: kind must be %s or %s", ErrInvalid, KindResume, KindCoverLetter)
 	}
 	id, err := newID()
 	if err != nil {
@@ -216,12 +222,12 @@ func (s *Service) UploadLibrary(accountID, name, title string, data []byte, extr
 	}
 	text := bestResumeText(name, extractedText, data)
 	row := LibraryRow{
-		ID: id, AccountID: accountID, Source: "uploaded", FileName: name, Title: title,
+		ID: id, AccountID: accountID, Source: "uploaded", Kind: kind, FileName: name, Title: title,
 		Size: len(data), UploadedAt: time.Now().UTC(), ExtractedText: text,
 		MimeType: mimeFromName(name), Bytes: data, Skills: analyzeText(text),
 	}
-	existing := s.store.hasLibrary(accountID)
-	if !existing {
+	// The first file of a kind is that kind's primary.
+	if !s.hasKind(accountID, kind) {
 		row.IsPrimary = true
 	}
 	if err := s.store.putLibrary(row); err != nil {
@@ -229,6 +235,16 @@ func (s *Service) UploadLibrary(accountID, name, title string, data []byte, extr
 	}
 	row.Bytes = nil
 	return row, nil
+}
+
+// hasKind says whether the account already keeps a Library file of this kind.
+func (s *Service) hasKind(accountID, kind string) bool {
+	for _, row := range s.store.listLibrary(accountID) {
+		if rowKind(row) == kind {
+			return true
+		}
+	}
+	return false
 }
 
 func (s *Service) Library(accountID string) []LibraryRow {
@@ -255,7 +271,11 @@ func (s *Service) SetPrimary(accountID, id string) (LibraryRow, error) {
 	if !ok {
 		return LibraryRow{}, ErrNotFound
 	}
+	// Résumés and cover letters each keep their own primary.
 	for _, row := range s.store.listLibrary(accountID) {
+		if rowKind(row) != rowKind(target) {
+			continue
+		}
 		full, found := s.store.libraryItem(accountID, row.ID)
 		if !found {
 			continue
@@ -270,15 +290,27 @@ func (s *Service) SetPrimary(accountID, id string) (LibraryRow, error) {
 	return target, nil
 }
 
+// LibraryFile is the file of the row's stack in its preferred format, with the
+// stack's other formats alongside.
 func (s *Service) LibraryFile(accountID, id string) (FilePayload, error) {
 	row, ok := s.store.libraryItem(accountID, id)
 	if !ok || len(row.Bytes) == 0 {
 		return FilePayload{}, ErrNotFound
 	}
-	return FilePayload{
-		Key: "recommended_resume", Name: row.FileName, MimeType: row.MimeType,
-		Base64: base64.StdEncoding.EncodeToString(row.Bytes), Label: row.Title, ResumeID: row.ID, JobID: row.JobID,
-	}, nil
+	return stackPayload(fileKeyFor(rowKind(row)), s.stackOf(accountID, row)), nil
+}
+
+// File keys the extension's plan steps name; each kind attaches through its own.
+const (
+	fileKeyResume      = "recommended_resume"
+	fileKeyCoverLetter = "cover_letter"
+)
+
+func fileKeyFor(kind string) string {
+	if kind == KindCoverLetter {
+		return fileKeyCoverLetter
+	}
+	return fileKeyResume
 }
 
 func (s *Service) LibraryPreview(accountID, id string) (string, error) {
@@ -424,7 +456,8 @@ func PublicRow(row LibraryRow) map[string]any {
 		profile = []SkillEntry{}
 	}
 	return map[string]any{
-		"id": row.ID, "source": row.Source, "fileName": row.FileName, "title": row.Title,
+		"id": row.ID, "source": row.Source, "kind": rowKind(row), "format": fileFormat(row.FileName),
+		"fileName": row.FileName, "title": row.Title,
 		"size": row.Size, "isPrimary": row.IsPrimary, "analyzed": row.Analyzed,
 		"analyzedAt": analyzedAt, "generationId": row.GenerationID, "templateId": row.TemplateID,
 		"uploadedAt": row.UploadedAt.Format(time.RFC3339), "extractedText": row.ExtractedText,

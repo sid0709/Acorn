@@ -1,5 +1,6 @@
 import { resolveElementByNodeId } from "../element-resolver";
 
+import { chooseUploadFile } from "./upload-format";
 import { pageMentionsFilename, rememberUploadedFile } from "./upload-registry";
 import { waitForUploadComplete, waitMs } from "./wait";
 
@@ -172,13 +173,21 @@ async function persistUploadAcrossRemount(
   throw new Error("Upload did not persist after the page remounted the file input");
 }
 
-export async function uploadFileToElement(el: Element, file: RuntimeAttachedFile): Promise<string> {
+/**
+ * Attach a file to a file input. `wanted` is the format the plan read from the
+ * field ("pdf", "word"); the version sent is one the input accepts, never another.
+ */
+export async function uploadFileToElement(
+  el: Element,
+  file: RuntimeAttachedFile,
+  wanted?: string | null,
+): Promise<string> {
   if (!(el instanceof HTMLInputElement) || el.type !== "file") {
     throw new Error(`Upload target is not a file input (got <${el.tagName.toLowerCase()}>)`);
   }
 
   const acornId = el.getAttribute("data-acorn-id");
-  const fileObj = buildFile(file);
+  const fileObj = buildFile(chooseUploadFile(el, file, wanted));
   const { names } = await persistUploadAcrossRemount(el, fileObj, acornId);
 
   if (!names.length) {

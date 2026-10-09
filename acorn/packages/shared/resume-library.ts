@@ -2,6 +2,17 @@ import { coerceString } from "./coerce-string";
 
 export type ResumeLibrarySource = "uploaded" | "generated";
 
+/** What a Library file is. Every file saved before kinds existed is a résumé. */
+export const LIBRARY_KIND = {
+  resume: "resume",
+  coverLetter: "cover_letter",
+} as const;
+
+export type LibraryKind = (typeof LIBRARY_KIND)[keyof typeof LIBRARY_KIND];
+
+/** A Library file's format, by its extension. */
+export type LibraryFileFormat = "pdf" | "docx" | "doc" | "txt" | "";
+
 /** Radar categories from résumé skill analysis. */
 export const RESUME_SKILL_CATEGORIES = ["hard", "devops", "tools", "domain", "soft"] as const;
 
@@ -16,6 +27,9 @@ export type ResumeSkillEntry = {
 export type ResumeLibraryRow = {
   id: string;
   source: ResumeLibrarySource;
+  /** resume or cover_letter; files with the same kind and title are one stack in several formats. */
+  kind: LibraryKind;
+  format: LibraryFileFormat;
   fileName: string;
   title: string;
   size: number;

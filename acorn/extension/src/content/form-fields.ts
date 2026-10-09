@@ -11,6 +11,7 @@ import { PASSWORD_INPUT_TYPE } from "@acorn/shared/secret-value";
 import { choiceOptionLabel, hasClickableBox, inputOptionLabel } from "./agents/choice-group";
 import { optionLabel, realOptions } from "./agents/native-select";
 import { groupRoot } from "./agents/select-radio";
+import { getDirectText } from "./dom-serializer";
 import {
   ACORN_ID_ATTR,
   MAX_TEXT_CHARS,
@@ -194,12 +195,17 @@ function describeControl(control: Element, seenGroups: Set<string>): FormField |
         groupAccessibleName(control) || groupQuestion(wrapper, control, [control]) || label();
       // The drop zone's own words ("Import Resume", "Drop your resume here") tell a
       // parse-to-autofill zone from the résumé field.
-      const nearby = [
-        ...wrapperTexts(control, wrapper, Node.DOCUMENT_POSITION_PRECEDING, new Set([question])),
-        ...wrapperTexts(control, wrapper, Node.DOCUMENT_POSITION_FOLLOWING, new Set([question])),
-      ].slice(0, FILE_HINT_TEXTS);
+      // The words around the input say which document it takes ("Type or paste
+      // résumé" beside one, "cover letter" beside another), even in a shut panel.
+      const nearby = fileContextTexts(control, question);
       const described = [question, ...nearby].filter(Boolean).join(" — ");
-      return { elementIndex: nodeId(control), kind: "file", label: described, required };
+      return {
+        elementIndex: nodeId(control),
+        kind: "file",
+        label: described,
+        required,
+        accept: attr(control, "accept"),
+      };
     }
     if (type === "radio" || type === "checkbox") {
       const key = choiceGroupKey(control);
@@ -240,6 +246,37 @@ function describeControl(control: Element, seenGroups: Set<string>): FormField |
     };
   }
   return null;
+}
+
+/** How many levels above a file input its surrounding words are looked for. */
+const FILE_CONTEXT_DEPTH = 3;
+
+/**
+ * The words around a file input: the text of the panel it sits in, read a few
+ * levels up, hidden or not and option text included. A file input's own label is
+ * usually its button ("File", "Attach"), and the panel holding it is often shut
+ * until opened, yet its words still name the document it takes.
+ */
+function fileContextTexts(control: Element, question: string): string[] {
+  const seen = new Set([normalize(question)]);
+  const texts: string[] = [];
+  let scope: Element | null = control.parentElement;
+  for (
+    let depth = 0;
+    scope && depth < FILE_CONTEXT_DEPTH && texts.length < FILE_HINT_TEXTS;
+    depth += 1
+  ) {
+    for (const el of Array.from(scope.querySelectorAll("*"))) {
+      if (el === control || el.contains(control)) continue;
+      const text = getDirectText(el);
+      if (!text || seen.has(normalize(text))) continue;
+      seen.add(normalize(text));
+      texts.push(clip(text, MAX_TEXT_CHARS));
+      if (texts.length >= FILE_HINT_TEXTS) break;
+    }
+    scope = scope.parentElement;
+  }
+  return texts;
 }
 
 /** Option buttons marked by ARIA (role=radio / aria-pressed) with no native input behind them. */

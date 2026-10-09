@@ -16,6 +16,7 @@ const candidateTTL = 5 * time.Minute
 // candidateFields is all Recommend reads about a Library row: never the file or its text.
 var candidateFields = bson.D{
 	{Key: "id", Value: 1}, {Key: "accountId", Value: 1}, {Key: "title", Value: 1}, {Key: "source", Value: 1},
+	{Key: "kind", Value: 1}, {Key: "fileName", Value: 1}, {Key: "analyzed", Value: 1},
 	{Key: "isPrimary", Value: 1}, {Key: "skills", Value: 1}, {Key: "skillProfile", Value: 1},
 }
 

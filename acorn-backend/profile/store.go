@@ -124,14 +124,44 @@ type storedProfile struct {
 // Mongo is filled when a client is configured. A ready model, or the profile's
 // OpenRouter key, reads uploaded résumés; without either, the layout parser does.
 type Store struct {
-	mu    sync.Mutex
-	rows  map[string]Document
-	coll  *mongo.Collection
-	model Model
+	mu   sync.Mutex
+	rows map[string]Document
+	// readAt is when each row was last read from or written to Mongo.
+	readAt map[string]time.Time
+	coll   *mongo.Collection
+	model  Model
 }
 
+// profileCacheTTL is how long a profile read from Mongo is served from memory.
+// The extension reads the profile on nearly every step and the website on every
+// Profile visit; a save through this process replaces the copy at once, and one
+// made elsewhere is seen within the TTL.
+const profileCacheTTL = 30 * time.Second
+
 func NewMemory() *Store {
-	return &Store{rows: map[string]Document{}}
+	return &Store{rows: map[string]Document{}, readAt: map[string]time.Time{}}
+}
+
+// fresh is the account's profile when it was read or saved within the TTL.
+func (s *Store) fresh(accountID string) (Document, bool) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	doc, ok := s.rows[accountID]
+	if !ok || time.Since(s.readAt[accountID]) >= profileCacheTTL {
+		return Document{}, false
+	}
+	return doc, true
+}
+
+// keep remembers the account's profile as just read or saved.
+func (s *Store) keep(accountID string, doc Document) {
+	s.mu.Lock()
+	if s.readAt == nil {
+		s.readAt = map[string]time.Time{}
+	}
+	s.rows[accountID] = doc
+	s.readAt[accountID] = time.Now()
+	s.mu.Unlock()
 }
 
 func NewStore(client *mongo.Client, database string, model Model) *Store {
@@ -158,6 +188,7 @@ func (s *Store) EnsureIndexes(ctx context.Context) error {
 func (s *Store) Delete(ctx context.Context, accountID string) error {
 	s.mu.Lock()
 	delete(s.rows, accountID)
+	delete(s.readAt, accountID)
 	s.mu.Unlock()
 	if s.coll == nil {
 		return nil
@@ -201,15 +232,13 @@ func (s *Store) AccountIDByProfileEmail(ctx context.Context, email string) (stri
 		return "", false, err
 	}
 	doc := normalize(row.Profile)
-	s.mu.Lock()
-	s.rows[row.AccountID] = doc
-	s.mu.Unlock()
+	s.keep(row.AccountID, doc)
 	return row.AccountID, true, nil
 }
 
 func (s *Store) Load(ctx context.Context, accountID string) (Document, bool, error) {
-	// With Mongo configured, the collection is the account profile. Memory is only
-	// a cache of that read, so a support-session save is what the user loads next.
+	// With Mongo configured, the collection is the account profile. Memory is a
+	// cache of that read for profileCacheTTL; a save here replaces it at once.
 	if s.coll == nil {
 		s.mu.Lock()
 		doc, ok := s.rows[accountID]
@@ -218,6 +247,9 @@ func (s *Store) Load(ctx context.Context, accountID string) (Document, bool, err
 			return Document{}, false, nil
 		}
 		return normalize(doc), true, nil
+	}
+	if doc, ok := s.fresh(accountID); ok {
+		return doc, true, nil
 	}
 	var row storedProfile
 	err := s.coll.FindOne(ctx, bson.D{{Key: "accountId", Value: accountID}}).Decode(&row)
@@ -228,9 +260,7 @@ func (s *Store) Load(ctx context.Context, accountID string) (Document, bool, err
 		return Document{}, false, err
 	}
 	doc := normalize(row.Profile)
-	s.mu.Lock()
-	s.rows[accountID] = doc
-	s.mu.Unlock()
+	s.keep(accountID, doc)
 	return doc, true, nil
 }
 
@@ -251,9 +281,7 @@ func (s *Store) Save(ctx context.Context, accountID string, doc Document) (Docum
 			return Document{}, err
 		}
 	}
-	s.mu.Lock()
-	s.rows[accountID] = doc
-	s.mu.Unlock()
+	s.keep(accountID, doc)
 	return doc, nil
 }
 

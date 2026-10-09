@@ -1,5 +1,6 @@
 import type { FieldIssueScan } from "@acorn/shared/field-issues";
 import type { FormField } from "@acorn/shared/form-fields";
+import type { RuntimeAttachedFile } from "@acorn/shared/plan-runner/types";
 
 export interface DomNode {
   nodeId: number;
@@ -161,15 +162,8 @@ export type PlanStepActionType =
   | "validate"
   | "verify_only";
 
-export interface RuntimeAttachedFile {
-  key: string;
-  name: string;
-  mimeType: string;
-  base64: string;
-  label?: string | null;
-  resumeId?: string | null;
-  jobId?: string | null;
-}
+/** One definition, in the shared plan runner: a file a plan step attaches. */
+export type { RuntimeAttachedFile };
 
 /** What a click's settle loop compares between polls, without serializing the page. */
 export interface PageProbe {

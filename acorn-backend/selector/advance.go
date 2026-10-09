@@ -135,6 +135,9 @@ const (
 	maxControlNear = 100
 	// maxEvidence bounds the lines of page evidence sent with a diagnosis.
 	maxEvidence = 24
+	// minFallbackConfidence is the least probability a control needs to be clicked
+	// as the forward control when Jev answered none.
+	minFallbackConfidence = 0.2
 )
 
 // Control is one clickable thing on the page, read from the pure tree.
@@ -350,6 +353,11 @@ func (g *Gateway) ReadPage(ctx context.Context, q PageQuery) (PageRead, error) {
 	read.AccountMode = AccountNone
 	if read.Kind == KindAccount {
 		read.AccountMode = listedChoice(res.Answers[accountQuestion], accountModes, AccountNone)
+		// The same answer says the page shows no account form at all: then it is a
+		// step of the application to fill (a consent, a location), not an account step.
+		if read.AccountMode == AccountNone {
+			read.Kind = KindForm
+		}
 	}
 	answer, ok := res.Answers[controlQuestion]
 	if !ok {
@@ -371,7 +379,9 @@ func (g *Gateway) ReadPage(ctx context.Context, q PageQuery) (PageRead, error) {
 		for key := range keys {
 			controlKeys[key] = key
 		}
-		if key := bestKey(answer.Probabilities, controlKeys); key != "" {
+		// A control Jev barely believes in (a "Back" at a few percent) is no fallback:
+		// clicking it would undo the step instead of showing what the page needs.
+		if key := bestKey(answer.Probabilities, controlKeys); key != "" && answer.Probabilities[key] >= minFallbackConfidence {
 			read.Fallback = &ControlPick{ID: keys[key], Role: role, Confidence: answer.Probabilities[key], Probabilities: probabilities}
 		}
 	}

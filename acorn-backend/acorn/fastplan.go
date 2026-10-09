@@ -54,6 +54,8 @@ type FormField struct {
 	Autocomplete string `json:"autocomplete"`
 	Placeholder  string `json:"placeholder"`
 	Name         string `json:"name"`
+	// Accept is a file input's own list of file types it takes (".pdf,application/pdf").
+	Accept string `json:"accept,omitempty"`
 	// MaxLength is the control's native maxlength; 0 when it sets none.
 	MaxLength int `json:"maxLength,omitempty"`
 	// Notes is short text the page shows after a text field: a counter ("0/300"), a format hint.
@@ -151,12 +153,14 @@ func (s *Service) FastPlan(ctx context.Context, applicant string, fields []FormF
 	}
 	texts, files, choices := splitFields(fields)
 	profile := s.facts(applicant)
+	profile.today = pageToday(page)
 
 	var (
 		wg                   sync.WaitGroup
 		textKinds, fileTypes map[int]string
 		subjects             map[int]string
 		picks                map[int][]string
+		fileFormats          map[int]string
 		early, late          map[int]string
 		textErr, fileErr     error
 		pickErr              error
@@ -223,6 +227,7 @@ func (s *Service) FastPlan(ctx context.Context, applicant string, fields []FormF
 		fileTypes, fileErr = s.classifier.ClassifyEach(ctx, fileFieldInstructions, fileKinds, describeAll(files))
 		if fileErr == nil {
 			s.settleResumeField(ctx, files, fileTypes)
+			fileFormats = s.uploadFormats(ctx, files, fileTypes)
 		}
 	}()
 	go func() {
@@ -241,12 +246,17 @@ func (s *Service) FastPlan(ctx context.Context, applicant string, fields []FormF
 	}
 
 	plan := newPlan()
-	addResumeUpload(plan, files, fileTypes)
+	addResumeUpload(plan, files, fileTypes, fileFormats)
+	addCoverLetterUpload(plan, files, fileTypes, fileFormats)
 	written := make(map[int]string, len(early)+len(late))
 	for _, answers := range []map[int]string{early, late} {
 		for index, answer := range answers {
 			written[index] = answer
 		}
+	}
+	// Today's date, written the way each field that asks for it wants.
+	for index, value := range s.todayValues(ctx, texts, textKinds, profile.today) {
+		written[index] = value
 	}
 	s.addTextFills(ctx, plan, texts, textKinds, written, applicant, page)
 	addChoiceFills(plan, choices, picks)
@@ -279,7 +289,7 @@ func describe(field FormField) string {
 	parts = append(parts, fmt.Sprintf("Field label: %q", strings.TrimSpace(field.Label)))
 	for _, attr := range [][2]string{
 		{"input type", field.InputType}, {"autocomplete", field.Autocomplete},
-		{"placeholder", field.Placeholder}, {"name", field.Name},
+		{"placeholder", field.Placeholder}, {"name", field.Name}, {"accepts", field.Accept},
 	} {
 		if strings.TrimSpace(attr[1]) != "" {
 			parts = append(parts, fmt.Sprintf("%s: %q", attr[0], strings.TrimSpace(attr[1])))
@@ -405,13 +415,13 @@ func (s *Service) settleResumeField(ctx context.Context, files []FormField, kind
 // addResumeUpload attaches the résumé to every résumé field, or to the autofill
 // drop zone only when the form has no résumé field. Uploads run before any other
 // step, so a parse zone's prefill is overwritten by the planned answers.
-func addResumeUpload(plan Plan, files []FormField, kinds map[int]string) {
-	recommended := "recommended_resume"
+func addResumeUpload(plan Plan, files []FormField, kinds, formats map[int]string) {
+	recommended := fileKeyResume
 	for _, want := range []string{fileResume, fileAutofill} {
 		added := false
 		for _, field := range files {
 			if kinds[field.ElementIndex] == want {
-				addAction(plan, "resume_upload", field, "file", "", &recommended)
+				addAction(plan, "resume_upload", field, "file", formats[field.ElementIndex], &recommended)
 				added = true
 			}
 		}
@@ -521,12 +531,17 @@ func textAnswer(profile applicantFacts, field FormField, kind string) (fact stri
 // answers already written for "write" fields; any it still lacks are written now.
 func (s *Service) addTextFills(ctx context.Context, plan Plan, fields []FormField, kinds map[int]string, written map[int]string, applicant string, page map[string]any) {
 	profile := s.facts(applicant)
+	profile.today = pageToday(page)
 	parts := splitAcrossBoxes(profile, fields, kinds)
 	var write []FormField
 	for _, field := range fields {
 		fact, needsWriting := textAnswer(profile, field, kinds[field.ElementIndex])
 		if part, split := parts[field.ElementIndex]; split {
 			fact = part
+		}
+		// Today's date is already written in the field's own format.
+		if dated := written[field.ElementIndex]; kinds[field.ElementIndex] == FactToday && dated != "" {
+			fact = dated
 		}
 		if fact != "" {
 			addAction(plan, "fill", field, textRole(field), fact, nil)
@@ -659,4 +674,67 @@ func addOptionAction(plan Plan, field FormField, node int, value, label string) 
 	option := field
 	option.ElementIndex, option.Label = node, label
 	addAction(plan, "select_radio", option, field.Kind, value, nil)
+}
+
+// File keys a plan names; the extension attaches each one's file.
+const (
+	fileKeyResume      = "recommended_resume"
+	fileKeyCoverLetter = "cover_letter"
+)
+
+// addCoverLetterUpload attaches the Library cover letter to every cover-letter
+// field. The extension picks the letter when the plan asks for one; with none in
+// the Library the step is left to the page.
+func addCoverLetterUpload(plan Plan, files []FormField, kinds, formats map[int]string) {
+	key := fileKeyCoverLetter
+	for _, field := range files {
+		if kinds[field.ElementIndex] == fileCoverLetter {
+			addAction(plan, "upload", field, "file", formats[field.ElementIndex], &key)
+		}
+	}
+}
+
+// Formats an upload field can insist on. The step's value carries it; the
+// extension sends the stack's file in that format, never another.
+const (
+	uploadFormatPDF  = "pdf"
+	uploadFormatWord = "word"
+	uploadFormatAny  = "any"
+)
+
+var uploadFormatKinds = map[string]string{
+	uploadFormatPDF:  "The field takes only PDF files.",
+	uploadFormatWord: "The field takes only Word documents (.doc or .docx).",
+	uploadFormatAny:  "The field takes either, or says nothing that limits the file type.",
+}
+
+const uploadFormatInstructions = "Which file type does this upload field take? Read the types it accepts, its label, " +
+	"and the text around it."
+
+// uploadFormats reads, for every résumé or cover-letter upload, whether it takes
+// only one format. A field that lists the types it accepts says so itself and the
+// extension reads that list; only the others are asked about.
+func (s *Service) uploadFormats(ctx context.Context, files []FormField, kinds map[int]string) map[int]string {
+	ask := map[int]string{}
+	for _, field := range files {
+		kind := kinds[field.ElementIndex]
+		if (kind == fileResume || kind == fileCoverLetter) && strings.TrimSpace(field.Accept) == "" {
+			ask[field.ElementIndex] = describe(field)
+		}
+	}
+	if len(ask) == 0 {
+		return map[int]string{}
+	}
+	picked, err := s.classifier.ClassifyEach(ctx, uploadFormatInstructions, uploadFormatKinds, ask)
+	if err != nil {
+		slog.Warn("acorn fast plan: upload formats unread", "error", err)
+		return map[int]string{}
+	}
+	formats := map[int]string{}
+	for index, format := range picked {
+		if format == uploadFormatPDF || format == uploadFormatWord {
+			formats[index] = format
+		}
+	}
+	return formats
 }

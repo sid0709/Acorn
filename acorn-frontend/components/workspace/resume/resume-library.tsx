@@ -33,9 +33,11 @@ import {
   uploadLibraryFile,
 } from "@/lib/resume/api";
 import {
+  LIBRARY_KIND,
   RESUME_LIBRARY_ACCEPT,
   RESUME_LIBRARY_MAX_BYTES,
   RESUME_SKILL_CATEGORIES,
+  type LibraryKind,
   type ResumeLibraryRow,
   type ResumeLibrarySource,
   type ResumeSkillCategory,
@@ -55,6 +57,24 @@ const VIEWS: { value: ResumeLibrarySource; label: string }[] = [
   { value: "uploaded", label: "Uploaded" },
   { value: "generated", label: "Generated" },
 ];
+
+const KINDS: { value: LibraryKind; label: string }[] = [
+  { value: LIBRARY_KIND.resume, label: "Résumés" },
+  { value: LIBRARY_KIND.coverLetter, label: "Cover letters" },
+];
+
+/** What one file of each kind is called in this page's copy. */
+const KIND_NOUN: Record<LibraryKind, { one: string; many: string }> = {
+  [LIBRARY_KIND.resume]: { one: "résumé", many: "résumés" },
+  [LIBRARY_KIND.coverLetter]: { one: "cover letter", many: "cover letters" },
+};
+
+/** A row's kind; rows saved before kinds existed are résumés. */
+const kindOf = (row: ResumeLibraryRow): LibraryKind => row.kind ?? LIBRARY_KIND.resume;
+
+/** "1 résumé" / "3 résumés". */
+const countOf = (count: number, kind: LibraryKind) =>
+  `${count} ${count === 1 ? KIND_NOUN[kind].one : KIND_NOUN[kind].many}`;
 
 const SKILL_CATEGORY_LABEL: Record<ResumeSkillCategory, string> = {
   hard: "Languages and frameworks",
@@ -77,6 +97,9 @@ export function ResumeLibrary({ initial }: { initial: LibraryStart }) {
     initial.ok ? initial.data.resumes : [],
   );
   const [view, setView] = useState<ResumeLibrarySource>("uploaded");
+  const [kind, setKind] = useState<LibraryKind>(LIBRARY_KIND.resume);
+  /** The stack single uploads go under; empty uses each file's own name. */
+  const [stackName, setStackName] = useState("");
   const [search, setSearch] = useState("");
   const [stack, setStack] = useState("all");
   const [selected, setSelected] = useState<string[]>([]);
@@ -154,9 +177,10 @@ export function ResumeLibrary({ initial }: { initial: LibraryStart }) {
         items,
         RESUME_BULK_UPLOAD_CONCURRENCY,
         async (item) => {
-          const result = await uploadLibraryFile(
-            await libraryUploadInput(item.file, item.techStack),
-          );
+          const result = await uploadLibraryFile({
+            ...(await libraryUploadInput(item.file, item.techStack)),
+            kind,
+          });
           return result.ok ? null : { fileName: item.file.name, error: result.message };
         },
         (current, total) => setUploadProgress({ current, total }),
@@ -166,7 +190,7 @@ export function ResumeLibrary({ initial }: { initial: LibraryStart }) {
         setError(summary);
         notify("Upload finished with errors", summary, true);
       } else {
-        notify(items.length === 1 ? "Uploaded 1 résumé" : `Uploaded ${items.length} résumés`);
+        notify(`Uploaded ${countOf(items.length, kind)}`);
       }
       await reload();
     } finally {
@@ -212,19 +236,19 @@ export function ResumeLibrary({ initial }: { initial: LibraryStart }) {
       const stopped = stopAnalyze.current;
       setSelected([]);
       if (failed.length) {
-        const summary = failureSummary("résumé(s) failed to analyze", targets.length, failed);
+        const summary = failureSummary(
+          `${KIND_NOUN[kind].many} failed to analyze`,
+          targets.length,
+          failed,
+        );
         setError(summary);
         notify("Analysis finished with errors", summary, true);
       } else if (stopped) {
         notify(
-          finished === 0
-            ? "Analysis stopped"
-            : finished === 1
-              ? "Analyzed 1 résumé, then stopped"
-              : `Analyzed ${finished} résumés, then stopped`,
+          finished === 0 ? "Analysis stopped" : `Analyzed ${countOf(finished, kind)}, then stopped`,
         );
       } else {
-        notify(finished === 1 ? "Analyzed 1 résumé" : `Analyzed ${finished} résumés`);
+        notify(`Analyzed ${countOf(finished, kind)}`);
       }
       await reload();
     } finally {
@@ -262,7 +286,7 @@ export function ResumeLibrary({ initial }: { initial: LibraryStart }) {
         notify("Delete finished with errors", summary, true);
         await reload();
       } else {
-        notify(done === 1 ? "Deleted 1 résumé" : `Deleted ${done} résumés`);
+        notify(`Deleted ${countOf(done, kind)}`);
       }
     } finally {
       setDeleteProgress(null);
@@ -272,7 +296,7 @@ export function ResumeLibrary({ initial }: { initial: LibraryStart }) {
   const startAnalyze = () => {
     const targets = rows.filter((row) => selected.includes(row.id) && row.source === "uploaded");
     if (!targets.length) {
-      setError("Select uploaded résumés to analyze.");
+      setError(`Select uploaded ${KIND_NOUN[kind].many} to analyze.`);
       return;
     }
     const ids = targets.map((row) => row.id);
@@ -291,10 +315,13 @@ export function ResumeLibrary({ initial }: { initial: LibraryStart }) {
     await reload();
   };
 
-  const stacks = ["all", ...new Set(rows.map((row) => row.title).filter(Boolean))];
+  // Cover letters are only ever uploaded; the generator writes résumés.
+  const shownView: ResumeLibrarySource = kind === LIBRARY_KIND.resume ? view : "uploaded";
+  const ofKind = rows.filter((row) => kindOf(row) === kind);
+  const stacks = ["all", ...new Set(ofKind.map((row) => row.title).filter(Boolean))];
   const query = search.trim().toLowerCase();
-  const visible = rows.filter((row) => {
-    if (row.source !== view) return false;
+  const visible = ofKind.filter((row) => {
+    if (row.source !== shownView) return false;
     if (stack !== "all" && row.title !== stack) return false;
     if (!query) return true;
     const skills = (row.skillProfile ?? []).map((skill) => skill.name).join(" ");
@@ -325,6 +352,16 @@ export function ResumeLibrary({ initial }: { initial: LibraryStart }) {
       key: "title",
       header: "Tech stack",
       render: (item) => <Text>{item.title || "—"}</Text>,
+    },
+    {
+      key: "format",
+      header: "Format",
+      render: (item) =>
+        item.format ? (
+          <Badge label={item.format.toUpperCase()} />
+        ) : (
+          <Text color="secondary">—</Text>
+        ),
     },
     {
       key: "skillCount",
@@ -389,9 +426,28 @@ export function ResumeLibrary({ initial }: { initial: LibraryStart }) {
       {error ? <Banner status="error" title="Library" description={error} /> : null}
       <SectionCard
         title="Upload"
-        description="Drop files, or bulk-upload a folder whose subfolders are tech-stack names. Each résumé is stored under its parent folder."
+        description="Drop files, or bulk-upload a folder whose subfolders are tech-stack names. Each file is stored under its stack. Upload a PDF and a Word version under the same stack: a form that takes only one format gets that one, any other gets the PDF."
       >
         <Stack gap={3}>
+          <HStack gap={3} wrap="wrap" vAlign="end">
+            <Selector
+              label="Library"
+              value={kind}
+              options={KINDS}
+              isDisabled={busy}
+              onChange={(value) => {
+                setKind(value as LibraryKind);
+                setSelected([]);
+                setStack("all");
+              }}
+            />
+            <TextInput
+              label="Stack name"
+              description="For files dropped below. Leave empty to use each file's name."
+              value={stackName}
+              onChange={setStackName}
+            />
+          </HStack>
           <HStack gap={2} wrap="wrap">
             <Button
               label="Bulk upload"
@@ -402,7 +458,7 @@ export function ResumeLibrary({ initial }: { initial: LibraryStart }) {
             />
           </HStack>
           <FileUploader
-            label="Résumé files"
+            label={kind === LIBRARY_KIND.resume ? "Résumé files" : "Cover letter files"}
             accept={RESUME_LIBRARY_ACCEPT}
             maxSize={RESUME_LIBRARY_MAX_BYTES}
             maxFiles={8}
@@ -411,14 +467,14 @@ export function ResumeLibrary({ initial }: { initial: LibraryStart }) {
               void uploadItems(
                 files.map((file) => ({
                   file,
-                  techStack: file.name.replace(/\.[^.]+$/, "") || file.name,
+                  techStack: stackName.trim() || file.name.replace(/\.[^.]+$/, "") || file.name,
                 })),
               )
             }
           />
           {uploadProgress ? (
             <ProgressBar
-              label="Uploading résumés"
+              label={`Uploading ${KIND_NOUN[kind].many}`}
               value={uploadProgress.current}
               max={Math.max(uploadProgress.total, 1)}
               hasValueLabel
@@ -429,19 +485,21 @@ export function ResumeLibrary({ initial }: { initial: LibraryStart }) {
       </SectionCard>
       <SectionCard
         title="Files"
-        description="Select uploaded résumés to analyze their skills or delete them before uploading again."
+        description={`Select uploaded ${KIND_NOUN[kind].many} to analyze their skills or delete them before uploading again. Skills decide which one a job gets.`}
       >
         <Stack gap={3}>
           <HStack gap={3} wrap="wrap" vAlign="end">
-            <Selector
-              label="View"
-              value={view}
-              options={VIEWS}
-              onChange={(value) => {
-                setView(value as ResumeLibrarySource);
-                setSelected([]);
-              }}
-            />
+            {kind === LIBRARY_KIND.resume ? (
+              <Selector
+                label="View"
+                value={view}
+                options={VIEWS}
+                onChange={(value) => {
+                  setView(value as ResumeLibrarySource);
+                  setSelected([]);
+                }}
+              />
+            ) : null}
             <TextInput label="Search" value={search} onChange={setSearch} />
             <Selector
               label="Stack"
@@ -452,7 +510,7 @@ export function ResumeLibrary({ initial }: { initial: LibraryStart }) {
               }))}
               onChange={setStack}
             />
-            {view === "uploaded" && !deleteProgress ? (
+            {shownView === "uploaded" && !deleteProgress ? (
               analyzeProgress ? (
                 <Button
                   label={stoppingAnalysis ? "Stopping…" : "Stop analysis"}
@@ -484,7 +542,7 @@ export function ResumeLibrary({ initial }: { initial: LibraryStart }) {
           </HStack>
           {analyzeProgress ? (
             <ProgressBar
-              label="Analyzing résumés"
+              label={`Analyzing ${KIND_NOUN[kind].many}`}
               value={analyzeProgress.current}
               max={Math.max(analyzeProgress.total, 1)}
               hasValueLabel
@@ -493,7 +551,7 @@ export function ResumeLibrary({ initial }: { initial: LibraryStart }) {
           ) : null}
           {deleteProgress ? (
             <ProgressBar
-              label="Deleting résumés"
+              label={`Deleting ${KIND_NOUN[kind].many}`}
               value={deleteProgress.current}
               max={Math.max(deleteProgress.total, 1)}
               hasValueLabel
@@ -501,15 +559,19 @@ export function ResumeLibrary({ initial }: { initial: LibraryStart }) {
             />
           ) : null}
           <Table
-            caption="Resume library"
+            caption={kind === LIBRARY_KIND.resume ? "Resume library" : "Cover letter library"}
             variant="plain"
-            selection={view === "uploaded" ? "multiple" : "none"}
+            selection={shownView === "uploaded" ? "multiple" : "none"}
             selectedKeys={selected}
             onSelectionChange={setSelected}
             columns={columns}
             rows={visible}
             rowKey={(item) => item.id}
-            empty={view === "generated" ? "No generated résumés yet." : "No uploaded files yet."}
+            empty={
+              shownView === "generated"
+                ? "No generated résumés yet."
+                : `No uploaded ${KIND_NOUN[kind].many} yet.`
+            }
           />
         </Stack>
       </SectionCard>
@@ -585,7 +647,7 @@ export function ResumeLibrary({ initial }: { initial: LibraryStart }) {
           header={
             <DialogHeader
               title="Analyze again?"
-              subtitle={`${alreadyAnalyzed} selected résumé${alreadyAnalyzed === 1 ? " is" : "s are"} already analyzed. Analyzing again replaces skill scores.`}
+              subtitle={`${countOf(alreadyAnalyzed, kind)} selected ${alreadyAnalyzed === 1 ? "is" : "are"} already analyzed. Analyzing again replaces skill scores.`}
               onOpenChange={() => setReanalyzeIds(null)}
               hasDivider
             />
@@ -593,7 +655,7 @@ export function ResumeLibrary({ initial }: { initial: LibraryStart }) {
           content={
             <LayoutContent>
               <Text color="secondary">
-                Skills are read from the résumé text and saved on each file in the library.
+                Skills are read from the file&apos;s text and saved on each file in the library.
               </Text>
             </LayoutContent>
           }
@@ -626,7 +688,7 @@ export function ResumeLibrary({ initial }: { initial: LibraryStart }) {
           header={
             <DialogHeader
               title={skillsRow ? `${skillsRow.title} — ${skillsRow.fileName}` : "Skills"}
-              subtitle="Skills extracted from this résumé, with a category and a level from 2 to 5."
+              subtitle="Skills extracted from this file, with a category and a level from 2 to 5."
               onOpenChange={() => setSkillsRow(null)}
               hasDivider
             />
