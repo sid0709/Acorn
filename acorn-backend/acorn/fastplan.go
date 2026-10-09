@@ -102,8 +102,11 @@ const (
 )
 
 var subjectKinds = map[string]string{
-	subjectApplicant: "The applicant's own information.",
-	subjectOther:     "Someone else's information: a reference, an emergency contact, a referrer, or a supervisor.",
+	subjectApplicant: "The applicant's own information or answer, including a question put to the applicant about other " +
+		"people that the applicant answers for themselves: whether they know someone at the company, were referred, or are " +
+		"related to an employee (answered yes, no, or with the relationship, even when a yes asks for names).",
+	subjectOther: "A detail of one specific other person the field asks for on its own: the name, email, phone, title, or " +
+		"relationship of a reference, an emergency contact, a referrer, or a supervisor.",
 }
 
 // File field kinds. Only résumé and autofill fields get the résumé upload.

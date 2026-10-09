@@ -147,8 +147,9 @@ async function narrowAndDecide(
       emptied = true;
       break;
     }
-    // Typing that no longer changes the list will not narrow it further.
-    if (optionSignature(filtered) === optionSignature(shown)) break;
+    // A word that left the list as it was (a search a word behind, a word every
+    // option shares) says nothing yet: type the next one, which may still narrow it.
+    if (optionSignature(filtered) === optionSignature(shown)) continue;
     shown = filtered;
     shownQuery = typed;
     shownDecision = null;

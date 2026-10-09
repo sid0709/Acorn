@@ -29,13 +29,38 @@ export function delegatedRole(delegate: Element): "button" | "link" {
   return delegate.tagName === "A" ? "link" : "button";
 }
 
+/**
+ * How long a scan for open shadow roots is reused. Finding them means walking
+ * every element; dropdown waits query many times a second, so they share a scan.
+ */
+const SHADOW_SCAN_TTL_MS = 1_000;
+
+const shadowScans = new WeakMap<ParentNode, { at: number; roots: ShadowRoot[] }>();
+
+/** Every open shadow root under root (nested ones too), from a recent scan. */
+function shadowRootsUnder(root: ParentNode): ShadowRoot[] {
+  const cached = shadowScans.get(root);
+  if (cached && Date.now() - cached.at < SHADOW_SCAN_TTL_MS) return cached.roots;
+  const roots: ShadowRoot[] = [];
+  const visit = (scope: ParentNode) => {
+    const hosts = Array.from(scope.querySelectorAll("*"));
+    if (scope instanceof Element) hosts.unshift(scope);
+    for (const el of hosts) {
+      if (!el.shadowRoot) continue;
+      roots.push(el.shadowRoot);
+      visit(el.shadowRoot);
+    }
+  };
+  visit(root);
+  shadowScans.set(root, { at: Date.now(), roots });
+  return roots;
+}
+
 /** Every element matching selector in root and in the open shadow roots under it. */
 export function deepQueryAll(root: ParentNode, selector: string): Element[] {
   const found = Array.from(root.querySelectorAll(selector));
-  const hosts = Array.from(root.querySelectorAll("*"));
-  if (root instanceof Element) hosts.unshift(root);
-  for (const el of hosts) {
-    if (el.shadowRoot) found.push(...deepQueryAll(el.shadowRoot, selector));
+  for (const shadow of shadowRootsUnder(root)) {
+    if (shadow.isConnected) found.push(...Array.from(shadow.querySelectorAll(selector)));
   }
   return found;
 }

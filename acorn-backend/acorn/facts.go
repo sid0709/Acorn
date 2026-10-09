@@ -99,7 +99,7 @@ func factKinds() map[string]string {
 	}
 	kinds[FactWrite] = "The field asks for a written answer the profile does not hold as one fact: a reason, a description, a cover letter, or any open question."
 	kinds[FactSkip] = "Nothing in a job application profile answers it (fax, pager, middle name, address line 2, an extension, an account on a platform the profile names no URL for), or the page tells people to leave it empty: leave it blank."
-	kinds[FactOtherPerson] = "A field about another person, not the applicant: a reference, an emergency contact, a referrer, or a supervisor — their name, email, phone, title, or relationship."
+	kinds[FactOtherPerson] = "A field asking for one specific other person's detail, not the applicant's answer: a reference, an emergency contact, a referrer, or a supervisor — their name, email, phone, title, or relationship. Not a question put to the applicant about whether they know or were referred by someone: that is the applicant's own answer."
 	kinds[FactPersonOnly] = "A value only the applicant can give in the moment: a code sent to their phone, an authenticator app code, or the answer to a challenge."
 	kinds[FactUnknownDetail] = "A detail of one school or job entry the profile does not hold: that school's or job's city, department, supervisor, GPA, or minor."
 	return kinds
