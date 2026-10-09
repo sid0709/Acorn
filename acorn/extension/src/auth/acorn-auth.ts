@@ -6,6 +6,7 @@ import {
   acornHosts,
 } from "@acorn/shared/api";
 
+import { ACORN_DEBUG } from "../debug-trace";
 import { ACORN_TAB_HEADER, usageTabKey } from "../tab-usage-key";
 
 import { STORAGE_KEYS } from "./storage-keys";
@@ -44,7 +45,14 @@ function retiredApiUrl(url: string): boolean {
   }
 }
 
+/**
+ * The API every call goes to: the one saved in Settings, else the build's default.
+ * A debug build always uses its own default (the local API in acorn/.env), since
+ * only that server records the debug run; a saved deployed host would leave the
+ * run unrecorded and running the deployed code.
+ */
 export async function getAcornApiUrl(): Promise<string> {
+  if (ACORN_DEBUG) return DEFAULT_ACORN_API_URL;
   const stored = await chrome.storage.local.get([STORAGE_KEYS.apiUrl]);
   const value = stored[STORAGE_KEYS.apiUrl];
   if (typeof value === "string") {

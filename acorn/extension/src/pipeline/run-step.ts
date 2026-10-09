@@ -7,7 +7,7 @@ export interface SeenPage {
 }
 
 /** A page address without query or fragment: the same step keeps it while its form changes. */
-function addressOf(url: string): string {
+export function addressOf(url: string): string {
   try {
     const parsed = new URL(url);
     return `${parsed.host}${parsed.pathname}`;

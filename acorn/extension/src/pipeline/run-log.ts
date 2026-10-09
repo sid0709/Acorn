@@ -41,7 +41,11 @@ export class RunLog {
 
   event(event: string, data?: Record<string, unknown>): void {
     console.info("[acorn:run]", this.runId, `#${this.step}`, event, data ?? "");
-    traceFromBackground(`run:${event}`, () => ({ runId: this.runId, step: this.step, ...data }));
+    traceFromBackground(
+      `run:${event}`,
+      () => ({ runId: this.runId, step: this.step, ...data }),
+      this.tabId,
+    );
     if (!FULL_PAGE_SHOTS.has(event)) void queueDebugShot(this.tabId, event, false);
     this.pending.push({ t: Date.now(), step: this.step, event, data });
     if (this.pending.length >= RUN_LOG_BATCH_MAX) {

@@ -252,7 +252,8 @@ function ariaButtonFields(claimed: Set<number>): FormField[] {
     if (seenRoots.has(root)) continue;
     seenRoots.add(root);
     const buttons = optionButtons(root).filter((button) => button.matches(ARIA_CHOICE_SELECTOR));
-    const label = clip(labelCandidates(el)[0] ?? "", MAX_TEXT_CHARS);
+    // The group's own name is the question; an option's label is only its answer.
+    const label = groupAccessibleName(el) || clip(labelCandidates(el)[0] ?? "", MAX_TEXT_CHARS);
     const field = buttonsField(buttons, label, isRequired(buttons));
     // A group the native-input pass already listed (its first button) is not new.
     if (field && !claimed.has(field.elementIndex)) fields.push(field);

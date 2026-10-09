@@ -32,14 +32,18 @@ export async function planLateFields(args: {
       blockedFields: blocked,
     });
     const fields = dom.formFields ?? [];
-    traceFromBackground("late:fields", () => ({
-      count: fields.length,
-      fields: fields.map((field) => ({
-        i: field.elementIndex,
-        kind: field.kind,
-        label: field.label,
-      })),
-    }));
+    traceFromBackground(
+      "late:fields",
+      () => ({
+        count: fields.length,
+        fields: fields.map((field) => ({
+          i: field.elementIndex,
+          kind: field.kind,
+          label: field.label,
+        })),
+      }),
+      tabId,
+    );
     if (!fields.length) return null;
     const res = await requestAiAnalyze(
       { pureTree: formatPlannerTree(dom.tree), mode: FAST_PLAN_MODE, formFields: fields, page },
@@ -47,17 +51,25 @@ export async function planLateFields(args: {
       tabId,
     );
     const plan = res.mode === FAST_PLAN_MODE ? res.plan : undefined;
-    traceFromBackground("late:plan", () => ({
-      actions: plan?.actions?.length ?? 0,
-      ms: Date.now() - started,
-    }));
+    traceFromBackground(
+      "late:plan",
+      () => ({
+        actions: plan?.actions?.length ?? 0,
+        ms: Date.now() - started,
+      }),
+      tabId,
+    );
     if (!plan?.actions?.length) return null;
     applyApplicantIdentityToActions(plan.actions);
     return plan;
   } catch (err) {
-    traceFromBackground("late:failed", () => ({
-      error: err instanceof Error ? err.message : String(err),
-    }));
+    traceFromBackground(
+      "late:failed",
+      () => ({
+        error: err instanceof Error ? err.message : String(err),
+      }),
+      tabId,
+    );
     return null;
   }
 }

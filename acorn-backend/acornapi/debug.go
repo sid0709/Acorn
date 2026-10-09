@@ -25,13 +25,22 @@ type analyzeDebug struct {
 	MetaTree string          `json:"metaTree"`
 }
 
-// traceContext attaches the user's current debug run, so model calls land in it.
+// debugKey names whose debug run a request belongs to: the user, and the Chrome
+// tab it came from, so runs going on in several tabs each keep their own folder.
+func debugKey(r *http.Request, userID string) string {
+	if tab := tabKey(r.Header.Get(tabHeader)); tab != "" {
+		return userID + "/" + tab
+	}
+	return userID
+}
+
+// traceContext attaches the current debug run of the request's tab, so model calls land in it.
 func (s *Server) traceContext(r *http.Request, userID string) context.Context {
 	ctx := s.withUsage(r, userID)
 	if s.debug == nil {
 		return ctx
 	}
-	return debugtrace.WithRun(ctx, s.debug.Latest(userID))
+	return debugtrace.WithRun(ctx, s.debug.Latest(debugKey(r, userID)))
 }
 
 // startAnalyzeRun opens a run for this Analyze and saves what the planner is given.
@@ -40,7 +49,7 @@ func (s *Server) startAnalyzeRun(r *http.Request, userID, applicant, pureTree st
 	if s.debug == nil {
 		return ctx
 	}
-	run := s.debug.StartRun(userID, pageLabel(page))
+	run := s.debug.StartRun(debugKey(r, userID), pageLabel(page))
 	run.WriteJSON("page.json", page)
 	if debug != nil && debug.HTML != "" {
 		run.WriteFile("page.html", []byte(debug.HTML))
@@ -88,7 +97,7 @@ func (s *Server) debugLog(w http.ResponseWriter, r *http.Request) {
 	if !decode(w, r, &body) {
 		return
 	}
-	s.debug.Latest(session.User.ID).AppendSteps(body.Entries)
+	s.debug.Latest(debugKey(r, session.User.ID)).AppendSteps(body.Entries)
 	w.WriteHeader(http.StatusNoContent)
 }
 
@@ -110,7 +119,7 @@ func (s *Server) debugShot(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, "screenshot must be a JPEG")
 		return
 	}
-	run := s.debug.Latest(session.User.ID)
+	run := s.debug.Latest(debugKey(r, session.User.ID))
 	if run == nil {
 		w.WriteHeader(http.StatusNoContent)
 		return

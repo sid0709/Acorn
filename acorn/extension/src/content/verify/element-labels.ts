@@ -1,10 +1,15 @@
+import { drawnText } from "../shadow-control";
+
 export function normalize(text: string): string {
   return text.replace(/\s+/g, " ").trim().toLowerCase();
 }
 
+/** Text with a letter or digit: a lone required mark ("*") or colon names nothing. */
+const NAMES_SOMETHING = /[\p{L}\p{N}]/u;
+
 function pushLabel(labels: string[], value: string | null | undefined): void {
   const text = value?.replace(/\s+/g, " ").trim();
-  if (text) labels.push(text);
+  if (text && NAMES_SOMETHING.test(text)) labels.push(text);
 }
 
 const FIELD_TITLE_TAGS = /^(LABEL|LEGEND|H1|H2|H3|H4|H5|H6|P|SPAN|STRONG|DIV|DT|DD)$/;
@@ -72,8 +77,9 @@ export function forLabelOf(el: Element): string | null | undefined {
   const root = el.getRootNode() as Document | ShadowRoot;
   if (typeof root.querySelectorAll !== "function") return null;
   const selector = `label[for="${CSS.escape(el.id)}"]`;
-  if (uniqueById(el, el.id) === el) return root.querySelector(selector)?.textContent;
-  return nearestSharedLabel(el, selector)?.textContent;
+  const label =
+    uniqueById(el, el.id) === el ? root.querySelector(selector) : nearestSharedLabel(el, selector);
+  return label ? drawnText(label) : null;
 }
 
 /**
@@ -103,7 +109,8 @@ export function labelCandidates(el: Element): string[] {
   const labelledBy = html.getAttribute?.("aria-labelledby");
   if (labelledBy) {
     for (const id of labelledBy.split(/\s+/).filter(Boolean)) {
-      pushLabel(primary, uniqueById(el, id)?.textContent);
+      const named = uniqueById(el, id);
+      pushLabel(primary, named ? drawnText(named) : null);
     }
   }
 
@@ -111,7 +118,7 @@ export function labelCandidates(el: Element): string[] {
 
   const wrappingLabel = html.closest?.("label");
   if (wrappingLabel) {
-    pushLabel(primary, wrappingLabel.textContent);
+    pushLabel(primary, drawnText(wrappingLabel));
   }
 
   pushLabel(primary, html.getAttribute?.("placeholder"));

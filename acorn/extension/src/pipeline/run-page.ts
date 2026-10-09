@@ -26,6 +26,22 @@ import {
 
 import type { DomTreeNode } from "@acorn/shared/tree-export";
 
+/** The part of a clipped page kept from its end: one in this many characters. */
+const CLIP_TAIL_SHARE = 3;
+/** Marks where a clipped page's middle was left out. */
+const CLIP_GAP = "\n…\n";
+
+/**
+ * A long page cut to max characters with both ends kept: a form answers the last
+ * click (an error, a code prompt) beside its Submit, at the very bottom.
+ */
+export function clipEnds(text: string, max: number): string {
+  if (text.length <= max) return text;
+  const tail = Math.floor(max / CLIP_TAIL_SHARE);
+  const head = max - tail - CLIP_GAP.length;
+  return text.slice(0, head) + CLIP_GAP + text.slice(text.length - tail);
+}
+
 /** What the run knows about the page at one moment. */
 export interface PageSnapshot {
   tabId: number;
@@ -63,10 +79,14 @@ export async function snapshotPage(
       return await readPage(tabId, opts);
     } catch (err) {
       if (Date.now() - started >= RUN_PAGE_READ_PATIENCE_MS) throw err;
-      traceFromBackground("run:page-read-retry", () => ({
-        attempt,
-        error: err instanceof Error ? err.message : String(err),
-      }));
+      traceFromBackground(
+        "run:page-read-retry",
+        () => ({
+          attempt,
+          error: err instanceof Error ? err.message : String(err),
+        }),
+        tabId,
+      );
       await new Promise((resolve) => setTimeout(resolve, RUN_PAGE_READ_RETRY_MS));
       const tab = await chrome.tabs.get(tabId).catch(() => null);
       if (!tab) throw err;
@@ -87,8 +107,8 @@ async function readPage(
   const tree = payload.tree as DomTreeNode;
   const title = payload.title || "Untitled";
   const url = payload.url || "";
-  const text = extractVisiblePageText(formatAnalyzeTrees(tree).pure, { title, url }).slice(
-    0,
+  const text = clipEnds(
+    extractVisiblePageText(formatAnalyzeTrees(tree).pure, { title, url }),
     RUN_PAGE_TEXT_MAX_CHARS,
   );
   const scan = payload.fieldIssues ?? EMPTY_FIELD_ISSUE_SCAN;

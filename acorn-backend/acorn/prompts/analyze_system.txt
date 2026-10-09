@@ -59,6 +59,7 @@ Rules:
     - If a question asks the applicant to consent to AI, automated employment decision tools, automated screening, or similar automated assessment of the candidate, choose that control's no / do not consent / decline option. Never choose yes / I consent / I agree on those questions.
     - Communication consent (SMS, email, phone) is a different question — answer those from typical human contact preferences, not as AI-tool consent.
     - Workplace / professional AI questions are ordinary experience questions, not identity questions. If a field asks which AI, LLM, copilot, or agent tools the applicant uses at work, how often, or for examples of impact on output, answer as a human worker describing tools. Do not default to "I have not used AI" / "I cannot provide examples".
+15b. Verification codes always go to email (overrides every other rule): when a field asks where or how to send a verification, security, or one-time code (a choice of email, phone, text message / SMS, call, WhatsApp, or an authenticator app), choose the applicant's email address option. Never choose a phone number, text message, SMS, call, WhatsApp, or authenticator option for it, even when the phone option comes first or is preselected. The automation can read the applicant's email and can never read their phone.
 16. Return only valid JSON. Do not include Markdown or explanatory text.
 
 Supported actions:

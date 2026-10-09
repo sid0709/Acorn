@@ -518,9 +518,13 @@ func textAnswer(profile applicantFacts, field FormField, kind string) (fact stri
 // answers already written for "write" fields; any it still lacks are written now.
 func (s *Service) addTextFills(ctx context.Context, plan Plan, fields []FormField, kinds map[int]string, written map[int]string, applicant string, page map[string]any) {
 	profile := s.facts(applicant)
+	parts := splitAcrossBoxes(profile, fields, kinds)
 	var write []FormField
 	for _, field := range fields {
 		fact, needsWriting := textAnswer(profile, field, kinds[field.ElementIndex])
+		if part, split := parts[field.ElementIndex]; split {
+			fact = part
+		}
 		if fact != "" {
 			addAction(plan, "fill", field, textRole(field), fact, nil)
 			continue
@@ -547,6 +551,52 @@ func (s *Service) addTextFills(ctx context.Context, plan Plan, fields []FormFiel
 			addAction(plan, "fill", field, textRole(field), answer, nil)
 		}
 	}
+}
+
+// splitAcrossBoxes spreads one answer over the boxes it is typed into: a code or
+// number the page asks for as a row of short inputs (one character each, or a few
+// digits each). Fields answered by the same fact form a row when each one's own
+// maxlength is shorter than the answer and together they hold it; the answer is
+// cut in page order to each box's length. Returns each box's part.
+func splitAcrossBoxes(profile applicantFacts, fields []FormField, kinds map[int]string) map[int]string {
+	rows := map[string][]FormField{}
+	var order []string
+	for _, field := range fields {
+		kind := kinds[field.ElementIndex]
+		if isPasswordField(field) || kind == "" || kind == FactWrite || blankKinds[kind] {
+			continue
+		}
+		if _, seen := rows[kind]; !seen {
+			order = append(order, kind)
+		}
+		rows[kind] = append(rows[kind], field)
+	}
+	parts := map[int]string{}
+	for _, kind := range order {
+		row := rows[kind]
+		value := []rune(factValue(profile, kind))
+		if len(row) < 2 || len(value) == 0 {
+			continue
+		}
+		room := 0
+		for _, field := range row {
+			if field.MaxLength <= 0 || field.MaxLength >= len(value) {
+				room = -1
+				break
+			}
+			room += field.MaxLength
+		}
+		if room < len(value) {
+			continue
+		}
+		at := 0
+		for _, field := range row {
+			end := min(at+field.MaxLength, len(value))
+			parts[field.ElementIndex] = string(value[at:end])
+			at = end
+		}
+	}
+	return parts
 }
 
 func addChoiceFills(plan Plan, fields []FormField, picks map[int][]string) {

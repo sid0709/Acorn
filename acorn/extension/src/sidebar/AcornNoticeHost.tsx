@@ -10,6 +10,7 @@ import { bindAcornNoticePush, noticeKindDuration, pushAcornNotice } from "./acor
  * Shows Acorn notices as design-system toasts: ones pushed in the sidebar and ones the
  * service worker broadcasts. A notice tagged with a tab id only appears while that tab
  * is the focused one in this window, and is dismissed as soon as another tab is focused.
+ * Each tab shows one notice at a time: a newer one replaces it instead of stacking.
  * Renders nothing itself; AppTheme owns the viewport.
  */
 export function AcornNoticeHost() {
@@ -17,14 +18,14 @@ export function AcornNoticeHost() {
   const focusedTabId = useFocusedTabId();
   const focusedRef = useRef(focusedTabId);
   focusedRef.current = focusedTabId;
-  const dismissByTab = useRef(new Map<number, Set<() => void>>());
+  const dismissByTab = useRef(new Map<number, () => void>());
 
   useEffect(() => {
     const current = focusedTabId;
     if (current == null) return;
-    for (const [tabId, bucket] of dismissByTab.current) {
+    for (const [tabId, dismiss] of dismissByTab.current) {
       if (tabId === current) continue;
-      for (const dismiss of bucket) dismiss();
+      dismiss();
       dismissByTab.current.delete(tabId);
     }
   }, [focusedTabId]);
@@ -33,6 +34,7 @@ export function AcornNoticeHost() {
     return bindAcornNoticePush((notice) => {
       const tabId = notice.tabId;
       if (tabId != null && tabId !== focusedRef.current) return;
+      if (tabId != null) dismissByTab.current.get(tabId)?.();
       const dismiss = toast({
         type: notice.kind === "error" ? "error" : "info",
         // sid-ui keeps error toasts up until closed unless told otherwise.
@@ -53,10 +55,7 @@ export function AcornNoticeHost() {
         ),
       });
       flashFromNotice(notice.kind, notice.title);
-      if (tabId == null) return;
-      const bucket = dismissByTab.current.get(tabId) ?? new Set();
-      bucket.add(dismiss);
-      dismissByTab.current.set(tabId, bucket);
+      if (tabId != null) dismissByTab.current.set(tabId, dismiss);
     });
   }, [toast]);
 

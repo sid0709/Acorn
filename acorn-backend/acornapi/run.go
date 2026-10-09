@@ -25,6 +25,8 @@ const (
 	maxAccountAttempts = 12
 	// maxAccountMessages bounds the page messages kept per account attempt.
 	maxAccountMessages = 3
+	// maxNewTextLines bounds the new page lines one read-page request may carry.
+	maxNewTextLines = 20
 )
 
 var unsafeRunID = regexp.MustCompile(`[^a-zA-Z0-9_-]+`)
@@ -42,6 +44,7 @@ type runControl struct {
 	InForm   bool   `json:"inForm"`
 	Dialog   string `json:"dialog"`
 	Covered  bool   `json:"covered"`
+	Near     string `json:"near"`
 }
 
 // runAccountAttempt is one account step the run already sent on this site.
@@ -115,9 +118,13 @@ func (s *Server) runReadPage(w http.ResponseWriter, r *http.Request) {
 		PageMessages []string            `json:"pageMessages"`
 		Account      []runAccountAttempt `json:"account"`
 		AccountGoal  string              `json:"accountGoal"`
+		NewText      []string            `json:"newText"`
 	}
 	if !decode(w, r, &body) {
 		return
+	}
+	if len(body.NewText) > maxNewTextLines {
+		body.NewText = body.NewText[:maxNewTextLines]
 	}
 	if len(body.Controls) > maxRunControls {
 		body.Controls = body.Controls[:maxRunControls]
@@ -144,7 +151,7 @@ func (s *Server) runReadPage(w http.ResponseWriter, r *http.Request) {
 		controls = append(controls, selector.Control{
 			ID: c.ID, Tag: c.Tag, Text: c.Text, Label: c.Label, Type: c.Type, Href: c.Href,
 			Context: c.Context, Disabled: c.Disabled, InForm: c.InForm,
-			Dialog: c.Dialog, Covered: c.Covered,
+			Dialog: c.Dialog, Covered: c.Covered, Near: c.Near,
 		})
 	}
 	log.Info("acorn run read-page", "controls", len(controls), "textChars", len([]rune(body.Text)),
@@ -155,6 +162,7 @@ func (s *Server) runReadPage(w http.ResponseWriter, r *http.Request) {
 		URL: body.URL, Title: body.Title, Text: body.Text, Intent: intent,
 		Controls: controls, Flagged: body.Flagged, PageMessages: body.PageMessages,
 		Account: accountHistory(body.Account), AccountGoal: accountGoal(body.AccountGoal),
+		NewText: body.NewText,
 	})
 	elapsed := time.Since(started)
 	s.recordRunStep(r, session.User.ID, runID, body.Step, "read-page", map[string]any{
@@ -204,6 +212,57 @@ func (s *Server) runReadPage(w http.ResponseWriter, r *http.Request) {
 	}
 	log.Info("acorn run read-page decided", attrs...)
 	writeJSON(w, http.StatusOK, out)
+}
+
+// runDialog has Jev say whether to accept a browser dialog (alert, confirm, prompt,
+// leave-page) that opened while a run was applying.
+func (s *Server) runDialog(w http.ResponseWriter, r *http.Request) {
+	session, ok := s.session(w, r)
+	if !ok {
+		return
+	}
+	var body struct {
+		RunID       string `json:"runId"`
+		Step        int    `json:"step"`
+		Kind        string `json:"kind"`
+		Message     string `json:"message"`
+		URL         string `json:"url"`
+		Title       string `json:"title"`
+		LastControl string `json:"lastControl"`
+	}
+	if !decode(w, r, &body) {
+		return
+	}
+	if !selector.IsDialogKind(body.Kind) {
+		writeError(w, http.StatusBadRequest, "kind must be alert, confirm, prompt, or beforeunload")
+		return
+	}
+	gateway, ok := s.selectorFor(w, r, session.User.ID)
+	if !ok {
+		return
+	}
+	runID := cleanRunID(body.RunID)
+	log := slog.With("runId", runID, "step", body.Step, "kind", body.Kind, "page", logPage(body.URL))
+
+	started := time.Now()
+	answer, err := gateway.DecideDialog(s.withUsage(r, session.User.ID), selector.DialogQuery{
+		Kind: body.Kind, Message: body.Message, URL: body.URL, Title: body.Title, LastControl: body.LastControl,
+	})
+	elapsed := time.Since(started)
+	s.recordRunStep(r, session.User.ID, runID, body.Step, "dialog", map[string]any{
+		"request": body, "answer": answer, "error": errText(err), "ms": elapsed.Milliseconds(),
+	})
+	if err != nil {
+		log.Warn("acorn run dialog failed", "error", err, "ms", elapsed.Milliseconds())
+		writeJSON(w, http.StatusOK, map[string]any{"ok": false, "error": err.Error()})
+		return
+	}
+	log.Info("acorn run dialog decided", "accept", answer.Accept, "confidence", answer.Confidence,
+		"ms", elapsed.Milliseconds(), "costUsd", answer.Usage.Cost)
+	writeJSON(w, http.StatusOK, map[string]any{
+		"ok": true, "accept": answer.Accept, "confidence": answer.Confidence,
+		"model": gateway.Model(), "usage": decisionUsage(gateway.Model(), answer.Usage),
+	})
 }
 
 // runDiagnose has Jev name why a run could not finish, then pairs the reason

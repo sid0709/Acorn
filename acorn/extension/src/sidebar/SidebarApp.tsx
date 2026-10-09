@@ -1,7 +1,6 @@
 import { FILL_MODE } from "@acorn/shared/field-issues";
 import { isFillPhaseBusy } from "@acorn/shared/pipeline-types";
-import { RUN_OUTCOME } from "@acorn/shared/run-types";
-import { useEffect, useMemo, useState } from "react";
+import { useMemo, useState } from "react";
 
 import { countBusyWorkers, tabInputFromProgress } from "../acorn-face/director";
 import { useCompanionFace } from "../acorn-face/use-companion-face";
@@ -37,6 +36,7 @@ import { useSupportClaims } from "./use-support-claims";
 import { useTabSession } from "./use-tab-session";
 import { useTabUi } from "./use-tab-ui";
 import { useTabWork } from "./use-tab-work";
+import { useWorkEndNotices } from "./use-work-end-notices";
 
 import type { JdPreview } from "./sidebar-panel-types";
 import "./SidebarApp.css";
@@ -77,45 +77,7 @@ export default function SidebarApp() {
   const busyTotal = busyCounts.thinking + busyCounts.working;
   const workersMode =
     busyCounts.working > 0 ? "working" : busyCounts.thinking > 0 ? "thinking" : "waiting";
-  const fillErrorText =
-    progress.phase === "error" ? progress.error || progress.message || "Fill failed" : null;
-  const runErrored = progress.run?.report?.outcome === RUN_OUTCOME.failed;
-
-  useEffect(() => {
-    if (!fillErrorText) return;
-    pushAcornNotice({
-      kind: "error",
-      title: runErrored ? "Run stopped" : "Fill couldn’t finish",
-      detail: fillErrorText,
-      ...(activeTabId == null ? {} : { tabId: activeTabId }),
-    });
-  }, [activeTabId, fillErrorText, runErrored]);
-
-  const runDoneText =
-    progress.phase === "done" && progress.run?.report?.outcome === RUN_OUTCOME.completed
-      ? progress.message
-      : null;
-  useEffect(() => {
-    if (!runDoneText) return;
-    pushAcornNotice({
-      kind: "success",
-      title: "Run finished",
-      detail: runDoneText,
-      ...(activeTabId == null ? {} : { tabId: activeTabId }),
-    });
-  }, [activeTabId, runDoneText]);
-
-  const refillDoneText =
-    progress.phase === "done" && progress.mode === FILL_MODE.refill ? progress.message : null;
-  useEffect(() => {
-    if (!refillDoneText) return;
-    pushAcornNotice({
-      kind: "info",
-      title: "Refill finished",
-      detail: refillDoneText,
-      ...(activeTabId == null ? {} : { tabId: activeTabId }),
-    });
-  }, [activeTabId, refillDoneText]);
+  useWorkEndNotices(pipelines);
 
   const {
     remembering,

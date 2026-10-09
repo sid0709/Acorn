@@ -75,6 +75,8 @@ export function pointerActivate(el: HTMLElement, intended?: string | null): void
   const opts: MouseEventInit = {
     bubbles: true,
     cancelable: true,
+    // Leaves a shadow root, so a custom element's own listeners hear a press inside it.
+    composed: true,
     view,
     clientX,
     clientY,

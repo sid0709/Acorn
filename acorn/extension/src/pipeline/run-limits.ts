@@ -42,6 +42,13 @@ export const RUN_PERSON_POLL_MS = 1_500;
 export const RUN_MAIL_POLL_MS = 5_000;
 /** How long the run waits for that email to arrive before it stops; mail can be slow. */
 export const RUN_MAIL_WAIT_MAX_MS = 5 * 60_000;
+/**
+ * Times one run goes back to the posting it started from, after an account step
+ * (an emailed link, a password reset) leaves it on a page with no way forward.
+ */
+export const RUN_MAX_RETURNS_TO_START = 2;
+/** New page lines one page read hands the decision model, newest answer first in line. */
+export const RUN_NEW_TEXT_LINES_MAX = 20;
 /** Codes or links one run takes from the applicant's mail before it stops. */
 export const RUN_MAX_MAIL_VERIFICATIONS = 4;
 /** Page messages kept with a rejected account step, for the next decision. */

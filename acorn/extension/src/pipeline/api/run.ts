@@ -33,6 +33,8 @@ export interface ReadPageRequest {
   account: AccountAttempt[];
   /** The account step the run tries next on this site (create, sign in, or reset); absent off account steps. */
   accountGoal?: AccountMode;
+  /** Lines the page shows now that it did not at the run's last read of the same address. */
+  newText?: string[];
 }
 
 export interface ReadPageResponse {
@@ -87,6 +89,27 @@ export interface MailVerificationResponse {
   unchanged?: boolean;
   /** The newest emails this look read (sender and subject), with Jev's chance once judged. */
   emails?: MailRow[];
+  usage?: AiUsageSummary;
+}
+
+export interface DialogRequest {
+  runId: string;
+  step: number;
+  /** alert, confirm, prompt, or beforeunload: the browser's own dialog, not page markup. */
+  kind: string;
+  message: string;
+  url: string;
+  title: string;
+  /** The control the run clicked last, which likely opened the dialog. */
+  lastControl: string;
+}
+
+export interface DialogResponse {
+  ok: boolean;
+  error?: string;
+  /** Press OK (or Leave) rather than Cancel (or Stay). */
+  accept?: boolean;
+  confidence?: number;
   usage?: AiUsageSummary;
 }
 
@@ -146,6 +169,15 @@ export function requestDiagnose(
   tabId: number,
 ): Promise<DiagnoseResponse> {
   return post<DiagnoseResponse>("diagnose", request, apiUrl, tabId);
+}
+
+/** Whether to accept a browser dialog the page opened during a run, decided by Jev. */
+export function requestDialogDecision(
+  request: DialogRequest,
+  apiUrl: string,
+  tabId: number,
+): Promise<DialogResponse> {
+  return post<DialogResponse>("dialog", request, apiUrl, tabId);
 }
 
 /** The code or link a site emailed the applicant, found in their Gmail by Jev. */

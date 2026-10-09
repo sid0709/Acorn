@@ -45,8 +45,16 @@ const (
 	VerifyNone      = "none"
 	VerifyEmailCode = "email_code"
 	VerifyEmailLink = "email_link"
-	VerifyOther     = "other"
+	// VerifyChooseEmail is a choice of where the site sends a code, email among them:
+	// the run answers it with email and sends it, so the code lands in the Gmail it reads.
+	VerifyChooseEmail = "choose_email"
+	VerifyOther       = "other"
 )
+
+// emailOnly is the rule every verification answer follows: the run reads the
+// applicant's Gmail and can never read their phone.
+const emailOnly = "The run can read only the applicant's email, never their phone, so a code must always go to email: " +
+	"never by text message, SMS, phone call, WhatsApp, or an authenticator app. "
 
 var verifications = map[string]string{
 	VerifyNone: "The page asks for no verification. A sign-in, sign-up, or password form is not a verification " +
@@ -55,8 +63,14 @@ var verifications = map[string]string{
 	VerifyEmailLink: "The site says it has sent the applicant an email with a link to open before going on (to verify the address, " +
 		"activate the account, or reset the password): check your email, or an account step answered with that. A form that " +
 		"only says an email will be sent once it is submitted has not sent one yet.",
-	VerifyOther: "The page waits for something only the applicant can give in the moment: a code sent to their phone, " +
-		"an authenticator app code, or a challenge they must solve themselves.",
+	VerifyChooseEmail: "The page asks where or how to send a verification code (a choice of the applicant's email address, " +
+		"phone number, text message, or call) and email is one of the choices. No code has been sent yet. " + emailOnly +
+		"The run chooses the email and sends it, so this is never a wait for the applicant.",
+	VerifyOther: "The page is stopped on a prompt that asks right now for something only the applicant can give in the moment: " +
+		"a box for a code already sent to their phone with no way to send it to email instead, an authenticator app code, or a " +
+		"challenge they must solve themselves. A choice of where to send a code that offers email is choose_email, not this. " +
+		"A form that asks for the applicant's details (a phone number or address to fill in) is not this, and neither is a note " +
+		"about how to sign in or change contact details later.",
 }
 
 // Account modes say what an account step asks for. The run fills the applicant's
@@ -117,6 +131,8 @@ const (
 	maxPageText = 6000
 	// maxControlLine bounds one control's description.
 	maxControlLine = 220
+	// maxControlNear bounds the surroundings quoted for a control with little text of its own.
+	maxControlNear = 100
 	// maxEvidence bounds the lines of page evidence sent with a diagnosis.
 	maxEvidence = 24
 )
@@ -141,6 +157,9 @@ type Control struct {
 	Dialog string
 	// Covered is true when an open dialog is over the control, so a person could not click it.
 	Covered bool
+	// Near is the text around a control that has little of its own (an icon button):
+	// the entry or section it acts on.
+	Near string
 }
 
 // PageQuery is what Jev reads to say what a page is and what to click on it.
@@ -159,6 +178,9 @@ type PageQuery struct {
 	// AccountGoal is the account step the run works toward on this page (an Account*
 	// key); the run decides it, Jev only finds the control that does it.
 	AccountGoal string
+	// NewText is the lines the page shows now that it did not at the run's last look
+	// at it: its answer to the run's last action, wherever on the page it appeared.
+	NewText []string
 }
 
 // ControlPick is the control to click and what it does.
@@ -387,13 +409,26 @@ const dialogSteps = "When a dialog is open over the page, that dialog is the cur
 	"entering their details: applying manually first, else starting from an uploaded résumé. Never pick one that " +
 	"reuses a previous application or applies through another service's account. "
 
+// verifySteps steer a pick on a step that sends a verification code: it goes to email.
+const verifySteps = "When the step asks where to send a verification code, pick the control that sends it once the email " +
+	"choice is selected, never one that sends it to a phone. " + emailOnly
+
+// repairSteps steer a pick on a form that still reports problems after it was sent:
+// a problem inside an entry that is shown collapsed is fixed by opening that entry.
+const repairSteps = "When the page says a saved entry or section still has fields to fix (an entry marked with errors or " +
+	"fields to fix, shown collapsed so its fields are not on the page), pick the control that opens that entry for editing " +
+	"(often an icon button such as a pencil, whose surroundings name the entry); the run fills what it opens. When the page " +
+	"shows an entry form that is open for editing, pick the control that saves or keeps that entry, not the one that sends the " +
+	"whole application. Never pick a control that only scrolls to, jumps to, or lists the problems, deletes an entry, or adds a " +
+	"new empty entry. "
+
 // controlInstructions describe controls only by what they do: sites word them
 // any way they like, so no wording is quoted here.
 func controlInstructions(intent string) string {
 	if intent == IntentAdvance {
 		return "The applicant has finished filling this page. Which control moves the application to its next step, " +
 			"or sends it on the last step? Judge by what the control does on this page, whatever its wording, " +
-			"an arrow, or an icon. " + dialogSteps + accountSteps +
+			"an arrow, or an icon. " + dialogSteps + repairSteps + verifySteps + accountSteps +
 			"Never pick a control that goes back, cancels, leaves the application, saves a draft, signs out, " +
 			"signs in through another service, or opens another site. " +
 			"Prefer an enabled control, but a forward control that looks disabled is still the forward control: " +
@@ -402,7 +437,7 @@ func controlInstructions(intent string) string {
 	}
 	return "Which control starts or continues an application for this role? On a job posting it is the control " +
 		"that opens the application. When the page is already an application form or an account step, pick the " +
-		"control that moves it forward instead. " + dialogSteps + accountSteps +
+		"control that moves it forward instead. " + dialogSteps + verifySteps + accountSteps +
 		"Never pick a control that saves the job, shares it, creates an alert, signs in through another service, " +
 		"or is disabled. Choose none when the page has no way to apply or continue."
 }
@@ -423,8 +458,14 @@ func pageState(q PageQuery, controls []Control) string {
 		fmt.Fprintf(&b, "Account goal on this page: %s (%s).\n", q.AccountGoal, goal)
 	}
 	writeAccountHistory(&b, q.Account)
+	if len(q.NewText) > 0 {
+		b.WriteString("\nText that appeared on the page since the run's last action:\n")
+		for _, line := range q.NewText {
+			fmt.Fprintf(&b, "- %s\n", clip(line, maxControlLine))
+		}
+	}
 	b.WriteString("\nPage text:\n")
-	b.WriteString(clip(q.Text, maxPageText))
+	b.WriteString(clipEnds(q.Text, maxPageText))
 	b.WriteString("\n\nControls on the page:\n")
 	if len(controls) == 0 {
 		b.WriteString("(none)\n")
@@ -482,6 +523,9 @@ func describeControl(c Control) string {
 	}
 	if c.Context != "" {
 		line += " under \"" + clip(c.Context, 60) + "\""
+	}
+	if c.Near != "" {
+		line += " beside \"" + clip(c.Near, maxControlNear) + "\""
 	}
 	if c.Dialog != "" {
 		line += " in dialog \"" + clip(c.Dialog, 60) + "\""
@@ -584,7 +628,7 @@ func (g *Gateway) Diagnose(ctx context.Context, q FailureQuery) (Failure, error)
 	for _, line := range evidence {
 		b.WriteString("- " + clip(line, maxControlLine) + "\n")
 	}
-	b.WriteString("\nPage text:\n" + clip(q.Text, maxPageText))
+	b.WriteString("\nPage text:\n" + clipEnds(q.Text, maxPageText))
 
 	res, err := g.decider.Decide(openai.WithCall(ctx, "diagnose"), jev.Request{
 		State: b.String(),

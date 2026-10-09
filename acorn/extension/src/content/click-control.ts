@@ -1,5 +1,6 @@
 import { pointerActivate } from "./agents/pointer-activate";
 import { resolveElementByNodeId } from "./element-resolver";
+import { shadowDelegate } from "./shadow-control";
 
 /** The click lands after the reply, so a click that navigates cannot swallow the answer. */
 export const CLICK_AFTER_REPLY_MS = 60;
@@ -65,9 +66,12 @@ export function prepareControlClick(
     .trim()
     .slice(0, 80);
   const found = { tag: el.tagName.toLowerCase(), text };
-  if (isDisabled(el)) {
+  // A custom element wrapping a native control: a person's click lands on the one
+  // inside, and bubbles out to the element's own listeners.
+  const delegate = shadowDelegate(el);
+  if (isDisabled(el) || (delegate != null && isDisabled(delegate))) {
     return { ok: false, error: "Control is disabled", disabled: true, ...found };
   }
-  schedule(() => pointerActivate(clickTarget(el)));
+  schedule(() => pointerActivate(delegate ?? clickTarget(el)));
   return { ok: true, ...found };
 }

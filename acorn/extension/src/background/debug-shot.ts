@@ -1,7 +1,8 @@
-import { authHeaders, getAcornApiUrl } from "../auth/acorn-auth";
 import { ACORN_DEBUG } from "../debug-trace";
 
 import { blobToBase64, captureFullPage, captureVisible } from "./capture/full-page";
+import { postDebug } from "./debug-post";
+import { traceFromBackground } from "./debug-trace-sink";
 
 /** captureVisibleTab allows about two calls a second per window. */
 const SHOT_GAP_MS = 700;
@@ -50,17 +51,16 @@ export function queueDebugShot(tabId: number, label: string, full: boolean): Pro
 
 async function take(tabId: number, label: string, full: boolean): Promise<void> {
   const tab = await chrome.tabs.get(tabId).catch(() => null);
-  if (!tab?.active || tab.windowId == null) return;
+  // Chrome captures only the tab in front; say so in the trace rather than leave a gap.
+  if (!tab?.active || tab.windowId == null) {
+    traceFromBackground("screen:skipped", () => ({ label, reason: "tab not in front" }), tabId);
+    return;
+  }
   const shot = full
     ? await captureFullPage(tabId, tab.windowId, DEBUG_SHOT_MAX_BYTES).catch(() =>
         captureVisible(tab.windowId),
       )
     : await captureVisible(tab.windowId);
   const image = await blobToBase64(shot.blob);
-  const base = (await getAcornApiUrl()).replace(/\/$/, "");
-  await fetch(`${base}${DEBUG_SHOT_PATH}`, {
-    method: "POST",
-    headers: await authHeaders(tabId),
-    body: JSON.stringify({ image, label }),
-  });
+  await postDebug(DEBUG_SHOT_PATH, { image, label }, tabId);
 }

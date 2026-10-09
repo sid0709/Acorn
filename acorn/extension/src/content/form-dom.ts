@@ -7,6 +7,7 @@
 
 import { getDirectText } from "./dom-serializer";
 import { FILLABLE_SELECTOR } from "./form-frame";
+import { composedClosest, drawnText } from "./shadow-control";
 import { labelCandidates, uniqueById } from "./verify/element-labels";
 import { inferRole } from "./verify/element-role";
 
@@ -218,10 +219,16 @@ export function fieldLabel(control: Element, members: Element[], wrapper: Elemen
  * aria-label, or a fieldset's legend. "" when the control is in no named group.
  */
 export function groupAccessibleName(control: Element): string {
-  const group = control.closest(NAMED_GROUP_SELECTOR);
+  // Drawn ancestors: a custom element's group can project its options through a slot.
+  const group = composedClosest(control, NAMED_GROUP_SELECTOR);
   if (!group) return "";
   const ids = (group.getAttribute("aria-labelledby") || "").split(/\s+/).filter(Boolean);
-  const byIds = ids.map((id) => uniqueById(group, id)?.textContent || "").join(" ");
+  const byIds = ids
+    .map((id) => {
+      const named = uniqueById(group, id);
+      return named ? drawnText(named) : "";
+    })
+    .join(" ");
   const legend =
     group instanceof HTMLFieldSetElement ? group.querySelector(":scope > legend")?.textContent : "";
   return clip(byIds || group.getAttribute("aria-label") || legend || "", MAX_TEXT_CHARS);

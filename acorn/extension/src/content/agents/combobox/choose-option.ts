@@ -7,6 +7,7 @@ import { decideAmongOptions, findExactOption, type OptionDecision } from "./matc
 import { optionSignature, optionText } from "./options-dom";
 import { openAndCollectOptions, waitForFilteredOptions } from "./options-wait";
 import {
+  clearTypedQuery,
   dismissOpenOverlays,
   focusAndOpenCombobox,
   resolveTypeableInput,
@@ -162,10 +163,12 @@ async function narrowAndDecide(
     if (shownDecision.match) return { match: shownDecision.match, options: filtered };
   }
 
-  // The last word emptied the list: put back the query that still showed candidates.
+  // The last word emptied the list: put back the query that still showed candidates,
+  // or clear the text so the whole list shows and the most probable option is taken.
   if (emptied) {
     await focusAndOpenCombobox(control);
     if (shownQuery) await typeQueryIntoOpenCombobox(control, shownQuery);
+    else await clearTypedQuery(control);
     const restored = await waitForFilteredOptions(control, doc, "", filterWait);
     if (restored.length) {
       if (optionSignature(restored) !== optionSignature(shown)) shownDecision = null;

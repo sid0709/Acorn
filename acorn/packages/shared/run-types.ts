@@ -42,6 +42,11 @@ export const VERIFICATION = {
   emailCode: "email_code",
   /** A link sent to the applicant's email: the run opens it in the same tab. */
   emailLink: "email_link",
+  /**
+   * The page asks where to send a code and email is a choice: the run chooses email
+   * and sends it, since it can read the applicant's Gmail and never their phone.
+   */
+  chooseEmail: "choose_email",
   /** Anything else only the applicant can give (a phone code, a challenge). */
   other: "other",
 } as const;

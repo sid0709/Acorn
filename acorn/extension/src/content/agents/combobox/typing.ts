@@ -42,11 +42,11 @@ export async function settlePopupClosed(
   doc: Document,
 ): Promise<PopupCloseOutcome> {
   await waitMs(POPUP_SETTLE_MS);
-  if (!ownedPopupOpen(control, doc)) return "closed";
+  if (!ownedPopupOpen(control)) return "closed";
 
   dismissOpenOverlays(doc, control);
   await waitMs(POPUP_SETTLE_MS);
-  if (!ownedPopupOpen(control, doc)) return "escape";
+  if (!ownedPopupOpen(control)) return "escape";
 
   const widget = comboboxWidgetRoot(control);
   const active = doc.activeElement;
@@ -55,7 +55,7 @@ export async function settlePopupClosed(
   }
   control.blur();
   await waitMs(POPUP_SETTLE_MS);
-  return ownedPopupOpen(control, doc) ? "still-open" : "blur";
+  return ownedPopupOpen(control) ? "still-open" : "blur";
 }
 
 export async function focusAndOpenCombobox(el: HTMLElement): Promise<void> {
@@ -108,6 +108,18 @@ export function typeaheadFilterWaitMs(doc: Document): number {
 }
 
 /** Type the full query string into an already-focused open combobox. */
+/** Empty the search text, so the list shows every option again. Presses nothing. */
+export async function clearTypedQuery(el: HTMLElement): Promise<void> {
+  const input = resolveTypeableInput(el);
+  if (!input) return;
+  input.focus();
+  setInputValue(input, "");
+  input.dispatchEvent(
+    new InputEvent("input", { bubbles: true, inputType: "deleteContentBackward" }),
+  );
+  await waitMs(WORD_SEARCH_SETTLE_MS);
+}
+
 export async function typeQueryIntoOpenCombobox(el: HTMLElement, query: string): Promise<void> {
   const input = resolveTypeableInput(el);
   if (!input) return;

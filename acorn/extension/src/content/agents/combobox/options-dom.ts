@@ -1,3 +1,11 @@
+import {
+  byIdNear,
+  composedClosest,
+  composedParent,
+  deepQueryAll,
+  drawnText,
+} from "../../shadow-control";
+
 import { visibleOptions } from "./option-mirror";
 import { POPUP_ITEM_SELECTOR, POPUP_OWNER_SELECTOR, POPUP_SELECTOR } from "./popup-roles";
 
@@ -6,7 +14,7 @@ export function normalize(text: string): string {
 }
 
 export function optionText(el: Element): string {
-  return ((el as HTMLElement).innerText || el.textContent || "").replace(/\s+/g, " ").trim();
+  return ((el as HTMLElement).innerText || drawnText(el)).replace(/\s+/g, " ").trim();
 }
 
 function isPlaceholderOption(text: string): boolean {
@@ -34,29 +42,30 @@ function collectRefIds(el: HTMLElement): string[] {
     .filter(Boolean);
 }
 
-function listboxRootsForControl(control: HTMLElement, doc: Document): HTMLElement[] {
+function listboxRootsForControl(control: HTMLElement): HTMLElement[] {
   const roots: HTMLElement[] = [];
   const seen = new Set<string>();
 
-  const addIds = (ids: string[]) => {
+  // An id names an element in the referrer's own tree: a custom element's shadow root first.
+  const addIds = (from: Element, ids: string[]) => {
     for (const id of ids) {
       if (seen.has(id)) continue;
       seen.add(id);
-      const node = doc.getElementById(id);
+      const node = byIdNear(from, id);
       if (node instanceof HTMLElement) roots.push(node);
     }
   };
 
-  addIds(collectRefIds(control));
+  addIds(control, collectRefIds(control));
 
   // Custom widgets often put aria-owns on a sibling/ancestor container, not the trigger.
-  let node: HTMLElement | null = control.parentElement;
+  let node: Element | null = composedParent(control);
   for (let depth = 0; depth < 5 && node; depth++) {
-    addIds(collectRefIds(node));
+    if (node instanceof HTMLElement) addIds(node, collectRefIds(node));
     for (const child of Array.from(node.children)) {
-      if (child instanceof HTMLElement) addIds(collectRefIds(child));
+      if (child instanceof HTMLElement) addIds(child, collectRefIds(child));
     }
-    node = node.parentElement;
+    node = composedParent(node);
   }
 
   return roots;
@@ -66,7 +75,7 @@ export function collectOptionsInRoot(root: ParentNode): HTMLElement[] {
   const selectors = [POPUP_ITEM_SELECTOR, '[role="listbox"] li'];
   const found = new Set<HTMLElement>();
   for (const selector of selectors) {
-    for (const node of Array.from(root.querySelectorAll(selector))) {
+    for (const node of deepQueryAll(root, selector)) {
       const html = node as HTMLElement;
       if (!isDisplayed(html) || !isFirstCellOfRow(html)) continue;
       const text = optionText(html);
@@ -92,7 +101,7 @@ function scoreListbox(listbox: HTMLElement, control: HTMLElement): number {
 }
 
 function nearestComboboxTo(listbox: HTMLElement, doc: Document): HTMLElement | null {
-  const combos = Array.from(doc.querySelectorAll(POPUP_OWNER_SELECTOR)).filter(
+  const combos = deepQueryAll(doc, POPUP_OWNER_SELECTOR).filter(
     (node): node is HTMLElement => node instanceof HTMLElement && isDisplayed(node),
   );
   if (!combos.length) return null;
@@ -117,10 +126,11 @@ function claimedByOtherControl(listbox: HTMLElement, control: HTMLElement, doc: 
   const id = listbox.id;
   if (!id) return false;
   const quoted = CSS.escape(id);
-  const claimers = doc.querySelectorAll(
+  const claimers = deepQueryAll(
+    doc,
     `[aria-controls~="${quoted}"], [aria-owns~="${quoted}"], [list="${quoted}"]`,
   );
-  return Array.from(claimers).some(
+  return claimers.some(
     (node) => node !== control && !control.contains(node) && !node.contains(control),
   );
 }
@@ -137,7 +147,7 @@ export function pickScopedOptions(control: HTMLElement, doc: Document): HTMLElem
 }
 
 function collectScopedOptions(control: HTMLElement, doc: Document): HTMLElement[] {
-  const owned = listboxRootsForControl(control, doc);
+  const owned = listboxRootsForControl(control);
   if (owned.length) {
     for (const root of owned) {
       const options = collectOptionsInRoot(root);
@@ -147,7 +157,7 @@ function collectScopedOptions(control: HTMLElement, doc: Document): HTMLElement[
     return [];
   }
 
-  const listboxes = Array.from(doc.querySelectorAll(POPUP_SELECTOR)).filter(
+  const listboxes = deepQueryAll(doc, POPUP_SELECTOR).filter(
     (node): node is HTMLElement =>
       node instanceof HTMLElement && isDisplayed(node) && listboxServesControl(node, control, doc),
   );
@@ -157,7 +167,8 @@ function collectScopedOptions(control: HTMLElement, doc: Document): HTMLElement[
     if (options.length) return options;
   }
 
-  const container = control.closest('fieldset, [role="group"], label') || control.parentElement;
+  const container =
+    composedClosest(control, 'fieldset, [role="group"], label') || composedParent(control);
   if (container) {
     const local = collectOptionsInRoot(container);
     if (local.length) return local;
@@ -171,17 +182,17 @@ export function optionSignature(options: HTMLElement[]): string {
 }
 
 /** True while the control says it is expanded or one of its own listboxes is on screen. */
-export function ownedPopupOpen(control: HTMLElement, doc: Document): boolean {
+export function ownedPopupOpen(control: HTMLElement): boolean {
   if (control.getAttribute("aria-expanded") === "true") return true;
-  return listboxRootsForControl(control, doc).some((node) => isDisplayed(node));
+  return listboxRootsForControl(control).some((node) => isDisplayed(node));
 }
 
 export function displayedListboxes(control: HTMLElement, doc: Document): HTMLElement[] {
-  const owned = listboxRootsForControl(control, doc).filter(
+  const owned = listboxRootsForControl(control).filter(
     (node) => isDisplayed(node) || collectOptionsInRoot(node).length > 0,
   );
   if (owned.length) return owned;
-  return Array.from(doc.querySelectorAll(POPUP_SELECTOR)).filter(
+  return deepQueryAll(doc, POPUP_SELECTOR).filter(
     (node): node is HTMLElement => node instanceof HTMLElement && isDisplayed(node),
   );
 }

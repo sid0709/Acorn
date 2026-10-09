@@ -11,6 +11,7 @@
  */
 
 import { fieldWrapper } from "../form-dom";
+import { drawnText } from "../shadow-control";
 
 const GROUP_SELECTOR = [
   "fieldset",
@@ -63,7 +64,11 @@ function isDisplayed(el: HTMLElement): boolean {
 export function hasClickableBox(el: Element): boolean {
   if (!(el instanceof HTMLElement)) return false;
   const rect = el.getBoundingClientRect();
-  return rect.width > 2 && rect.height > 2 && isDisplayed(el);
+  if (rect.width > 2 && rect.height > 2 && isDisplayed(el)) return true;
+  // A custom element can draw nothing itself and everything from its shadow root.
+  return Array.from(el.shadowRoot?.querySelectorAll("*") ?? []).some(
+    (inner) => inner instanceof HTMLElement && inner !== el && hasClickableBox(inner),
+  );
 }
 
 /** True when the planned node is a control nobody can see or click. */
@@ -87,7 +92,7 @@ export function inputOptionLabel(el: Element): string {
     html.getAttribute("value") ||
     (html instanceof HTMLInputElement ? html.value : "") ||
     html.innerText ||
-    html.textContent ||
+    drawnText(el) ||
     ""
   )
     .replace(/\s+/g, " ")
@@ -101,7 +106,7 @@ export function choiceOptionLabel(el: Element): string {
     html.getAttribute?.("aria-label") ||
     html.getAttribute?.("title") ||
     html.innerText ||
-    html.textContent ||
+    drawnText(el) ||
     ""
   )
     .replace(/\s+/g, " ")

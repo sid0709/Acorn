@@ -273,3 +273,41 @@ func TestPersonOnlyFieldsAreNeverWritten(t *testing.T) {
 		t.Fatalf("person-only field got fact %q write %v, want neither", fact, write)
 	}
 }
+
+// A code the page asks for as a row of one-character boxes is typed one character
+// per box, in page order.
+func TestSplitAcrossBoxesSpreadsACodeOverOneCharacterBoxes(t *testing.T) {
+	profile := applicantFacts{credentials: Credentials{VerificationCode: "AB12CD34"}}
+	var fields []FormField
+	kinds := map[int]string{}
+	for i := 0; i < 8; i++ {
+		field := FormField{ElementIndex: 100 + i, Kind: fieldText, Label: "Security code", MaxLength: 1}
+		fields = append(fields, field)
+		kinds[field.ElementIndex] = FactVerificationCode
+	}
+	parts := splitAcrossBoxes(profile, fields, kinds)
+	var got strings.Builder
+	for _, field := range fields {
+		part := parts[field.ElementIndex]
+		if len([]rune(part)) != 1 {
+			t.Fatalf("box %d got %q, want one character", field.ElementIndex, part)
+		}
+		got.WriteString(part)
+	}
+	if got.String() != "AB12CD34" {
+		t.Fatalf("boxes spell %q, want the code", got.String())
+	}
+}
+
+// One field that holds the whole answer is not a row of boxes.
+func TestSplitAcrossBoxesLeavesAWholeFieldAlone(t *testing.T) {
+	profile := applicantFacts{credentials: Credentials{VerificationCode: "AB12CD34"}}
+	fields := []FormField{
+		{ElementIndex: 1, Kind: fieldText, Label: "Code"},
+		{ElementIndex: 2, Kind: fieldText, Label: "Code again"},
+	}
+	kinds := map[int]string{1: FactVerificationCode, 2: FactVerificationCode}
+	if parts := splitAcrossBoxes(profile, fields, kinds); len(parts) != 0 {
+		t.Fatalf("parts = %v, want none for fields with no length limit", parts)
+	}
+}

@@ -1,6 +1,12 @@
 import { Card, Drawer, HStack, StatusDot, Text, TextInput, VStack } from "sid-ui";
 
 import { DEFAULT_ACORN_API_URL, setAcornApiUrl } from "../auth/acorn-auth";
+import { ACORN_DEBUG } from "../debug-trace";
+
+/** A debug build ignores the saved URL: only the local API records its debug runs. */
+const API_URL_HELP = ACORN_DEBUG
+  ? `Debug build: always ${DEFAULT_ACORN_API_URL}, the local API that records debug runs.`
+  : "Where Acorn's routes and socket live. Leave as is unless you run your own.";
 
 type SettingsDrawerProps = {
   isOpen: boolean;
@@ -51,7 +57,7 @@ export function SettingsDrawer({
         </Card>
         <TextInput
           label="Acorn API URL"
-          description="Where Acorn's routes and socket live. Leave as is unless you run your own."
+          description={API_URL_HELP}
           value={apiUrl}
           onChange={(value) => {
             onApiUrlChange(value);
