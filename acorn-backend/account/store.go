@@ -109,6 +109,7 @@ type Store struct {
 	accounts     *mongo.Collection
 	sessions     *mongo.Collection
 	googleStates *mongo.Collection
+	checked      *sessionCache
 }
 
 func NewStore(client *mongo.Client, database string) *Store {
@@ -117,6 +118,7 @@ func NewStore(client *mongo.Client, database string) *Store {
 		accounts:     db.Collection(accountsCollection),
 		sessions:     db.Collection(sessionsCollection),
 		googleStates: db.Collection(googleStatesCollection),
+		checked:      newSessionCache(),
 	}
 }
 
@@ -274,8 +276,12 @@ func (s *Store) Session(ctx context.Context, token string, now time.Time) (Sessi
 	if token == "" {
 		return Session{}, ErrInvalidLogin
 	}
+	hash := hashToken(token)
+	if cached, ok := s.checked.get(hash, now); ok {
+		return cached, nil
+	}
 	var doc storedSession
-	err := s.sessions.FindOne(ctx, bson.D{{Key: "tokenHash", Value: hashToken(token)}}).Decode(&doc)
+	err := s.sessions.FindOne(ctx, bson.D{{Key: "tokenHash", Value: hash}}).Decode(&doc)
 	if errors.Is(err, mongo.ErrNoDocuments) || !doc.ExpiresAt.After(now) {
 		return Session{}, ErrInvalidLogin
 	}
@@ -293,12 +299,14 @@ func (s *Store) Session(ctx context.Context, token string, now time.Time) (Sessi
 	if user.deactivated() {
 		return Session{}, ErrInvalidLogin
 	}
-	return Session{
+	session := Session{
 		User:          User{ID: user.ID, Name: user.Name, Email: user.Email},
 		SupportBy:     doc.SupportBy,
 		SupportReason: doc.SupportReason,
 		ExpiresAt:     doc.ExpiresAt,
-	}, nil
+	}
+	s.checked.put(hash, session, now)
+	return session, nil
 }
 
 // Revoke ends the session behind token. A missing token is still success.
@@ -307,6 +315,7 @@ func (s *Store) Revoke(ctx context.Context, token string) error {
 	if token == "" {
 		return nil
 	}
+	s.checked.forget(hashToken(token))
 	_, err := s.sessions.DeleteOne(ctx, bson.D{{Key: "tokenHash", Value: hashToken(token)}})
 	return err
 }
@@ -333,6 +342,7 @@ func (s *Store) Delete(ctx context.Context, userID string) error {
 			return fmt.Errorf("deactivate account: %w", err)
 		}
 	}
+	s.checked.forgetUser(userID)
 	if _, err := s.sessions.DeleteMany(ctx, bson.D{{Key: "userId", Value: userID}}); err != nil {
 		return fmt.Errorf("delete sessions: %w", err)
 	}

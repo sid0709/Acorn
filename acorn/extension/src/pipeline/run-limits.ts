@@ -55,6 +55,11 @@ export const RUN_MAX_RETURNS_TO_START = 2;
 export const RUN_BUSY_AFTER_CLICK_MS = 30_000;
 /** How long the run lets a busy page work before it looks again. */
 export const RUN_BUSY_WAIT_MS = 3_000;
+/**
+ * Passes over what is still blank that one step gets when the page answers a
+ * click with an alert of its own but marks no field.
+ */
+export const RUN_MAX_ALERT_PASSES = 1;
 /** Busy looks one step gets before a disabled control is treated as blocked. */
 export const RUN_MAX_BUSY_WAITS = 5;
 /** New page lines one page read hands the decision model, newest answer first in line. */

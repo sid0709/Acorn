@@ -151,6 +151,7 @@ func TestReadPageAccountStepOffersAGuestPath(t *testing.T) {
 		controlQuestion:  {Choice: "control_1"},
 		finalQuestion:    {Noul: yes(0.9)},
 		guestQuestion:    {Noul: yes(0.95)},
+		accountQuestion:  {Choice: AccountChoose},
 	}}
 	read, err := New(decider).ReadPage(context.Background(), PageQuery{Text: "Already have an account?", Intent: IntentStart, Controls: formControls})
 	if err != nil || read.Kind != KindAccount || !read.Guest || read.Control == nil || read.Control.Role != RoleNext {
@@ -163,6 +164,7 @@ func TestReadPageAccountStepFallsBack(t *testing.T) {
 		pageKindQuestion: {Choice: KindAccount},
 		controlQuestion:  {Choice: noControlKey, Probabilities: map[string]float64{"control_1": 0.3}},
 		guestQuestion:    {Noul: yes(0.1)},
+		accountQuestion:  {Choice: AccountSignIn},
 	}}
 	read, err := New(decider).ReadPage(context.Background(), PageQuery{Text: "Sign in", Intent: IntentStart, Controls: formControls})
 	if err != nil || read.Guest || read.Fallback == nil || read.Fallback.ID != 11 {
@@ -255,5 +257,19 @@ func TestReadPageTellsTheLastClick(t *testing.T) {
 	}
 	if !strings.Contains(decider.last.State, `clicked "Submit" (the control that sends the application) 4 seconds ago`) {
 		t.Fatalf("state does not say what was clicked: %q", decider.last.State)
+	}
+}
+
+// An account step that, by the same answer, shows no account form is a step of
+// the application to fill; and a control Jev barely believes in is no fallback.
+func TestReadPageAccountStepWithNoAccountFormIsAForm(t *testing.T) {
+	decider := &scriptedDecider{answers: map[string]jev.Answer{
+		pageKindQuestion: {Choice: KindAccount},
+		controlQuestion:  {Choice: noControlKey, Probabilities: map[string]float64{"control_0": 0.02}},
+		accountQuestion:  {Choice: AccountNone},
+	}}
+	read, err := New(decider).ReadPage(context.Background(), PageQuery{Text: "Data Consent", Intent: IntentAdvance, Controls: formControls})
+	if err != nil || read.Kind != KindForm || read.Fallback != nil {
+		t.Fatalf("read = %+v err = %v, want a form with no fallback", read, err)
 	}
 }

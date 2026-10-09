@@ -42,6 +42,7 @@ func (s *Store) IssueSupportSession(ctx context.Context, userID, adminEmail, rea
 // RevokeSupportSessions ends every admin-opened session for the user and says how many ended.
 // The user's own sessions stay.
 func (s *Store) RevokeSupportSessions(ctx context.Context, userID string) (int64, error) {
+	s.checked.forgetUser(userID)
 	res, err := s.sessions.DeleteMany(ctx, bson.M{"userId": userID, "supportBy": bson.M{"$gt": ""}})
 	if err != nil {
 		return 0, err

@@ -96,6 +96,8 @@ type LibraryRow struct {
 	ID            string       `json:"id" bson:"id"`
 	AccountID     string       `json:"-" bson:"accountId"`
 	Source        string       `json:"source" bson:"source"`
+	// Kind is KindResume or KindCoverLetter; empty on rows saved before kinds (résumés).
+	Kind          string       `json:"kind,omitempty" bson:"kind,omitempty"`
 	FileName      string       `json:"fileName" bson:"fileName"`
 	Title         string       `json:"title" bson:"title"`
 	Size          int          `json:"size" bson:"size"`
@@ -190,6 +192,12 @@ type FilePayload struct {
 	Label    string `json:"label,omitempty"`
 	ResumeID string `json:"resumeId,omitempty"`
 	JobID    string `json:"jobId,omitempty"`
+	// Format is the file's format (pdf, docx, doc, txt); Kind is resume or cover_letter.
+	Format string `json:"format,omitempty"`
+	Kind   string `json:"kind,omitempty"`
+	// Variants are the same stack's other formats, preferred first: an upload field
+	// that takes only one format gets that one.
+	Variants []FilePayload `json:"variants,omitempty"`
 }
 
 func newID() (string, error) {

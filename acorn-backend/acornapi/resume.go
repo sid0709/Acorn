@@ -339,6 +339,7 @@ func (s *Server) uploadLibrary(w http.ResponseWriter, r *http.Request) {
 	var body struct {
 		FileName      string `json:"fileName"`
 		Title         string `json:"title"`
+		Kind          string `json:"kind"`
 		ContentBase64 string `json:"contentBase64"`
 		ExtractedText string `json:"extractedText"`
 	}
@@ -350,7 +351,7 @@ func (s *Server) uploadLibrary(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, "file must be base64")
 		return
 	}
-	row, err := s.resumes.UploadLibrary(session.User.ID, body.FileName, body.Title, data, body.ExtractedText)
+	row, err := s.resumes.UploadLibrary(session.User.ID, body.FileName, body.Title, body.Kind, data, body.ExtractedText)
 	if err != nil {
 		s.writeResumeErr(w, err)
 		return
@@ -484,6 +485,36 @@ func (s *Server) recommendLibrary(w http.ResponseWriter, r *http.Request) {
 		"recommendedResumeId": rec.ResumeID, "recommendedResumeStack": rec.Stack, "recommendedResumeReason": rec.Reason,
 		"recommendedTop": rec.Top, "warning": nil,
 	})
+}
+
+// coverLetter picks the Library cover letter for a posting: the only one as it
+// is, or the best of several by Jev. No cover letter in the Library is an empty
+// answer, not an error: the run leaves the field to the page.
+func (s *Server) coverLetter(w http.ResponseWriter, r *http.Request) {
+	session, ok := s.session(w, r)
+	if !ok {
+		return
+	}
+	var body struct {
+		JobDescription string `json:"jobDescription"`
+	}
+	if !decode(w, r, &body) {
+		return
+	}
+	gateway, ok := s.selectorFor(w, r, session.User.ID)
+	if !ok {
+		return
+	}
+	pick, err := s.resumes.CoverLetter(s.withUsage(r, session.User.ID), session.User.ID, body.JobDescription, gateway)
+	if errors.Is(err, resume.ErrNoCoverLetter) {
+		writeJSON(w, http.StatusOK, map[string]any{"success": true, "file": nil, "stack": nil, "reason": err.Error()})
+		return
+	}
+	if err != nil {
+		s.writeResumeErr(w, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"success": true, "file": pick.File, "stack": pick.Stack, "reason": pick.Reason})
 }
 
 func (s *Server) jobRecommendedResume(w http.ResponseWriter, r *http.Request) {

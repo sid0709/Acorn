@@ -88,6 +88,13 @@ var facts = []Fact{
 	{FactVerificationCode, "A one-time verification or security code the job site sent to the applicant's email.", func(p applicantFacts) string {
 		return p.credentials.VerificationCode
 	}},
+	{FactToday, "Today's date: the date the applicant fills in, signs, or submits this application (a signature date, " +
+		"today's date). Not a date from their history, and not a start or availability date.", func(p applicantFacts) string {
+		if p.today.IsZero() {
+			return ""
+		}
+		return p.today.Format(isoDate)
+	}},
 }
 
 // factKinds is the decision model's menu for a free-text field: every fact, plus
@@ -120,6 +127,8 @@ func factValue(p applicantFacts, key string) string {
 type applicantFacts struct {
 	settings    map[string]any
 	credentials Credentials
+	// today is the applicant's local date, from the page the plan is for.
+	today time.Time
 }
 
 func parseApplicantFacts(applicant string) applicantFacts {

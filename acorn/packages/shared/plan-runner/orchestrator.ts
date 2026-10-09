@@ -7,6 +7,7 @@ import {
   isFileUploadAction,
   missingUploadReason,
   resolveStepFile,
+  wantsCoverLetter,
   resumeFileLabel,
   wantsRecommendedResume,
   type PlanStepFiles,
@@ -48,6 +49,8 @@ export interface RunPlanOptions {
   /** Custom-tab editor-generated résumé. */
   customResume?: RuntimeAttachedFile | null;
   resumeFileKind?: "library" | "custom";
+  /** The Library cover letter for this application; null when there is none. */
+  coverLetter?: RuntimeAttachedFile | null;
   /** Refill: re-apply a planned value even when the control already shows it. */
   force?: boolean;
   hooks: OrchestratorHooks;
@@ -85,6 +88,7 @@ export async function runActionPlan(options: RunPlanOptions): Promise<RunReport>
     recommendedResume = null,
     customResume = null,
     resumeFileKind,
+    coverLetter = null,
     force = false,
     hooks,
   } = options;
@@ -93,6 +97,7 @@ export async function runActionPlan(options: RunPlanOptions): Promise<RunReport>
     recommendedResume,
     customResume,
     resumeFileKind,
+    coverLetter,
   };
   applyApplicantIdentityToActions(plan.actions);
   const forbidden = collectForbiddenIndexes(plan);
@@ -236,6 +241,15 @@ export async function runActionPlan(options: RunPlanOptions): Promise<RunReport>
       continue;
     }
 
+    // No cover letter in the Library: the field is left to the page, as an applicant
+    // with none would leave it.
+    if (wantsCoverLetter(action) && !files.coverLetter) {
+      steps[i].status = "skipped";
+      steps[i].message = "Skipped — no cover letter in your Library";
+      publish();
+      continue;
+    }
+
     const missingFile = missingUploadReason(action, files);
     if (missingFile) {
       const decision = await hooks.onPause({
@@ -289,7 +303,7 @@ export async function runActionPlan(options: RunPlanOptions): Promise<RunReport>
             const uploaded = resumeFileLabel(resolveStepFile(action, files));
             steps[i].status = "ok";
             steps[i].message =
-              wantsRecommendedResume(action) && uploaded
+              (wantsRecommendedResume(action) || wantsCoverLetter(action)) && uploaded
                 ? `Uploaded ${uploaded}`
                 : result.details?.valueAfter
                   ? `value=${result.details.valueAfter}`

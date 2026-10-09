@@ -148,10 +148,11 @@ export async function resumeUpload(
   el: Element,
   file: RuntimeAttachedFile,
   expectedLabel?: string | null,
+  wanted?: string | null,
 ): Promise<string> {
   if (labelLooksLikeOtherDocument(expectedLabel)) {
     throw new Error(otherDocumentError(file));
   }
   const input = resolveResumeFileInput(el, expectedLabel);
-  return uploadFileToElement(input, file);
+  return uploadFileToElement(input, file, wanted);
 }

@@ -84,7 +84,7 @@ export async function runPlanStep(step: PlanStepPayload): Promise<PlanStepResult
         };
       }
       try {
-        const valueAfter = await resumeUpload(root, step.file, step.expected_label);
+        const valueAfter = await resumeUpload(root, step.file, step.expected_label, step.value);
         return {
           ok: true,
           verified: true,
@@ -260,7 +260,7 @@ export async function actOnVerified(
         if (!step.file?.base64) {
           throw new Error("upload requires runtime file payload");
         }
-        valueAfter = await uploadFileToElement(el, step.file);
+        valueAfter = await uploadFileToElement(el, step.file, step.value);
         break;
       }
       case "resume_upload": {
@@ -271,7 +271,7 @@ export async function actOnVerified(
               : "resume_upload requires the recommended Library resume",
           );
         }
-        valueAfter = await resumeUpload(el, step.file, step.expected_label);
+        valueAfter = await resumeUpload(el, step.file, step.expected_label, step.value);
         break;
       }
       case "select_radio": {

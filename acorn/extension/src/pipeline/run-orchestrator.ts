@@ -81,6 +81,7 @@ import {
   RUN_SLOW_PAGE_MAX_MS,
   RUN_MAX_BLOCKED_PASSES,
   RUN_BUSY_AFTER_CLICK_MS,
+  RUN_MAX_ALERT_PASSES,
   RUN_BUSY_WAIT_MS,
   RUN_MAX_BUSY_WAITS,
   RUN_MAX_FILLS_PER_PAGE,
@@ -183,6 +184,8 @@ interface PageState {
   landedAt: number;
   /** Looks spent waiting for this step to finish a click it is still working on. */
   busyWaits: number;
+  /** Passes over what was still blank, made because the page answered a click with an alert. */
+  alertPasses: number;
 }
 
 /** A click either landed and settled, or never reached its control. */
@@ -248,6 +251,12 @@ const STOPPED_FAILURE: Omit<RunFailure, "stage"> = {
 /** The site needs an account and the profile has no password to give it. */
 const NO_ACCOUNT_PASSWORD =
   "This site needs an account: add a default account password to your Acorn profile";
+
+/** Page-level alerts the page shows now that it did not before the click. */
+function newAlerts(before: FieldIssueScan | null, after: FieldIssueScan): number {
+  const seen = new Set(before?.pageMessages ?? []);
+  return after.pageMessages.filter((message) => !seen.has(message)).length;
+}
 
 /** A page that shows no text and no control yet: nothing to read. */
 function isBlankPage(page: PageSnapshot): boolean {
@@ -1332,6 +1341,7 @@ export async function runOrchestrator(args: RunOrchestratorArgs): Promise<RunRep
           emailChosen: false,
           landedAt: 0,
           busyWaits: 0,
+          alertPasses: 0,
         };
         refillsOnPage = 0;
         log.event("page", { page: pageCount, url: logUrl(page.url), flagged: page.flagged });
@@ -1388,6 +1398,19 @@ export async function runOrchestrator(args: RunOrchestratorArgs): Promise<RunRep
             state.scanBeforeFill = flaggedScan;
             log.event("refill:nothing-to-fix", { noted });
             countNoEffect(state, page);
+          }
+        } else if (
+          newAlerts(state.scanBeforeClick, page.scan) > 0 &&
+          state.alertPasses < RUN_MAX_ALERT_PASSES
+        ) {
+          // The page answered the click with an alert of its own ("the above information
+          // is required") but marked no field: answer whatever is still blank or unset.
+          state.alertPasses += 1;
+          log.event("alert:pass", { pass: state.alertPasses });
+          enter(RUN_STAGE.filling, "Answering what the page says is still missing…");
+          const completed = await fill(FILL_MODE.fill, page, { pendingOnly: true });
+          if (completed.resumeMissing) {
+            throw noResumeStop(RUN_STAGE.filling, page, completed.error ?? RESUME_NOT_CHOSEN);
           }
         } else {
           countNoEffect(state, page);

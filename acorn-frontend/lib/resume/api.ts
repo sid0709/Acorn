@@ -15,7 +15,7 @@ import type {
   ResumeHistoryQuery,
   ResumeHistoryRun,
 } from "@acorn/shared/resume-history";
-import type { ResumeLibraryRow } from "@acorn/shared/resume-library";
+import type { LibraryKind, ResumeLibraryRow } from "@acorn/shared/resume-library";
 import { acornHeaders } from "@/lib/auth/headers";
 
 export type ResumeCall<T> = { ok: true; data: T } | { ok: false; message: string };
@@ -131,6 +131,8 @@ export async function listLibrary(): Promise<ResumeCall<{ resumes: ResumeLibrary
 export async function uploadLibraryFile(input: {
   fileName: string;
   title: string;
+  /** resume (the default) or cover_letter. */
+  kind?: LibraryKind;
   contentBase64: string;
   /** Text pdf.js read from a PDF. The server uses it when it is clearer than its own extract. */
   extractedText?: string;
