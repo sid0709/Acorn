@@ -83,6 +83,8 @@ export const MSG = {
   /** Sidebar → service worker: stop the Run working on this tab, at once. */
   STOP_RUN: "acorn:stop-run",
   PIPELINE_PROGRESS: "acorn:pipeline-progress",
+  /** Page → service worker: answer after `ms`, timed where a hidden tab cannot slow it. */
+  PAGE_DELAY: "acorn:page-delay",
   SOCKET_STATUS: "acorn:socket-status",
   OPERATOR_NOTICE: "acorn:operator-notice",
   AUTH_STATUS: "acorn:auth-status",
@@ -180,6 +182,8 @@ export interface PageProbe {
   controls: number;
   /** Length of the visible text: grows while an app renders. */
   textLength: number;
+  /** The page says it is still working: a document still loading, a busy region, a progress indicator. */
+  loading: boolean;
 }
 
 export interface PlanStepPayload {

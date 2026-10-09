@@ -1,5 +1,7 @@
 import { normalizeGenerateCheckpoint } from "@acorn/shared/generate-checkpoint";
 
+import { withStorageLock } from "./storage-lock";
+
 import type { CustomUiProgress } from "./pipeline/custom-generate-progress";
 import type { CustomGenerateStatus, CustomWorkKind } from "./tab-custom-session";
 import type { GenerateCheckpoint } from "@acorn/shared/generate-checkpoint";
@@ -106,19 +108,23 @@ export async function patchJobGenerate(
   jobId: string,
   patch: Partial<Omit<AcornJobGenerateBinding, "jobId">>,
 ): Promise<AcornJobGenerateBinding> {
-  const id = String(jobId || "").trim();
-  if (!id) throw new Error("Missing job id");
-  const map = await readMap();
-  const existing = map[id] ?? emptyBinding(id);
-  const next = normalizeBinding({ ...existing, ...patch, jobId: id });
-  map[id] = next;
-  await writeMap(map);
-  return next;
+  return withStorageLock(JOB_GENERATE_STORAGE_KEY, async () => {
+    const id = String(jobId || "").trim();
+    if (!id) throw new Error("Missing job id");
+    const map = await readMap();
+    const existing = map[id] ?? emptyBinding(id);
+    const next = normalizeBinding({ ...existing, ...patch, jobId: id });
+    map[id] = next;
+    await writeMap(map);
+    return next;
+  });
 }
 
 export async function clearJobGenerate(jobId: string): Promise<void> {
-  const map = await readMap();
-  if (!(jobId in map)) return;
-  delete map[jobId];
-  await writeMap(map);
+  return withStorageLock(JOB_GENERATE_STORAGE_KEY, async () => {
+    const map = await readMap();
+    if (!(jobId in map)) return;
+    delete map[jobId];
+    await writeMap(map);
+  });
 }

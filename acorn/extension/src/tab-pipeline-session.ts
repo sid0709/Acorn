@@ -4,6 +4,8 @@ import {
   type PipelineProgress,
 } from "@acorn/shared/pipeline-types";
 
+import { withStorageLock } from "./storage-lock";
+
 export const TAB_PIPELINES_STORAGE_KEY = "acornTabPipelines";
 
 export type TabPipelineMap = Record<string, PipelineProgress>;
@@ -29,13 +31,15 @@ export async function recordTabPipeline(
   tabId: number,
   next: PipelineProgress,
 ): Promise<PipelineProgress> {
-  const map = await readMap();
-  const key = String(tabId);
-  const prev = map[key] ?? IDLE_PIPELINE_PROGRESS;
-  const merged = mergePipelineProgress(prev, next);
-  map[key] = merged;
-  await chrome.storage.session.set({ [TAB_PIPELINES_STORAGE_KEY]: map });
-  return merged;
+  return withStorageLock(TAB_PIPELINES_STORAGE_KEY, async () => {
+    const map = await readMap();
+    const key = String(tabId);
+    const prev = map[key] ?? IDLE_PIPELINE_PROGRESS;
+    const merged = mergePipelineProgress(prev, next);
+    map[key] = merged;
+    await chrome.storage.session.set({ [TAB_PIPELINES_STORAGE_KEY]: map });
+    return merged;
+  });
 }
 
 /** Serialize per-tab writes so overlapping progress events cannot clobber each other. */
@@ -50,22 +54,26 @@ export function queueTabPipeline(tabId: number, next: PipelineProgress): Promise
 }
 
 export async function clearTabPipeline(tabId: number): Promise<void> {
-  const map = await readMap();
-  if (!(String(tabId) in map)) return;
-  delete map[String(tabId)];
-  await chrome.storage.session.set({ [TAB_PIPELINES_STORAGE_KEY]: map });
+  return withStorageLock(TAB_PIPELINES_STORAGE_KEY, async () => {
+    const map = await readMap();
+    if (!(String(tabId) in map)) return;
+    delete map[String(tabId)];
+    await chrome.storage.session.set({ [TAB_PIPELINES_STORAGE_KEY]: map });
+  });
 }
 
 export async function rekeyTabPipeline(fromTabId: number, toTabId: number): Promise<void> {
-  if (fromTabId === toTabId) return;
-  await writeTail.get(fromTabId);
-  writeTail.delete(fromTabId);
-  const map = await readMap();
-  const fromKey = String(fromTabId);
-  const toKey = String(toTabId);
-  if (!(fromKey in map)) return;
-  const row = map[fromKey];
-  delete map[fromKey];
-  map[toKey] = row;
-  await chrome.storage.session.set({ [TAB_PIPELINES_STORAGE_KEY]: map });
+  return withStorageLock(TAB_PIPELINES_STORAGE_KEY, async () => {
+    if (fromTabId === toTabId) return;
+    await writeTail.get(fromTabId);
+    writeTail.delete(fromTabId);
+    const map = await readMap();
+    const fromKey = String(fromTabId);
+    const toKey = String(toTabId);
+    if (!(fromKey in map)) return;
+    const row = map[fromKey];
+    delete map[fromKey];
+    map[toKey] = row;
+    await chrome.storage.session.set({ [TAB_PIPELINES_STORAGE_KEY]: map });
+  });
 }

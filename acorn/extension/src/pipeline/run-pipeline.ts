@@ -44,6 +44,11 @@ export const NO_RESUME_FILE = "No résumé file to attach";
 
 /** The leftover dropdown pass, all of its rounds, answers within this. */
 const LEFTOVER_PASS_TIMEOUT_MS = 120_000;
+/**
+ * The page stops starting dropdowns this long before the pass's timeout, so the
+ * one in hand can finish and the page is free again when the run moves on.
+ */
+const LEFTOVER_STOP_MARGIN_MS = 15_000;
 
 export type PipelineEmit = (progress: PipelineProgress) => void;
 
@@ -455,7 +460,12 @@ export async function runFabPipeline(args: RunPipelineArgs): Promise<void> {
           skipped?: boolean;
         }>(
           tabId,
-          { type: MSG.FILL_LEFTOVER_COMBOS },
+          {
+            type: MSG.FILL_LEFTOVER_COMBOS,
+            // A pass the run stopped waiting for must not hold the page: its next
+            // steps (a fill, the Submit click) queue behind it.
+            deadline: Date.now() + LEFTOVER_PASS_TIMEOUT_MS - LEFTOVER_STOP_MARGIN_MS,
+          },
           frameId ?? undefined,
           LEFTOVER_PASS_TIMEOUT_MS,
         ),

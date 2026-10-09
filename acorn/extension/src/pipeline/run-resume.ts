@@ -1,4 +1,9 @@
-import { customTabHasResume, getCustomTab, rememberCustomTab } from "../tab-custom-session";
+import {
+  customTabHasResume,
+  getCustomTab,
+  patchCustomTab,
+  rememberCustomTab,
+} from "../tab-custom-session";
 import { getJobGenerate } from "../tab-job-generate-session";
 import { getTabJob } from "../tab-job-session";
 
@@ -7,6 +12,23 @@ import { runJobRecommend } from "./job-recommend";
 import { resumeGate, type ResumeGate } from "./resume-gate";
 
 import type { RunLog } from "./run-log";
+
+/** Statuses that keep the sidebar showing a recommend in progress. */
+const UNFINISHED_STATUSES = new Set(["queued", "running"]);
+
+/**
+ * The run gave up on the recommend: a status still saying it is under way would
+ * keep the sidebar busy ("Recommending…") with no Stop or Run again to press.
+ */
+async function settleUnfinishedRecommend(tabId: number, reason: string): Promise<void> {
+  const tab = await getCustomTab(tabId);
+  if (!tab || !UNFINISHED_STATUSES.has(tab.generateStatus ?? "")) return;
+  await patchCustomTab(tabId, {
+    generateStatus: "failed",
+    generateError: reason,
+    generateProgress: null,
+  });
+}
 
 /** Whether this tab already has a résumé Fill can attach. */
 async function hasResume(tabId: number): Promise<boolean> {
@@ -64,6 +86,7 @@ export async function ensureRecommendedResume(args: {
     log.event("recommend:done", { stack: stack ?? null });
   } else {
     log.event("recommend:failed", { error: gate.reason });
+    await settleUnfinishedRecommend(tabId, gate.reason);
   }
   return gate;
 }

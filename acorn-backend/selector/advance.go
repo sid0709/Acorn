@@ -181,6 +181,11 @@ type PageQuery struct {
 	// NewText is the lines the page shows now that it did not at the run's last look
 	// at it: its answer to the run's last action, wherever on the page it appeared.
 	NewText []string
+	// LastClick is the control the run clicked last on this site and what it does
+	// (an Role* key), with how long ago; empty before any click.
+	LastClick     string
+	LastClickRole string
+	LastClickAgo  int
 }
 
 // ControlPick is the control to click and what it does.
@@ -224,9 +229,14 @@ var pageKinds = []struct{ key, description string }{
 	{KindPosting, "A job posting or job description page for one role (duties, requirements, qualifications) that has not opened an application form yet. It may have a control that opens the application."},
 	{KindForm, "An application form or one step of a multi-step application: the page asks the applicant for their details, questions, résumé, or a final review before submitting."},
 	{KindAccount, "A step of the application that asks the applicant to sign in, create an account, recover or reset the account's password, or continue without an account, rather than asking for their application details."},
-	{KindConfirmation, "The application is complete: the page thanks the applicant or says the application was received or submitted."},
+	{KindConfirmation, "The application is complete: the page thanks the applicant or says the application was received or " +
+		"submitted. Also complete: right after the run clicked the control that sends the application, the page no longer offers " +
+		"a way to send it and shows no error (the form was taken even without a thank-you); or the site's candidate home or " +
+		"dashboard lists this application as submitted, received, or in progress."},
 	{KindBlocked, "The page cannot be worked yet: a CAPTCHA or bot check, an error page, or a page that says the job is closed. A sign-in or sign-up page is an account step, not blocked."},
-	{KindOther, "Not part of applying for a job: a search results list, a company page, or any unrelated site."},
+	{KindOther, "Not part of applying for this job: a search results list, a company page, any unrelated site, or a general " +
+		"talent-community or expression-of-interest form (leave your details or résumé to be contacted about future openings) " +
+		"that does not apply to this role."},
 }
 
 func pageKindCriteria() map[string]string {
@@ -292,7 +302,8 @@ func (g *Gateway) ReadPage(ctx context.Context, q PageQuery) (PageRead, error) {
 			appliedQuestion: {
 				Type: jev.TypeNoul,
 				Instructions: "Does this page say the applicant has already applied to this job: an application to this role " +
-					"that was already submitted before, as opposed to one being filled in now or just completed?",
+					"that was already submitted before, as opposed to one being filled in now or just completed? A candidate home or " +
+					"dashboard that lists this job as submitted or in progress, seen before the run sent anything, says so.",
 				Criteria: map[string]string{
 					"true":  "The site says an application to this job was already submitted earlier.",
 					"false": "Nothing on the page says this job was applied to before.",
@@ -422,22 +433,31 @@ const repairSteps = "When the page says a saved entry or section still has field
 	"whole application. Never pick a control that only scrolls to, jumps to, or lists the problems, deletes an entry, or adds a " +
 	"new empty entry. "
 
+// thisRoleOnly keeps every pick on the application to this one role: a site's
+// talent community is a different, general form that never applies to it.
+const thisRoleOnly = "Never pick a control that joins a talent community, registers general interest, or leaves the " +
+	"applicant's details or résumé to be contacted about future openings: that is a different form from applying to this " +
+	"role, and it never leads to this application. "
+
 // controlInstructions describe controls only by what they do: sites word them
 // any way they like, so no wording is quoted here.
 func controlInstructions(intent string) string {
 	if intent == IntentAdvance {
 		return "The applicant has finished filling this page. Which control moves the application to its next step, " +
 			"or sends it on the last step? Judge by what the control does on this page, whatever its wording, " +
-			"an arrow, or an icon. " + dialogSteps + repairSteps + verifySteps + accountSteps +
+			"an arrow, or an icon. " + thisRoleOnly + dialogSteps + repairSteps + verifySteps + accountSteps +
 			"Never pick a control that goes back, cancels, leaves the application, saves a draft, signs out, " +
-			"signs in through another service, or opens another site. " +
+			"signs in through another service, or opens another site, and never a link in the site's header, menu, or footer " +
+			"that opens another page of the site rather than sending this form. A step listed in the application's progress " +
+			"tracker (the row of step names that shows where the applicant is) is never the way forward when it is the " +
+			"current step or one already done: clicking it returns to that step. " +
 			"Prefer an enabled control, but a forward control that looks disabled is still the forward control: " +
 			"many forms only grey it out until their fields are valid, and clicking it shows what they still need. " +
 			"Choose none only when nothing here moves the application forward."
 	}
 	return "Which control starts or continues an application for this role? On a job posting it is the control " +
 		"that opens the application. When the page is already an application form or an account step, pick the " +
-		"control that moves it forward instead. " + dialogSteps + verifySteps + accountSteps +
+		"control that moves it forward instead. " + thisRoleOnly + dialogSteps + verifySteps + accountSteps +
 		"Never pick a control that saves the job, shares it, creates an alert, signs in through another service, " +
 		"or is disabled. Choose none when the page has no way to apply or continue."
 }
@@ -458,6 +478,10 @@ func pageState(q PageQuery, controls []Control) string {
 		fmt.Fprintf(&b, "Account goal on this page: %s (%s).\n", q.AccountGoal, goal)
 	}
 	writeAccountHistory(&b, q.Account)
+	if q.LastClick != "" {
+		fmt.Fprintf(&b, "The run's last action: it clicked %q (%s) %d seconds ago.\n",
+			clip(q.LastClick, maxControlLine), lastClickRole(q.LastClickRole), q.LastClickAgo)
+	}
 	if len(q.NewText) > 0 {
 		b.WriteString("\nText that appeared on the page since the run's last action:\n")
 		for _, line := range q.NewText {
@@ -474,6 +498,18 @@ func pageState(q PageQuery, controls []Control) string {
 		fmt.Fprintf(&b, "%s_%d: %s\n", controlKeyPrefix, i, describeControl(control))
 	}
 	return b.String()
+}
+
+// lastClickRole says in words what the run's last click did.
+func lastClickRole(role string) string {
+	switch role {
+	case RoleSubmit:
+		return "the control that sends the application"
+	case RoleApply:
+		return "the control that opens the application"
+	default:
+		return "the control that moves the application to its next step"
+	}
 }
 
 // openDialog is the name of the dialog the page's controls sit in, when one is open.

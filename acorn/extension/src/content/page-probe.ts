@@ -14,6 +14,8 @@ import type { PageProbe } from "../types";
 const NON_FIELD_INPUTS = new Set(["hidden", "submit", "button", "image", "reset"]);
 /** What a person clicks: counted so a page still rendering shows it is not done. */
 const CONTROL_SELECTOR = 'button, a[href], [role="button"], [role="link"]';
+/** Marks a page puts up while it is still working: a busy region or a progress indicator. */
+const LOADING_SELECTOR = '[aria-busy="true"], [role="progressbar"]';
 /** Marks a page puts up when it refuses what was entered. */
 const REFUSAL_SELECTOR = '[aria-invalid="true"], [role="alert"]';
 
@@ -45,5 +47,8 @@ export function probePage(): PageProbe {
     refusals,
     controls: queryDeep(document, CONTROL_SELECTOR).length,
     textLength: document.body?.innerText.length ?? 0,
+    loading:
+      document.readyState !== "complete" ||
+      queryDeep(document, LOADING_SELECTOR).some((el) => isVisible(el)),
   };
 }

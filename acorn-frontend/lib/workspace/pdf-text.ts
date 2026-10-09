@@ -24,7 +24,9 @@ export async function pdfText(bytes: Uint8Array): Promise<string> {
       { type: "module" },
     );
   }
-  const task = pdfjs.getDocument({ data: bytes });
+  // pdf.js transfers `data.buffer` to the worker, which empties the caller's array.
+  // Upload encodes those same bytes afterward, so the worker gets a copy.
+  const task = pdfjs.getDocument({ data: bytes.slice() });
   const doc = await task.promise;
   const pages: string[] = [];
   const links = new Set<string>();

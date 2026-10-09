@@ -1,5 +1,7 @@
 import { normalizeGenerateCheckpoint } from "@acorn/shared/generate-checkpoint";
 
+import { withStorageLock } from "./storage-lock";
+
 import type { CustomUiProgress } from "./pipeline/custom-generate-progress";
 import type { GenerateCheckpoint } from "@acorn/shared/generate-checkpoint";
 import type { RecommendedResumeRank } from "@acorn/shared/resume-library";
@@ -105,96 +107,106 @@ export async function rememberCustomTab(input: {
   favIconUrl?: string | null;
   resumeMode?: CustomResumeMode;
 }): Promise<AcornCustomTabBinding> {
-  const map = await readMap();
-  const key = String(input.tabId);
-  const existing = map[key];
-  const favIconUrl = input.favIconUrl?.trim() || existing?.favIconUrl || null;
-  const next: AcornCustomTabBinding = existing
-    ? {
-        ...existing,
-        url: input.url || existing.url,
-        title: input.title || existing.title,
-        favIconUrl,
-        ...(input.resumeMode === "recommend" || input.resumeMode === "generate"
-          ? { resumeMode: input.resumeMode }
-          : {}),
-      }
-    : {
-        tabId: input.tabId,
-        url: input.url,
-        title: input.title,
-        favIconUrl,
-        rememberedAt: new Date().toISOString(),
-        resumeMode: input.resumeMode === "recommend" ? "recommend" : "generate",
-        workKind: null,
-        inputId: null,
-        generationId: null,
-        resumeId: null,
-        recommendedResumeId: null,
-        recommendedResumeStack: null,
-        recommendedResumeReason: null,
-        recommendedTop: [],
-        generateStatus: "idle",
-        generateError: null,
-        generateProgress: null,
-        checkpoint: null,
-        jobDescription: null,
-      };
-  map[key] = next;
-  await writeMap(map);
-  return next;
+  return withStorageLock(TAB_CUSTOM_STORAGE_KEY, async () => {
+    const map = await readMap();
+    const key = String(input.tabId);
+    const existing = map[key];
+    const favIconUrl = input.favIconUrl?.trim() || existing?.favIconUrl || null;
+    const next: AcornCustomTabBinding = existing
+      ? {
+          ...existing,
+          url: input.url || existing.url,
+          title: input.title || existing.title,
+          favIconUrl,
+          ...(input.resumeMode === "recommend" || input.resumeMode === "generate"
+            ? { resumeMode: input.resumeMode }
+            : {}),
+        }
+      : {
+          tabId: input.tabId,
+          url: input.url,
+          title: input.title,
+          favIconUrl,
+          rememberedAt: new Date().toISOString(),
+          resumeMode: input.resumeMode === "recommend" ? "recommend" : "generate",
+          workKind: null,
+          inputId: null,
+          generationId: null,
+          resumeId: null,
+          recommendedResumeId: null,
+          recommendedResumeStack: null,
+          recommendedResumeReason: null,
+          recommendedTop: [],
+          generateStatus: "idle",
+          generateError: null,
+          generateProgress: null,
+          checkpoint: null,
+          jobDescription: null,
+        };
+    map[key] = next;
+    await writeMap(map);
+    return next;
+  });
 }
 
 export async function patchCustomTab(
   tabId: number,
   patch: Partial<Omit<AcornCustomTabBinding, "tabId">>,
 ): Promise<AcornCustomTabBinding | null> {
-  const map = await readMap();
-  const key = String(tabId);
-  const existing = map[key];
-  if (!existing) return null;
-  const next = normalizeBinding({ ...existing, ...patch, tabId });
-  map[key] = next;
-  await writeMap(map);
-  return next;
+  return withStorageLock(TAB_CUSTOM_STORAGE_KEY, async () => {
+    const map = await readMap();
+    const key = String(tabId);
+    const existing = map[key];
+    if (!existing) return null;
+    const next = normalizeBinding({ ...existing, ...patch, tabId });
+    map[key] = next;
+    await writeMap(map);
+    return next;
+  });
 }
 
 export async function refreshCustomTabMeta(
   tabId: number,
   meta: { url?: string; title?: string; favIconUrl?: string | null },
 ): Promise<void> {
-  const map = await readMap();
-  const key = String(tabId);
-  const existing = map[key];
-  if (!existing) return;
-  const url = typeof meta.url === "string" && meta.url.trim() ? meta.url : existing.url;
-  const title = typeof meta.title === "string" && meta.title.trim() ? meta.title : existing.title;
-  const favIconUrl =
-    typeof meta.favIconUrl === "string" && meta.favIconUrl.trim()
-      ? meta.favIconUrl.trim()
-      : existing.favIconUrl;
-  if (url === existing.url && title === existing.title && favIconUrl === existing.favIconUrl) {
-    return;
-  }
-  map[key] = { ...existing, url, title, favIconUrl };
-  await writeMap(map);
+  return withStorageLock(TAB_CUSTOM_STORAGE_KEY, async () => {
+    const map = await readMap();
+    const key = String(tabId);
+    const existing = map[key];
+    if (!existing) return;
+    const url = typeof meta.url === "string" && meta.url.trim() ? meta.url : existing.url;
+    const title = typeof meta.title === "string" && meta.title.trim() ? meta.title : existing.title;
+    const favIconUrl =
+      typeof meta.favIconUrl === "string" && meta.favIconUrl.trim()
+        ? meta.favIconUrl.trim()
+        : existing.favIconUrl;
+    if (url === existing.url && title === existing.title && favIconUrl === existing.favIconUrl) {
+      return;
+    }
+    map[key] = { ...existing, url, title, favIconUrl };
+    await writeMap(map);
+  });
 }
 
 export async function unbindCustomTab(tabId: number): Promise<void> {
-  const map = await readMap();
-  if (!(String(tabId) in map)) return;
-  delete map[String(tabId)];
-  await writeMap(map);
+  return withStorageLock(TAB_CUSTOM_STORAGE_KEY, async () => {
+    const map = await readMap();
+    if (!(String(tabId) in map)) return;
+    delete map[String(tabId)];
+    await writeMap(map);
+  });
 }
 
 export async function rekeyCustomTab(fromTabId: number, toTabId: number): Promise<void> {
-  if (fromTabId === toTabId) return;
-  const map = await readMap();
-  const fromKey = String(fromTabId);
-  const toKey = String(toTabId);
-  const row = map[fromKey];
-  if (!row) return;
-  delete map[fromKey];
-  map[toKey] = { ...row, tabId: toTabId };
-  await writeMap(map);
+  return withStorageLock(TAB_CUSTOM_STORAGE_KEY, async () => {
+    if (fromTabId === toTabId) return;
+    const map = await readMap();
+    const fromKey = String(fromTabId);
+    const toKey = String(toTabId);
+    const row = map[fromKey];
+    if (!row) return;
+    delete map[fromKey];
+    map[toKey] = { ...row, tabId: toTabId };
+    await writeMap(map);
+  });
 }

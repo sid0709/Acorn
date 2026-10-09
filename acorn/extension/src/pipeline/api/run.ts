@@ -35,6 +35,8 @@ export interface ReadPageRequest {
   accountGoal?: AccountMode;
   /** Lines the page shows now that it did not at the run's last read of the same address. */
   newText?: string[];
+  /** The control the run clicked last and what it does: the page's state is its answer. */
+  lastClick?: { text: string; role: ControlRole; secondsAgo: number };
 }
 
 export interface ReadPageResponse {

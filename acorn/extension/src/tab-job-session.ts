@@ -55,14 +55,16 @@ function takeJobTombstone(tabId: number): AcornTabJobBinding | null {
 }
 
 export async function bindTabJob(tabId: number, job: AcornTabJobBinding): Promise<void> {
-  const map = await readMap();
-  const key = String(tabId);
-  for (const [tabKey, row] of Object.entries(map)) {
-    if (row.jobId === job.jobId && tabKey !== key) delete map[tabKey];
-  }
-  map[key] = job;
-  takeJobTombstone(tabId);
-  await chrome.storage.session.set({ [TAB_JOBS_STORAGE_KEY]: map });
+  return withStorageLock(TAB_JOBS_STORAGE_KEY, async () => {
+    const map = await readMap();
+    const key = String(tabId);
+    for (const [tabKey, row] of Object.entries(map)) {
+      if (row.jobId === job.jobId && tabKey !== key) delete map[tabKey];
+    }
+    map[key] = job;
+    takeJobTombstone(tabId);
+    await chrome.storage.session.set({ [TAB_JOBS_STORAGE_KEY]: map });
+  });
 }
 
 export async function getTabJob(tabId: number): Promise<AcornTabJobBinding | null> {
@@ -87,40 +89,47 @@ export async function findTabIdForJob(jobId: string): Promise<number | null> {
 }
 
 export async function rekeyTabJob(fromTabId: number, toTabId: number): Promise<void> {
-  if (fromTabId === toTabId) return;
-  const map = await readMap();
-  const fromKey = String(fromTabId);
-  const toKey = String(toTabId);
-  const row = map[fromKey] ?? takeJobTombstone(fromTabId);
-  if (!row) return;
-  delete map[fromKey];
-  for (const [tabKey, existing] of Object.entries(map)) {
-    if (existing.jobId === row.jobId && tabKey !== toKey) delete map[tabKey];
-  }
-  map[toKey] = row;
-  takeJobTombstone(toTabId);
-  await chrome.storage.session.set({ [TAB_JOBS_STORAGE_KEY]: map });
+  return withStorageLock(TAB_JOBS_STORAGE_KEY, async () => {
+    if (fromTabId === toTabId) return;
+    const map = await readMap();
+    const fromKey = String(fromTabId);
+    const toKey = String(toTabId);
+    const row = map[fromKey] ?? takeJobTombstone(fromTabId);
+    if (!row) return;
+    delete map[fromKey];
+    for (const [tabKey, existing] of Object.entries(map)) {
+      if (existing.jobId === row.jobId && tabKey !== toKey) delete map[tabKey];
+    }
+    map[toKey] = row;
+    takeJobTombstone(toTabId);
+    await chrome.storage.session.set({ [TAB_JOBS_STORAGE_KEY]: map });
+  });
 }
 
 export async function unbindTabJob(tabId: number): Promise<void> {
-  const map = await readMap();
-  const key = String(tabId);
-  const row = map[key];
-  if (!row) return;
-  rememberJobTombstone(tabId, row);
-  delete map[key];
-  await chrome.storage.session.set({ [TAB_JOBS_STORAGE_KEY]: map });
+  return withStorageLock(TAB_JOBS_STORAGE_KEY, async () => {
+    const map = await readMap();
+    const key = String(tabId);
+    const row = map[key];
+    if (!row) return;
+    rememberJobTombstone(tabId, row);
+    delete map[key];
+    await chrome.storage.session.set({ [TAB_JOBS_STORAGE_KEY]: map });
+  });
 }
 
 export async function unbindJobFromAllTabs(jobId: string): Promise<void> {
-  const map = await readMap();
-  let changed = false;
-  for (const [tabId, job] of Object.entries(map)) {
-    if (job.jobId !== jobId) continue;
-    delete map[tabId];
-    changed = true;
-  }
-  if (changed) {
-    await chrome.storage.session.set({ [TAB_JOBS_STORAGE_KEY]: map });
-  }
+  return withStorageLock(TAB_JOBS_STORAGE_KEY, async () => {
+    const map = await readMap();
+    let changed = false;
+    for (const [tabId, job] of Object.entries(map)) {
+      if (job.jobId !== jobId) continue;
+      delete map[tabId];
+      changed = true;
+    }
+    if (changed) {
+      await chrome.storage.session.set({ [TAB_JOBS_STORAGE_KEY]: map });
+    }
+  });
 }
+import { withStorageLock } from "./storage-lock";

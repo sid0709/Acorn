@@ -31,6 +31,9 @@ import { refreshTabUsage } from "./tab-usage-store";
 import type { TraceEntry } from "../debug-trace";
 import type { RuntimeMessage, SendResponse } from "./messages/shared";
 
+/** The longest page delay the service worker times; longer waits are the page's own. */
+const PAGE_DELAY_MAX_MS = 60_000;
+
 /** Sends each sidebar/content message to its handler. Returns true to keep `sendResponse` open. */
 export function routeMessage(
   message: RuntimeMessage,
@@ -41,6 +44,15 @@ export function routeMessage(
     const entry = (message as unknown as { entry: TraceEntry }).entry;
     sinkTrace({ ...entry, frameId: sender.frameId, tabId: sender.tab?.id });
     return false;
+  }
+
+  if (message.type === MSG.PAGE_DELAY) {
+    const ms = Math.min(
+      Math.max(0, Number((message as { ms?: unknown }).ms) || 0),
+      PAGE_DELAY_MAX_MS,
+    );
+    setTimeout(() => sendResponse({ ok: true }), ms);
+    return true;
   }
 
   if (message.type === MSG.SOCKET_STATUS) {

@@ -119,6 +119,11 @@ func (s *Server) runReadPage(w http.ResponseWriter, r *http.Request) {
 		Account      []runAccountAttempt `json:"account"`
 		AccountGoal  string              `json:"accountGoal"`
 		NewText      []string            `json:"newText"`
+		LastClick    struct {
+			Text       string `json:"text"`
+			Role       string `json:"role"`
+			SecondsAgo int    `json:"secondsAgo"`
+		} `json:"lastClick"`
 	}
 	if !decode(w, r, &body) {
 		return
@@ -162,7 +167,8 @@ func (s *Server) runReadPage(w http.ResponseWriter, r *http.Request) {
 		URL: body.URL, Title: body.Title, Text: body.Text, Intent: intent,
 		Controls: controls, Flagged: body.Flagged, PageMessages: body.PageMessages,
 		Account: accountHistory(body.Account), AccountGoal: accountGoal(body.AccountGoal),
-		NewText: body.NewText,
+		NewText: body.NewText, LastClick: body.LastClick.Text, LastClickRole: body.LastClick.Role,
+		LastClickAgo: body.LastClick.SecondsAgo,
 	})
 	elapsed := time.Since(started)
 	s.recordRunStep(r, session.User.ID, runID, body.Step, "read-page", map[string]any{

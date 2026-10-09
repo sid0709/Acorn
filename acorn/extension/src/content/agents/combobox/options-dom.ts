@@ -177,6 +177,19 @@ function collectScopedOptions(control: HTMLElement, doc: Document): HTMLElement[
   return [];
 }
 
+/**
+ * What a dropdown shows, for the trace: whether its tab is hidden, whether it
+ * says it is open, and how many option nodes the page holds before the
+ * visibility filter. Tells "the list never rendered" from "it rendered unseen".
+ */
+export function popupState(control: HTMLElement, doc: Document) {
+  return {
+    hidden: doc.hidden,
+    expanded: control.getAttribute("aria-expanded"),
+    raw: deepQueryAll(doc, POPUP_ITEM_SELECTOR).length,
+  };
+}
+
 export function optionSignature(options: HTMLElement[]): string {
   return options.map((opt) => normalize(optionText(opt))).join("\n");
 }

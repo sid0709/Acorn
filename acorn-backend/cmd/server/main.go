@@ -103,7 +103,7 @@ func main() {
 	}
 	adminDemo := admin.DemoMode()
 	if adminDemo {
-		slog.Warn("Acorn admin demo mode is on: any password works for admin sign-in; set ACORN_ADMIN_DEMO=off in production")
+		slog.Warn("Acorn admin demo mode is on: using default session secret; set ACORN_ADMIN_DEMO=off and ACORN_ADMIN_SESSION_SECRET in production")
 	}
 	adminStore := admin.NewStore(p.Mongo(), db.DestDB, admin.Config{
 		SessionSecret:     config.Env("ACORN_ADMIN_SESSION_SECRET", ""),

@@ -20,6 +20,7 @@ import {
 } from "./form-frame";
 import { clearHighlight, highlightElement } from "./highlighter";
 import { probePage } from "./page-probe";
+import { pageTimeout } from "./page-timer";
 import { scanPendingFormFields } from "./pending-fields";
 import { runPlanStep } from "./plan-step-runner";
 import { initSelectionQa } from "./selection-qa";
@@ -193,7 +194,8 @@ if (!contentWindow[CONTENT_BOOT]) {
         return false;
       }
       traceFromPage("leftover:before", () => ({ combos: comboSnapshot() }));
-      void runExclusive(fillLeftoverComboboxes)
+      const deadline = Number(message.deadline) || Number.POSITIVE_INFINITY;
+      void runExclusive(() => fillLeftoverComboboxes(deadline))
         .then((result) => sendResponse({ ok: true, ...result }))
         .catch((err) =>
           sendResponse({
@@ -271,7 +273,7 @@ if (!contentWindow[CONTENT_BOOT]) {
       void runExclusive(() =>
         Promise.resolve(
           prepareControlClick(message.nodeId as number, (click) => {
-            setTimeout(click, CLICK_AFTER_REPLY_MS);
+            pageTimeout(click, CLICK_AFTER_REPLY_MS);
           }),
         ),
       )
