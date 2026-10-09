@@ -1,4 +1,5 @@
 import { resolveElementByNodeId } from "./element-resolver";
+import { pageDelay } from "./page-timer";
 
 export interface ActionStep {
   type: "focus" | "click" | "type" | "wait" | "keydown" | "keyup";
@@ -8,7 +9,7 @@ export interface ActionStep {
 }
 
 function sleep(ms: number): Promise<void> {
-  return new Promise((resolve) => setTimeout(resolve, ms));
+  return pageDelay(ms);
 }
 
 function dispatchKey(el: HTMLElement, type: "keydown" | "keyup", key: string): void {

@@ -4,7 +4,7 @@ import { waitMs } from "../wait";
 
 import { estimateOptionAnswer } from "./estimate-client";
 import { decideAmongOptions, findExactOption, type OptionDecision } from "./match";
-import { optionSignature, optionText } from "./options-dom";
+import { optionSignature, optionText, popupState } from "./options-dom";
 import { openAndCollectOptions, waitForFilteredOptions } from "./options-wait";
 import {
   clearTypedQuery,
@@ -93,6 +93,7 @@ export async function chooseOption(
     value,
     count: initial.length,
     ms: Date.now() - openStarted,
+    ...popupState(control, doc),
   }));
 
   const exact = estimateQuery ? null : findExactOption(initial, value);
@@ -142,6 +143,7 @@ async function narrowAndDecide(
       typed,
       count: filtered.length,
       sample: filtered.slice(0, TRACE_SAMPLE).map(optionText),
+      ...popupState(control, doc),
     }));
     if (!filtered.length) {
       emptied = true;

@@ -37,6 +37,19 @@ export function clickControl(
   );
 }
 
+/**
+ * The page is still on its way: the tab is loading, or the page shows it is
+ * working (a spinner, a busy region). A slow site gets more time while it does.
+ */
+export async function pageStillLoading(tabId: number, frameId: number | null): Promise<boolean> {
+  const tab = await chrome.tabs.get(tabId).catch(() => null);
+  if (!tab) return false;
+  if (tab.status === "loading") return true;
+  const probe = await probePage(tabId, frameId).catch(() => null);
+  // No answer at all is a page between documents, which is loading too.
+  return probe == null || probe.loading;
+}
+
 /** A cheap look at the page (fields, address, refusal marks); null when no frame answers. */
 export async function probePage(tabId: number, frameId: number | null): Promise<PageProbe | null> {
   const res = await sendTabMessage<{ ok?: boolean; probe?: PageProbe }>(

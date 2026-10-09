@@ -1,3 +1,5 @@
+import { pageDelay, pageTimeout } from "../page-timer";
+
 /** Quiet window: no childList mutations. */
 export const DOM_QUIET_WINDOW_MS = 700;
 /** Form values must stay unchanged this long before parse is treated as done. */
@@ -15,7 +17,7 @@ export const DOM_QUIET_MAX_MS = 10_000;
 
 export async function waitMs(ms: number | null): Promise<number> {
   const delay = typeof ms === "number" && Number.isFinite(ms) ? Math.max(0, ms) : 500;
-  await new Promise((resolve) => setTimeout(resolve, delay));
+  await pageDelay(delay);
   return delay;
 }
 
@@ -90,18 +92,18 @@ export async function waitForDomQuiet(
       if (settled) return;
       settled = true;
       observer.disconnect();
-      clearTimeout(quietTimer);
-      clearTimeout(maxTimer);
+      cancelQuiet();
+      cancelMax();
       resolve(Date.now() - started);
     };
-    let quietTimer = setTimeout(finish, quietMs);
+    let cancelQuiet = pageTimeout(finish, quietMs);
     const bump = () => {
-      clearTimeout(quietTimer);
-      quietTimer = setTimeout(finish, quietMs);
+      cancelQuiet();
+      cancelQuiet = pageTimeout(finish, quietMs);
     };
     const observer = new MutationObserver(bump);
     observer.observe(root, { subtree: true, childList: true });
-    const maxTimer = setTimeout(finish, maxMs);
+    const cancelMax = pageTimeout(finish, maxMs);
   });
 }
 

@@ -20,6 +20,7 @@ import {
   VERIFICATION,
   type AccountAttempt,
   type AccountMode,
+  type ControlRole,
   type MailRow,
   type PageKind,
   type RunFailure,
@@ -57,6 +58,7 @@ import {
   clickControl,
   isOpenableLink,
   openLinkInTab,
+  pageStillLoading,
   probePage,
   sleep,
   waitForPageSettled,
@@ -76,7 +78,11 @@ import {
   RUN_MAX_MAIL_VERIFICATIONS,
   RUN_UNCLEAR_REREADS,
   RUN_UNCLEAR_WAIT_MS,
+  RUN_SLOW_PAGE_MAX_MS,
   RUN_MAX_BLOCKED_PASSES,
+  RUN_BUSY_AFTER_CLICK_MS,
+  RUN_BUSY_WAIT_MS,
+  RUN_MAX_BUSY_WAITS,
   RUN_MAX_FILLS_PER_PAGE,
   RUN_MAX_CLICK_RETRIES,
   RUN_MAX_NO_EFFECT,
@@ -173,6 +179,10 @@ interface PageState {
   verified: boolean;
   /** Email was chosen here as where the site sends its code; the next look sends it. */
   emailChosen: boolean;
+  /** When the last forward click on this step landed; 0 before any did. */
+  landedAt: number;
+  /** Looks spent waiting for this step to finish a click it is still working on. */
+  busyWaits: number;
 }
 
 /** A click either landed and settled, or never reached its control. */
@@ -212,8 +222,8 @@ const WAITING_FOR_PERSON =
   "Waiting for you to finish this step on the page; Acorn goes on once it moves";
 /** The page asks where to send a code: the run answers email, the only place it can read. */
 const CHOOSING_EMAIL = "Choosing your email for the verification code…";
-/** The run goes back to the posting it started from, to apply again now the account is set. */
-const RETURNING_TO_POSTING = "Going back to the job posting to apply with the account…";
+/** The run goes back to the posting it started from, to apply from there again. */
+const RETURNING_TO_POSTING = "Going back to the job posting to apply from there…";
 /** The run stopped waiting for the applicant to do a step only they can. */
 const WAITED_FOR_PERSON = "The page is waiting for a step only you can do";
 
@@ -238,6 +248,11 @@ const STOPPED_FAILURE: Omit<RunFailure, "stage"> = {
 /** The site needs an account and the profile has no password to give it. */
 const NO_ACCOUNT_PASSWORD =
   "This site needs an account: add a default account password to your Acorn profile";
+
+/** A page that shows no text and no control yet: nothing to read. */
+function isBlankPage(page: PageSnapshot): boolean {
+  return !page.text.trim() && page.controls.length === 0;
+}
 
 /** Lines the page shows now that it did not show before: what it said in answer. */
 function newLines(before: string, after: string): string[] {
@@ -547,6 +562,8 @@ export async function runOrchestrator(args: RunOrchestratorArgs): Promise<RunRep
 
   /** The page text at the last read, so the next read of that address can say what is new. */
   let lastRead: { address: string; text: string } | null = null;
+  /** The control the run clicked last, and when: the decision reads the page as its answer. */
+  let lastClicked: { text: string; role: ControlRole; at: number } | null = null;
 
   const read = async (intent: ReadIntent, within: PageSnapshot) => {
     // The page's answer to the last action often appears far down a long form (a
@@ -573,6 +590,13 @@ export async function runOrchestrator(args: RunOrchestratorArgs): Promise<RunRep
             account: siteAttempts(within.url),
             accountGoal: accountGoal(within.url) ?? undefined,
             newText: newText.length ? newText : undefined,
+            lastClick: lastClicked
+              ? {
+                  text: lastClicked.text,
+                  role: lastClicked.role,
+                  secondsAgo: Math.round((Date.now() - lastClicked.at) / 1000),
+                }
+              : undefined,
           },
           apiUrl,
           tabId,
@@ -647,6 +671,7 @@ export async function runOrchestrator(args: RunOrchestratorArgs): Promise<RunRep
       checkStop();
       const result = await until(clickControl(tabId, on.frameId, picked.id));
       log.event("click", { role: picked.role, text: label, ok: result.ok, error: result.error });
+      if (result.ok) lastClicked = { text: label, role: picked.role, at: Date.now() };
       // The page re-rendered since it was read (its node is gone) or held the
       // control: the caller reads it again rather than giving up.
       if (!result.ok)
@@ -993,6 +1018,36 @@ export async function runOrchestrator(args: RunOrchestratorArgs): Promise<RunRep
     return { pending: null };
   };
 
+  /** The run may go back to its posting: it is elsewhere, and has returns left. */
+  const canReturnToStart = (page: PageSnapshot) =>
+    Boolean(startUrl) &&
+    addressOf(page.url) !== addressOf(startUrl ?? "") &&
+    pageCount > 1 &&
+    returnsToStart < RUN_MAX_RETURNS_TO_START;
+
+  /** Open the posting the run started on again, in this tab, and hand back what loads. */
+  const returnToStart = async (page: PageSnapshot, why: string) => {
+    returnsToStart += 1;
+    log.event("return:start", { count: returnsToStart, why, from: logUrl(page.url) });
+    enter(RUN_STAGE.applying, RETURNING_TO_POSTING);
+    checkStop();
+    const back = await until(clock.time("click", () => openLinkInTab(tabId, startUrl ?? "")));
+    return { snapshot: back.snapshot, how: back.how };
+  };
+
+  /**
+   * Whether to look at a page that is not readable yet once more: a few looks for
+   * any page, and up to RUN_SLOW_PAGE_MAX_MS for one that shows it is still
+   * loading (a slow site's spinner), however many looks that takes.
+   */
+  const keepWaiting = async (look: number, since: number, page: PageSnapshot) => {
+    if (look <= RUN_UNCLEAR_REREADS) return true;
+    if (Date.now() - since >= RUN_SLOW_PAGE_MAX_MS) return false;
+    const loading = await until(pageStillLoading(tabId, page.frameId));
+    if (loading) log.event("read:slow-page", { look, waitedMs: Date.now() - since });
+    return loading;
+  };
+
   /**
    * The first read of a page. A page still drawing itself reads as not an
    * application or blocked: wait for it to settle and look again before believing it.
@@ -1000,7 +1055,9 @@ export async function runOrchestrator(args: RunOrchestratorArgs): Promise<RunRep
   const readUntilClear = async (start: PageSnapshot, state: PageState) => {
     let page = start;
     let first = await read(READ_INTENT.start, page);
-    for (let look = 1; look <= RUN_UNCLEAR_REREADS && UNCLEAR_KINDS.has(first.kind); look += 1) {
+    const unclearSince = Date.now();
+    for (let look = 1; UNCLEAR_KINDS.has(first.kind); look += 1) {
+      if (!(await keepWaiting(look, unclearSince, page))) break;
       log.event("read:unclear", { kind: first.kind, look });
       enter(RUN_STAGE.reading, "Waiting for the page to finish loading…");
       await until(sleep(RUN_UNCLEAR_WAIT_MS));
@@ -1232,6 +1289,17 @@ export async function runOrchestrator(args: RunOrchestratorArgs): Promise<RunRep
         });
       }
       snapshot = page;
+      // A page caught between documents (mid-navigation, still drawing) shows
+      // nothing yet: give it the same patience as a page that is still loading.
+      const blankSince = Date.now();
+      for (let look = 1; isBlankPage(page); look += 1) {
+        if (!(await keepWaiting(look, blankSince, page))) break;
+        log.event("read:blank", { look });
+        await until(sleep(RUN_UNCLEAR_WAIT_MS));
+        await until(waitForPageSettled(tabId));
+        page = await snap({ form: current?.filled === true, frameId: page.frameId });
+        snapshot = page;
+      }
 
       const moved = isNewStep({ previous: current, page, settled });
       if (!moved && current) {
@@ -1262,6 +1330,8 @@ export async function runOrchestrator(args: RunOrchestratorArgs): Promise<RunRep
           fills: 0,
           verified: false,
           emailChosen: false,
+          landedAt: 0,
+          busyWaits: 0,
         };
         refillsOnPage = 0;
         log.event("page", { page: pageCount, url: logUrl(page.url), flagged: page.flagged });
@@ -1335,6 +1405,12 @@ export async function runOrchestrator(args: RunOrchestratorArgs): Promise<RunRep
           return await finish(report(RUN_OUTCOME.completed));
         }
         stopIfApplied(first, page);
+        // A click led off the application (a talent-community form, a site page):
+        // go back to the posting the run started on and apply from there.
+        if (first.kind === PAGE_KIND.other && canReturnToStart(page)) {
+          pending = await returnToStart(page, "off-path");
+          continue;
+        }
         if (first.kind === PAGE_KIND.blocked || first.kind === PAGE_KIND.other) {
           throw new RunStop(RUN_STAGE.reading, page, [
             `This page is ${first.kind.replace("_", " ")}`,
@@ -1457,19 +1533,8 @@ export async function runOrchestrator(args: RunOrchestratorArgs): Promise<RunRep
       // says the account is unblocked or its password is set): the account is ready,
       // so apply again from the posting the run started on, in this same tab.
       const accountWorked = accountHistory.length > 0 || mailVerifications > 0;
-      if (
-        !target &&
-        accountWorked &&
-        startUrl &&
-        addressOf(page.url) !== addressOf(startUrl) &&
-        returnsToStart < RUN_MAX_RETURNS_TO_START
-      ) {
-        returnsToStart += 1;
-        log.event("return:start", { count: returnsToStart, from: logUrl(page.url) });
-        enter(RUN_STAGE.applying, RETURNING_TO_POSTING);
-        checkStop();
-        const back = await until(clock.time("click", () => openLinkInTab(tabId, startUrl)));
-        pending = { snapshot: back.snapshot, how: back.how };
+      if (!target && accountWorked && canReturnToStart(page)) {
+        pending = await returnToStart(page, "account-done");
         continue;
       }
       if (!target) {
@@ -1503,7 +1568,24 @@ export async function runOrchestrator(args: RunOrchestratorArgs): Promise<RunRep
       // A click that never landed sent no account step.
       if (!clicked.settled) accountSent = null;
       if (clicked.settled) {
+        state.landedAt = Date.now();
         pending = { snapshot: clicked.settled.snapshot, how: clicked.settled.how };
+      } else if (
+        clicked.disabled &&
+        state.landedAt > 0 &&
+        Date.now() - state.landedAt < RUN_BUSY_AFTER_CLICK_MS &&
+        state.busyWaits < RUN_MAX_BUSY_WAITS
+      ) {
+        // The control went disabled right after its own click landed: the page is
+        // still working on it (saving, submitting). Let it finish, then look again;
+        // answering more would only redo the step.
+        state.clicks -= 1;
+        state.retryClick = true;
+        state.busyWaits += 1;
+        log.event("busy:after-click", { control: label, wait: state.busyWaits });
+        enter(RUN_STAGE.advancing, `Waiting for the page to finish "${label}"…`);
+        await until(sleep(RUN_BUSY_WAIT_MS));
+        await until(waitForPageSettled(tabId));
       } else if (clicked.disabled) {
         // The page holds its forward control until it has what it needs: answer what
         // is still blank or off, put back what it cleared, then click again.

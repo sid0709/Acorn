@@ -242,3 +242,18 @@ func TestReadPageKeepsTheEndOfALongPageAndItsNewText(t *testing.T) {
 		t.Fatalf("state does not carry the page's bottom twice: %q", state[len(state)-400:])
 	}
 }
+
+// The decision hears what the run just did: a form that stopped offering Submit
+// right after Submit was clicked reads as sent.
+func TestReadPageTellsTheLastClick(t *testing.T) {
+	decider := &scriptedDecider{answers: map[string]jev.Answer{pageKindQuestion: {Choice: KindConfirmation}}}
+	query := PageQuery{Text: "Introduce Yourself", Intent: IntentAdvance, Controls: formControls,
+		LastClick: "Submit", LastClickRole: RoleSubmit, LastClickAgo: 4}
+	read, err := New(decider).ReadPage(context.Background(), query)
+	if err != nil || read.Kind != KindConfirmation {
+		t.Fatalf("read = %+v err = %v", read, err)
+	}
+	if !strings.Contains(decider.last.State, `clicked "Submit" (the control that sends the application) 4 seconds ago`) {
+		t.Fatalf("state does not say what was clicked: %q", decider.last.State)
+	}
+}

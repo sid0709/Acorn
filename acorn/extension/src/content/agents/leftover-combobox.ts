@@ -80,16 +80,23 @@ function ownLabel(el: HTMLElement): string {
   return groupQuestion(fieldWrapper(el), el, [el]);
 }
 
-export async function fillLeftoverComboboxes(): Promise<{
+/**
+ * Fill the dropdowns no plan step answered. Nothing new is started after
+ * `deadline` (ms since epoch): the run has moved on and needs the page.
+ */
+export async function fillLeftoverComboboxes(deadline = Number.POSITIVE_INFINITY): Promise<{
   found: number;
   filled: number;
+  stopped?: boolean;
 }> {
+  const late = () => Date.now() > deadline;
   // Answers reveal follow-up dropdowns (a race list after "Hispanic or Latino?"),
   // so look again after each round for empty ones not tried yet.
   const tried = new Set<HTMLElement>();
   let found = 0;
   let filled = 0;
   for (let round = 0; round < MAX_LEFTOVER_ROUNDS && found < MAX_LEFTOVER; round += 1) {
+    if (late()) return stopAtDeadline(found, filled);
     const { all, leftovers } = leftoverCandidates(tried);
     const batch = leftovers.slice(0, MAX_LEFTOVER - found);
     if (!batch.length) break;
@@ -103,6 +110,7 @@ export async function fillLeftoverComboboxes(): Promise<{
     // answers are applied after they all came back.
     const planned: { el: HTMLElement; label: string; answer: Promise<LeftoverAnswer> }[] = [];
     for (const el of batch) {
+      if (late()) return stopAtDeadline(found, filled);
       tried.add(el);
       const label = fieldLabel(el);
       const listed = await readListedOptions(el);
@@ -110,11 +118,18 @@ export async function fillLeftoverComboboxes(): Promise<{
     }
     const answers = await Promise.all(planned.map((row) => row.answer));
     for (const [i, { el, label }] of planned.entries()) {
+      if (late()) return stopAtDeadline(found, filled);
       if (await fillLeftover(el, label, answers[i])) filled += 1;
     }
     found += batch.length;
   }
   return { found, filled };
+}
+
+/** The pass ran out of time: leave the rest and free the page. */
+function stopAtDeadline(found: number, filled: number) {
+  traceFromPage("leftover:deadline", () => ({ found, filled }));
+  return { found, filled, stopped: true };
 }
 
 /** What one leftover dropdown lists when opened; long or remote lists are searched later. */

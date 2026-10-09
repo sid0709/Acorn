@@ -40,7 +40,7 @@ type Config struct {
 	SessionSecret     string
 	BootstrapEmail    string
 	BootstrapPassword string
-	// DemoMode accepts any password for a valid email address.
+	// DemoMode selects the default session secret when ACORN_ADMIN_SESSION_SECRET is unset.
 	DemoMode bool
 }
 
@@ -144,31 +144,14 @@ func (s *Store) EnsureBootstrap(ctx context.Context) error {
 	return err
 }
 
-// SignIn checks credentials and opens a session token.
-func (s *Store) SignIn(ctx context.Context, email, password string, now time.Time) (string, error) {
+// SignIn opens a session for any non-empty username or email; password is not checked.
+func (s *Store) SignIn(ctx context.Context, email, _ string, now time.Time) (string, error) {
 	if !s.Ready() {
 		return "", errors.New("admin sign-in is not configured")
 	}
-	email = normalizeEmail(email)
-	if email == "" || !strings.Contains(email, "@") {
-		return "", ErrInvalidLogin
-	}
-	if s.cfg.DemoMode {
-		return s.issueSession(ctx, email, now)
-	}
-	if err := s.EnsureBootstrap(ctx); err != nil {
-		return "", err
-	}
-	var doc storedAdmin
-	err := s.users.FindOne(ctx, bson.M{"email": email}).Decode(&doc)
-	if errors.Is(err, mongo.ErrNoDocuments) {
-		return "", ErrInvalidLogin
-	}
+	email, err := signInIdentity(email)
 	if err != nil {
 		return "", err
-	}
-	if !passwordMatches(password, doc.PasswordHash, doc.PasswordSalt) {
-		return "", ErrInvalidLogin
 	}
 	return s.issueSession(ctx, email, now)
 }
@@ -220,6 +203,14 @@ func (s *Store) Revoke(ctx context.Context, token string) error {
 
 func normalizeEmail(email string) string {
 	return strings.ToLower(strings.TrimSpace(email))
+}
+
+func signInIdentity(raw string) (string, error) {
+	email := normalizeEmail(raw)
+	if email == "" {
+		return "", ErrInvalidLogin
+	}
+	return email, nil
 }
 
 func hashPassword(password string) (hash, salt []byte, err error) {

@@ -43,7 +43,7 @@ export function LoginForm() {
         >
           <VStack gap={3}>
             <TextInput
-              label="Email"
+              label="Username or email"
               value={email}
               autoComplete="username"
               onChange={(value) => setEmail(value)}

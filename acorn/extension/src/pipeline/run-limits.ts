@@ -47,6 +47,16 @@ export const RUN_MAIL_WAIT_MAX_MS = 5 * 60_000;
  * (an emailed link, a password reset) leaves it on a page with no way forward.
  */
 export const RUN_MAX_RETURNS_TO_START = 2;
+/**
+ * A forward control found disabled within this long of its own click that landed
+ * is the page still working on that click (saving, submitting), not a page that
+ * needs more answers.
+ */
+export const RUN_BUSY_AFTER_CLICK_MS = 30_000;
+/** How long the run lets a busy page work before it looks again. */
+export const RUN_BUSY_WAIT_MS = 3_000;
+/** Busy looks one step gets before a disabled control is treated as blocked. */
+export const RUN_MAX_BUSY_WAITS = 5;
 /** New page lines one page read hands the decision model, newest answer first in line. */
 export const RUN_NEW_TEXT_LINES_MAX = 20;
 /** Codes or links one run takes from the applicant's mail before it stops. */
@@ -65,6 +75,11 @@ export const RUN_PAGE_SETTLE_MAX_MS = 15_000;
 export const RUN_UNCLEAR_REREADS = 3;
 /** The wait before each of those looks. */
 export const RUN_UNCLEAR_WAIT_MS = 3_000;
+/**
+ * How long a page that still shows it is loading (a slow site: a spinner, a busy
+ * region, a document not done) is waited for, past the looks above.
+ */
+export const RUN_SLOW_PAGE_MAX_MS = 90_000;
 /**
  * How long a page read keeps trying while the page loads or its content script is
  * not ready yet (a slow network, a page drawn after a redirect).

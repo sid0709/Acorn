@@ -2,7 +2,8 @@
  * The browser's own dialogs (alert, confirm, prompt, leave-page) block the page
  * until someone answers them, and no script on the page can. While a run works on
  * a tab, Acorn attaches Chrome's debugger to it and answers each dialog: an alert
- * has only OK; anything else is decided by the caller (Jev reads its text).
+ * has only OK; anything else is decided by the caller (Jev reads its text). The
+ * same session keeps the page acting as focused while it sits behind other tabs.
  * Chrome shows its "started debugging this browser" bar while attached.
  */
 
@@ -105,6 +106,12 @@ export function watchPageDialogs(decide: DialogDecider, log: DialogLog): DialogW
         attached.add(tabId);
         // Enabling Page also reports a dialog that is already open.
         await chrome.debugger.sendCommand({ tabId }, "Page.enable");
+        // A run works in many tabs at once, most of them behind another one. Widgets
+        // that open only for a focused page (a dropdown that ignores a click unless
+        // its page has focus) then work there too.
+        await chrome.debugger
+          .sendCommand({ tabId }, "Emulation.setFocusEmulationEnabled", { enabled: true })
+          .catch(() => undefined);
         log("dialog:watch", { tabId });
       } catch (err) {
         // DevTools open on the tab, or another debugger: the run goes on without it.
