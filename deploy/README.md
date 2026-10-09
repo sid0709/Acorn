@@ -26,6 +26,11 @@ When the website image builds, it runs `tools/extension-release.mjs`: production
 
 Each deploy run writes `ACORN_ADMIN_USERNAME` / `ACORN_ADMIN_PWD` into `/opt/acorn/deploy.env` as `ACORN_ADMIN_EMAIL` / `ACORN_ADMIN_PASSWORD`, sets `ACORN_ADMIN_DEMO=off`, and restarts the API container so acorn-admin sign-in uses that staff account. The bootstrap user is created only when `acorn_admin_users` is empty; change the password in Mongo or clear that collection if you rotate credentials later.
 
+## Same-host traffic
+
+- The API reaches MongoDB on the VPS itself: `MONGO_URI=mongodb://host.docker.internal:27017/` (the container's host gateway). Keep it off the public IP.
+- The website and admin call the API from their servers by container name, `http://acorn-api:8083`, on the `acorn` Docker network (override with `ACORN_INTERNAL_API_URL`). Only browsers and the extension use `https://acornapi.remotepairnet.net`.
+
 ## Domains
 
 | Host                           | Upstream                                      |

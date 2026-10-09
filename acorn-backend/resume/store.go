@@ -22,6 +22,8 @@ type Store struct {
 	jobs        map[string]string // accountID+"\x00"+jobID -> resumeID or generationID
 	db          *mongo.Database
 	candidates  candidateCache
+	// reads keeps recent per-account list and config reads from Mongo.
+	reads accountReads
 }
 
 func NewMemory() *Store {
@@ -67,7 +69,13 @@ func (s *Store) EnsureIndexes(ctx context.Context) error {
 
 func (s *Store) config(accountID string) map[string]any {
 	// Mongo is the account's copy. A support session and the user's own session
-	// can hit different processes, so memory must not hide a saved config.
+	// can hit different processes, so memory hides a saved config at most for
+	// accountReadTTL; a save through this process replaces it at once.
+	if cached, ok := s.reads.get(configsCollection, accountID); ok {
+		if cfg, ok := cached.(map[string]any); ok {
+			return cloneMap(cfg)
+		}
+	}
 	if s.db != nil {
 		var row struct {
 			Config map[string]any `bson:"config"`
@@ -79,6 +87,7 @@ func (s *Store) config(accountID string) map[string]any {
 				s.mu.Lock()
 				s.configs[accountID] = cloneMap(cfg)
 				s.mu.Unlock()
+				s.reads.put(configsCollection, accountID, cloneMap(cfg))
 				return cloneMap(cfg)
 			}
 		}
@@ -105,6 +114,7 @@ func (s *Store) saveConfig(accountID string, cfg map[string]any) error {
 	s.mu.Lock()
 	s.configs[accountID] = cloneMap(cfg)
 	s.mu.Unlock()
+	s.reads.put(configsCollection, accountID, cloneMap(cfg))
 	return nil
 }
 
@@ -115,6 +125,7 @@ func (s *Store) putTemplate(row UploadedTemplate) {
 	if s.db != nil {
 		_, _ = s.db.Collection(templatesCollection).ReplaceOne(context.Background(), bson.D{{Key: "id", Value: row.ID}}, row, options.Replace().SetUpsert(true))
 	}
+	s.reads.forget(templatesCollection, row.AccountID)
 }
 
 func (s *Store) template(accountID, id string) (UploadedTemplate, bool) {
@@ -139,7 +150,7 @@ func (s *Store) template(accountID, id string) (UploadedTemplate, bool) {
 }
 
 func (s *Store) listTemplates(accountID string) []UploadedTemplate {
-	if rows, ok := loadAccount[UploadedTemplate](s, templatesCollection, accountID, "docx"); ok {
+	if rows, ok := cachedAccountRows[UploadedTemplate](s, templatesCollection, accountID, "docx"); ok {
 		for i := range rows {
 			rows[i].Docx = nil
 		}
@@ -173,6 +184,7 @@ func (s *Store) deleteTemplate(accountID, id string) bool {
 			ok = true
 		}
 	}
+	s.reads.forget(templatesCollection, accountID)
 	return ok
 }
 
@@ -183,6 +195,7 @@ func (s *Store) putGeneration(row Generation) {
 	if s.db != nil {
 		_, _ = s.db.Collection(generationsCollection).ReplaceOne(context.Background(), bson.D{{Key: "id", Value: row.ID}}, row, options.Replace().SetUpsert(true))
 	}
+	s.reads.forget(generationsCollection, row.AccountID)
 }
 
 func (s *Store) generation(accountID, id string) (Generation, bool) {
@@ -235,11 +248,12 @@ func (s *Store) deleteGeneration(accountID, id string) bool {
 			ok = true
 		}
 	}
+	s.reads.forget(generationsCollection, accountID)
 	return ok
 }
 
 func (s *Store) listGenerations(accountID string) []Generation {
-	if rows, ok := loadAccount[Generation](s, generationsCollection, accountID, "docx"); ok {
+	if rows, ok := cachedAccountRows[Generation](s, generationsCollection, accountID, "docx"); ok {
 		for i := range rows {
 			rows[i].Docx = nil
 		}
@@ -285,6 +299,7 @@ func (s *Store) putLibrary(row LibraryRow) error {
 		return nil
 	}
 	_, err := s.db.Collection(libraryCollection).ReplaceOne(context.Background(), bson.D{{Key: "id", Value: row.ID}}, row, options.Replace().SetUpsert(true))
+	s.reads.forget(libraryCollection, row.AccountID)
 	if err != nil {
 		return fmt.Errorf("save library file: %w", err)
 	}
@@ -332,7 +347,7 @@ func (s *Store) hasLibrary(accountID string) bool {
 }
 
 func (s *Store) listLibrary(accountID string) []LibraryRow {
-	if rows, ok := loadAccount[LibraryRow](s, libraryCollection, accountID, "bytes"); ok {
+	if rows, ok := cachedAccountRows[LibraryRow](s, libraryCollection, accountID, "bytes"); ok {
 		for i := range rows {
 			rows[i].Bytes = nil
 		}
@@ -391,6 +406,7 @@ func (s *Store) deleteLibrary(accountID, id string) bool {
 			ok = true
 		}
 	}
+	s.reads.forget(libraryCollection, accountID)
 	return ok
 }
 
@@ -431,6 +447,7 @@ func (s *Store) jobFile(accountID, jobID string) string {
 // DeleteAccount removes every résumé record this account owns.
 func (s *Store) DeleteAccount(ctx context.Context, accountID string) error {
 	s.forgetCandidates(accountID)
+	defer s.reads.forgetAccount(accountID)
 	s.mu.Lock()
 	delete(s.configs, accountID)
 	for id, row := range s.templates {
