@@ -9,6 +9,7 @@ import { redactPlan } from "@acorn/shared/secret-value";
 import { formatAnalyzeTrees } from "@acorn/shared/tree-export";
 
 import { DEFAULT_ACORN_API_URL } from "../auth/acorn-auth";
+import { queueDebugShot } from "../background/debug-shot";
 import { traceFromBackground } from "../background/debug-trace-sink";
 import { ACORN_DEBUG } from "../debug-trace";
 import { customTabHasResume, getCustomTab } from "../tab-custom-session";
@@ -279,6 +280,7 @@ export async function runFabPipeline(args: RunPipelineArgs): Promise<void> {
         null,
     };
 
+    if (ACORN_DEBUG && !pendingOnly) await queueDebugShot(tabId, "analyze", true);
     const analyze = pendingOnly
       ? { mode: FAST_PLAN_MODE, plan: emptyPlan() }
       : await clock.time("plan", () =>
@@ -318,17 +320,21 @@ export async function runFabPipeline(args: RunPipelineArgs): Promise<void> {
     });
 
     const frameId = treePayload.frameId ?? preferredFrameId ?? null;
-    traceFromBackground("plan", () => ({
-      frameId,
-      actions: (redactPlan(plan).actions ?? []).map((a, i) => ({
-        i,
-        action: a.action,
-        element_index: a.element_index,
-        label: a.expected_label,
-        role: a.expected_role,
-        value: a.value,
-      })),
-    }));
+    traceFromBackground(
+      "plan",
+      () => ({
+        frameId,
+        actions: (redactPlan(plan).actions ?? []).map((a, i) => ({
+          i,
+          action: a.action,
+          element_index: a.element_index,
+          label: a.expected_label,
+          role: a.expected_role,
+          value: a.value,
+        })),
+      }),
+      tabId,
+    );
 
     const runPlan = (target: ActionPlan, total: number) =>
       clock.time("steps", () =>
@@ -342,15 +348,19 @@ export async function runFabPipeline(args: RunPipelineArgs): Promise<void> {
           executeStep: async (step: PlanStepPayload) => {
             const sentAt = Date.now();
             const res = await sendPlanStepToTab(tabId, step, frameId);
-            traceFromBackground("step:result", () => ({
-              element_index: step.element_index,
-              label: step.expected_label,
-              ok: res.ok,
-              alreadyFilled: res.alreadyFilled,
-              error: res.error,
-              valueAfter: res.details?.valueAfter,
-              ms: Date.now() - sentAt,
-            }));
+            traceFromBackground(
+              "step:result",
+              () => ({
+                element_index: step.element_index,
+                label: step.expected_label,
+                ok: res.ok,
+                alreadyFilled: res.alreadyFilled,
+                error: res.error,
+                valueAfter: res.details?.valueAfter,
+                ms: Date.now() - sentAt,
+              }),
+              tabId,
+            );
             const details = res.details ?? {};
             return {
               ok: Boolean(res.ok),
@@ -431,7 +441,7 @@ export async function runFabPipeline(args: RunPipelineArgs): Promise<void> {
     // answers back before the leftover pass reads what is still empty.
     if (!report.aborted) {
       const drift = await clock.time("drift", () => repairDriftInTab(tabId, frameId, startedAt));
-      traceFromBackground("drift:repair", () => drift);
+      traceFromBackground("drift:repair", () => drift, tabId);
     }
 
     // Refill only touches the fields the page flagged.

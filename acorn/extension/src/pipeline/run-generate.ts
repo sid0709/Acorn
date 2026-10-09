@@ -132,6 +132,7 @@ export async function runResumeGenerate(args: {
       kind: "error",
       title: source === "fill" ? "Fill generate failed" : "Generate failed",
       detail: detail || message,
+      ...(typeof tabId === "number" ? { tabId } : {}),
     });
     throw error instanceof Error ? error : new Error(message);
   };

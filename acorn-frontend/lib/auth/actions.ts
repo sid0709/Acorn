@@ -7,7 +7,8 @@ import {
   AUTH_SIGN_OUT_PATH,
   AUTH_SIGN_UP_PATH,
 } from "./constants";
-import { clearSessionCookie, sessionToken, writeSessionCookie } from "./cookie";
+import { clearSessionCookie, sessionToken } from "./cookie";
+import { establishSession } from "./session";
 
 export type AuthResult = { ok: true } | { ok: false; message: string };
 
@@ -74,6 +75,6 @@ async function openSession(path: string, body: Record<string, string>): Promise<
   if (!response.ok || !payload.token) {
     return { ok: false, message: payload.message || payload.error || "Couldn’t sign in." };
   }
-  await writeSessionCookie(payload.token);
+  await establishSession(payload.token);
   return { ok: true };
 }

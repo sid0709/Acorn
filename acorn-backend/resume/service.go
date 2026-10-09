@@ -46,11 +46,13 @@ func (s *Service) Config(accountID string) map[string]any {
 	return defaultConfig()
 }
 
-func (s *Service) SaveConfig(accountID string, cfg map[string]any) map[string]any {
+func (s *Service) SaveConfig(accountID string, cfg map[string]any) (map[string]any, error) {
 	merged := mergeConfig(cfg)
 	delete(merged, "jobDescription")
-	s.store.saveConfig(accountID, merged)
-	return merged
+	if err := s.store.saveConfig(accountID, merged); err != nil {
+		return nil, err
+	}
+	return merged, nil
 }
 
 func (s *Service) Preview(accountID string, identity Identity, sections, cfg map[string]any) string {
@@ -198,7 +200,7 @@ func (s *Service) GenerationPreview(accountID, id string) (string, error) {
 	return renderHTML(gen.Identity, gen.Sections, gen.Config), nil
 }
 
-func (s *Service) UploadLibrary(accountID, name, title string, data []byte) (LibraryRow, error) {
+func (s *Service) UploadLibrary(accountID, name, title string, data []byte, extractedText string) (LibraryRow, error) {
 	if len(data) == 0 || len(data) > maxFileBytes {
 		return LibraryRow{}, fmt.Errorf("%w: file is empty or too large", ErrInvalid)
 	}
@@ -212,7 +214,7 @@ func (s *Service) UploadLibrary(accountID, name, title string, data []byte) (Lib
 	if strings.TrimSpace(title) == "" {
 		title = strings.TrimSuffix(name, filepathExt(name))
 	}
-	text := extractFileText(name, data)
+	text := bestResumeText(name, extractedText, data)
 	row := LibraryRow{
 		ID: id, AccountID: accountID, Source: "uploaded", FileName: name, Title: title,
 		Size: len(data), UploadedAt: time.Now().UTC(), ExtractedText: text,

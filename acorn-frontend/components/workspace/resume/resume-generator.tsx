@@ -53,14 +53,30 @@ const CONFIG_SAVE_DEBOUNCE_MS = 800;
 
 const PAPER_LABEL = { letter: "US Letter · 8.5 × 11 in", a4: "A4 · 210 × 297 mm" } as const;
 
+type ResumeStart = {
+  config: Awaited<ReturnType<typeof loadResumeConfig>>;
+  templates: Awaited<ReturnType<typeof listResumeTemplates>>;
+};
+
 /** Live page on one side, design and posting on the other — the Athens generator layout on sid-ui. */
-export function ResumeGenerator({ account }: { account: AcornAccount }) {
+export function ResumeGenerator({
+  account,
+  initial,
+}: {
+  account: AcornAccount;
+  initial: ResumeStart;
+}) {
   const { workspace } = useResumes();
   const profile = workspace.profile ?? sampleProfile(account);
   const identity = identityFrom(account, profile);
-  const [config, setConfig] = useState<ResumeGeneratorConfig>(defaultResumeConfig);
-  const [loaded, setLoaded] = useState(false);
-  const [uploads, setUploads] = useState<UploadedTemplate[]>([]);
+  const ready = initial.config.ok && initial.templates.ok;
+  const [config, setConfig] = useState<ResumeGeneratorConfig>(() =>
+    initial.config.ok ? mergeStoredResumeConfig(initial.config.data.config) : defaultResumeConfig(),
+  );
+  const [loaded, setLoaded] = useState(ready);
+  const [uploads, setUploads] = useState<UploadedTemplate[]>(() =>
+    initial.templates.ok ? initial.templates.data.templates : [],
+  );
   const [uploading, setUploading] = useState(false);
   const [galleryOpen, setGalleryOpen] = useState(false);
   const [description, setDescription] = useState("");
@@ -80,6 +96,7 @@ export function ResumeGenerator({ account }: { account: AcornAccount }) {
   const identityKey = JSON.stringify(identity);
 
   useEffect(() => {
+    if (ready) return;
     let cancel = false;
     void (async () => {
       const [stored, templates] = await Promise.all([loadResumeConfig(), listResumeTemplates()]);
@@ -91,7 +108,7 @@ export function ResumeGenerator({ account }: { account: AcornAccount }) {
     return () => {
       cancel = true;
     };
-  }, []);
+  }, [ready]);
 
   // Re-render the page whenever the design, the person, or the written sections change.
   useEffect(() => {

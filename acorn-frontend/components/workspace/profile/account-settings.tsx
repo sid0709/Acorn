@@ -5,7 +5,7 @@ import { useRouter } from "next/navigation";
 import { AlertDialog, Banner, Button, FormLayout, SectionCard, Stack, TextInput } from "sid-ui";
 import { deleteAccount } from "@/lib/auth/actions";
 import { ROUTES } from "@/lib/routes";
-import { WORKSPACE_STORAGE_KEY } from "@/lib/workspace/model";
+import { clearWorkspaceStorage } from "@/lib/workspace/model";
 import { SECRET_MAX, type ApplicantProfile, type SetProfileField } from "@/lib/workspace/profile";
 
 /** Account email, extension sign-in password, and delete. */
@@ -26,7 +26,7 @@ export function AccountSettings({
   const remove = async () => {
     setBusy(true);
     setError("");
-    localStorage.removeItem(WORKSPACE_STORAGE_KEY);
+    clearWorkspaceStorage();
     const result = await deleteAccount();
     if (!result.ok) {
       setBusy(false);

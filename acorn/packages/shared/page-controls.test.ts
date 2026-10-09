@@ -41,6 +41,54 @@ describe("collectPageControls", () => {
     assert.equal(control?.label, "Next step");
   });
 
+  it("reads a custom element that wraps a native button as one control", () => {
+    const host = node("ukg-button", { attrs: { role: "button" }, text: "Apply now" }, [
+      node("button", { attrs: { type: "button" } }, [node("span")]),
+    ]);
+    const controls = collectPageControls(node("body", {}, [host]));
+    assert.deepEqual(
+      controls.map((c) => [c.id, c.text]),
+      [[host.nodeId, "Apply now"]],
+    );
+  });
+
+  it("leaves out controls a person cannot see", () => {
+    const tree = node("body", {}, [
+      node("div", {}, [node("button", { text: "Agree", attrs: { "acorn-hidden": "true" } })]),
+      node("button", { text: "Continue" }),
+    ]);
+    assert.deepEqual(
+      collectPageControls(tree).map((c) => c.text),
+      ["Continue"],
+    );
+  });
+
+  it("never leaves every control covered by a dialog that holds none", () => {
+    const covered = { "acorn-covered": "true" };
+    const tree = node("body", {}, [
+      node("button", { text: "Apply", attrs: covered }),
+      node("button", { text: "Consent & Continue", attrs: covered }),
+    ]);
+    assert.deepEqual(
+      collectPageControls(tree).map((c) => c.covered),
+      [false, false],
+    );
+  });
+
+  it("names an icon-only control by the entry around it", () => {
+    const edit = node("button");
+    const tree = node("body", {}, [
+      node("div", {}, [
+        node("div", { text: "Unnamed Major" }),
+        node("div", { text: "Fields to fix: 1" }),
+        edit,
+      ]),
+    ]);
+    const [control] = collectPageControls(tree);
+    assert.equal(control?.id, edit.nodeId);
+    assert.equal(control?.near, "Unnamed Major Fields to fix: 1");
+  });
+
   it("marks chrome regions and disabled controls, and sorts them last", () => {
     const tree = node("body", {}, [
       node("header", {}, [node("a", { attrs: { href: "/" }, text: "Home" })]),

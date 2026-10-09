@@ -3,6 +3,7 @@ package acornapi
 import (
 	"encoding/base64"
 	"errors"
+	"log/slog"
 	"net/http"
 	"strconv"
 	"strings"
@@ -73,7 +74,13 @@ func (s *Server) putConfig(w http.ResponseWriter, r *http.Request) {
 	if !decode(w, r, &body) {
 		return
 	}
-	writeJSON(w, http.StatusOK, map[string]any{"success": true, "config": s.resumes.SaveConfig(session.User.ID, body)})
+	saved, err := s.resumes.SaveConfig(session.User.ID, body)
+	if err != nil {
+		slog.Error("acorn resume config", "error", err)
+		writeError(w, http.StatusInternalServerError, "could not save the résumé settings")
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"success": true, "config": saved})
 }
 
 func (s *Server) previewResume(w http.ResponseWriter, r *http.Request) {
@@ -333,6 +340,7 @@ func (s *Server) uploadLibrary(w http.ResponseWriter, r *http.Request) {
 		FileName      string `json:"fileName"`
 		Title         string `json:"title"`
 		ContentBase64 string `json:"contentBase64"`
+		ExtractedText string `json:"extractedText"`
 	}
 	if !decode(w, r, &body) {
 		return
@@ -342,7 +350,7 @@ func (s *Server) uploadLibrary(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, "file must be base64")
 		return
 	}
-	row, err := s.resumes.UploadLibrary(session.User.ID, body.FileName, body.Title, data)
+	row, err := s.resumes.UploadLibrary(session.User.ID, body.FileName, body.Title, data, body.ExtractedText)
 	if err != nil {
 		s.writeResumeErr(w, err)
 		return

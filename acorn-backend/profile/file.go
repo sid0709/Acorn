@@ -9,6 +9,8 @@ import (
 	"path/filepath"
 	"regexp"
 	"strings"
+
+	"github.com/sid0709/OpenSeat/acorn-backend/resume"
 )
 
 // docxBodyParts are the parts of a .docx that carry visible text, in reading order.
@@ -20,7 +22,7 @@ func fileText(name string, data []byte) string {
 	case ".docx":
 		return docxText(data)
 	case ".pdf":
-		return pdfLines(data)
+		return resume.ExtractPDFText(data)
 	default:
 		return string(data)
 	}
@@ -136,27 +138,4 @@ func stripTags(xml string) string {
 		}
 	}
 	return b.String()
-}
-
-var (
-	pdfText = regexp.MustCompile(`\(((?:\\.|[^\\)])*)\)\s*Tj`)
-	pdfURI  = regexp.MustCompile(`/URI\s*\(((?:\\.|[^\\)])*)\)`)
-)
-
-// pdfLines is a last resort for PDFs whose text the browser did not send. It reads
-// uncompressed text operators and link annotations; the website extracts PDFs itself.
-func pdfLines(data []byte) string {
-	var lines []string
-	for _, match := range pdfText.FindAllSubmatch(data, -1) {
-		lines = append(lines, unescapePDF(string(match[1])))
-	}
-	for _, match := range pdfURI.FindAllSubmatch(data, -1) {
-		lines = append(lines, unescapePDF(string(match[1])))
-	}
-	return strings.Join(lines, "\n")
-}
-
-func unescapePDF(value string) string {
-	replacer := strings.NewReplacer(`\n`, "\n", `\r`, "", `\t`, " ", `\(`, "(", `\)`, ")", `\\`, `\`)
-	return replacer.Replace(value)
 }

@@ -203,7 +203,9 @@ func optionInstructions(allowNotListed bool) string {
 		"Prefer the option that means the same as the intended answer (same fact, wording may differ). " +
 		"When the intended answer points at the profile, answer from the applicant profile. " +
 		"If no option means it, pick the option a careful applicant would choose instead: " +
-		"the closest broader category, or Other when that exists."
+		"the closest broader category, or Other when that exists. " +
+		"When the field asks where or how to send a verification code, always pick the applicant's email, whatever the " +
+		"intended answer says. " + emailOnly
 	if allowNotListed {
 		return base + " Choose not_listed only when the intended answer is a specific value that should be in a complete list (a country, school, or company name) and it is missing here."
 	}
@@ -340,12 +342,27 @@ func uniqueTrimmed(items []string) []string {
 	return out
 }
 
+// clipTailShare is the part of a clipped page kept from its end: one in this many runes.
+const clipTailShare = 3
+
 func clip(text string, max int) string {
 	runes := []rune(strings.TrimSpace(text))
 	if len(runes) <= max {
 		return string(runes)
 	}
 	return string(runes[:max-1]) + "…"
+}
+
+// clipEnds bounds a long page to max runes and keeps both of its ends: a form puts
+// its answer to the last click (an error, a code prompt) next to Submit, at the bottom.
+func clipEnds(text string, max int) string {
+	runes := []rune(strings.TrimSpace(text))
+	if len(runes) <= max {
+		return string(runes)
+	}
+	tail := max / clipTailShare
+	head := max - tail - 1
+	return string(runes[:head]) + "…" + string(runes[len(runes)-tail:])
 }
 
 func firstNonEmpty(values ...string) string {

@@ -2,9 +2,9 @@ package resume
 
 import (
 	"path/filepath"
-	"regexp"
 	"strings"
 	"unicode"
+	"unicode/utf8"
 )
 
 func extractFileText(name string, data []byte) string {
@@ -19,23 +19,15 @@ func extractFileText(name string, data []byte) string {
 	}
 }
 
-func extractPDFText(data []byte) string {
-	raw := string(data)
-	re := regexp.MustCompile(`\((?:\\.|[^\\)])*\)\s*Tj`)
-	var parts []string
-	for _, match := range re.FindAllString(raw, -1) {
-		inner := match
-		if i := strings.Index(inner, "("); i >= 0 {
-			inner = inner[i+1:]
-		}
-		if j := strings.LastIndex(inner, ")"); j >= 0 {
-			inner = inner[:j]
-		}
-		inner = strings.ReplaceAll(inner, `\n`, "\n")
-		inner = strings.ReplaceAll(inner, `\r`, "")
-		parts = append(parts, inner)
+// bestResumeText keeps the longer of text the browser already read and text
+// read from the file bytes. PDF.js text wins over a short or empty server extract.
+func bestResumeText(name, provided string, data []byte) string {
+	provided = strings.TrimSpace(provided)
+	fresh := strings.TrimSpace(extractFileText(name, data))
+	if utf8.RuneCountInString(fresh) > utf8.RuneCountInString(provided) {
+		return fresh
 	}
-	return collapseSpace(strings.Join(parts, "\n"))
+	return provided
 }
 
 func analyzeText(text string) []string {

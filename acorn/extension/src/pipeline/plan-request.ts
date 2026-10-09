@@ -32,18 +32,26 @@ export async function requestPlan(
         tabId,
       );
       if (fast.mode === FAST_PLAN_MODE && fast.plan?.actions?.length) {
-        traceFromBackground("plan:fast", () => ({
-          fields: formFields.length,
-          actions: fast.plan?.actions.length,
-          ms: Date.now() - started,
-        }));
+        traceFromBackground(
+          "plan:fast",
+          () => ({
+            fields: formFields.length,
+            actions: fast.plan?.actions.length,
+            ms: Date.now() - started,
+          }),
+          tabId,
+        );
         return fast;
       }
-      traceFromBackground("plan:fast-empty", () => ({ fields: formFields.length }));
+      traceFromBackground("plan:fast-empty", () => ({ fields: formFields.length }), tabId);
     } catch (err) {
-      traceFromBackground("plan:fast-failed", () => ({
-        error: err instanceof Error ? err.message : String(err),
-      }));
+      traceFromBackground(
+        "plan:fast-failed",
+        () => ({
+          error: err instanceof Error ? err.message : String(err),
+        }),
+        tabId,
+      );
     }
   }
   return requestAiAnalyze(request, apiUrl, tabId);

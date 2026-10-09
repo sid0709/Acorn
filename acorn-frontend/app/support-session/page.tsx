@@ -3,9 +3,10 @@ import { Banner, Button, Card, Center, PageContainer, Stack, Text } from "sid-ui
 import { ExtensionHandoff } from "@/components/support/extension-handoff";
 import { currentAccount } from "@/lib/auth/session";
 import { ROUTES } from "@/lib/routes";
+import { NO_INDEX } from "@/lib/seo";
 import { SUPPORT_PARAM } from "@/lib/support";
 
-export const metadata: Metadata = { title: "Support session" };
+export const metadata: Metadata = { title: "Support session", robots: NO_INDEX };
 
 /** Where an admin lands after "Sign in as user": the session, the extension handoff, then the app. */
 export default async function SupportSessionPage({

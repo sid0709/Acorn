@@ -125,9 +125,10 @@ func (run *Run) Dir() string {
 }
 
 // WriteFile saves one artifact as NN-name, numbered in capture order.
-func (run *Run) WriteFile(name string, data []byte) {
+// The returned name is empty when the run is nil or the write fails.
+func (run *Run) WriteFile(name string, data []byte) string {
 	if run == nil {
-		return
+		return ""
 	}
 	run.mu.Lock()
 	run.next++
@@ -135,7 +136,9 @@ func (run *Run) WriteFile(name string, data []byte) {
 	run.mu.Unlock()
 	if err := os.WriteFile(filepath.Join(run.dir, file), data, fileMode); err != nil {
 		slog.Warn("debug capture: write", "file", file, "error", err)
+		return ""
 	}
+	return file
 }
 
 // WriteJSON saves v indented.

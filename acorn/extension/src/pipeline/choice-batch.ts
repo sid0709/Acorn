@@ -54,10 +54,14 @@ export async function decideChoicesInBatch(args: {
     const action = actions[pick.id];
     if (action && pick.options.length) action.value = pick.options.join(", ");
   }
-  traceFromBackground("choices:batch", () => ({
-    asked: items.length,
-    decided: picks.length,
-    ms: Date.now() - started,
-    picks: picks.map((pick) => ({ step: pick.id, options: pick.options })),
-  }));
+  traceFromBackground(
+    "choices:batch",
+    () => ({
+      asked: items.length,
+      decided: picks.length,
+      ms: Date.now() - started,
+      picks: picks.map((pick) => ({ step: pick.id, options: pick.options })),
+    }),
+    tabId,
+  );
 }

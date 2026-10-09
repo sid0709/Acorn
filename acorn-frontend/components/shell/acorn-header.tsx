@@ -1,7 +1,8 @@
 "use client";
 
-import { Badge, BrandHeading, Button, Glyph, TopNav, useAppShellMobile } from "sid-ui";
+import { Badge, Button, Glyph, TopNav, useAppShellMobile } from "sid-ui";
 import type { AcornAccount } from "@/lib/auth/session";
+import { AcornHeading } from "@/components/brand/acorn-heading";
 import { BRAND } from "@/lib/config";
 import { ROUTES } from "@/lib/routes";
 import { WorkspaceNav } from "@/components/workspace/nav";
@@ -14,8 +15,7 @@ export function AcornHeader({ account }: { account: AcornAccount }) {
     <TopNav
       label={BRAND}
       heading={
-        <BrandHeading
-          product={BRAND}
+        <AcornHeading
           headingHref={ROUTES.overview}
           headerEndContent={<Badge label="Beta" variant="blue" />}
         />

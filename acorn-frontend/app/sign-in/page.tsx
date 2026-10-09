@@ -7,7 +7,11 @@ import { SiteHeader } from "@/components/site-header";
 import { currentAccount } from "@/lib/auth/session";
 import { ROUTES } from "@/lib/routes";
 
-export const metadata: Metadata = { title: "Sign in" };
+export const metadata: Metadata = {
+  title: "Sign in",
+  alternates: { canonical: ROUTES.signIn },
+  robots: { index: false, follow: true },
+};
 
 export default async function SignInPage({
   searchParams,

@@ -1,6 +1,9 @@
-import { authHeaders, getAcornApiUrl } from "../auth/acorn-auth";
 import { ACORN_DEBUG, type TraceData, type TraceEntry } from "../debug-trace";
 
+import { postDebug } from "./debug-post";
+
+/** The backend route that appends trace entries to the current debug run. */
+const DEBUG_LOG_PATH = "/acorn/debug/log";
 /** Entries sent per request; the rest wait for the next flush. */
 const TRACE_BATCH_MAX = 50;
 
@@ -10,15 +13,12 @@ let flushing: Promise<void> | null = null;
 async function flush(): Promise<void> {
   while (pending.length) {
     const entries = pending.splice(0, TRACE_BATCH_MAX);
-    try {
-      const base = (await getAcornApiUrl()).replace(/\/$/, "");
-      await fetch(`${base}/acorn/debug/log`, {
-        method: "POST",
-        headers: await authHeaders(),
-        body: JSON.stringify({ entries }),
-      });
-    } catch {
-      // Debug capture is best effort; a missing route or session drops the batch.
+    // Each tab's entries go to that tab's debug run. Best effort: a refused or
+    // unreachable upload drops the batch and says so once.
+    const byTab = new Map<number | undefined, TraceEntry[]>();
+    for (const entry of entries) byTab.set(entry.tabId, [...(byTab.get(entry.tabId) ?? []), entry]);
+    for (const [tabId, group] of byTab) {
+      await postDebug(DEBUG_LOG_PATH, { entries: group }, tabId);
     }
   }
 }
@@ -38,8 +38,8 @@ function startFlush(): void {
   });
 }
 
-/** Background code (pipeline, router): trace straight to the sink. */
-export function traceFromBackground(event: string, data?: TraceData): void {
+/** Background code (pipeline, router): trace straight to the sink, filed under tabId's run. */
+export function traceFromBackground(event: string, data?: TraceData, tabId?: number): void {
   if (!ACORN_DEBUG) return;
-  sinkTrace({ t: Date.now(), from: "background", event, data: data?.() });
+  sinkTrace({ t: Date.now(), from: "background", event, data: data?.(), tabId });
 }

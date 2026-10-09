@@ -37,6 +37,7 @@ import { getTabJob, rekeyTabJob } from "../tab-job-session";
 import { nextAccountGoal } from "./account-goal";
 import {
   requestDiagnose,
+  requestDialogDecision,
   requestMailVerification,
   requestReadPage,
   READ_INTENT,
@@ -64,6 +65,7 @@ import {
   watchOpenedTabs,
   type SettleHow,
 } from "./run-click";
+import { watchPageDialogs } from "./run-dialogs";
 import { failureEvidence } from "./run-evidence";
 import {
   RUN_ACCOUNT_MESSAGES_MAX,
@@ -80,13 +82,15 @@ import {
   RUN_MAX_NO_EFFECT,
   RUN_MAX_PAGES,
   RUN_MAX_REFILLS_PER_PAGE,
+  RUN_MAX_RETURNS_TO_START,
   RUN_MAX_STEPS,
+  RUN_NEW_TEXT_LINES_MAX,
 } from "./run-limits";
 import { logUrl, RunLog } from "./run-log";
 import { snapshotPage, type PageSnapshot } from "./run-page";
 import { NO_RESUME_FILE, runFabPipeline } from "./run-pipeline";
 import { ensureRecommendedResume } from "./run-resume";
-import { isNewStep } from "./run-step";
+import { addressOf, isNewStep } from "./run-step";
 
 import type { PipelineProgress } from "@acorn/shared/pipeline-types";
 import type { RunStepRecord } from "@acorn/shared/plan-runner/types";
@@ -167,6 +171,8 @@ interface PageState {
   fills: number;
   /** A code from the applicant's mail was entered here; the page is not searched for again. */
   verified: boolean;
+  /** Email was chosen here as where the site sends its code; the next look sends it. */
+  emailChosen: boolean;
 }
 
 /** A click either landed and settled, or never reached its control. */
@@ -204,6 +210,10 @@ async function unansweredNotes(tabId: number, frameId: number | null): Promise<s
 /** The run waits while the page needs a step only the applicant can do. */
 const WAITING_FOR_PERSON =
   "Waiting for you to finish this step on the page; Acorn goes on once it moves";
+/** The page asks where to send a code: the run answers email, the only place it can read. */
+const CHOOSING_EMAIL = "Choosing your email for the verification code…";
+/** The run goes back to the posting it started from, to apply again now the account is set. */
+const RETURNING_TO_POSTING = "Going back to the job posting to apply with the account…";
 /** The run stopped waiting for the applicant to do a step only they can. */
 const WAITED_FOR_PERSON = "The page is waiting for a step only you can do";
 
@@ -324,6 +334,9 @@ export async function runOrchestrator(args: RunOrchestratorArgs): Promise<RunRep
     mode: AccountMode;
     textBefore: string;
     messagesBefore: string[];
+    /** The form that was sent: landing on it again is no sign the site took the step. */
+    address: string;
+    signature: string;
   } | null = null;
   /** A reset request was just sent: its answer is an email, read before anything else. */
   let mailExpected = false;
@@ -340,6 +353,8 @@ export async function runOrchestrator(args: RunOrchestratorArgs): Promise<RunRep
   let lastClickAt = 0;
   /** Codes and links taken from the applicant's mail so far. */
   let mailVerifications = restored.mailVerifications;
+  /** Times this run went back to the posting it started from. */
+  let returnsToStart = 0;
   /** The newest emails the current mail look hands to Jev, for the sidebar. */
   let mailRows: MailRow[] | undefined;
   const clock = new PhaseClock();
@@ -397,9 +412,33 @@ export async function runOrchestrator(args: RunOrchestratorArgs): Promise<RunRep
     progress(detail ?? STAGE_MESSAGE[next], next === RUN_STAGE.reading ? "analyzing" : "running");
   };
 
+  // The browser's own dialogs block the page: Jev decides each one (an alert has only OK).
+  const dialogs = watchPageDialogs(
+    async (dialog, onTab) => {
+      const res = await requestDialogDecision(
+        {
+          runId,
+          step: log.step,
+          kind: dialog.kind,
+          message: dialog.message,
+          url: dialog.url,
+          title: snapshot?.title ?? "",
+          lastControl: control ?? "",
+        },
+        apiUrl,
+        onTab,
+      );
+      if (!res.ok) throw new Error(res.error ?? "no answer");
+      return res.accept === true;
+    },
+    (event, data) => log.event(event, data),
+  );
+  await dialogs.add(tabId);
+
   const adoptTab = async (next: number) => {
     if (next === tabId) return;
     log.event("tab:adopted", { from: tabId, to: next });
+    await dialogs.add(next);
     await rekeyTabJob(tabId, next);
     await rekeyCustomTab(tabId, next);
     tabId = next;
@@ -462,7 +501,8 @@ export async function runOrchestrator(args: RunOrchestratorArgs): Promise<RunRep
       }),
     );
     const failed = last?.phase === "error";
-    log.event(mode === FILL_MODE.refill ? "refill:done" : "fill:done", {
+    const fillShot = mode === FILL_MODE.refill ? "refill:done" : "fill:done";
+    log.event(fillShot, {
       ok: !failed,
       message: last?.message,
       error: last?.error,
@@ -471,6 +511,7 @@ export async function runOrchestrator(args: RunOrchestratorArgs): Promise<RunRep
       costUsd: last?.usage?.costUsd,
       phases: last?.phases,
     });
+    await log.screenshot(fillShot);
     clock.add(mode === FILL_MODE.refill ? "refill" : "fill", Date.now() - started);
     // The fill stopped before anything else for want of a résumé file.
     const resumeMissing = failed && last?.message === NO_RESUME_FILE;
@@ -504,7 +545,18 @@ export async function runOrchestrator(args: RunOrchestratorArgs): Promise<RunRep
     });
   };
 
+  /** The page text at the last read, so the next read of that address can say what is new. */
+  let lastRead: { address: string; text: string } | null = null;
+
   const read = async (intent: ReadIntent, within: PageSnapshot) => {
+    // The page's answer to the last action often appears far down a long form (a
+    // code prompt beside Submit): hand it over first, wherever it sits.
+    const address = addressOf(within.url);
+    const newText =
+      lastRead?.address === address
+        ? newLines(lastRead.text, within.fullText).slice(0, RUN_NEW_TEXT_LINES_MAX)
+        : [];
+    lastRead = { address, text: within.fullText };
     const res = await until(
       clock.time("decide", () =>
         requestReadPage(
@@ -520,6 +572,7 @@ export async function runOrchestrator(args: RunOrchestratorArgs): Promise<RunRep
             pageMessages: within.scan.pageMessages,
             account: siteAttempts(within.url),
             accountGoal: accountGoal(within.url) ?? undefined,
+            newText: newText.length ? newText : undefined,
           },
           apiUrl,
           tabId,
@@ -543,6 +596,7 @@ export async function runOrchestrator(args: RunOrchestratorArgs): Promise<RunRep
       kindConfidence: res.kindConfidence,
       verification: res.verification,
       accountMode: res.accountMode,
+      newText: newText.length,
       controls: within.controls.length,
       flagged: within.flagged,
       pick: res.control
@@ -655,12 +709,16 @@ export async function runOrchestrator(args: RunOrchestratorArgs): Promise<RunRep
    * site took it; the same step saying something new (an alert, a flagged field,
    * new words) means it refused. The same step saying nothing is a click that had
    * no effect, not a refusal: it is left to the no-effect path and clicked again.
+   * The same form at the same address is the same step even when the site reloaded
+   * it to answer (a sign-in that posts and comes back with an error).
    * True when it was refused.
    */
-  const settleAccount = (moved: boolean, page: PageSnapshot): boolean => {
+  const settleAccount = (navigated: boolean, page: PageSnapshot): boolean => {
     if (!accountSent) return false;
     const sent = accountSent;
     accountSent = null;
+    const sameForm = addressOf(page.url) === sent.address && page.signature === sent.signature;
+    const moved = navigated && !sameForm;
     // A reset request is answered by email, whatever the page shows: read the mail
     // next. Only a field the page flags (the email it needs) refuses it.
     if (
@@ -740,6 +798,8 @@ export async function runOrchestrator(args: RunOrchestratorArgs): Promise<RunRep
       mode,
       textBefore: page.text,
       messagesBefore: page.scan.pageMessages,
+      address: addressOf(page.url),
+      signature: page.signature,
     };
     log.event("account:send", { mode });
   };
@@ -966,15 +1026,43 @@ export async function runOrchestrator(args: RunOrchestratorArgs): Promise<RunRep
   };
 
   /**
-   * A page waiting on a verification: an emailed code or link is taken from the
-   * mail; anything only the applicant can give is waited for. Null when the page
-   * waits on neither.
+   * The page asks where to send its code: fill it (the planner always answers
+   * email), then look again; that look clicks the control that sends the code.
+   */
+  const chooseEmail = async (page: PageSnapshot, state: PageState): Promise<Handed> => {
+    state.emailChosen = true;
+    log.event("verify:choose-email", {});
+    enter(RUN_STAGE.filling, CHOOSING_EMAIL);
+    state.fillStartedAt = Date.now();
+    const chosen = await fill(FILL_MODE.fill, page);
+    if (chosen.failed) {
+      throw new RunStop(
+        RUN_STAGE.filling,
+        page,
+        [`Choosing email for the code failed: ${chosen.error ?? "unknown"}`],
+        chosen.steps,
+      );
+    }
+    remember(state, FILL_MODE.fill, chosen);
+    state.filled = true;
+    // The next look is a fresh read of this page, not the outcome of a click.
+    state.retryClick = true;
+    return { pending: null };
+  };
+
+  /**
+   * A page waiting on a verification: where to send a code is answered with email;
+   * an emailed code or link is taken from the mail; anything only the applicant can
+   * give is waited for. Null when the page waits on none of them.
    */
   const verifyOrWait = async (
     r: Awaited<ReturnType<typeof read>>,
     page: PageSnapshot,
     state: PageState,
   ): Promise<Handed | null> => {
+    if (r.verification === VERIFICATION.chooseEmail && !state.emailChosen) {
+      return chooseEmail(page, state);
+    }
     const mailed = await verifyByMail(r, page, state);
     if (mailed === "wait" || (mailed == null && r.needsPerson && !state.verified)) {
       return { pending: await awaitPerson(page) };
@@ -1067,6 +1155,7 @@ export async function runOrchestrator(args: RunOrchestratorArgs): Promise<RunRep
   });
 
   const finish = async (result: RunReport): Promise<RunReport> => {
+    await dialogs.stop();
     const failed = result.outcome === RUN_OUTCOME.failed;
     const halted = result.outcome === RUN_OUTCOME.stopped;
     const ready = result.outcome === RUN_OUTCOME.readyToSubmit;
@@ -1084,6 +1173,7 @@ export async function runOrchestrator(args: RunOrchestratorArgs): Promise<RunRep
       calls: usage?.calls,
       costUsd: usage?.costUsd,
     });
+    await log.screenshot("run:end");
     const cost = usage ? ` · ${formatUsd(usage.costUsd)}` : "";
     const message = halted
       ? `Stopped by you · ${seconds}s${cost}`
@@ -1171,9 +1261,11 @@ export async function runOrchestrator(args: RunOrchestratorArgs): Promise<RunRep
           blockedPasses: 0,
           fills: 0,
           verified: false,
+          emailChosen: false,
         };
         refillsOnPage = 0;
         log.event("page", { page: pageCount, url: logUrl(page.url), flagged: page.flagged });
+        await log.screenshot("page");
         await enterNewPage(page, current);
       }
       const state = current as PageState;
@@ -1361,6 +1453,25 @@ export async function runOrchestrator(args: RunOrchestratorArgs): Promise<RunRep
       if (sendsAccount && !next.accountPassword) throw noAccountPassword(page);
       const goal = sendsAccount ? goalOrStop(page) : null;
       const target = pickOf(next);
+      // An account step finished somewhere with nothing to go on with (a page that
+      // says the account is unblocked or its password is set): the account is ready,
+      // so apply again from the posting the run started on, in this same tab.
+      const accountWorked = accountHistory.length > 0 || mailVerifications > 0;
+      if (
+        !target &&
+        accountWorked &&
+        startUrl &&
+        addressOf(page.url) !== addressOf(startUrl) &&
+        returnsToStart < RUN_MAX_RETURNS_TO_START
+      ) {
+        returnsToStart += 1;
+        log.event("return:start", { count: returnsToStart, from: logUrl(page.url) });
+        enter(RUN_STAGE.applying, RETURNING_TO_POSTING);
+        checkStop();
+        const back = await until(clock.time("click", () => openLinkInTab(tabId, startUrl)));
+        pending = { snapshot: back.snapshot, how: back.how };
+        continue;
+      }
       if (!target) {
         // After a click, a missing control is the page holding the click (busy,
         // disabled, waiting on a check), not a page that never had one.

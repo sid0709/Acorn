@@ -112,6 +112,12 @@ export type AcornNoticePayload = {
   kind: AcornNoticeKind;
   title: string;
   detail?: string;
+  /**
+   * When set, the toast belongs to that Chrome tab: it shows only while the tab
+   * is focused, and leaves when the person switches to another tab.
+   * Omit it for account and connection notices, which stay up in every tab.
+   */
+  tabId?: number;
 };
 
 export type PipelineSource = "fill" | "custom";

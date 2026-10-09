@@ -39,7 +39,7 @@ export function routeMessage(
 ) {
   if (message.type === MSG.DEBUG_TRACE) {
     const entry = (message as unknown as { entry: TraceEntry }).entry;
-    sinkTrace({ ...entry, frameId: sender.frameId });
+    sinkTrace({ ...entry, frameId: sender.frameId, tabId: sender.tab?.id });
     return false;
   }
 

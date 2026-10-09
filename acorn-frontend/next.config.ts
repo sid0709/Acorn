@@ -14,8 +14,19 @@ function extensionPackageVersion(): string {
 
 const extensionVersion = extensionPackageVersion();
 
+/** Revisits of a dynamic page within this window skip the server round trip. */
+const DYNAMIC_ROUTE_CACHE_SECONDS = 30;
+/** A fully prefetched route (nav links) stays warm this long. */
+const PREFETCHED_ROUTE_CACHE_SECONDS = 180;
+
 const nextConfig: NextConfig = {
   env: extensionVersion ? { NEXT_PUBLIC_ACORN_EXTENSION_VERSION: extensionVersion } : undefined,
+  experimental: {
+    staleTimes: {
+      dynamic: DYNAMIC_ROUTE_CACHE_SECONDS,
+      static: PREFETCHED_ROUTE_CACHE_SECONDS,
+    },
+  },
   output: "standalone",
   outputFileTracingRoot: path.join(__dirname, ".."),
   transpilePackages: [

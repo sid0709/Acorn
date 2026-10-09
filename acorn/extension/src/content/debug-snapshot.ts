@@ -1,6 +1,7 @@
 /** Debug-capture snapshots of form controls, built only when a trace is sent (VITE_ACORN_DEBUG). */
 import { comboboxWidgetRoot, readWidgetTextParts } from "./agents/combobox/widget-value";
 import { readControlValue } from "./agents/read-control-value";
+import { deepQueryAll } from "./shadow-control";
 
 function labelOf(el: Element): string {
   const ids = (el.getAttribute("aria-labelledby") || "").split(/\s+/).filter(Boolean);
@@ -46,7 +47,7 @@ export function describeWidget(el: Element): Record<string, unknown> {
 
 /** Every visible combobox / select with its current read value. */
 export function comboSnapshot(): Array<Record<string, unknown>> {
-  return Array.from(document.querySelectorAll('[role="combobox"], select'))
+  return deepQueryAll(document, '[role="combobox"], select')
     .filter((el) => el.getClientRects().length > 0 || el instanceof HTMLSelectElement)
     .slice(0, 30)
     .map((el) => ({

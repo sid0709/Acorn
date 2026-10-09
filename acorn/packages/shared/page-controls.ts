@@ -11,6 +11,10 @@ import type { DomTreeNode } from "./tree-export";
 export const PAGE_CONTROLS_MAX = 120;
 /** Longest text kept per control. */
 const CONTROL_TEXT_MAX = 100;
+/** Longest surrounding text kept for a control with no text of its own. */
+const CONTROL_NEAR_MAX = 100;
+/** How many enclosing nodes are searched for that surrounding text. */
+const CONTROL_NEAR_DEPTH = 4;
 
 /**
  * Tree attributes the serializer sets on a control from the page's layers: the
@@ -19,6 +23,8 @@ const CONTROL_TEXT_MAX = 100;
 export const LAYER_ATTR = {
   dialog: "acorn-dialog",
   covered: "acorn-covered",
+  /** Not rendered (display:none or visibility:hidden): a person cannot click it at all. */
+  hidden: "acorn-hidden",
 } as const;
 
 /** Regions whose controls are site chrome, not part of the application. */
@@ -43,21 +49,43 @@ export interface PageControl {
   dialog: string;
   /** An open dialog covers the control: a person could not click it right now. */
   covered: boolean;
+  /**
+   * For a control with no text of its own (an icon button): the text around it,
+   * which names the entry or section it acts on. "" otherwise.
+   */
+  near: string;
 }
 
 function squash(text: string | undefined): string {
   return (text ?? "").replace(/\s+/g, " ").trim();
 }
 
-function textOf(node: DomTreeNode): string {
+/** The text under node, stopping once max characters are read; skip is left out. */
+function textOf(node: DomTreeNode, max = CONTROL_TEXT_MAX, skip?: DomTreeNode): string {
   const parts: string[] = [];
+  let length = 0;
   const walk = (current: DomTreeNode) => {
+    if (current === skip || length >= max) return;
     const own = squash(current.text);
-    if (own) parts.push(own);
+    if (own) {
+      parts.push(own);
+      length += own.length + 1;
+    }
     for (const child of current.children) walk(child);
   };
   walk(node);
-  return squash(parts.join(" ")).slice(0, CONTROL_TEXT_MAX);
+  return squash(parts.join(" ")).slice(0, max);
+}
+
+/** The nearest enclosing text around a control, read outward a few levels. */
+function nearText(control: DomTreeNode, ancestors: DomTreeNode[]): string {
+  let inner = control;
+  for (const ancestor of ancestors.slice(-CONTROL_NEAR_DEPTH).reverse()) {
+    const text = textOf(ancestor, CONTROL_NEAR_MAX, inner);
+    if (text) return text;
+    inner = ancestor;
+  }
+  return "";
 }
 
 function isControl(node: DomTreeNode): boolean {
@@ -68,14 +96,24 @@ function isControl(node: DomTreeNode): boolean {
   return false;
 }
 
+function isHidden(node: DomTreeNode): boolean {
+  return node.attrs?.[LAYER_ATTR.hidden] === "true";
+}
+
 function isDisabled(node: DomTreeNode): boolean {
   return node.attrs?.disabled === "true" || node.attrs?.["aria-disabled"] === "true";
 }
 
-/** Controls in document order, with the form or chrome region around each. */
+/**
+ * Controls in document order, with the form or chrome region around each. A
+ * control a person cannot see is left out, and so is one inside another control
+ * (the native button a custom element wraps is that same control).
+ */
 export function collectPageControls(root: DomTreeNode): PageControl[] {
   const out: PageControl[] = [];
+  const ancestors: DomTreeNode[] = [];
   const walk = (node: DomTreeNode, form: string | null, chrome: string) => {
+    if (isHidden(node)) return;
     let nextForm = form;
     let nextChrome = chrome;
     if (node.tag === "form") {
@@ -86,7 +124,8 @@ export function collectPageControls(root: DomTreeNode): PageControl[] {
     if (isControl(node)) {
       const text = textOf(node);
       const label = squash(node.attrs?.["aria-label"] ?? node.attrs?.value);
-      if (text || label) {
+      const near = text ? "" : nearText(node, ancestors);
+      if (text || label || near) {
         out.push({
           id: node.nodeId,
           tag: node.tag,
@@ -99,22 +138,38 @@ export function collectPageControls(root: DomTreeNode): PageControl[] {
           inForm: nextForm != null,
           dialog: node.attrs?.[LAYER_ATTR.dialog] ?? "",
           covered: node.attrs?.[LAYER_ATTR.covered] === "true",
+          near,
         });
       }
+      return;
     }
+    ancestors.push(node);
     for (const child of node.children) walk(child, nextForm, nextChrome);
+    ancestors.pop();
   };
   walk(root, null, "");
-  return prioritize(out).slice(0, PAGE_CONTROLS_MAX);
+  return prioritize(uncoverWhenNoneInDialog(out)).slice(0, PAGE_CONTROLS_MAX);
 }
 
 /**
- * Controls in an open dialog first, then in-form, enabled, non-chrome ones; controls a
- * dialog covers last. A long page cannot push the real one out.
+ * A dialog covers controls only when it holds some of its own. When every control
+ * reads as covered and none sits in a dialog, the dialog was not read right (its
+ * buttons live where the page could not trace them): no control is covered then.
+ */
+function uncoverWhenNoneInDialog(controls: PageControl[]): PageControl[] {
+  const misread =
+    controls.length > 0 && controls.every((c) => c.covered) && !controls.some((c) => c.dialog);
+  return misread ? controls.map((c) => ({ ...c, covered: false })) : controls;
+}
+
+/**
+ * Controls in an open dialog first, then in-form, enabled, non-chrome, named ones;
+ * controls a dialog covers last. A long page cannot push the real one out.
  */
 function prioritize(controls: PageControl[]): PageControl[] {
   const rank = (c: PageControl) =>
     (c.dialog ? 0 : 1) +
+    (c.text || c.label ? 0 : 1) +
     (c.covered ? 8 : 0) +
     (c.disabled ? 3 : 0) +
     (c.context ? 2 : 0) +

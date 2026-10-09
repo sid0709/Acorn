@@ -6,6 +6,12 @@
       "runtimeExecutable": "bun",
       "runtimeArgs": ["run", "dev:acorn-api"],
       "port": 8083
+    },
+    {
+      "name": "acorn-web",
+      "runtimeExecutable": "bun",
+      "runtimeArgs": ["run", "dev:web"],
+      "port": 6005
     }
   ]
 }

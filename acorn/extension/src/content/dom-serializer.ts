@@ -2,6 +2,7 @@ import { LAYER_ATTR } from "@acorn/shared/page-controls";
 import { HIDDEN_VALUE, isSecretControl } from "@acorn/shared/secret-value";
 
 import { pageLayers, type PageLayers } from "./page-layers";
+import { delegatedRole, shadowDelegate } from "./shadow-control";
 
 import type { DomNode } from "../types";
 
@@ -148,8 +149,23 @@ function isClickable(el: Element): boolean {
   return tag === "A" || tag === "BUTTON" || tag === "INPUT" || role === "button" || role === "link";
 }
 
-/** Which open dialog the control sits in, and whether one covers it. */
-function markLayers(el: Element, attrs: Record<string, string>): void {
+/** Rendered for a person: not display:none, not visibility:hidden, here or above. */
+function isRendered(el: Element): boolean {
+  if (typeof el.checkVisibility === "function") {
+    return el.checkVisibility({ visibilityProperty: true });
+  }
+  return el.getClientRects().length > 0;
+}
+
+/**
+ * Which open dialog the control sits in, and whether one covers it; a control a
+ * person cannot see at all is marked hidden, so the Run never picks it.
+ */
+function markLayers(el: Element, attrs: Record<string, string>, delegate: Element | null): void {
+  if (!isRendered(el) && !(delegate && isRendered(delegate))) {
+    attrs[LAYER_ATTR.hidden] = "true";
+    return;
+  }
   const layers = layersOf?.(el);
   if (!layers) return;
   const dialog = layers.dialogOf(el);
@@ -296,8 +312,18 @@ function serializeNode(el: Element, depth: number): DomNode[] {
   const frameTitle = tag === "iframe" ? el.getAttribute("title")?.trim() : "";
   if (frameTitle) attrs["title"] = frameTitle.slice(0, IFRAME_TITLE_MAX_CHARS);
 
+  // A custom element that wraps a native control around its own content is that
+  // control: it carries the label, the one inside carries the role.
+  const delegate = shadowDelegate(el);
+  if (delegate && !attrs["role"]) attrs["role"] = delegatedRole(delegate);
+
   // `disabled` is a boolean attribute (empty value), so the loop above never keeps it.
-  if (el.hasAttribute("disabled") || el.getAttribute("aria-disabled") === "true") {
+  if (
+    el.hasAttribute("disabled") ||
+    el.getAttribute("aria-disabled") === "true" ||
+    delegate?.hasAttribute("disabled") ||
+    delegate?.getAttribute("aria-disabled") === "true"
+  ) {
     attrs["disabled"] = "true";
   }
 
@@ -307,7 +333,7 @@ function serializeNode(el: Element, depth: number): DomNode[] {
   }
   // A password never reaches the tree: the planner only learns the box is filled.
   if (attrs["value"] && isSecretControl(el)) attrs["value"] = HIDDEN_VALUE;
-  if (isClickable(el)) markLayers(el, attrs);
+  if (delegate || isClickable(el)) markLayers(el, attrs, delegate);
 
   const text = getDirectText(el, postingPass ? POSTING_MAX_TEXT : MAX_TEXT);
 

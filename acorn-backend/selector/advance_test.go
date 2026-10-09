@@ -192,3 +192,53 @@ func TestReadPageSaysWhenThePageWaitsForThePerson(t *testing.T) {
 		t.Fatalf("read = %+v err = %v, want a page waiting on the person", read, err)
 	}
 }
+
+// A choice of where to send a code, email among them, is answered by the run with
+// email: it never waits on the applicant's phone.
+func TestReadPageChoosingEmailIsNoWait(t *testing.T) {
+	decider := &scriptedDecider{answers: map[string]jev.Answer{
+		pageKindQuestion: {Choice: KindAccount},
+		controlQuestion:  {Choice: "control_1"},
+		verifyQuestion:   {Choice: VerifyChooseEmail},
+	}}
+	read, err := New(decider).ReadPage(context.Background(), PageQuery{Text: "Where should we send your code?", Intent: IntentAdvance, Controls: formControls})
+	if err != nil || read.NeedsPerson || read.Verification != VerifyChooseEmail {
+		t.Fatalf("read = %+v err = %v, want choose_email without waiting on the person", read, err)
+	}
+	criteria := decider.last.Questions[verifyQuestion].Criteria
+	if !strings.Contains(criteria[VerifyChooseEmail], emailOnly) {
+		t.Fatalf("choose_email criteria = %q, want the email-only rule", criteria[VerifyChooseEmail])
+	}
+}
+
+// An icon control is described by what surrounds it, so the decision can tell which
+// entry it opens.
+func TestReadPageDescribesAnIconControlByItsSurroundings(t *testing.T) {
+	decider := &scriptedDecider{answers: map[string]jev.Answer{
+		pageKindQuestion: {Choice: KindForm},
+		controlQuestion:  {Choice: "control_0"},
+	}}
+	controls := []Control{{ID: 7, Tag: "button", Near: "Unnamed Major Fields to fix: 1"}}
+	if _, err := New(decider).ReadPage(context.Background(), PageQuery{Text: "Education", Intent: IntentAdvance, Controls: controls}); err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(decider.last.State, `beside "Unnamed Major Fields to fix: 1"`) {
+		t.Fatalf("state = %q, want the control's surroundings", decider.last.State)
+	}
+}
+
+// What a long form says at its bottom (a code prompt beside Submit) reaches the
+// decision, both clipped into the page text and as text new since the last action.
+func TestReadPageKeepsTheEndOfALongPageAndItsNewText(t *testing.T) {
+	decider := &scriptedDecider{answers: map[string]jev.Answer{pageKindQuestion: {Choice: KindForm}}}
+	prompt := "A verification code was sent to your email"
+	text := strings.Repeat("Question about the applicant. ", maxPageText/10) + prompt
+	query := PageQuery{Text: text, Intent: IntentAdvance, Controls: formControls, NewText: []string{prompt}}
+	if _, err := New(decider).ReadPage(context.Background(), query); err != nil {
+		t.Fatal(err)
+	}
+	state := decider.last.State
+	if strings.Count(state, prompt) != 2 || !strings.Contains(state, "since the run's last action") {
+		t.Fatalf("state does not carry the page's bottom twice: %q", state[len(state)-400:])
+	}
+}

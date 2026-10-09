@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import {
   Badge,
   Banner,
@@ -48,8 +48,15 @@ const SECTIONS = [
   { value: "account", label: "Account", icon: "settings" },
 ] as const satisfies { value: string; label: string; icon: GlyphName }[];
 type Section = (typeof SECTIONS)[number]["value"];
+type LoadedProfile = Awaited<ReturnType<typeof loadProfile>>;
 
-export function ProfilePanel({ account }: { account: AcornAccount }) {
+export function ProfilePanel({
+  account,
+  initial,
+}: {
+  account: AcornAccount;
+  initial: LoadedProfile;
+}) {
   const { workspace } = useWorkspace();
   const base = workspace.profile ?? sampleProfile(account);
   const [draft, setDraft] = useState<ApplicantProfile | null>(null);
@@ -59,25 +66,28 @@ export function ProfilePanel({ account }: { account: AcornAccount }) {
   const [notice, setNotice] = useState("");
   const [section, setSection] = useState<Section>("identity");
   const profile = draft ?? base;
+  const loaded = useRef(initial);
 
   useEffect(() => {
     let cancelled = false;
-    void loadProfile().then((result) => {
-      if (cancelled) return;
-      if (!result.ok) {
-        setError(result.message);
-        return;
-      }
-      const current = readWorkspaceSnapshot();
-      if (!result.data.stored && current.profile) {
+    const result = loaded.current;
+    if (!result.ok) {
+      setError(result.message);
+      return () => {
+        cancelled = true;
+      };
+    }
+    const current = readWorkspaceSnapshot();
+    if (!result.data.stored && current.profile) {
+      if (!cancelled) {
         setDraft(withDefaults(current.profile));
         setNotice("This profile is on this browser. Save it to keep it on your account.");
-        return;
       }
+    } else if (!cancelled) {
       const next = withDefaults(result.data.profile);
       setDraft(null);
       writeWorkspace({ ...current, profile: next });
-    });
+    }
     return () => {
       cancelled = true;
     };
@@ -99,7 +109,7 @@ export function ProfilePanel({ account }: { account: AcornAccount }) {
     keep(next);
     setNotice("");
     setError("");
-    setSaved(false);
+    setSaved(true);
   };
 
   const save = async () => {

@@ -77,3 +77,89 @@ html {
   border-radius: var(--radius-inner);
   background: var(--color-background-surface);
 }
+
+/* The Acorn mark (AcornMark). Height comes from the spacing scale; width follows the
+   traced outline's aspect. Colors are the orange and yellow data tokens. */
+.acorn-mark {
+  display: block;
+  flex-shrink: 0;
+  width: auto;
+  overflow: visible;
+}
+
+.acorn-mark-sm {
+  height: var(--spacing-6);
+}
+
+.acorn-mark-md {
+  height: var(--spacing-10);
+}
+
+.acorn-mark-lg {
+  height: calc(var(--spacing-12) * 2);
+}
+
+.acorn-mark-xl {
+  height: calc(var(--spacing-12) * 3.5);
+}
+
+/* Cap height of the surrounding text, sitting on its baseline: the A of the wordmark. */
+.acorn-mark-letter {
+  display: inline-block;
+  height: 0.74em;
+  margin-inline-end: 0.06em;
+  vertical-align: baseline;
+}
+
+.acorn-mark-solid .acorn-mark-body {
+  fill: var(--color-data-orange-3);
+  stroke: var(--color-data-orange-4);
+  stroke-width: 2;
+  stroke-linejoin: round;
+}
+
+/* The lit tube from the brand art: a white rim around a pale gold body, in a warm glow. */
+.acorn-mark-neon .acorn-mark-body {
+  fill: color-mix(in srgb, var(--color-data-yellow-1) 70%, var(--color-data-orange-2));
+  stroke: var(--color-on-accent);
+  stroke-width: 2.6;
+  stroke-linejoin: round;
+}
+
+.acorn-mark-neon {
+  filter: drop-shadow(0 0 var(--spacing-0-5) var(--color-on-accent))
+    drop-shadow(0 0 var(--spacing-2) var(--color-data-orange-3))
+    drop-shadow(0 0 var(--spacing-6) var(--color-data-orange-2));
+}
+
+/* The lit A inside a word: the same body and rim as the hero mark, with the glow in
+   em so it scales from the nav logo to the headline. The rim is drawn a little wider
+   (in viewBox units) so it stays visible at text size. */
+.acorn-mark-letter.acorn-mark-neon {
+  filter: drop-shadow(0 0 0.02em var(--color-on-accent))
+    drop-shadow(0 0 0.06em var(--color-data-orange-3))
+    drop-shadow(0 0 0.18em var(--color-data-orange-2))
+    drop-shadow(0 0 0.4em color-mix(in srgb, var(--color-data-orange-2) 70%, transparent));
+}
+
+.acorn-mark-letter.acorn-mark-neon .acorn-mark-body {
+  stroke-width: 4;
+}
+
+/* "Acorn" with the mark as its A (AcornWordmark). */
+.acorn-wordmark {
+  display: inline;
+  white-space: nowrap;
+}
+
+.acorn-wordmark-brand {
+  font-size: var(--font-size-xl);
+  font-weight: var(--font-weight-bold);
+  letter-spacing: -0.02em;
+  color: var(--color-text-primary);
+}
+
+.acorn-wordmark-inherit {
+  font: inherit;
+  letter-spacing: inherit;
+}

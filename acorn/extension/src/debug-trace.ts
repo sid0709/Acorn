@@ -21,6 +21,8 @@ export type TraceEntry = {
   event: string;
   data?: unknown;
   frameId?: number;
+  /** The Chrome tab the event is about, so the backend files it in that tab's debug run. */
+  tabId?: number;
 };
 
 /** Content script: relay a trace event through the service worker. */

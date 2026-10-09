@@ -13,6 +13,7 @@ function snapshot(issues: number, frames: string[]): PageSnapshot {
     title: "",
     frameId: null,
     text: "",
+    fullText: "",
     controls: [],
     flagged: issues,
     signature: "",

@@ -9,7 +9,7 @@ import {
   pageSignature,
   type PageControl,
 } from "@acorn/shared/page-controls";
-import { extractVisiblePageText } from "@acorn/shared/page-text";
+import { clipEnds, extractVisiblePageText } from "@acorn/shared/page-text";
 import { formatAnalyzeTrees } from "@acorn/shared/tree-export";
 
 import { traceFromBackground } from "../background/debug-trace-sink";
@@ -32,7 +32,10 @@ export interface PageSnapshot {
   url: string;
   title: string;
   frameId: number | null;
+  /** The visible text, both ends kept when it is long; what the decision model reads. */
   text: string;
+  /** The whole visible text, so the run can tell exactly what is new on the page. */
+  fullText: string;
   controls: PageControl[];
   scan: FieldIssueScan;
   /** Fields the page marks invalid or ties an error message to. */
@@ -63,10 +66,14 @@ export async function snapshotPage(
       return await readPage(tabId, opts);
     } catch (err) {
       if (Date.now() - started >= RUN_PAGE_READ_PATIENCE_MS) throw err;
-      traceFromBackground("run:page-read-retry", () => ({
-        attempt,
-        error: err instanceof Error ? err.message : String(err),
-      }));
+      traceFromBackground(
+        "run:page-read-retry",
+        () => ({
+          attempt,
+          error: err instanceof Error ? err.message : String(err),
+        }),
+        tabId,
+      );
       await new Promise((resolve) => setTimeout(resolve, RUN_PAGE_READ_RETRY_MS));
       const tab = await chrome.tabs.get(tabId).catch(() => null);
       if (!tab) throw err;
@@ -87,10 +94,8 @@ async function readPage(
   const tree = payload.tree as DomTreeNode;
   const title = payload.title || "Untitled";
   const url = payload.url || "";
-  const text = extractVisiblePageText(formatAnalyzeTrees(tree).pure, { title, url }).slice(
-    0,
-    RUN_PAGE_TEXT_MAX_CHARS,
-  );
+  const fullText = extractVisiblePageText(formatAnalyzeTrees(tree).pure, { title, url });
+  const text = clipEnds(fullText, RUN_PAGE_TEXT_MAX_CHARS);
   const scan = payload.fieldIssues ?? EMPTY_FIELD_ISSUE_SCAN;
   const frameId = payload.frameId ?? null;
   return {
@@ -99,6 +104,7 @@ async function readPage(
     title,
     frameId,
     text,
+    fullText,
     controls: collectPageControls(tree),
     scan,
     flagged: countFlaggedFields(scan),

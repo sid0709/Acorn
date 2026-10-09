@@ -44,7 +44,7 @@ import {
   RESUME_ANALYZE_CONCURRENCY,
   RESUME_BULK_UPLOAD_CONCURRENCY,
   failureSummary,
-  fileBase64,
+  libraryUploadInput,
   resumesFromFolder,
   runPool,
   stackCounts,
@@ -69,14 +69,18 @@ const SKILLS_DIALOG_WIDTH = 560;
 
 type BatchProgress = { current: number; total: number };
 
+type LibraryStart = Awaited<ReturnType<typeof listLibrary>>;
+
 /** Uploaded files and résumés the generator saved, with folder upload and skill analysis. */
-export function ResumeLibrary() {
-  const [rows, setRows] = useState<ResumeLibraryRow[]>([]);
+export function ResumeLibrary({ initial }: { initial: LibraryStart }) {
+  const [rows, setRows] = useState<ResumeLibraryRow[]>(() =>
+    initial.ok ? initial.data.resumes : [],
+  );
   const [view, setView] = useState<ResumeLibrarySource>("uploaded");
   const [search, setSearch] = useState("");
   const [stack, setStack] = useState("all");
   const [selected, setSelected] = useState<string[]>([]);
-  const [error, setError] = useState("");
+  const [error, setError] = useState(initial.ok ? "" : initial.message);
   const [bulkPending, setBulkPending] = useState<FolderResume[] | null>(null);
   const [uploadProgress, setUploadProgress] = useState<BatchProgress | null>(null);
   const [analyzeProgress, setAnalyzeProgress] = useState<BatchProgress | null>(null);
@@ -120,6 +124,7 @@ export function ResumeLibrary() {
   };
 
   useEffect(() => {
+    if (initial.ok) return;
     let cancel = false;
     void (async () => {
       const result = await listLibrary();
@@ -133,7 +138,7 @@ export function ResumeLibrary() {
     return () => {
       cancel = true;
     };
-  }, []);
+  }, [initial.ok]);
 
   useEffect(() => {
     bulkRef.current?.setAttribute("webkitdirectory", "");
@@ -149,11 +154,9 @@ export function ResumeLibrary() {
         items,
         RESUME_BULK_UPLOAD_CONCURRENCY,
         async (item) => {
-          const result = await uploadLibraryFile({
-            fileName: item.file.name,
-            title: item.techStack,
-            contentBase64: await fileBase64(item.file),
-          });
+          const result = await uploadLibraryFile(
+            await libraryUploadInput(item.file, item.techStack),
+          );
           return result.ok ? null : { fileName: item.file.name, error: result.message };
         },
         (current, total) => setUploadProgress({ current, total }),

@@ -1,5 +1,6 @@
 import { traceFromPage } from "../../debug-trace";
 import { fieldWrapper, groupQuestion } from "../form-dom";
+import { deepQueryAll } from "../shadow-control";
 import { forLabelOf, uniqueById } from "../verify/element-labels";
 
 import { JEV_LIST_MAX } from "./combobox/choose-option";
@@ -225,8 +226,10 @@ async function applyLeftoverAnswer(
 
 /** Empty, enabled dropdowns no plan step answered and this pass has not tried. */
 function leftoverCandidates(tried: Set<HTMLElement>): { all: number; leftovers: HTMLElement[] } {
-  const nodes = Array.from(
-    document.querySelectorAll('[role="combobox"], select, [aria-haspopup="listbox"]'),
+  // Custom elements keep their dropdown inputs in shadow roots: search those too.
+  const nodes = deepQueryAll(
+    document,
+    '[role="combobox"], select, [aria-haspopup="listbox"]',
   ).filter((node): node is HTMLElement => node instanceof HTMLElement);
   const leftovers = nodes.filter((el) => {
     if (tried.has(el) || !isCombobox(el) || !isDisplayed(el)) return false;

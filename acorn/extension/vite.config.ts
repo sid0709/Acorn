@@ -30,7 +30,7 @@ function logAcornVersion(): Plugin {
   };
 }
 
-export default defineConfig({
+export default defineConfig(({ mode }) => ({
   base: "./",
   // Acorn's VITE_* settings live in acorn/.env.
   envDir: path.resolve(rootDir, ".."),
@@ -41,6 +41,10 @@ export default defineConfig({
   // One node_modules, at the repo root: keep Vite's cache there, not in this workspace.
   cacheDir: path.resolve(rootDir, "../../node_modules/.vite/acorn-extension"),
   build: {
+    // A watch rebuild renames every hashed file, while the extension Chrome already
+    // runs keeps loading the old names until it is reloaded. Development keeps the
+    // previous build's files so a run in progress never loses its content script.
+    emptyOutDir: mode !== "development",
     // Chrome extension pages reject Vite modulepreload (cross-world mismatch warnings).
     modulePreload: false,
     rollupOptions: {
@@ -49,4 +53,4 @@ export default defineConfig({
       },
     },
   },
-});
+}));
