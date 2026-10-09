@@ -554,9 +554,9 @@ export async function runOrchestrator(args: RunOrchestratorArgs): Promise<RunRep
     const address = addressOf(within.url);
     const newText =
       lastRead?.address === address
-        ? newLines(lastRead.text, within.text).slice(0, RUN_NEW_TEXT_LINES_MAX)
+        ? newLines(lastRead.text, within.fullText).slice(0, RUN_NEW_TEXT_LINES_MAX)
         : [];
-    lastRead = { address, text: within.text };
+    lastRead = { address, text: within.fullText };
     const res = await until(
       clock.time("decide", () =>
         requestReadPage(

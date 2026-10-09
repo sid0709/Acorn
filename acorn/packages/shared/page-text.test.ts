@@ -1,7 +1,12 @@
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 
-import { PAGE_TEXT_MAX_CHARS, combineFrameTexts, extractVisiblePageText } from "./page-text.ts";
+import {
+  PAGE_TEXT_MAX_CHARS,
+  clipEnds,
+  combineFrameTexts,
+  extractVisiblePageText,
+} from "./page-text.ts";
 
 import type { PureNode } from "./tree-export.ts";
 
@@ -84,5 +89,19 @@ describe("combineFrameTexts", () => {
 
   it("is empty when no frame has copy", () => {
     assert.equal(combineFrameTexts([{ ...careers, text: "" }]), "");
+  });
+});
+
+describe("clipEnds", () => {
+  it("keeps a short page whole", () => {
+    assert.equal(clipEnds("Name\nEmail", 100), "Name\nEmail");
+  });
+
+  it("keeps both ends of a long page, so a prompt beside Submit survives", () => {
+    const text = `${"Question\n".repeat(200)}Enter the code we emailed you`;
+    const clipped = clipEnds(text, 300);
+    assert.ok(clipped.length <= 300);
+    assert.ok(clipped.startsWith("Question"));
+    assert.ok(clipped.endsWith("Enter the code we emailed you"));
   });
 });

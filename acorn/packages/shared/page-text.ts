@@ -83,3 +83,19 @@ export function combineFrameTexts(frames: FrameText[]): string {
   const combined = [header, ...sections].filter(Boolean).join("\n\n");
   return combined.length > PAGE_TEXT_MAX_CHARS ? combined.slice(0, PAGE_TEXT_MAX_CHARS) : combined;
 }
+
+/** The part of a clipped page kept from its end: one in this many characters. */
+const CLIP_TAIL_SHARE = 3;
+/** Marks where a clipped page's middle was left out. */
+const CLIP_GAP = "\n…\n";
+
+/**
+ * A long page cut to max characters with both ends kept: a form answers the last
+ * click (an error, a code prompt) beside its Submit, at the very bottom.
+ */
+export function clipEnds(text: string, max: number): string {
+  if (text.length <= max) return text;
+  const tail = Math.floor(max / CLIP_TAIL_SHARE);
+  const head = max - tail - CLIP_GAP.length;
+  return text.slice(0, head) + CLIP_GAP + text.slice(text.length - tail);
+}
