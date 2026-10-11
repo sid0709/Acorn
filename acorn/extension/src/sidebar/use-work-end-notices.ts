@@ -20,7 +20,7 @@ function endNotice(progress: PipelineProgress): AcornNoticePayload | null {
   }
   if (progress.phase !== "done") return null;
   if (progress.run?.report?.outcome === RUN_OUTCOME.completed) {
-    return { kind: "success", title: "Run finished", detail: progress.message };
+    return { kind: "success", title: "Application sent", detail: progress.message };
   }
   if (progress.mode === FILL_MODE.refill) {
     return { kind: "info", title: "Refill finished", detail: progress.message };

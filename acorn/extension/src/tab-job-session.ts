@@ -117,19 +117,4 @@ export async function unbindTabJob(tabId: number): Promise<void> {
     await chrome.storage.session.set({ [TAB_JOBS_STORAGE_KEY]: map });
   });
 }
-
-export async function unbindJobFromAllTabs(jobId: string): Promise<void> {
-  return withStorageLock(TAB_JOBS_STORAGE_KEY, async () => {
-    const map = await readMap();
-    let changed = false;
-    for (const [tabId, job] of Object.entries(map)) {
-      if (job.jobId !== jobId) continue;
-      delete map[tabId];
-      changed = true;
-    }
-    if (changed) {
-      await chrome.storage.session.set({ [TAB_JOBS_STORAGE_KEY]: map });
-    }
-  });
-}
 import { withStorageLock } from "./storage-lock";

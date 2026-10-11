@@ -148,7 +148,6 @@ Hold times are for the director, not current product code.
 | Focused Custom generating sections         | working  | Until completed/failed  |
 | Opening apply URL / remember tab in flight | working  | Until notice            |
 | Download on focused card                   | working  | Until download starts   |
-| Mark applied in flight                     | working  | Until success/rollback  |
 | `anyTabWorking` and focused tab idle       | working  | Until all tabs idle     |
 
 ### Companion — sleeping / smile / wink / sad
@@ -182,7 +181,6 @@ Need `tabId` from `attachments[job.id]`. Unattached idle jobs still get an acorn
 | This tab `fetching` / `running` / upload | working         | Phase                       |
 | This tab `done`                          | smile → waiting | 0.9s                        |
 | This tab `error` / blocked / failed step | sad             | Until retry                 |
-| Marking this job applied                 | smile           | 1.0s (card leaves)          |
 | Couldn’t mark / open this job            | sad             | Notice + 0.6s               |
 | Download this résumé                     | working         | Until fetch starts          |
 | Preview this résumé                      | wink            | One wink                    |

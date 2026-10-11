@@ -14,7 +14,6 @@ export type RowFaceInput = {
   recommendWarning?: boolean;
   selected?: boolean;
   opening?: boolean;
-  marking?: boolean;
   downloading?: boolean;
 };
 
@@ -44,7 +43,6 @@ export type CompanionFaceInput = {
   jobsError: boolean;
   customEmpty: boolean;
   opening: boolean;
-  marking: boolean;
   afk: boolean;
   emptyIdle: boolean;
 };
@@ -85,7 +83,6 @@ export function holdFromGenerate(
 
 /** Hold pose for one job / remembered tab. One-shots are applied by playback. */
 export function resolveRowHold(input: RowFaceInput): AcornFaceMode {
-  if (input.marking) return "smile";
   if (input.opening || input.downloading) return "working";
   const fill = holdFromFill(input.fillPhase, input.resumeSkipped);
   if (fill === "working" || fill === "thinking" || fill === "sad") return fill;
@@ -166,7 +163,7 @@ export function resolveCompanionHold(input: CompanionFaceInput): AcornFaceMode {
   if (focused === "working" || focused === "thinking" || focused === "sad") return focused;
   if (input.qaBusy) return "thinking";
   if (input.qaError) return "sad";
-  if (input.opening || input.marking || input.authBusy) return "working";
+  if (input.opening || input.authBusy) return "working";
   if (input.jobsLoading || input.inspectOpen || input.connectionOpen) return "thinking";
   if (input.anyTabWorking) return "working";
   if (input.signedIn && !input.connected) return "sad";

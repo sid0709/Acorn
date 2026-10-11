@@ -133,7 +133,6 @@ export default function SidebarApp() {
     jobsError: false,
     customEmpty: Boolean(session) && mainTab === "custom" && customList.length === 0,
     opening: remembering,
-    marking: false,
   });
 
   const customLocked = mainTab === "custom" && !customTab;

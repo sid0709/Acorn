@@ -44,7 +44,6 @@ import {
   READ_INTENT,
   type ReadIntent,
 } from "./api/run";
-import { appliedTo, rememberApplied } from "./applied-postings";
 import { repairDriftInTab } from "./drift";
 import { fetchDomFromTab } from "./fetch-dom";
 import { RESUME_NOT_CHOSEN, type ResumeGate } from "./resume-gate";
@@ -237,7 +236,7 @@ const BUDGET_SPENT = "The run reached its limit on AI work";
 const VERIFICATION_NOT_FOUND = "The code or link the site emailed was not found in your Gmail";
 /** The site kept refusing the account step. */
 const ACCOUNT_REJECTED = "The site kept rejecting the sign-in or sign-up";
-/** The posting was applied to already. */
+/** The page itself says this job was applied to already. */
 const ALREADY_APPLIED = "You already applied to this job";
 /** Every account step was tried on the site and refused. */
 const ACCOUNT_EXHAUSTED = "Tried creating an account, signing in, and resetting the password";
@@ -291,19 +290,14 @@ function noResumeStop(stage: RunStage, snapshot: PageSnapshot | null, detail: st
 }
 
 /**
- * What a run leaves behind when it ends: a finished application is remembered so
- * it is never sent twice; a run stopped partway keeps a checkpoint so Continue
- * carries on from there. True when Continue is offered.
+ * What a run leaves behind when it ends: a run stopped partway keeps a checkpoint
+ * so Continue carries on from there. True when Continue is offered.
  */
 async function keepRunEnd(
   tabId: number,
   outcome: RunReport["outcome"],
-  title: string,
   checkpoint: RunCheckpoint,
 ): Promise<boolean> {
-  if (outcome === RUN_OUTCOME.completed && checkpoint.startUrl) {
-    await rememberApplied([checkpoint.startUrl], title).catch(() => undefined);
-  }
   const canContinue = outcome === RUN_OUTCOME.failed || outcome === RUN_OUTCOME.stopped;
   if (canContinue) await saveRunCheckpoint(tabId, checkpoint).catch(() => undefined);
   else await clearRunCheckpoint(tabId).catch(() => undefined);
@@ -852,15 +846,13 @@ export async function runOrchestrator(args: RunOrchestratorArgs): Promise<RunRep
     });
 
   /**
-   * A new page: the first one is the posting, checked against the postings applied
-   * to already; on Continue, the page filled before the stop is not filled again.
+   * A new page: the first one is the posting the run applies from (and returns to).
+   * Acorn keeps no record of earlier applications: every run applies to the page in
+   * front of it, and stops as applied only when the page itself says so. On
+   * Continue, the page filled before the stop is not filled again.
    */
-  const enterNewPage = async (page: PageSnapshot, state: PageState) => {
-    if (!startUrl) {
-      startUrl = page.url;
-      const earlier = await appliedTo(startUrl);
-      if (earlier) throw alreadyApplied(page, `Applied ${new Date(earlier.at).toLocaleString()}`);
-    }
+  const enterNewPage = (page: PageSnapshot, state: PageState) => {
+    if (!startUrl) startUrl = page.url;
     if (resumeFilledSignature && page.signature === resumeFilledSignature) {
       state.filled = true;
       log.event("continue:filled-page", {});
@@ -1269,7 +1261,7 @@ export async function runOrchestrator(args: RunOrchestratorArgs): Promise<RunRep
         : failed
           ? `Stopped · ${result.failure?.label ?? UNKNOWN_FAILURE_LABEL}`
           : `Done · ${result.pages} page${result.pages === 1 ? "" : "s"} · ${seconds}s${cost}`;
-    const canContinue = await keepRunEnd(tabId, result.outcome, snapshot?.title ?? "", {
+    const canContinue = await keepRunEnd(tabId, result.outcome, {
       accountHistory,
       resetLinkSites: [...resetLinkSites],
       mailVerifications,
@@ -1367,7 +1359,7 @@ export async function runOrchestrator(args: RunOrchestratorArgs): Promise<RunRep
         refillsOnPage = 0;
         log.event("page", { page: pageCount, url: logUrl(page.url), flagged: page.flagged });
         await log.screenshot("page");
-        await enterNewPage(page, current);
+        enterNewPage(page, current);
       }
       const state = current as PageState;
       const retrying = state.retryClick;

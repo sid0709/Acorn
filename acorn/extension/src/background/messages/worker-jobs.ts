@@ -1,7 +1,6 @@
-import { authHeaders, getAccessToken, getAcornApiUrl } from "../../auth/acorn-auth";
 import { openWorkerJobInTab } from "../../open-worker-job";
-import { findTabIdsForJob, getTabJob, unbindJobFromAllTabs } from "../../tab-job-session";
-import { closeTabsQuietly, resolvePreferredTabId } from "../tab-target";
+import { getTabJob } from "../../tab-job-session";
+import { resolvePreferredTabId } from "../tab-target";
 
 import type { RuntimeMessage, SendResponse } from "./shared";
 
@@ -46,49 +45,6 @@ export function handleOpenWorkerJob(
         },
       });
       sendResponse({ ok: true, tabId: opened.tabId, reused: opened.reused });
-    } catch (err) {
-      sendResponse({
-        ok: false,
-        error: err instanceof Error ? err.message : String(err),
-      });
-    }
-  })();
-}
-
-export function handleMarkJobApplied(message: RuntimeMessage, sendResponse: SendResponse): void {
-  void (async () => {
-    try {
-      const jobId = String(message.jobId || "").trim();
-      if (!jobId) {
-        sendResponse({ ok: false, error: "Missing job id" });
-        return;
-      }
-      const token = await getAccessToken();
-      if (!token) {
-        sendResponse({ ok: false, error: "Sign in required" });
-        return;
-      }
-      const attachedTabIds = await findTabIdsForJob(jobId);
-      await unbindJobFromAllTabs(jobId);
-      void closeTabsQuietly(attachedTabIds);
-      const base = await getAcornApiUrl();
-      const res = await fetch(`${base}/acorn/jobs/${encodeURIComponent(jobId)}/mark-applied`, {
-        method: "POST",
-        headers: await authHeaders(),
-      });
-      const data = (await res.json().catch(() => ({}))) as {
-        success?: boolean;
-        message?: string;
-        error?: string;
-      };
-      if (!res.ok || data.success === false) {
-        sendResponse({
-          ok: false,
-          error: data.message || data.error || `Mark applied failed (${res.status})`,
-        });
-        return;
-      }
-      sendResponse({ ok: true });
     } catch (err) {
       sendResponse({
         ok: false,

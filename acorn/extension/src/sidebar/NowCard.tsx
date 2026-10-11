@@ -3,6 +3,7 @@ import { Badge, Button, Card, Glyph, HStack, ProgressBar, Text, VStack } from "s
 
 import { customTabResumeLine, hostOf } from "./custom-tab-resume";
 import { GenerateProgressBar } from "./GenerateProgressBar";
+import { RunCelebration } from "./RunCelebration";
 import { RunTimer } from "./RunTimer";
 import { JOBS_NOW_CARD_RUN_ONLY } from "./sidebar-work-state";
 import { useDefaultPassword } from "./use-default-password";
@@ -219,6 +220,9 @@ function RunStatus({ progress }: { progress: PipelineProgress }) {
         {extras}
       </VStack>
     );
+  }
+  if (run.report?.outcome === RUN_OUTCOME.completed) {
+    return <RunCelebration key={run.runId} run={run} />;
   }
   const ready = run.report?.outcome === RUN_OUTCOME.readyToSubmit;
   const parts = [`Page ${Math.max(run.page, 1)}`];

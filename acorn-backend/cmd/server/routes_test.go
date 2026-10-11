@@ -92,10 +92,6 @@ func (noAccounts) Revoke(context.Context, string) error { return nil }
 func (noAccounts) SavedJobIDs(context.Context, string) ([]string, error) {
 	return nil, nil
 }
-func (noAccounts) AppliedJobIDs(context.Context, string) ([]string, error) {
-	return nil, nil
-}
-func (noAccounts) MarkApplied(context.Context, string, string) error { return nil }
 func (noAccounts) SaveGoogleState(context.Context, string, string, string, time.Time) error {
 	return nil
 }

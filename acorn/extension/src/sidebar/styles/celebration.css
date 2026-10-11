@@ -1,0 +1,142 @@
+/* Acorn-only applied celebration: the smiling acorn pops in on a soft success glow
+   while a confetti burst in design-system colors flies out from behind it. */
+
+.acorn-celebrate-stage {
+  --acorn-celebrate-stage-height: 148px;
+  --acorn-confetti-distance: 132px;
+  --acorn-confetti-fall: 56px;
+  --acorn-confetti-size: 8px;
+  --acorn-confetti-spin: 2turn;
+  --acorn-confetti-wave-delay: 70ms;
+  --acorn-celebrate-pop-scale: 0.6;
+
+  position: relative;
+  display: grid;
+  place-items: center;
+  height: var(--acorn-celebrate-stage-height);
+  border-radius: var(--radius-element);
+  background: radial-gradient(
+    ellipse closest-side,
+    var(--color-background-green) 0%,
+    var(--color-success-muted) 45%,
+    transparent 100%
+  );
+  overflow: hidden;
+}
+
+.acorn-celebrate-face {
+  position: relative;
+  z-index: 1;
+}
+
+.acorn-celebrate-stage.is-fresh .acorn-celebrate-face {
+  animation: acorn-celebrate-pop var(--duration-slow) var(--ease-standard) both;
+}
+
+.acorn-confetti {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+}
+
+.acorn-confetti-piece {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  width: var(--acorn-confetti-size);
+  height: calc(var(--acorn-confetti-size) / 2);
+  border-radius: var(--radius-full);
+  background: var(--color-data-categorical-blue);
+  opacity: 0;
+  animation: acorn-confetti-burst calc(var(--duration-slow) * 4) var(--ease-standard) forwards;
+  animation-delay: calc(var(--acorn-confetti-wave) * var(--acorn-confetti-wave-delay));
+}
+
+.acorn-confetti-piece:nth-child(6n + 2) {
+  background: var(--color-data-categorical-green);
+}
+
+.acorn-confetti-piece:nth-child(6n + 3) {
+  background: var(--color-data-yellow-3);
+}
+
+.acorn-confetti-piece:nth-child(6n + 4) {
+  background: var(--color-data-categorical-pink);
+}
+
+.acorn-confetti-piece:nth-child(6n + 5) {
+  background: var(--color-data-categorical-orange);
+}
+
+.acorn-confetti-piece:nth-child(6n + 6) {
+  background: var(--color-data-categorical-purple);
+}
+
+/* Every third piece is a dot, the rest are streamers. */
+.acorn-confetti-piece:nth-child(3n) {
+  height: var(--acorn-confetti-size);
+}
+
+.acorn-celebrate-stats > * {
+  flex: 1 1 0;
+  min-width: 0;
+}
+
+@keyframes acorn-celebrate-pop {
+  0% {
+    transform: scale(var(--acorn-celebrate-pop-scale));
+    opacity: 0;
+  }
+  60% {
+    transform: scale(1.08);
+    opacity: 1;
+  }
+  100% {
+    transform: scale(1);
+  }
+}
+
+@keyframes acorn-confetti-burst {
+  0% {
+    transform: translate(-50%, -50%) rotate(0turn) scale(0.4);
+    opacity: 1;
+  }
+  45% {
+    transform: translate(
+        calc(
+          -50% + cos(var(--acorn-confetti-turn)) * var(--acorn-confetti-distance) *
+            var(--acorn-confetti-reach)
+        ),
+        calc(
+          -50% + sin(var(--acorn-confetti-turn)) * var(--acorn-confetti-distance) *
+            var(--acorn-confetti-reach)
+        )
+      )
+      rotate(calc(var(--acorn-confetti-spin) / 2)) scale(1);
+    opacity: 1;
+  }
+  100% {
+    transform: translate(
+        calc(
+          -50% + cos(var(--acorn-confetti-turn)) * var(--acorn-confetti-distance) *
+            var(--acorn-confetti-reach)
+        ),
+        calc(
+          -50% + sin(var(--acorn-confetti-turn)) * var(--acorn-confetti-distance) *
+            var(--acorn-confetti-reach) + var(--acorn-confetti-fall)
+        )
+      )
+      rotate(var(--acorn-confetti-spin)) scale(0.8);
+    opacity: 0;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .acorn-celebrate-stage.is-fresh .acorn-celebrate-face {
+    animation: none;
+  }
+
+  .acorn-confetti {
+    display: none;
+  }
+}
