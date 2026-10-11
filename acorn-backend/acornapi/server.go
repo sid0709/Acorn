@@ -201,6 +201,8 @@ func New(accounts Accounts, listings *jobs.Store, brain *acorn.Service, opts Opt
 	mux.HandleFunc("GET /acorn/support/claims/{id}", s.getMyClaim)
 	mux.HandleFunc("POST /acorn/support/claims/{id}/messages", s.postMyClaimMessage)
 	mux.HandleFunc("POST /acorn/support/claims/{id}/read", s.readMyClaim)
+	mux.HandleFunc("POST /acorn/support/claims/{id}/reopen", s.reopenMyClaim)
+	mux.HandleFunc("GET /acorn/support/claims/{id}/attachments/{attachmentId}", s.myClaimAttachment)
 
 	mux.HandleFunc("POST /acorn/admin/auth/signin", s.adminSignIn)
 	mux.HandleFunc("GET /acorn/admin/auth/me", s.adminMe)
@@ -212,6 +214,7 @@ func New(accounts Accounts, listings *jobs.Store, brain *acorn.Service, opts Opt
 	mux.HandleFunc("GET /acorn/admin/claims/{id}/screenshot", s.adminClaimScreenshot)
 	mux.HandleFunc("POST /acorn/admin/claims/{id}/messages", s.adminPostClaimMessage)
 	mux.HandleFunc("POST /acorn/admin/claims/{id}/read", s.adminReadClaim)
+	mux.HandleFunc("GET /acorn/admin/claims/{id}/attachments/{attachmentId}", s.adminClaimAttachment)
 	mux.HandleFunc("GET /acorn/admin/users", s.adminListUsers)
 	mux.HandleFunc("GET /acorn/admin/users/{id}", s.adminGetUser)
 	mux.HandleFunc("GET /acorn/admin/users/{id}/usage", s.adminListUserUsage)

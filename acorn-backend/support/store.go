@@ -25,6 +25,10 @@ const (
 	AuthorUser  = "user"
 	AuthorAdmin = "admin"
 
+	// Message kinds. A plain message has none; these record a status change in the conversation.
+	KindResolved = "resolved"
+	KindReopened = "reopened"
+
 	adminListLimit       = 200
 	userListLimit        = 100
 	threadLimit          = 500
@@ -83,21 +87,80 @@ func (c Claim) UnreadFor(reader string) bool {
 	return c.LastMessageAt.After(readAt)
 }
 
-// Message is one line in a claim's conversation.
+// Message is one line in a claim's conversation: text, images, the page it was sent
+// from (a follow-up from the extension), or a status change (Kind).
 type Message struct {
-	ID         string    `bson:"_id"`
-	ClaimID    string    `bson:"claimId"`
-	AccountID  string    `bson:"accountId"`
-	Author     string    `bson:"author"`
-	AuthorName string    `bson:"authorName"`
-	Body       string    `bson:"body"`
-	CreatedAt  time.Time `bson:"createdAt"`
+	ID          string       `bson:"_id"`
+	ClaimID     string       `bson:"claimId"`
+	AccountID   string       `bson:"accountId"`
+	Author      string       `bson:"author"`
+	AuthorName  string       `bson:"authorName"`
+	Kind        string       `bson:"kind,omitempty"`
+	Body        string       `bson:"body"`
+	PageURL     string       `bson:"pageUrl,omitempty"`
+	PageTitle   string       `bson:"pageTitle,omitempty"`
+	Attachments []Attachment `bson:"attachments,omitempty"`
+	CreatedAt   time.Time    `bson:"createdAt"`
 }
 
-// Store persists claims and their messages.
+// Draft is a message before it is stored.
+type Draft struct {
+	Author     string
+	AuthorName string
+	Kind       string
+	Body       string
+	PageURL    string
+	PageTitle  string
+	Uploads    []Upload
+}
+
+// Clean trims the draft and reports whether it can be stored: a status change, or a
+// message with text, images, or a page, all within their limits.
+func (d Draft) Clean() (Draft, bool) {
+	d.Body = strings.TrimSpace(d.Body)
+	d.PageURL = strings.TrimSpace(d.PageURL)
+	d.PageTitle = strings.TrimSpace(d.PageTitle)
+	d.AuthorName = strings.TrimSpace(d.AuthorName)
+	if d.Author != AuthorUser && d.Author != AuthorAdmin {
+		return d, false
+	}
+	switch d.Kind {
+	case KindReopened:
+	case KindResolved:
+		if d.Author != AuthorAdmin {
+			return d, false
+		}
+	case "":
+		if d.Body == "" && len(d.Uploads) == 0 && d.PageURL == "" {
+			return d, false
+		}
+	default:
+		return d, false
+	}
+	if d.Kind != "" && (d.Body != "" || len(d.Uploads) > 0 || d.PageURL != "") {
+		return d, false
+	}
+	ok := len(d.Body) <= MaxMessageLen && len(d.PageURL) <= MaxPageURLLen &&
+		len(d.PageTitle) <= MaxPageURLLen && len(d.Uploads) <= MaxAttachments
+	return d, ok
+}
+
+// statusAfter is the claim's status once the draft is stored, or "" when it does not change.
+func (d Draft) statusAfter() string {
+	switch {
+	case d.Kind == KindResolved:
+		return StatusClosed
+	case d.Kind == KindReopened || d.Author == AuthorUser:
+		return StatusOpen
+	}
+	return ""
+}
+
+// Store persists claims, their messages, and the messages' images.
 type Store struct {
-	claims   *mongo.Collection
-	messages *mongo.Collection
+	claims      *mongo.Collection
+	messages    *mongo.Collection
+	attachments *mongo.Collection
 }
 
 func NewStore(client *mongo.Client, database string) *Store {
@@ -106,6 +169,7 @@ func NewStore(client *mongo.Client, database string) *Store {
 		db := client.Database(database)
 		store.claims = db.Collection(claimsCollection)
 		store.messages = db.Collection(messagesCollection)
+		store.attachments = db.Collection(attachmentsCollection)
 	}
 	return store
 }
@@ -123,9 +187,16 @@ func (s *Store) EnsureIndexes(ctx context.Context) error {
 	}); err != nil {
 		return err
 	}
-	_, err := s.messages.Indexes().CreateMany(ctx, []mongo.IndexModel{
+	if _, err := s.messages.Indexes().CreateMany(ctx, []mongo.IndexModel{
 		{Keys: bson.D{{Key: "claimId", Value: 1}, {Key: "createdAt", Value: 1}}},
 		{Keys: bson.D{{Key: "accountId", Value: 1}, {Key: "createdAt", Value: -1}}},
+	}); err != nil {
+		return err
+	}
+	_, err := s.attachments.Indexes().CreateMany(ctx, []mongo.IndexModel{
+		{Keys: bson.D{{Key: "claimId", Value: 1}}},
+		{Keys: bson.D{{Key: "messageId", Value: 1}}},
+		{Keys: bson.D{{Key: "accountId", Value: 1}, {Key: "author", Value: 1}, {Key: "createdAt", Value: -1}}},
 	})
 	return err
 }
@@ -246,44 +317,76 @@ func (s *Store) Messages(ctx context.Context, claimID string) ([]Message, error)
 	return rows, err
 }
 
-// AddMessage appends to the claim's conversation and returns the message and the
-// updated claim. The author has read everything up to their own message. A
-// reporter's message reopens a closed claim.
-func (s *Store) AddMessage(ctx context.Context, claim Claim, author, authorName, body string) (Message, Claim, error) {
-	body = strings.TrimSpace(body)
-	if !s.ready() || body == "" || len(body) > MaxMessageLen || (author != AuthorUser && author != AuthorAdmin) {
+// AddMessage appends the draft to the claim's conversation and returns the message and
+// the updated claim. The author has read everything up to their own message. A reporter's
+// message reopens a closed claim; a status change sets the status it names.
+func (s *Store) AddMessage(ctx context.Context, claim Claim, draft Draft) (Message, Claim, error) {
+	draft, ok := draft.Clean()
+	if !s.ready() || !ok {
 		return Message{}, Claim{}, ErrInvalidMessage
 	}
-	if author == AuthorUser {
-		count, err := s.messages.CountDocuments(ctx, bson.M{
-			"accountId": claim.AccountID, "author": AuthorUser,
-			"createdAt": bson.M{"$gte": time.Now().UTC().Add(-claimRateLimitWindow)},
-		})
-		if err != nil {
+	if draft.Author == AuthorUser {
+		if err := s.checkUserLimits(ctx, claim.AccountID, len(draft.Uploads)); err != nil {
 			return Message{}, Claim{}, err
-		}
-		if count >= maxMessagesPerWindow {
-			return Message{}, Claim{}, ErrRateLimited
 		}
 	}
 	now := time.Now().UTC()
 	msg := Message{
 		ID: bson.NewObjectID().Hex(), ClaimID: claim.ID, AccountID: claim.AccountID,
-		Author: author, AuthorName: strings.TrimSpace(authorName), Body: body, CreatedAt: now,
+		Author: draft.Author, AuthorName: draft.AuthorName, Kind: draft.Kind, Body: draft.Body,
+		PageURL: draft.PageURL, PageTitle: draft.PageTitle, CreatedAt: now,
 	}
-	if _, err := s.messages.InsertOne(ctx, msg); err != nil {
+	attachments, err := s.storeUploads(ctx, msg, draft.Uploads)
+	if err != nil {
 		return Message{}, Claim{}, err
 	}
-	set := bson.M{"lastMessageAt": now, "lastMessageBy": author, readField(author): now}
-	if author == AuthorUser {
-		set["status"] = StatusOpen
+	msg.Attachments = attachments
+	if _, err := s.messages.InsertOne(ctx, msg); err != nil {
+		s.dropUploads(ctx, msg.ID)
+		return Message{}, Claim{}, err
+	}
+	set := bson.M{"lastMessageAt": now, "lastMessageBy": draft.Author, readField(draft.Author): now}
+	update := bson.M{"$set": set, "$inc": bson.M{"messageCount": 1}}
+	switch status := draft.statusAfter(); status {
+	case StatusClosed:
+		set["status"] = status
+		set["closedAt"] = now
+	case StatusOpen:
+		set["status"] = status
+		update["$unset"] = bson.M{"closedAt": ""}
 	}
 	var updated Claim
-	err := s.claims.FindOneAndUpdate(ctx, bson.M{"_id": claim.ID},
-		bson.M{"$set": set, "$inc": bson.M{"messageCount": 1}},
+	err = s.claims.FindOneAndUpdate(ctx, bson.M{"_id": claim.ID}, update,
 		options.FindOneAndUpdate().SetReturnDocument(options.After).SetProjection(listProjection),
 	).Decode(&updated)
 	return msg, updated, err
+}
+
+// checkUserLimits answers ErrRateLimited when the reporter sent too many messages or images lately.
+func (s *Store) checkUserLimits(ctx context.Context, accountID string, uploads int) error {
+	since := bson.M{"$gte": time.Now().UTC().Add(-claimRateLimitWindow)}
+	count, err := s.messages.CountDocuments(ctx, bson.M{
+		"accountId": accountID, "author": AuthorUser, "createdAt": since,
+	})
+	if err != nil {
+		return err
+	}
+	if count >= maxMessagesPerWindow {
+		return ErrRateLimited
+	}
+	if uploads == 0 {
+		return nil
+	}
+	images, err := s.attachments.CountDocuments(ctx, bson.M{
+		"accountId": accountID, "author": AuthorUser, "createdAt": since,
+	})
+	if err != nil {
+		return err
+	}
+	if images+int64(uploads) > maxUploadsPerWindow {
+		return ErrRateLimited
+	}
+	return nil
 }
 
 // MarkRead records that reader has seen the claim's conversation.
@@ -303,24 +406,6 @@ func readField(reader string) string {
 		return "adminReadAt"
 	}
 	return "userReadAt"
-}
-
-// SetStatus opens or closes a claim and returns it.
-func (s *Store) SetStatus(ctx context.Context, id, status string) (Claim, error) {
-	if !s.ready() || id == "" || (status != StatusOpen && status != StatusClosed) {
-		return Claim{}, mongo.ErrNoDocuments
-	}
-	update := bson.M{"$set": bson.M{"status": status}}
-	if status == StatusClosed {
-		update["$set"].(bson.M)["closedAt"] = time.Now().UTC()
-	} else {
-		update["$unset"] = bson.M{"closedAt": ""}
-	}
-	var row Claim
-	err := s.claims.FindOneAndUpdate(ctx, bson.M{"_id": id}, update,
-		options.FindOneAndUpdate().SetReturnDocument(options.After).SetProjection(listProjection),
-	).Decode(&row)
-	return row, err
 }
 
 // Counts is how many claims are open and how many wait on support.

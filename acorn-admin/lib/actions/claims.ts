@@ -1,6 +1,7 @@
 "use server";
 
 // The console's client cache applies each change itself, so no route is revalidated here.
+// Replies go through /api/claims/[id]/messages instead: they carry images past an action's limit.
 
 import { claimPath } from "../api/claims";
 import { adminSend } from "../api/client";
@@ -9,20 +10,13 @@ import { toResult } from "./result";
 
 import type { ClaimStatus, SupportClaim, SupportMessage } from "@acorn/support-chat";
 
-export async function sendClaimMessageAction(id: string, body: string) {
-  return toResult(async () => {
-    const res = await adminSend<{ message: SupportMessage }>(`${claimPath(id)}/messages`, "POST", {
-      body,
-    });
-    return res.message;
-  });
-}
-
+/** Resolves or reopens a claim; `message` is the line the conversation records, when it changed. */
 export async function setClaimStatusAction(id: string, status: ClaimStatus) {
-  return toResult(async () => {
-    const res = await adminSend<{ claim: SupportClaim }>(claimPath(id), "PATCH", { status });
-    return res.claim;
-  });
+  return toResult(async () =>
+    adminSend<{ claim: SupportClaim; message?: SupportMessage }>(claimPath(id), "PATCH", {
+      status,
+    }),
+  );
 }
 
 export async function markClaimReadAction(id: string) {

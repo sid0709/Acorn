@@ -1,11 +1,15 @@
 import {
   CLAIM_AUTHOR,
+  CLAIM_STATUS,
+  CLAIM_STATUS_LABEL,
   ClaimListItem,
   ClaimStatusBadge,
   ClaimThread,
   claimTitle,
   pageHost,
+  type ClaimStatus,
 } from "@acorn/support-chat";
+import { useState } from "react";
 import {
   Banner,
   Button,
@@ -14,6 +18,8 @@ import {
   HStack,
   IconButton,
   List,
+  SegmentedControl,
+  SegmentedControlItem,
   Spinner,
   Stack,
   StackItem,
@@ -22,6 +28,8 @@ import {
 
 import { AcornFaceView } from "../acorn-face/AcornFaceView";
 import { ACORN_FACE_CARD_PX } from "../acorn-face/constants";
+
+import { pushAcornNotice } from "./acorn-notice";
 
 import type { AcornMainTab } from "./SidebarNav";
 import type { useSupportClaims } from "./use-support-claims";
@@ -40,9 +48,22 @@ function SupportStaffAvatar() {
 
 type SupportState = ReturnType<typeof useSupportClaims>;
 
+/** What each list shows when it has nothing. */
+const EMPTY_LIST: Record<ClaimStatus, { title: string; description: string }> = {
+  open: {
+    title: "No open reports",
+    description:
+      "Use Report on any page. Support sees a screenshot and your notes, and replies here.",
+  },
+  closed: {
+    title: "Nothing resolved yet",
+    description: "Reports support resolves land here. Open one to read it or reopen it.",
+  },
+};
+
 /**
- * The Support tab: every report this person filed, newest conversation first.
- * Opening one shows the chat with support; a reply reopens a closed report.
+ * The Support tab: this person's open or resolved reports, newest conversation first.
+ * Opening one shows the chat with support; a reply or Reopen brings a resolved one back.
  */
 export function SupportPanel({
   mainTab,
@@ -55,7 +76,27 @@ export function SupportPanel({
   onReport: () => void;
   reportDisabled: boolean;
 }) {
-  const { claims, thread, openId, loading, error, open, send } = support;
+  const { claims, thread, openId, loading, error, open, send, reopen, attachmentSrc } = support;
+  const [view, setView] = useState<ClaimStatus>(CLAIM_STATUS.open);
+  const [reopening, setReopening] = useState(false);
+  const shown = claims.filter((claim) => claim.status === view);
+  const countOf = (status: ClaimStatus) => claims.filter((c) => c.status === status).length;
+
+  const reopenOpenThread = async () => {
+    setReopening(true);
+    try {
+      await reopen();
+    } catch (err) {
+      pushAcornNotice({
+        kind: "error",
+        title: "Couldn’t reopen the report",
+        detail: err instanceof Error ? err.message : "Try again in a moment.",
+      });
+    } finally {
+      setReopening(false);
+    }
+  };
+
   return (
     <section
       id="acorn-panel-support"
@@ -86,6 +127,16 @@ export function SupportPanel({
               </Stack>
             </StackItem>
             {thread ? <ClaimStatusBadge status={thread.claim.status} /> : null}
+            {thread?.claim.status === CLAIM_STATUS.closed ? (
+              <Button
+                label={reopening ? "Reopening…" : "Reopen"}
+                variant="secondary"
+                size="sm"
+                icon={<Glyph name="refresh" />}
+                isDisabled={reopening}
+                onClick={() => void reopenOpenThread()}
+              />
+            ) : null}
           </HStack>
           <div className="acorn-support-thread">
             {thread ? (
@@ -96,6 +147,7 @@ export function SupportPanel({
                 density="compact"
                 placeholder="Message Acorn Support"
                 staffAvatar={<SupportStaffAvatar />}
+                attachmentSrc={attachmentSrc}
                 onSend={send}
               />
             ) : (
@@ -120,19 +172,34 @@ export function SupportPanel({
               onClick={onReport}
             />
           </HStack>
+          <SegmentedControl
+            label="Which reports"
+            value={view}
+            onChange={(value) => setView(value as ClaimStatus)}
+            size="sm"
+            layout="fill"
+          >
+            {[CLAIM_STATUS.open, CLAIM_STATUS.closed].map((status) => (
+              <SegmentedControlItem
+                key={status}
+                value={status}
+                label={`${CLAIM_STATUS_LABEL[status]} (${countOf(status)})`}
+              />
+            ))}
+          </SegmentedControl>
           {error ? (
             <Banner status="error" title="Couldn’t load your reports" description={error} />
           ) : null}
-          {claims.length === 0 && !loading ? (
+          {shown.length === 0 && !loading ? (
             <EmptyState
               isCompact
-              icon={<Glyph name="chat" />}
-              title="No reports yet"
-              description="Use Report on any page. Support sees a screenshot and your notes, and replies here."
+              icon={<Glyph name={view === CLAIM_STATUS.open ? "chat" : "check"} />}
+              title={EMPTY_LIST[view].title}
+              description={EMPTY_LIST[view].description}
             />
           ) : (
             <List>
-              {claims.map((claim) => (
+              {shown.map((claim) => (
                 <ClaimListItem
                   key={claim.id}
                   claim={claim}

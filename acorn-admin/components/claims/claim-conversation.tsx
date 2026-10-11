@@ -27,13 +27,10 @@ import {
 } from "sid-ui";
 
 import { useNotice } from "@/components/use-notice";
-import {
-  markClaimReadAction,
-  sendClaimMessageAction,
-  setClaimStatusAction,
-} from "@/lib/actions/claims";
-import { unwrap } from "@/lib/actions/result";
+import { markClaimReadAction, setClaimStatusAction } from "@/lib/actions/claims";
+import { sendClaimMessage } from "@/lib/client/claim-messages";
 import { appendCachedMessage, patchCachedClaim, revalidateClaim } from "@/lib/client/claims-cache";
+import { ROUTES } from "@/lib/routes";
 
 const AVATAR_SIZE = 40;
 /** Placeholder bubbles while a conversation loads: their widths, alternating sides. */
@@ -83,7 +80,8 @@ export function ClaimConversation({
     patchCachedClaim(claim.id, { status });
     const result = await setClaimStatusAction(claim.id, status);
     if (result.ok) {
-      patchCachedClaim(claim.id, result.value);
+      patchCachedClaim(claim.id, result.value.claim);
+      if (result.value.message) appendCachedMessage(claim.id, result.value.message);
     } else {
       patchCachedClaim(claim.id, { status: previous });
       notice({ kind: "error", title: "Couldn’t change the status", detail: result.error });
@@ -150,8 +148,9 @@ export function ClaimConversation({
               messages={messages}
               viewer={CLAIM_AUTHOR.admin}
               placeholder={`Reply to ${reporter}`}
-              onSend={async (body) => {
-                appendCachedMessage(claim.id, unwrap(await sendClaimMessageAction(claim.id, body)));
+              attachmentSrc={(attachment) => ROUTES.claimAttachment(claim.id, attachment.id)}
+              onSend={async (draft) => {
+                appendCachedMessage(claim.id, await sendClaimMessage(claim.id, draft));
                 revalidateClaim(claim.id);
               }}
             />

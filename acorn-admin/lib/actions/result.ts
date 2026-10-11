@@ -11,9 +11,3 @@ export async function toResult<T>(work: () => Promise<T>): Promise<ActionResult<
     return { ok: false, error: err instanceof Error ? err.message : String(err) };
   }
 }
-
-/** The value, or a thrown Error with the action's message (for client callers). */
-export function unwrap<T>(result: ActionResult<T>): T {
-  if (!result.ok) throw new Error(result.error);
-  return result.value;
-}

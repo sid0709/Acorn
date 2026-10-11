@@ -1,9 +1,12 @@
 import {
   SUPPORT_CLAIMS_PATH,
+  messageFormData,
   supportClaimMessagesPath,
   supportClaimPath,
   supportClaimReadPath,
+  supportClaimReopenPath,
   type ClaimThreadData,
+  type MessageDraft,
   type SupportClaim,
   type SupportMessage,
 } from "@acorn/support-chat";
@@ -12,6 +15,8 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { authHeaders, getAcornApiUrl } from "../auth/acorn-auth";
 import { MSG } from "../types";
 
+import { useClaimAttachments } from "./use-claim-attachments";
+
 /** How often the open Support tab checks for replies while the socket is down. */
 const SUPPORT_OFFLINE_POLL_MS = 15_000;
 
@@ -19,10 +24,15 @@ type ErrorBody = { error?: string; message?: string };
 
 /** What the server pushes when a report changes (acornapi support:message / support:claim). */
 type ClaimChange = { claim?: SupportClaim; message?: SupportMessage };
+/** What sending a message or reopening answers. */
+type Posted = { claim: SupportClaim; message?: SupportMessage };
 
 async function api<T>(path: string, init?: RequestInit): Promise<T> {
   const base = (await getAcornApiUrl()).replace(/\/$/, "");
-  const res = await fetch(`${base}${path}`, { ...init, headers: await authHeaders() });
+  const headers = await authHeaders();
+  // A multipart body sets its own Content-Type, boundary included.
+  if (init?.body instanceof FormData) delete headers["Content-Type"];
+  const res = await fetch(`${base}${path}`, { ...init, headers });
   const data = (await res.json().catch(() => ({}))) as T & ErrorBody;
   if (!res.ok) throw new Error(data.error || data.message || `Request failed (${res.status})`);
   return data;
@@ -148,20 +158,48 @@ export function useSupportClaims({
     [loadList, loadThread],
   );
 
-  const send = useCallback(
-    async (body: string) => {
-      if (!openId) return;
-      const sent = await api<{ message: SupportMessage; claim: SupportClaim }>(
-        supportClaimMessagesPath(openId),
-        { method: "POST", body: JSON.stringify({ body }) },
-      );
+  /** Shows what the server answered in the open thread, then reloads the list behind it. */
+  const applyPosted = useCallback(
+    (id: string, posted: Posted) => {
       setThread((current) =>
-        current?.claim.id === openId ? withChange(current, sent.claim, sent.message) : current,
+        current?.claim.id === id ? withChange(current, posted.claim, posted.message) : current,
       );
       void loadList();
     },
-    [openId, loadList],
+    [loadList],
   );
 
-  return { claims, unread, thread, openId, loading, error, open, send, reload: refresh };
+  const send = useCallback(
+    async (draft: MessageDraft) => {
+      if (!openId) return;
+      const posted = await api<Posted>(supportClaimMessagesPath(openId), {
+        method: "POST",
+        body: messageFormData(draft),
+      });
+      applyPosted(openId, posted);
+    },
+    [openId, applyPosted],
+  );
+
+  /** Reopens the open, resolved report; rejects with the server's message. */
+  const reopen = useCallback(async () => {
+    if (!openId) return;
+    applyPosted(openId, await api<Posted>(supportClaimReopenPath(openId), { method: "POST" }));
+  }, [openId, applyPosted]);
+
+  const attachmentSrc = useClaimAttachments(thread);
+
+  return {
+    claims,
+    unread,
+    thread,
+    openId,
+    loading,
+    error,
+    open,
+    send,
+    reopen,
+    attachmentSrc,
+    reload: refresh,
+  };
 }

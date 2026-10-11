@@ -92,7 +92,7 @@ func serveEvents(w http.ResponseWriter, r *http.Request, events <-chan feed.Even
 	}
 }
 
-// publishStaffClaim tells every open console that a claim was filed or changed.
+// publishStaffClaim tells every open console that a claim was filed.
 func (s *Server) publishStaffClaim(claim support.Claim) {
 	s.staff.Publish(gateway.SupportClaimEvent, map[string]any{"claim": claimRow(claim, support.AuthorAdmin)})
 }
