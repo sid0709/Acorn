@@ -1,7 +1,7 @@
 "use client";
 
-import { useRouter, useSearchParams } from "next/navigation";
-import { useEffect, useRef, useState, type ReactNode } from "react";
+import { useSearchParams } from "next/navigation";
+import { useRef, useState, type ReactNode } from "react";
 import {
   CONTAINER_TIERS,
   Card,
@@ -14,12 +14,11 @@ import {
   useElementWidth,
 } from "sid-ui";
 
-import { ClaimConversation } from "./claim-conversation";
+import { ClaimConversation, ConversationSkeleton } from "./claim-conversation";
 import { ClaimDetails } from "./claim-details";
 
-import type { ClaimThreadData } from "@acorn/support-chat";
+import type { ClaimThreadData, SupportClaim } from "@acorn/support-chat";
 
-import { CLAIMS_POLL_MS } from "@/lib/config";
 import { ROUTES } from "@/lib/routes";
 
 const LIST_WIDTH = 340;
@@ -31,11 +30,25 @@ const DOCK_MIN_WIDTH = CONTAINER_TIERS.xl;
 
 /**
  * Support's claims workspace: claims on the left, the open conversation in the
- * middle, the report's screenshot and context on the right. It checks for new
- * messages every CLAIMS_POLL_MS while the page is visible.
+ * middle, the report's screenshot and context on the right. While a conversation loads,
+ * its header shows at once from the list row.
  */
-export function ClaimsInbox({ list, thread }: { list: ReactNode; thread: ClaimThreadData | null }) {
-  const router = useRouter();
+export function ClaimsInbox({
+  list,
+  selectedId,
+  thread,
+  isThreadLoading,
+  threadError,
+  summary,
+}: {
+  list: ReactNode;
+  selectedId: string | null;
+  thread: ClaimThreadData | null;
+  isThreadLoading: boolean;
+  threadError?: string;
+  /** The open claim's row from the list, shown while its thread loads. */
+  summary?: SupportClaim;
+}) {
   const params = useSearchParams();
   const ref = useRef<HTMLDivElement>(null);
   const width = useElementWidth(ref);
@@ -45,24 +58,27 @@ export function ClaimsInbox({ list, thread }: { list: ReactNode; thread: ClaimTh
   const [detailsPreferred, setDetailsPreferred] = useState(true);
   const [drawerOpen, setDrawerOpen] = useState(false);
 
-  useEffect(() => {
-    const timer = setInterval(() => {
-      if (document.visibilityState === "visible") router.refresh();
-    }, CLAIMS_POLL_MS);
-    return () => clearInterval(timer);
-  }, [router]);
-
   const isDetailsOpen = canDock ? detailsPreferred : drawerOpen;
   const toggleDetails = () => (canDock ? setDetailsPreferred((v) => !v) : setDrawerOpen((v) => !v));
-  const back = () => router.push(`${ROUTES.claims}?${params.toString()}`);
+  const back = () => window.history.pushState(null, "", `${ROUTES.claims}?${params.toString()}`);
+  const shown = thread ?? (summary ? { claim: summary, messages: [] } : null);
 
-  const conversation = thread ? (
+  const conversation = shown ? (
     <ClaimConversation
-      thread={thread}
+      thread={shown}
+      isLoading={!thread}
       isDetailsOpen={isDetailsOpen}
       onToggleDetails={toggleDetails}
       onBack={isSplit ? undefined : back}
     />
+  ) : threadError ? (
+    <EmptyState
+      icon={<Glyph name="search" />}
+      title="Couldn’t open this claim"
+      description={threadError}
+    />
+  ) : isThreadLoading ? (
+    <ConversationSkeleton />
   ) : (
     <EmptyState
       icon={<Glyph name="chat" />}
@@ -83,10 +99,10 @@ export function ClaimsInbox({ list, thread }: { list: ReactNode; thread: ClaimTh
           ) : undefined
         }
         content={
-          <LayoutContent padding={0}>{isSplit || thread ? conversation : list}</LayoutContent>
+          <LayoutContent padding={0}>{isSplit || selectedId ? conversation : list}</LayoutContent>
         }
         end={
-          canDock && detailsPreferred && thread ? (
+          canDock && detailsPreferred && shown ? (
             <LayoutPanel
               width={DETAILS_WIDTH}
               hasDivider
@@ -94,18 +110,18 @@ export function ClaimsInbox({ list, thread }: { list: ReactNode; thread: ClaimTh
               padding={5}
               label="Claim details"
             >
-              <ClaimDetails claim={thread.claim} />
+              <ClaimDetails claim={shown.claim} />
             </LayoutPanel>
           ) : undefined
         }
       />
       <Drawer
-        isOpen={!canDock && drawerOpen && thread !== null}
+        isOpen={!canDock && drawerOpen && shown !== null}
         onOpenChange={setDrawerOpen}
         title="Claim details"
         size="sm"
       >
-        {thread ? <ClaimDetails claim={thread.claim} /> : null}
+        {shown ? <ClaimDetails claim={shown.claim} /> : null}
       </Drawer>
     </Card>
   );

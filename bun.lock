@@ -29,6 +29,7 @@
         "next": "catalog:",
         "react": "catalog:",
         "react-dom": "catalog:",
+        "sharp": "catalog:",
         "sid-ui": "catalog:",
       },
       "devDependencies": {
@@ -78,13 +79,13 @@
     },
     "acorn/extension": {
       "name": "acorn-extension",
-      "version": "1.33.0",
+      "version": "1.37.2",
       "dependencies": {
         "@acorn/app-theme": "workspace:*",
         "@acorn/face": "workspace:*",
         "@acorn/shared": "workspace:*",
         "@acorn/support-chat": "workspace:*",
-        "@astryxdesign/core": "0.6.3",
+        "@astryxdesign/core": "catalog:",
         "react": "catalog:",
         "react-dom": "catalog:",
         "sid-ui": "catalog:",

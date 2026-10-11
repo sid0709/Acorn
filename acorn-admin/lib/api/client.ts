@@ -1,7 +1,17 @@
 import { adminSessionToken } from "../auth/cookie";
 import { acornApiUrl } from "../config";
 
-type ApiError = { error?: string; message?: string };
+type ApiErrorBody = { error?: string; message?: string };
+
+/** A failed acorn-backend call, with its HTTP status. */
+export class ApiError extends Error {
+  constructor(
+    message: string,
+    readonly status: number,
+  ) {
+    super(message);
+  }
+}
 
 export async function adminFetch(path: string, init: RequestInit = {}): Promise<Response> {
   const token = await adminSessionToken();
@@ -16,7 +26,7 @@ export async function adminFetch(path: string, init: RequestInit = {}): Promise<
 }
 
 export async function readApiError(res: Response): Promise<string> {
-  const data = (await res.json().catch(() => ({}))) as ApiError;
+  const data = (await res.json().catch(() => ({}))) as ApiErrorBody;
   return data.error || data.message || `Request failed (${res.status})`;
 }
 
@@ -24,7 +34,7 @@ export async function readApiError(res: Response): Promise<string> {
 export async function adminJSON<T>(path: string): Promise<T | null> {
   const res = await adminFetch(path);
   if (res.status === 404) return null;
-  if (!res.ok) throw new Error(await readApiError(res));
+  if (!res.ok) throw new ApiError(await readApiError(res), res.status);
   return (await res.json()) as T;
 }
 

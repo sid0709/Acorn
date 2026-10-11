@@ -1,38 +1,20 @@
 "use client";
 
 import { claimTitle, pageHost, type SupportClaim } from "@acorn/support-chat";
-import { useState } from "react";
-import {
-  Button,
-  Glyph,
-  Lightbox,
-  Link,
-  MetadataList,
-  MetadataListItem,
-  Stack,
-  Text,
-  Thumbnail,
-} from "sid-ui";
+import { Link, MetadataList, MetadataListItem, Stack, Text } from "sid-ui";
+
+import { ScreenshotPreview } from "./screenshot-preview";
 
 import { formatDateTime } from "@/lib/format";
 import { ROUTES } from "@/lib/routes";
 
 /** The report's context: the full-page screenshot, the page, the reporter and their setup. */
 export function ClaimDetails({ claim }: { claim: SupportClaim }) {
-  const [zoomed, setZoomed] = useState(false);
-  const src = ROUTES.claimScreenshot(claim.id);
   const alt = `Full-page screenshot of ${claimTitle(claim)}`;
   return (
     <Stack gap={5}>
       <Stack gap={2}>
-        <Thumbnail src={src} alt={alt} label="Screenshot" onClick={() => setZoomed(true)} />
-        <Button
-          label="View full screenshot"
-          variant="secondary"
-          size="sm"
-          icon={<Glyph name="image" />}
-          onClick={() => setZoomed(true)}
-        />
+        <ScreenshotPreview claimId={claim.id} alt={alt} caption={claim.pageUrl} />
         {claim.screenshotWidth ? (
           <Text type="supporting" color="secondary">
             {`${claim.screenshotWidth} × ${claim.screenshotHeight} px`}
@@ -58,12 +40,6 @@ export function ClaimDetails({ claim }: { claim: SupportClaim }) {
         </MetadataListItem>
         <MetadataListItem label="Chrome tab">{claim.tabKey || "—"}</MetadataListItem>
       </MetadataList>
-      <Lightbox
-        isOpen={zoomed}
-        onOpenChange={setZoomed}
-        media={{ src, alt, caption: claim.pageUrl }}
-        hasZoom
-      />
     </Stack>
   );
 }

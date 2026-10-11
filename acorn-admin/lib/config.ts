@@ -9,6 +9,9 @@ export const SUPPORT_SESSION_HOURS = 2;
 /** How often an open claims inbox checks for new messages. */
 export const CLAIMS_POLL_MS = 10_000;
 
+/** How often the nav badge rechecks how many claims wait on support, on any page. */
+export const NAV_COUNT_POLL_MS = 30_000;
+
 export function acornApiUrl(): string {
   return (process.env.ACORN_API_URL || DEFAULT_API_URL).replace(/\/$/, "");
 }

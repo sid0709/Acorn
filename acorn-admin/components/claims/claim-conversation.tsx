@@ -9,7 +9,6 @@ import {
   type ClaimStatus,
   type ClaimThreadData,
 } from "@acorn/support-chat";
-import { useRouter } from "next/navigation";
 import { useEffect } from "react";
 import {
   Avatar,
@@ -21,6 +20,7 @@ import {
   Layout,
   LayoutContent,
   LayoutHeader,
+  Skeleton,
   Stack,
   StackItem,
   Text,
@@ -33,36 +33,62 @@ import {
   setClaimStatusAction,
 } from "@/lib/actions/claims";
 import { unwrap } from "@/lib/actions/result";
+import { appendCachedMessage, patchCachedClaim, revalidateClaim } from "@/lib/client/claims-cache";
 
 const AVATAR_SIZE = 40;
+/** Placeholder bubbles while a conversation loads: their widths, alternating sides. */
+const SKELETON_BUBBLES = ["60%", "45%", "70%"] as const;
+const SKELETON_BUBBLE_HEIGHT = 44;
+
+/** Where messages will be, while the conversation loads. */
+export function ConversationSkeleton() {
+  return (
+    <Stack gap={4} padding={6} aria-busy="true" aria-label="Loading the conversation">
+      {SKELETON_BUBBLES.map((width, i) => (
+        <HStack key={width} hAlign={i % 2 ? "end" : "start"}>
+          <Skeleton width={width} height={SKELETON_BUBBLE_HEIGHT} />
+        </HStack>
+      ))}
+    </Stack>
+  );
+}
 
 /** The open claim: who reported what, resolve or reopen, and the conversation with a composer. */
 export function ClaimConversation({
   thread,
+  isLoading = false,
   isDetailsOpen,
   onToggleDetails,
   onBack,
 }: {
   thread: ClaimThreadData;
+  /** The header is real but the messages are still on their way. */
+  isLoading?: boolean;
   isDetailsOpen: boolean;
   onToggleDetails: () => void;
   onBack?: () => void;
 }) {
-  const router = useRouter();
   const notice = useNotice();
   const { claim, messages } = thread;
   const reporter = claim.userName || claim.userEmail;
 
   useEffect(() => {
     if (!claim.unread) return;
-    void markClaimReadAction(claim.id).then(() => router.refresh());
-  }, [claim.id, claim.unread, router]);
+    patchCachedClaim(claim.id, { unread: false });
+    void markClaimReadAction(claim.id);
+  }, [claim.id, claim.unread]);
 
   const setStatus = async (status: ClaimStatus) => {
+    const previous = claim.status;
+    patchCachedClaim(claim.id, { status });
     const result = await setClaimStatusAction(claim.id, status);
-    if (!result.ok)
+    if (result.ok) {
+      patchCachedClaim(claim.id, result.value);
+    } else {
+      patchCachedClaim(claim.id, { status: previous });
       notice({ kind: "error", title: "Couldn’t change the status", detail: result.error });
-    router.refresh();
+    }
+    revalidateClaim(claim.id);
   };
 
   return (
@@ -115,17 +141,21 @@ export function ClaimConversation({
       }
       content={
         <LayoutContent padding={0} isScrollable={false}>
-          <ClaimThread
-            key={claim.id}
-            claim={claim}
-            messages={messages}
-            viewer={CLAIM_AUTHOR.admin}
-            placeholder={`Reply to ${reporter}`}
-            onSend={async (body) => {
-              unwrap(await sendClaimMessageAction(claim.id, body));
-              router.refresh();
-            }}
-          />
+          {isLoading ? (
+            <ConversationSkeleton />
+          ) : (
+            <ClaimThread
+              key={claim.id}
+              claim={claim}
+              messages={messages}
+              viewer={CLAIM_AUTHOR.admin}
+              placeholder={`Reply to ${reporter}`}
+              onSend={async (body) => {
+                appendCachedMessage(claim.id, unwrap(await sendClaimMessageAction(claim.id, body)));
+                revalidateClaim(claim.id);
+              }}
+            />
+          )}
         </LayoutContent>
       }
     />

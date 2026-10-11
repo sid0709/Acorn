@@ -4,7 +4,8 @@ export const ROUTES = {
   user: (id: string) => `/users/${encodeURIComponent(id)}`,
   claims: "/claims",
   claim: (id: string) => `/claims/${encodeURIComponent(id)}`,
-  claimScreenshot: (id: string) => `/api/claims/${encodeURIComponent(id)}/screenshot`,
+  claimScreenshot: (id: string, size: "thumb" | "view" | "original" = "original") =>
+    `/api/claims/${encodeURIComponent(id)}/screenshot?size=${size}`,
   login: "/login",
 } as const;
 
