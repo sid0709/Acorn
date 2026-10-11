@@ -623,6 +623,7 @@ export async function runOrchestrator(args: RunOrchestratorArgs): Promise<RunRep
       id == null ? undefined : within.controls.find((candidate) => candidate.id === id);
     const picked = find(res.control?.id);
     const fallbackPicked = find(res.fallback?.id);
+    const guestPicked = find(res.guestControl?.id);
     log.event("read", {
       intent,
       kind: res.kind,
@@ -646,6 +647,9 @@ export async function runOrchestrator(args: RunOrchestratorArgs): Promise<RunRep
             disabled: fallbackPicked?.disabled,
           }
         : null,
+      guest: res.guestControl
+        ? { confidence: res.guestControl.confidence, text: guestPicked?.text || guestPicked?.label }
+        : null,
     });
     return {
       kind: res.kind,
@@ -654,6 +658,8 @@ export async function runOrchestrator(args: RunOrchestratorArgs): Promise<RunRep
       fallback: res.fallback ?? null,
       fallbackPicked,
       guest: res.guest === true,
+      guestControl: res.guestControl ?? null,
+      guestPicked,
       needsPerson: res.needsPerson === true,
       verification: res.verification ?? VERIFICATION.none,
       /** The site says this applicant has already applied to this job. */
@@ -1162,6 +1168,21 @@ export async function runOrchestrator(args: RunOrchestratorArgs): Promise<RunRep
         ? { control: r.fallback, picked: r.fallbackPicked, fallback: true }
         : null;
 
+  /**
+   * The control that goes on without an account, when the read names one on an
+   * account step. The run takes it only off the account goal's own form: once the
+   * account order brought the run to that form, the form is sent. Anywhere else
+   * (the application the guest path opened) the forward pick moves the run on.
+   */
+  const guestOf = (r: Awaited<ReturnType<typeof read>>, url: string) =>
+    r.kind === PAGE_KIND.accountStep &&
+    r.guest &&
+    r.guestControl &&
+    r.guestPicked &&
+    r.accountMode !== accountGoal(url)
+      ? { control: r.guestControl, picked: r.guestPicked, fallback: false }
+      : null;
+
   const diagnose = async (stop: RunStop): Promise<RunFailure> => {
     enter(RUN_STAGE.diagnosing);
     const evidence = failureEvidence({
@@ -1450,18 +1471,21 @@ export async function runOrchestrator(args: RunOrchestratorArgs): Promise<RunRep
         }
 
         if (first.kind === PAGE_KIND.posting) {
-          if (!first.control || !first.picked) {
+          // Jev's likeliest apply control is tried even when it answered none: a
+          // posting can word its apply control unlike most.
+          const target = pickOf(first);
+          if (!target) {
             throw new RunStop(RUN_STAGE.applying, page, [
               "No way to apply was found on the posting",
             ]);
           }
           state.clicks += 1;
-          enter(
-            RUN_STAGE.applying,
-            `Opening the application · ${first.picked.text || first.picked.label}`,
-          );
-          const label = first.picked.text || first.picked.label;
-          const clicked = await click(page, first.control, label);
+          const label = target.picked.text || target.picked.label;
+          if (target.fallback) {
+            log.event("click:fallback", { text: label, disabled: target.picked.disabled });
+          }
+          enter(RUN_STAGE.applying, `Opening the application · ${label}`);
+          const clicked = await click(page, target.control, label);
           if (clicked.missed != null) missedClick(state, label, clicked.missed);
           else pending = { snapshot: clicked.settled.snapshot, how: clicked.settled.how };
           continue;
@@ -1470,10 +1494,8 @@ export async function runOrchestrator(args: RunOrchestratorArgs): Promise<RunRep
         let skipFill: string | null = page.fields === 0 ? "no fields on the page" : null;
         // An account step: go on without an account when the page offers it.
         if (first.kind === PAGE_KIND.accountStep) {
-          const target = pickOf(first);
-          // Once the account order brought the run to the goal's own form, that
-          // form is sent; going on as a guest is taken only from any other page.
-          if (first.guest && target && first.accountMode !== accountGoal(page.url)) {
+          const target = guestOf(first, page.url);
+          if (target) {
             state.clicks += 1;
             const label = target.picked.text || target.picked.label;
             enter(RUN_STAGE.applying, `Going on without an account · ${label}`);
@@ -1547,11 +1569,11 @@ export async function runOrchestrator(args: RunOrchestratorArgs): Promise<RunRep
         pending = handed.pending;
         continue;
       }
-      const guestPath = next.guest && next.accountMode !== accountGoal(page.url);
-      const sendsAccount = next.kind === PAGE_KIND.accountStep && !guestPath;
+      const guest = guestOf(next, page.url);
+      const sendsAccount = next.kind === PAGE_KIND.accountStep && !guest;
       if (sendsAccount && !next.accountPassword) throw noAccountPassword(page);
       const goal = sendsAccount ? goalOrStop(page) : null;
-      const target = pickOf(next);
+      const target = guest ?? pickOf(next);
       // An account step finished somewhere with nothing to go on with (a page that
       // says the account is unblocked or its password is set): the account is ready,
       // so apply again from the posting the run started on, in this same tab.

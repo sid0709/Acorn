@@ -17,16 +17,38 @@ import { uploadFileToElement } from "./agents/upload";
 import { validateElementIndexes } from "./agents/validate";
 import { waitMs } from "./agents/wait";
 import { comboSnapshot, describeEl, describeWidget } from "./debug-snapshot";
+import { NAMED_GROUP_SELECTOR } from "./form-dom";
+import { FILLABLE_SELECTOR } from "./form-frame";
 import { highlightElement } from "./highlighter";
 import { relocateElementByPlan } from "./verify/relocate";
 import { verifyElementByPlan, type VerifyResult } from "./verify-element";
 
 import type { PlanStepPayload, PlanStepResult } from "../types";
 
+/** Every control a question can have, checkboxes and radios drawn as divs included. */
+const QUESTION_CONTROL_SELECTOR = `${FILLABLE_SELECTOR}, [role="checkbox"], [role="radio"]`;
+
+/** Whether node holds a control of another question than the one `own` belongs to. */
+function holdsAnotherQuestion(node: Element, el: Element, own: Element): boolean {
+  const name = el.getAttribute("name");
+  return Array.from(node.querySelectorAll(QUESTION_CONTROL_SELECTOR)).some(
+    (control) =>
+      control !== el &&
+      !own.contains(control) &&
+      !control.contains(el) &&
+      !(name && control.getAttribute("name") === name),
+  );
+}
+
+/**
+ * The words of the question `el` answers: its label, and the headings and text
+ * before it inside its own question. The climb stops at the first container that
+ * also holds another question, so a form's header or job description (which can
+ * say anything) is never read as this field's question.
+ */
 function nearbyQuestionText(el: Element, expectedLabel: string | null): string {
   const bits = [expectedLabel || ""];
-  const html = el as HTMLElement;
-  bits.push(html.getAttribute("aria-label") || "");
+  const own = el.closest(NAMED_GROUP_SELECTOR) ?? el;
   let node: Element | null = el;
   for (let i = 0; i < 8 && node; i += 1) {
     bits.push(node.getAttribute("aria-label") || "");
@@ -34,9 +56,11 @@ function nearbyQuestionText(el: Element, expectedLabel: string | null): string {
       ":scope > label, :scope > legend, :scope > h1, :scope > h2, :scope > h3, :scope > h4",
     );
     if (heading?.textContent) bits.push(heading.textContent);
+    const parent: Element | null = node.parentElement;
+    if (!parent || holdsAnotherQuestion(parent, el, own)) break;
     const prev = node.previousElementSibling as HTMLElement | null;
     if (prev) bits.push(prev.innerText || prev.textContent || "");
-    node = node.parentElement;
+    node = parent;
   }
   return bits.join(" ");
 }

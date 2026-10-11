@@ -53,6 +53,11 @@ export interface ReadPageResponse {
   fallback?: { id: number; role: ControlRole; confidence: number } | null;
   /** The page offers a way to go on without signing in or creating an account. */
   guest?: boolean;
+  /**
+   * When `guest`: the control that goes on without an account. Asked apart from
+   * `control`, which follows the account goal and may open an account form.
+   */
+  guestControl?: { id: number; role: ControlRole; confidence: number } | null;
   /** The page waits on something only the applicant can give (a code sent to them). */
   needsPerson?: boolean;
   /** What the page asks to verify; an email code or link is read from the applicant's Gmail. */
