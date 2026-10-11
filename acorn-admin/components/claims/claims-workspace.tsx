@@ -10,6 +10,7 @@ import type { ClaimList } from "@/lib/api/claims";
 import type { ClaimThreadData } from "@acorn/support-chat";
 
 import { CLAIM_FILTERS, claimFilterFrom, claimThreadKey, claimsListKey } from "@/lib/claims";
+import { useClaimsLive } from "@/lib/client/claims-live";
 import { prefetchCache, useCachedQuery } from "@/lib/client/query-cache";
 import { CLAIMS_POLL_MS } from "@/lib/config";
 import { ROUTES } from "@/lib/routes";
@@ -27,6 +28,7 @@ function claimIdFrom(pathname: string): string | null {
  * Support's claims workspace. The address says which claim and filter are showing; everything
  * else comes from the client cache, so moving between claims and filters never waits on the
  * server: lists and the newest conversations are loaded ahead, and the rest as the pointer arrives.
+ * New messages and claims are pushed into that cache as they happen (useClaimsLive).
  */
 export function ClaimsWorkspace() {
   const pathname = usePathname();
@@ -35,10 +37,12 @@ export function ClaimsWorkspace() {
   const filter = claimFilterFrom(params.get("status") ?? undefined);
   const query = params.get("q")?.trim() ?? "";
 
-  const { data: list } = useCachedQuery<ClaimList>(claimsListKey(filter, query), CLAIMS_POLL_MS);
+  // Changes arrive on the live stream; polling is the fallback while it is down.
+  const pollMs = useClaimsLive() ? undefined : CLAIMS_POLL_MS;
+  const { data: list } = useCachedQuery<ClaimList>(claimsListKey(filter, query), pollMs);
   const { data: thread, error: threadError } = useCachedQuery<ClaimThreadData>(
     selectedId ? claimThreadKey(selectedId) : null,
-    CLAIMS_POLL_MS,
+    pollMs,
   );
 
   useEffect(() => {

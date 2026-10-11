@@ -13,6 +13,7 @@ import (
 
 	"github.com/sid0709/OpenSeat/acorn-backend/account"
 	"github.com/sid0709/OpenSeat/acorn-backend/acorn"
+	"github.com/sid0709/OpenSeat/acorn-backend/acornapi/feed"
 	"github.com/sid0709/OpenSeat/acorn-backend/acornapi/gateway"
 	"github.com/sid0709/OpenSeat/acorn-backend/admin"
 	"github.com/sid0709/OpenSeat/acorn-backend/aiusage"
@@ -86,6 +87,8 @@ type Server struct {
 	webURL         string
 	// sockets pushes each recorded AI call to the account's clients as it happens.
 	sockets accountEmitter
+	// staff pushes claim changes to every open support console (adminClaimEvents).
+	staff *feed.Hub
 }
 
 // Options are the Acorn API's settings. CORS is the server's: see acorn-backend/cmd/server.
@@ -159,6 +162,7 @@ func New(accounts Accounts, listings *jobs.Store, brain *acorn.Service, opts Opt
 	}
 	gw := gateway.New(s.authenticateSocket)
 	s.sockets = gw
+	s.staff = feed.New()
 
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /acorn/health", s.health)
@@ -202,6 +206,7 @@ func New(accounts Accounts, listings *jobs.Store, brain *acorn.Service, opts Opt
 	mux.HandleFunc("GET /acorn/admin/auth/me", s.adminMe)
 	mux.HandleFunc("POST /acorn/admin/auth/signout", s.adminSignOut)
 	mux.HandleFunc("GET /acorn/admin/claims", s.adminListClaims)
+	mux.HandleFunc("GET /acorn/admin/claims/events", s.adminClaimEvents)
 	mux.HandleFunc("GET /acorn/admin/claims/{id}", s.adminGetClaim)
 	mux.HandleFunc("PATCH /acorn/admin/claims/{id}", s.adminPatchClaim)
 	mux.HandleFunc("GET /acorn/admin/claims/{id}/screenshot", s.adminClaimScreenshot)

@@ -5,8 +5,9 @@ import {
   supportClaimReadPath,
   type ClaimThreadData,
   type SupportClaim,
+  type SupportMessage,
 } from "@acorn/support-chat";
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 
 import { authHeaders, getAcornApiUrl } from "../auth/acorn-auth";
 import { MSG } from "../types";
@@ -16,6 +17,9 @@ const SUPPORT_OFFLINE_POLL_MS = 15_000;
 
 type ErrorBody = { error?: string; message?: string };
 
+/** What the server pushes when a report changes (acornapi support:message / support:claim). */
+type ClaimChange = { claim?: SupportClaim; message?: SupportMessage };
+
 async function api<T>(path: string, init?: RequestInit): Promise<T> {
   const base = (await getAcornApiUrl()).replace(/\/$/, "");
   const res = await fetch(`${base}${path}`, { ...init, headers: await authHeaders() });
@@ -24,10 +28,20 @@ async function api<T>(path: string, init?: RequestInit): Promise<T> {
   return data;
 }
 
+/** The thread with the pushed claim and, when new, the pushed message. The open thread is read. */
+function withChange(thread: ClaimThreadData, claim: SupportClaim, message?: SupportMessage) {
+  const known = !message || thread.messages.some((m) => m.id === message.id);
+  return {
+    claim: { ...claim, unread: false },
+    messages: known ? thread.messages : [...thread.messages, message],
+  };
+}
+
 /**
- * The person's reports and the open one's conversation. Reloads when the server
- * pushes a change (a reply, opened, closed), and every SUPPORT_OFFLINE_POLL_MS
- * while the socket is down and the tab is shown.
+ * The person's reports and the open one's conversation. A change the server pushes
+ * (a message from either side, opened, closed) lands in the open thread at once;
+ * the list reloads behind it. Every SUPPORT_OFFLINE_POLL_MS while the socket is down
+ * and the tab is shown, and once when it comes back, everything reloads.
  */
 export function useSupportClaims({
   signedIn,
@@ -82,12 +96,36 @@ export function useSupportClaims({
   }, [visible, refresh]);
 
   useEffect(() => {
-    const onMessage = (message: { type?: string }) => {
-      if (message?.type === MSG.SUPPORT_CLAIMS_CHANGED) void refresh();
+    const onMessage = (message: { type?: string; payload?: ClaimChange }) => {
+      if (message?.type !== MSG.SUPPORT_CLAIMS_CHANGED) return;
+      const claim = message.payload?.claim;
+      if (!claim?.id) {
+        void refresh();
+        return;
+      }
+      if (claim.id === openId) {
+        setThread((current) =>
+          current?.claim.id === claim.id
+            ? withChange(current, claim, message.payload?.message)
+            : current,
+        );
+        if (claim.unread) {
+          void api(supportClaimReadPath(claim.id), { method: "POST" }).catch(() => undefined);
+        }
+      }
+      void loadList();
     };
     chrome.runtime.onMessage.addListener(onMessage);
     return () => chrome.runtime.onMessage.removeListener(onMessage);
-  }, [refresh]);
+  }, [refresh, loadList, openId]);
+
+  // Pushes sent while the socket was down are gone; reload once when it comes back.
+  const link = useRef({ connected, everConnected: connected });
+  useEffect(() => {
+    const cameBack = connected && !link.current.connected && link.current.everConnected;
+    link.current = { connected, everConnected: link.current.everConnected || connected };
+    if (cameBack && signedIn) void refresh();
+  }, [connected, signedIn, refresh]);
 
   useEffect(() => {
     if (connected || !visible || !signedIn) return;
@@ -113,14 +151,16 @@ export function useSupportClaims({
   const send = useCallback(
     async (body: string) => {
       if (!openId) return;
-      await api(supportClaimMessagesPath(openId), {
-        method: "POST",
-        body: JSON.stringify({ body }),
-      });
-      await loadThread(openId);
-      await loadList();
+      const sent = await api<{ message: SupportMessage; claim: SupportClaim }>(
+        supportClaimMessagesPath(openId),
+        { method: "POST", body: JSON.stringify({ body }) },
+      );
+      setThread((current) =>
+        current?.claim.id === openId ? withChange(current, sent.claim, sent.message) : current,
+      );
+      void loadList();
     },
-    [openId, loadList, loadThread],
+    [openId, loadList],
   );
 
   return { claims, unread, thread, openId, loading, error, open, send, reload: refresh };
