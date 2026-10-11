@@ -5,7 +5,8 @@
   "sideEffects": false,
   "exports": {
     ".": "./src/index.ts",
-    "./types": "./src/types.ts"
+    "./types": "./src/types.ts",
+    "./form": "./src/form.ts"
   },
   "scripts": {
     "lint": "eslint src --max-warnings=0",

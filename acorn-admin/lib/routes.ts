@@ -6,6 +6,9 @@ export const ROUTES = {
   claim: (id: string) => `/claims/${encodeURIComponent(id)}`,
   claimScreenshot: (id: string, size: "thumb" | "view" | "original" = "original") =>
     `/api/claims/${encodeURIComponent(id)}/screenshot?size=${size}`,
+  claimAttachment: (id: string, attachmentId: string) =>
+    `/api/claims/${encodeURIComponent(id)}/attachments/${encodeURIComponent(attachmentId)}`,
+  claimMessages: (id: string) => `/api/claims/${encodeURIComponent(id)}/messages`,
   login: "/login",
 } as const;
 

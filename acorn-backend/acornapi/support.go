@@ -9,7 +9,6 @@ import (
 	"net/http"
 	"strings"
 
-	"github.com/sid0709/OpenSeat/acorn-backend/acornapi/gateway"
 	"github.com/sid0709/OpenSeat/acorn-backend/support"
 	"go.mongodb.org/mongo-driver/v2/mongo"
 )
@@ -190,38 +189,6 @@ func (s *Server) postMyClaimMessage(w http.ResponseWriter, r *http.Request) {
 	s.addClaimMessage(w, r, claim, support.AuthorUser, name)
 }
 
-// addClaimMessage appends one message and tells both sides at once: every open support
-// console, and every client of the reporter's account (their other windows included).
-func (s *Server) addClaimMessage(w http.ResponseWriter, r *http.Request, claim support.Claim, author, authorName string) {
-	var body struct {
-		Body string `json:"body"`
-	}
-	if !decode(w, r, &body) {
-		return
-	}
-	msg, updated, err := s.claims.AddMessage(r.Context(), claim, author, authorName, body.Body)
-	switch {
-	case errors.Is(err, support.ErrInvalidMessage):
-		writeError(w, http.StatusBadRequest, err.Error())
-		return
-	case errors.Is(err, support.ErrRateLimited):
-		writeError(w, http.StatusTooManyRequests, err.Error())
-		return
-	case err != nil:
-		slog.Error("acorn support message", "error", err)
-		writeError(w, http.StatusInternalServerError, "could not send the message")
-		return
-	}
-	row := messageRow(msg)
-	s.publishStaffMessage(updated, row)
-	if s.sockets != nil {
-		s.sockets.EmitToAccount(claim.AccountID, gateway.SupportMessageEvent, map[string]any{
-			"claim": claimRow(updated, support.AuthorUser), "message": row,
-		})
-	}
-	writeJSON(w, http.StatusCreated, map[string]any{"message": row, "claim": claimRow(updated, author)})
-}
-
 func (s *Server) readMyClaim(w http.ResponseWriter, r *http.Request) {
 	claim, _, ok := s.myClaim(w, r)
 	if !ok {
@@ -260,16 +227,6 @@ func claimRow(claim support.Claim, reader string) map[string]any {
 		"lastMessageBy":    claim.LastMessageBy,
 		"unread":           claim.UnreadFor(reader),
 		"createdAt":        claim.CreatedAt,
-	}
-}
-
-func messageRow(msg support.Message) map[string]any {
-	return map[string]any{
-		"id":         msg.ID,
-		"author":     msg.Author,
-		"authorName": msg.AuthorName,
-		"body":       msg.Body,
-		"createdAt":  msg.CreatedAt,
 	}
 }
 

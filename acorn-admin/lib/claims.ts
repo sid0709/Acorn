@@ -1,9 +1,9 @@
-import { CLAIM_STATUS, type ClaimStatus } from "@acorn/support-chat";
+import { CLAIM_STATUS, CLAIM_STATUS_LABEL, type ClaimStatus } from "@acorn/support-chat";
 
 /** The inbox's status filter; "all" shows both. */
 export const CLAIM_FILTERS = [
-  { value: CLAIM_STATUS.open, label: "Opened" },
-  { value: CLAIM_STATUS.closed, label: "Closed" },
+  { value: CLAIM_STATUS.open, label: CLAIM_STATUS_LABEL.open },
+  { value: CLAIM_STATUS.closed, label: CLAIM_STATUS_LABEL.closed },
   { value: "all", label: "All" },
 ] as const;
 export type ClaimFilter = (typeof CLAIM_FILTERS)[number]["value"];

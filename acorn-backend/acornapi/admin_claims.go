@@ -7,7 +7,6 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/sid0709/OpenSeat/acorn-backend/acornapi/gateway"
 	"github.com/sid0709/OpenSeat/acorn-backend/support"
 	"go.mongodb.org/mongo-driver/v2/mongo"
 )
@@ -89,6 +88,7 @@ func (s *Server) adminReadClaim(w http.ResponseWriter, r *http.Request) {
 	s.markClaimRead(w, r, r.PathValue("id"), support.AuthorAdmin)
 }
 
+// adminPatchClaim resolves or reopens a claim; the conversation records the change.
 func (s *Server) adminPatchClaim(w http.ResponseWriter, r *http.Request) {
 	if _, ok := s.adminSession(w, r); !ok || !s.claimsReady(w) {
 		return
@@ -99,26 +99,24 @@ func (s *Server) adminPatchClaim(w http.ResponseWriter, r *http.Request) {
 	if !decode(w, r, &body) {
 		return
 	}
-	status := strings.TrimSpace(body.Status)
-	if status != support.StatusOpen && status != support.StatusClosed {
+	kind, ok := statusKinds[strings.TrimSpace(body.Status)]
+	if !ok {
 		writeError(w, http.StatusBadRequest, "invalid status")
 		return
 	}
-	claim, err := s.claims.SetStatus(r.Context(), r.PathValue("id"), status)
-	if errors.Is(err, mongo.ErrNoDocuments) {
-		writeError(w, http.StatusNotFound, "claim not found")
+	claim, ok := s.loadClaim(w, r, "")
+	if !ok {
 		return
 	}
-	if err != nil {
-		slog.Error("acorn admin claim", "error", err)
-		writeError(w, http.StatusInternalServerError, "could not update claim")
+	if claim.Status == strings.TrimSpace(body.Status) {
+		writeJSON(w, http.StatusOK, map[string]any{"claim": claimRow(claim, support.AuthorAdmin)})
 		return
 	}
-	s.publishStaffClaim(claim)
-	if s.sockets != nil {
-		s.sockets.EmitToAccount(claim.AccountID, gateway.SupportClaimEvent, map[string]any{
-			"claim": claimRow(claim, support.AuthorUser),
-		})
-	}
-	writeJSON(w, http.StatusOK, map[string]any{"success": true, "claim": claimRow(claim, support.AuthorAdmin)})
+	s.postMessage(w, r, claim, support.Draft{Author: support.AuthorAdmin, AuthorName: supportAuthorName, Kind: kind})
+}
+
+// statusKinds is the conversation event each status a console may set records.
+var statusKinds = map[string]string{
+	support.StatusOpen:   support.KindReopened,
+	support.StatusClosed: support.KindResolved,
 }

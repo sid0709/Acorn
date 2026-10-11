@@ -11,6 +11,10 @@ export type MessageRun = {
   messages: SupportMessage[];
 };
 
+/** One line of the conversation: a run of messages, or a status change between them. */
+export type ThreadItem =
+  ({ type: "run" } & MessageRun) | { type: "event"; day: string; message: SupportMessage };
+
 /** The reporter's notes, shown as the conversation's first message. */
 export function notesMessage(claim: SupportClaim): SupportMessage | null {
   const body = claim.notes.trim();
@@ -24,21 +28,31 @@ export function notesMessage(claim: SupportClaim): SupportMessage | null {
   };
 }
 
-/** Groups a claim's conversation (notes first) into runs. */
-export function messageRuns(claim: SupportClaim, messages: SupportMessage[]): MessageRun[] {
+/** Groups a claim's conversation (notes first) into runs, with status changes on their own. */
+export function threadItems(claim: SupportClaim, messages: SupportMessage[]): ThreadItem[] {
   const notes = notesMessage(claim);
   const all = notes ? [notes, ...messages] : messages;
-  const runs: MessageRun[] = [];
+  const items: ThreadItem[] = [];
   for (const message of all) {
     const day = dayLabel(message.createdAt);
-    const last = runs[runs.length - 1];
-    if (last && last.author === message.author && last.day === day) {
+    if (message.kind) {
+      items.push({ type: "event", day, message });
+      continue;
+    }
+    const last = items[items.length - 1];
+    if (last?.type === "run" && last.author === message.author && last.day === day) {
       last.messages.push(message);
     } else {
-      runs.push({ author: message.author, name: message.authorName, day, messages: [message] });
+      items.push({
+        type: "run",
+        author: message.author,
+        name: message.authorName,
+        day,
+        messages: [message],
+      });
     }
   }
-  return runs;
+  return items;
 }
 
 /** Where a bubble sits in its run, for rounded-corner grouping. */

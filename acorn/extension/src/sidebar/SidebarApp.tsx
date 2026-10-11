@@ -1,5 +1,6 @@
 import { FILL_MODE } from "@acorn/shared/field-issues";
 import { isFillPhaseBusy } from "@acorn/shared/pipeline-types";
+import { CLAIM_STATUS } from "@acorn/support-chat";
 import { useMemo, useState } from "react";
 
 import { countBusyWorkers, tabInputFromProgress } from "../acorn-face/director";
@@ -237,7 +238,7 @@ export default function SidebarApp() {
   };
   // Report stays available while work runs: a stuck run is exactly what people report.
   const reportDisabled = !session || activeTabId == null;
-  const submitReport = async (notes: string): Promise<boolean> => {
+  const submitReport = async (notes: string, claimId: string | null): Promise<boolean> => {
     if (activeTabId == null) return false;
     setReportSending(true);
     try {
@@ -245,6 +246,7 @@ export default function SidebarApp() {
         type: MSG.SUBMIT_SUPPORT_CLAIM,
         tabId: activeTabId,
         notes,
+        claimId,
       });
       if (!res?.ok) {
         pushAcornNotice({
@@ -258,7 +260,7 @@ export default function SidebarApp() {
       setReportOpen(false);
       pushAcornNotice({
         kind: "success",
-        title: "Report sent",
+        title: claimId ? "Added to your report" : "Report sent",
         detail: "Support has the page and your notes. Replies show in the Support tab.",
         tabId: activeTabId,
       });
@@ -351,6 +353,7 @@ export default function SidebarApp() {
             isOpen={reportOpen}
             onOpenChange={setReportOpen}
             pageLabel={headerContext}
+            openClaims={support.claims.filter((claim) => claim.status === CLAIM_STATUS.open)}
             sending={reportSending}
             onSend={submitReport}
           />
