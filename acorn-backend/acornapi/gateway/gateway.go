@@ -110,9 +110,10 @@ func room(accountID string) socket.Room { return socket.Room("acorn:acct:" + acc
 // SOCKET_EVENT.aiUsageRecorded in the extension.
 const UsageRecordedEvent = "ai-usage:recorded"
 
-// SupportMessageEvent tells the reporter's clients that support replied on a claim,
-// and SupportClaimEvent that a claim was opened or closed. The same strings are
-// SOCKET_EVENT.supportMessage and SOCKET_EVENT.supportClaim in the extension.
+// SupportMessageEvent tells the reporter's clients about a new message on a claim (from
+// either side), and SupportClaimEvent that a claim was opened or closed. The same strings
+// are SOCKET_EVENT.supportMessage and SOCKET_EVENT.supportClaim in the extension, and the
+// event names on the support console's stream (acornapi adminClaimEvents).
 const (
 	SupportMessageEvent = "support:message"
 	SupportClaimEvent   = "support:claim"

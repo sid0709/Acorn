@@ -4,6 +4,8 @@ import type { ClaimStatus, ClaimThreadData, SupportClaim } from "@acorn/support-
 
 const CLAIMS_PATH = "/acorn/admin/claims";
 export const claimPath = (id: string) => `${CLAIMS_PATH}/${encodeURIComponent(id)}`;
+/** acorn-backend's live stream of claim changes (Server-Sent Events). */
+export const CLAIM_EVENTS_PATH = `${CLAIMS_PATH}/events`;
 
 export type ClaimList = { claims: SupportClaim[]; open: number; awaitingSupport: number };
 

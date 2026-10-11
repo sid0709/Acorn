@@ -114,6 +114,7 @@ func (s *Server) adminPatchClaim(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusInternalServerError, "could not update claim")
 		return
 	}
+	s.publishStaffClaim(claim)
 	if s.sockets != nil {
 		s.sockets.EmitToAccount(claim.AccountID, gateway.SupportClaimEvent, map[string]any{
 			"claim": claimRow(claim, support.AuthorUser),

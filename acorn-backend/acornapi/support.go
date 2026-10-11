@@ -104,6 +104,7 @@ func (s *Server) createSupportClaim(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusInternalServerError, "could not save the report")
 		return
 	}
+	s.publishStaffClaim(saved)
 	writeJSON(w, http.StatusCreated, map[string]any{"claim": claimRow(saved, support.AuthorUser)})
 }
 
@@ -189,7 +190,8 @@ func (s *Server) postMyClaimMessage(w http.ResponseWriter, r *http.Request) {
 	s.addClaimMessage(w, r, claim, support.AuthorUser, name)
 }
 
-// addClaimMessage appends one message and tells the reporter's clients when support wrote it.
+// addClaimMessage appends one message and tells both sides at once: every open support
+// console, and every client of the reporter's account (their other windows included).
 func (s *Server) addClaimMessage(w http.ResponseWriter, r *http.Request, claim support.Claim, author, authorName string) {
 	var body struct {
 		Body string `json:"body"`
@@ -211,7 +213,8 @@ func (s *Server) addClaimMessage(w http.ResponseWriter, r *http.Request, claim s
 		return
 	}
 	row := messageRow(msg)
-	if author == support.AuthorAdmin && s.sockets != nil {
+	s.publishStaffMessage(updated, row)
+	if s.sockets != nil {
 		s.sockets.EmitToAccount(claim.AccountID, gateway.SupportMessageEvent, map[string]any{
 			"claim": claimRow(updated, support.AuthorUser), "message": row,
 		})

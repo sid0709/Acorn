@@ -3,17 +3,20 @@
 import type { ClaimList } from "@/lib/api/claims";
 
 import { DEFAULT_CLAIM_FILTER, claimsListKey } from "@/lib/claims";
+import { useClaimsLive } from "@/lib/client/claims-live";
 import { useCachedQuery } from "@/lib/client/query-cache";
 import { NAV_COUNT_POLL_MS } from "@/lib/config";
 
 /**
  * How many claims wait on support, for the nav badge. It reads the inbox's default list, so
- * the badge also warms the Claims page: opening it shows the list without waiting.
+ * the badge also warms the Claims page: opening it shows the list without waiting. The live
+ * claim stream keeps it current on every page; polling is the fallback while that is down.
  */
 export function useAwaitingSupport(): number {
+  const live = useClaimsLive();
   const { data } = useCachedQuery<ClaimList>(
     claimsListKey(DEFAULT_CLAIM_FILTER, ""),
-    NAV_COUNT_POLL_MS,
+    live ? undefined : NAV_COUNT_POLL_MS,
   );
   return data?.awaitingSupport ?? 0;
 }

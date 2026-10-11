@@ -6,10 +6,10 @@ export const BRAND = "Acorn Admin";
 /** How long a support session lasts; account.SupportSessionTTL in acorn-backend. */
 export const SUPPORT_SESSION_HOURS = 2;
 
-/** How often an open claims inbox checks for new messages. */
+/** How often an open claims inbox checks for new messages while the live stream is down. */
 export const CLAIMS_POLL_MS = 10_000;
 
-/** How often the nav badge rechecks how many claims wait on support, on any page. */
+/** How often the nav badge rechecks how many claims wait on support while the live stream is down. */
 export const NAV_COUNT_POLL_MS = 30_000;
 
 export function acornApiUrl(): string {
