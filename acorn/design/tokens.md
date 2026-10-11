@@ -23,7 +23,6 @@ A few sizes have no design-system token. They stay as named custom properties ne
 
 - `--acorn-face-brand-px`: header Acorn Face size (set from `ACORN_FACE_BRAND_PX`)
 - `--acorn-mark-size`: row logo mark
-- `--acorn-marking-opacity`: a row fading out while it is marked applied
 - `--acorn-gen-gap`, `--acorn-gen-height`: generate progress segments
 - `--acorn-plan-max-height`: plan step list
 - `--acorn-preview-min-height`: résumé preview frame

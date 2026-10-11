@@ -44,7 +44,7 @@ const (
 	maxBody = 16 << 20
 )
 
-// Accounts is Acorn's own sign-in and the jobs that account has saved or applied to.
+// Accounts is Acorn's own sign-in and the jobs that account has saved.
 // *account.Store is the real one.
 type Accounts interface {
 	Session(ctx context.Context, token string, now time.Time) (account.Session, error)
@@ -55,8 +55,6 @@ type Accounts interface {
 	StartSession(ctx context.Context, userID string, now time.Time) (string, account.User, error)
 	Revoke(ctx context.Context, token string) error
 	SavedJobIDs(ctx context.Context, userID string) ([]string, error)
-	AppliedJobIDs(ctx context.Context, userID string) ([]string, error)
-	MarkApplied(ctx context.Context, userID, jobID string) error
 	SaveGoogleState(ctx context.Context, state, verifier, redirect string, now time.Time) error
 	TakeGoogleState(ctx context.Context, state string, now time.Time) (string, string, error)
 	GoogleSignIn(ctx context.Context, id account.GoogleIdentity, now time.Time) (string, account.User, error)
@@ -218,7 +216,6 @@ func New(accounts Accounts, listings *jobs.Store, brain *acorn.Service, opts Opt
 	mux.HandleFunc("GET /acorn/admin/statistics", s.adminStatistics)
 	mux.HandleFunc("GET /acorn/jobs/{jobId}", s.getJob)
 	mux.HandleFunc("POST /acorn/jobs/{jobId}/generate", s.requireAI(s.generateForJob))
-	mux.HandleFunc("POST /acorn/jobs/{jobId}/mark-applied", s.markApplied)
 	mux.HandleFunc("GET /acorn/jobs/{jobId}/resume-preview", s.jobResumePreview)
 	mux.HandleFunc("GET /acorn/jobs/{jobId}/recommended-resume", s.jobRecommendedResume)
 

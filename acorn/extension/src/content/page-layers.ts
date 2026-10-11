@@ -22,7 +22,11 @@ const BACKDROP_PROBE_INSET = 0.05;
 export interface PageLayers {
   /** The name of the open dialog el sits in ("" when it has none), or null outside every dialog. */
   dialogOf(el: Element): string | null;
-  /** An open dialog is over el: a click on it would land on the dialog or its backdrop. */
+  /**
+   * An open dialog is over el: a click on it would land on the dialog or its
+   * backdrop. A control inside a dialog is covered when a newer dialog opened over
+   * that one (the page left the first one open beneath it).
+   */
   covered(el: Element): boolean;
 }
 
@@ -109,16 +113,29 @@ function readLayers(doc: Document): PageLayers {
   const openDialogOf = (el: Element): Element | null =>
     dialogs.filter((dialog) => composedContains(dialog, el)).at(-1) ?? null;
 
-  const hitCovered = (el: Element): boolean => {
+  /** What the browser has on top at el's centre; null when el is off screen or has no box. */
+  const topAt = (el: Element): Element | null => {
     const rect = el.getBoundingClientRect();
-    if (rect.width <= 0 || rect.height <= 0) return false;
+    if (rect.width <= 0 || rect.height <= 0) return null;
     const x = rect.left + rect.width / 2;
     const y = rect.top + rect.height / 2;
     const view = doc.defaultView;
-    if (!view || x < 0 || y < 0 || x > view.innerWidth || y > view.innerHeight) return false;
+    if (!view || x < 0 || y < 0 || x > view.innerWidth || y > view.innerHeight) return null;
     const root = el.getRootNode() as Document | ShadowRoot;
-    const top = root.elementFromPoint?.(x, y) ?? null;
+    return root.elementFromPoint?.(x, y) ?? null;
+  };
+
+  const hitCovered = (el: Element): boolean => {
+    const top = topAt(el);
     return top != null && top !== el && !el.contains(top) && !top.contains(el);
+  };
+
+  /** Another open dialog is on top at el's centre, over el's own dialog. */
+  const buried = (el: Element, own: Element): boolean => {
+    if (dialogs.length < 2) return false;
+    const top = topAt(el);
+    const over = top ? openDialogOf(top) : null;
+    return over != null && over !== own;
   };
 
   return {
@@ -129,7 +146,9 @@ function readLayers(doc: Document): PageLayers {
       return names.get(dialog) ?? "";
     },
     covered(el) {
-      if (!dialogs.length || openDialogOf(el)) return false;
+      if (!dialogs.length) return false;
+      const own = openDialogOf(el);
+      if (own) return buried(el, own);
       if (el.closest("[inert]")) return true;
       if (modals.length) return true;
       return hitCovered(el);

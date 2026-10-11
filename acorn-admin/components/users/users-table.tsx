@@ -1,6 +1,7 @@
 "use client";
 
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
+import { useEffect } from "react";
 import { Avatar, Badge, HStack, Pagination, Stack, Table, Text, type TableColumn } from "sid-ui";
 
 import { DeactivatedBadge } from "./deactivated-badge";
@@ -75,6 +76,11 @@ export function UsersTable({
   const router = useRouter();
   const pathname = usePathname();
   const params = useSearchParams();
+  // Warm every profile on the page, so opening one starts from its loading frame at once.
+  const ids = users.map((u) => u.id).join(",");
+  useEffect(() => {
+    if (ids) for (const id of ids.split(",")) router.prefetch(ROUTES.user(id));
+  }, [ids, router]);
   const goTo = (next: number) => {
     const search = new URLSearchParams(params.toString());
     search.set("page", String(next));

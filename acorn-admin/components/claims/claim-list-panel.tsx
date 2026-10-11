@@ -1,7 +1,7 @@
 "use client";
 
 import { ClaimListItem, type SupportClaim } from "@acorn/support-chat";
-import { usePathname, useRouter, useSearchParams } from "next/navigation";
+import { usePathname, useSearchParams } from "next/navigation";
 import { useEffect, useState } from "react";
 import {
   Badge,
@@ -15,15 +15,26 @@ import {
   List,
   SegmentedControl,
   SegmentedControlItem,
+  Skeleton,
   Stack,
   TextInput,
   icons,
 } from "sid-ui";
 
-import { CLAIM_FILTERS, type ClaimFilter } from "@/lib/claims";
+import { CLAIM_FILTERS, claimThreadKey, type ClaimFilter } from "@/lib/claims";
+import { prefetchCache } from "@/lib/client/query-cache";
 import { ROUTES } from "@/lib/routes";
 
-const SEARCH_DELAY_MS = 300;
+const SEARCH_DELAY_MS = 200;
+/** Placeholder rows while the first list loads. */
+const SKELETON_ROWS = 6;
+const SKELETON_ROW_HEIGHT = 72;
+
+/** Moves the address without a server round trip; the workspace reads it and the cache answers. */
+function go(url: string, replace = false) {
+  if (replace) window.history.replaceState(null, "", url);
+  else window.history.pushState(null, "", url);
+}
 
 /** The left rail: what waits on support, search, the Opened/Closed switch, then every claim. */
 export function ClaimListPanel({
@@ -33,13 +44,13 @@ export function ClaimListPanel({
   awaitingSupport,
   selectedId,
 }: {
-  claims: SupportClaim[];
+  /** Undefined until the first answer. */
+  claims: SupportClaim[] | undefined;
   filter: ClaimFilter;
   query: string;
   awaitingSupport: number;
   selectedId: string | null;
 }) {
-  const router = useRouter();
   const pathname = usePathname();
   const params = useSearchParams();
   const [search, setSearch] = useState(query);
@@ -57,13 +68,14 @@ export function ClaimListPanel({
       const next = new URLSearchParams(params.toString());
       if (search.trim()) next.set("q", search.trim());
       else next.delete("q");
-      router.replace(`${pathname}?${next.toString()}`, { scroll: false });
+      go(`${pathname}?${next.toString()}`, true);
     }, SEARCH_DELAY_MS);
     return () => clearTimeout(timer);
-  }, [search, query, params, pathname, router]);
+  }, [search, query, params, pathname]);
 
-  const open = (id: string) =>
-    router.push(`${ROUTES.claim(id)}?${params.toString()}`, { scroll: false });
+  const open = (id: string) => {
+    if (id !== selectedId) go(`${ROUTES.claim(id)}?${params.toString()}`);
+  };
 
   return (
     <Layout
@@ -89,7 +101,7 @@ export function ClaimListPanel({
             <SegmentedControl
               label="Show"
               value={filter}
-              onChange={(value) => router.push(`${ROUTES.claims}?${withParam("status", value)}`)}
+              onChange={(value) => go(`${pathname}?${withParam("status", value)}`)}
               layout="fill"
               size="sm"
             >
@@ -102,7 +114,13 @@ export function ClaimListPanel({
       }
       content={
         <LayoutContent isScrollable padding={2} label="Claims">
-          {claims.length === 0 ? (
+          {claims === undefined ? (
+            <Stack gap={2} aria-busy="true" aria-label="Loading claims">
+              {Array.from({ length: SKELETON_ROWS }, (_, i) => (
+                <Skeleton key={i} height={SKELETON_ROW_HEIGHT} />
+              ))}
+            </Stack>
+          ) : claims.length === 0 ? (
             <EmptyState
               isCompact
               icon={<Glyph name={query ? "search" : "check"} />}
@@ -118,6 +136,7 @@ export function ClaimListPanel({
                   showReporter
                   isSelected={claim.id === selectedId}
                   onOpen={() => open(claim.id)}
+                  onIntent={() => prefetchCache(claimThreadKey(claim.id))}
                 />
               ))}
             </List>

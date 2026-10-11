@@ -21,7 +21,6 @@ import (
 
 type fakeAccounts struct {
 	users          map[string]account.User
-	applied        []string
 	googleState    string
 	googleVerifier string
 	googleRedirect string
@@ -72,16 +71,6 @@ func (f *fakeAccounts) Revoke(_ context.Context, token string) error {
 	return nil
 }
 func (f *fakeAccounts) SavedJobIDs(context.Context, string) ([]string, error) { return nil, nil }
-func (f *fakeAccounts) AppliedJobIDs(context.Context, string) ([]string, error) {
-	return nil, nil
-}
-func (f *fakeAccounts) MarkApplied(_ context.Context, _ string, jobID string) error {
-	if jobID == "dup" {
-		return account.ErrAlreadyApplied
-	}
-	f.applied = append(f.applied, jobID)
-	return nil
-}
 func (f *fakeAccounts) SaveGoogleState(_ context.Context, state, verifier, redirect string, _ time.Time) error {
 	f.googleState = state
 	f.googleVerifier = verifier
@@ -344,19 +333,6 @@ func TestExtensionSignInUsesProfilePassword(t *testing.T) {
 	}
 	if bad := call(handler, "POST", "/acorn/auth/extension/signin", `{"email":"j@example.com","password":"nope"}`, nil, ""); bad.Code != http.StatusUnauthorized {
 		t.Fatalf("bad extension password = %d", bad.Code)
-	}
-}
-
-func TestMarkApplied(t *testing.T) {
-	handler, accounts := newTestServer(t, fakeModel{})
-	if rec := call(handler, "POST", "/acorn/jobs/j1/mark-applied", "", bearer("hunter"), ""); rec.Code != http.StatusOK {
-		t.Fatalf("mark applied: %d %s", rec.Code, rec.Body)
-	}
-	if len(accounts.applied) != 1 || accounts.applied[0] != "j1" {
-		t.Fatalf("applied = %v", accounts.applied)
-	}
-	if rec := call(handler, "POST", "/acorn/jobs/dup/mark-applied", "", bearer("hunter"), ""); rec.Code != http.StatusOK {
-		t.Fatalf("already applied should still succeed: %d", rec.Code)
 	}
 }
 

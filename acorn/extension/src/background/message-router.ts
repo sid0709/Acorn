@@ -25,7 +25,7 @@ import { handleStartRun, handleStopRun } from "./messages/run";
 import { handleSelectionQa } from "./messages/selection-qa";
 import { handleSubmitSupportClaim } from "./messages/support-claim";
 import { handleSupportHandoff } from "./messages/support-session";
-import { handleGetTabJob, handleMarkJobApplied, handleOpenWorkerJob } from "./messages/worker-jobs";
+import { handleGetTabJob, handleOpenWorkerJob } from "./messages/worker-jobs";
 import { refreshTabUsage } from "./tab-usage-store";
 
 import type { TraceEntry } from "../debug-trace";
@@ -77,11 +77,6 @@ export function routeMessage(
 
   if (message.type === MSG.OPEN_WORKER_JOB) {
     handleOpenWorkerJob(message, sender, sendResponse);
-    return true;
-  }
-
-  if (message.type === MSG.MARK_JOB_APPLIED) {
-    handleMarkJobApplied(message, sendResponse);
     return true;
   }
 

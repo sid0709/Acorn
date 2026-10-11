@@ -17,6 +17,19 @@ export function formatRunClock(ms: number): string {
   return `${pad(hours, 2)}:${pad(minutes, 2)}:${pad(seconds, 2)}:${pad(millis, 3)}`;
 }
 
+/** Elapsed time in words for a person, e.g. "1m 17s", "42s", "1h 3m". */
+export function formatRunDuration(ms: number): string {
+  const total = Math.max(0, Math.round(ms / MS_PER_SECOND));
+  const hours = Math.floor(total / (MS_PER_HOUR / MS_PER_SECOND));
+  const minutes = Math.floor(
+    (total % (MS_PER_HOUR / MS_PER_SECOND)) / (MS_PER_MINUTE / MS_PER_SECOND),
+  );
+  const seconds = total % (MS_PER_MINUTE / MS_PER_SECOND);
+  if (hours > 0) return `${hours}h ${minutes}m`;
+  if (minutes > 0) return `${minutes}m ${seconds}s`;
+  return `${seconds}s`;
+}
+
 /**
  * The Run's clock: counts up from 00:00:00:000 while the run works, then holds the
  * run's final time. Only this component re-renders on each frame.

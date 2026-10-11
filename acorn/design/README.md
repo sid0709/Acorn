@@ -9,7 +9,7 @@ A narrow panel that works like a small app:
 1. **Header**: the live Acorn Face, "Acorn", and one line about the active Chrome tab (its job, its remembered page, or "No job on this tab"). A worker `Badge` appears only while something runs. On the right is the account `MoreMenu`, an `Avatar` whose dot is the socket connection, with Acorn Face guide, Settings, and Sign out.
 2. **`PillNav`** under the header: **Jobs** (Fill), **Ask** (Q&A), **Tabs** (Custom). The pills are hash links (`#fill`, `#qa`, `#custom`). Counts show work in flight and remembered tabs.
 3. **Now card** at the top of Jobs and Tabs: what the active tab is, its résumé status (`Badge`), any run in flight, and the actions that work on it. **Fill page** is the primary button; Generate and Recommend share the row under it. On an unremembered Custom tab the card offers **Remember this tab** instead.
-4. **List**: compact rows (`Card`), grouped into "Ready to fill" and "Needs a résumé". The whole row opens or focuses the tab. Preview stays one click away; Download, Mark applied or Forget, Continue, Start over, and View JD sit in the row's ⋯ `MoreMenu`.
+4. **List**: compact rows (`Card`), grouped into "Ready to fill" and "Needs a résumé". The whole row opens or focuses the tab. Preview stays one click away; Download, Forget, Continue, Start over, and View JD sit in the row's ⋯ `MoreMenu`.
 5. **Ask**: a chat thread (`ChatLayout`, `ChatMessage`, `ChatComposer`). Paste a question Fill left blank and copy the answer.
 
 Overlays are design-system `Drawer`s: Settings (API URL, connection, version) and the Face guide open as sheets, and the résumé and JD previews open full height. Escape closes them and focus returns.

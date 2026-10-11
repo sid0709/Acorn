@@ -20,13 +20,7 @@ const MENU_WIDTH = 260;
 const TRIGGER_AVATAR = 24;
 
 /** The console bar: brand, the page pills, and the signed-in admin's menu. */
-export function AdminHeader({
-  email,
-  awaitingSupport,
-}: {
-  email: string;
-  awaitingSupport: number;
-}) {
+export function AdminHeader({ email }: { email: string }) {
   const { isMobile } = useAppShellMobile();
   return (
     <TopNav
@@ -38,7 +32,7 @@ export function AdminHeader({
           headerEndContent={<Badge label="Support" variant="purple" />}
         />
       }
-      centerContent={isMobile ? undefined : <AdminNav awaitingSupport={awaitingSupport} />}
+      centerContent={isMobile ? undefined : <AdminNav />}
       endContent={
         <DropdownMenu
           button={{

@@ -17,3 +17,17 @@ export function claimFilterFrom(raw: string | undefined): ClaimFilter {
 export function statusFor(filter: ClaimFilter): ClaimStatus | "" {
   return filter === "all" ? "" : filter;
 }
+
+/** The console's own JSON routes for claims, which the client cache reads. */
+export const CLAIMS_API = "/api/claims";
+export const claimsListKey = (filter: ClaimFilter, q: string) => {
+  const search = new URLSearchParams();
+  const status = statusFor(filter);
+  if (status) search.set("status", status);
+  if (q.trim()) search.set("q", q.trim());
+  const text = search.toString();
+  return text ? `${CLAIMS_API}?${text}` : CLAIMS_API;
+};
+export const claimThreadKey = (id: string) => `${CLAIMS_API}/${encodeURIComponent(id)}`;
+export const isClaimsListKey = (key: string) =>
+  key === CLAIMS_API || key.startsWith(`${CLAIMS_API}?`);

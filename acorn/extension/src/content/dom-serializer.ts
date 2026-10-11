@@ -170,7 +170,7 @@ function markLayers(el: Element, attrs: Record<string, string>, delegate: Elemen
   if (!layers) return;
   const dialog = layers.dialogOf(el);
   if (dialog != null) attrs[LAYER_ATTR.dialog] = (dialog || "dialog").slice(0, MAX_TEXT);
-  else if (layers.covered(el)) attrs[LAYER_ATTR.covered] = "true";
+  if (layers.covered(el)) attrs[LAYER_ATTR.covered] = "true";
 }
 
 function isHeadNoise(el: Element): boolean {

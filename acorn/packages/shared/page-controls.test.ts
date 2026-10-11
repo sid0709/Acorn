@@ -75,6 +75,24 @@ describe("collectPageControls", () => {
     );
   });
 
+  it("ranks a dialog left open beneath a newer one after the dialog on top", () => {
+    const tree = node("body", {}, [
+      node("button", {
+        text: "Go on without an account",
+        attrs: { "acorn-dialog": "dialog", "acorn-covered": "true" },
+      }),
+      node("button", { text: "Send application", attrs: { "acorn-dialog": "dialog" } }),
+    ]);
+    const controls = collectPageControls(tree);
+    assert.deepEqual(
+      controls.map((c) => [c.text, c.dialog, c.covered]),
+      [
+        ["Send application", "dialog", false],
+        ["Go on without an account", "dialog", true],
+      ],
+    );
+  });
+
   it("names an icon-only control by the entry around it", () => {
     const edit = node("button");
     const tree = node("body", {}, [

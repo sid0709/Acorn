@@ -3,6 +3,8 @@
 import { usePathname } from "next/navigation";
 import { PillNav, useAppShellMobile, type PillNavItem } from "sid-ui";
 
+import { useAwaitingSupport } from "./use-awaiting-support";
+
 import { BRAND } from "@/lib/config";
 import { ROUTES } from "@/lib/routes";
 
@@ -20,14 +22,8 @@ function activeFor(pathname: string, list: PillNavItem[]) {
   return match?.href ?? ROUTES.statistics;
 }
 
-export function AdminNav({
-  awaitingSupport,
-  placement = "top",
-}: {
-  awaitingSupport: number;
-  placement?: "top" | "bottom";
-}) {
-  const list = items(awaitingSupport);
+export function AdminNav({ placement = "top" }: { placement?: "top" | "bottom" }) {
+  const list = items(useAwaitingSupport());
   return (
     <PillNav
       label={BRAND}
@@ -39,7 +35,7 @@ export function AdminNav({
 }
 
 /** On small screens the pills move to a bar along the bottom edge. */
-export function MobileAdminNav({ awaitingSupport }: { awaitingSupport: number }) {
+export function MobileAdminNav() {
   const { isMobile } = useAppShellMobile();
-  return isMobile ? <AdminNav awaitingSupport={awaitingSupport} placement="bottom" /> : null;
+  return isMobile ? <AdminNav placement="bottom" /> : null;
 }

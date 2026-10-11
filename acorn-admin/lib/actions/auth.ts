@@ -9,12 +9,14 @@ import {
   clearAdminSessionCookie,
   writeAdminSessionCookie,
 } from "../auth/cookie";
+import { forgetAdminSession } from "../auth/session";
 import { acornApiUrl } from "../config";
 import { ROUTES } from "../routes";
 
 export async function signOutAction(): Promise<void> {
   const token = await adminSessionToken();
   if (token) {
+    forgetAdminSession(token);
     await fetch(`${acornApiUrl()}${ADMIN_SIGN_OUT_PATH}`, {
       method: "POST",
       headers: { Authorization: `Bearer ${token}` },

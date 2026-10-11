@@ -5,6 +5,8 @@ export const ACORN_FACE_BADGE_PX = 18;
 export const ACORN_FACE_BADGE_OVERHANG = 0.28;
 export const ACORN_FACE_HELP_PX = 148;
 export const ACORN_FACE_CHIP_PX = 32;
+/** The smiling acorn at the centre of the applied celebration. */
+export const ACORN_FACE_CELEBRATE_PX = 96;
 
 export const FACE_SMILE_MS = 900;
 export const FACE_WINK_MS = 800;

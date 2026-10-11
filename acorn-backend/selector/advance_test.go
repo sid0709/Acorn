@@ -134,14 +134,29 @@ func TestReadPageFallsBackToTheMostProbableControl(t *testing.T) {
 	}
 }
 
-func TestReadPageNoFallbackOffAForm(t *testing.T) {
+func TestReadPageNoFallbackOffTheApplication(t *testing.T) {
+	decider := &scriptedDecider{answers: map[string]jev.Answer{
+		pageKindQuestion: {Choice: KindOther},
+		controlQuestion:  {Choice: noControlKey, Probabilities: map[string]float64{"control_1": 0.4}},
+	}}
+	read, err := New(decider).ReadPage(context.Background(), PageQuery{Text: "Search results", Intent: IntentStart, Controls: formControls})
+	if err != nil || read.Fallback != nil {
+		t.Fatalf("read = %+v err = %v, want no fallback off the application", read, err)
+	}
+}
+
+// A posting whose apply control Jev doubted (worded unlike most) still offers it,
+// so the run tries it before saying the posting has no way to apply.
+func TestReadPagePostingFallsBackToItsLikeliestControl(t *testing.T) {
 	decider := &scriptedDecider{answers: map[string]jev.Answer{
 		pageKindQuestion: {Choice: KindPosting},
-		controlQuestion:  {Choice: noControlKey, Probabilities: map[string]float64{"control_1": 0.2}},
+		controlQuestion: {Choice: noControlKey, Probabilities: map[string]float64{
+			noControlKey: 0.6, "control_0": 0.05, "control_1": 0.35,
+		}},
 	}}
-	read, err := New(decider).ReadPage(context.Background(), PageQuery{Text: "Senior Go Engineer", Intent: IntentAdvance, Controls: formControls})
-	if err != nil || read.Fallback != nil {
-		t.Fatalf("read = %+v err = %v, want no fallback on a posting", read, err)
+	read, err := New(decider).ReadPage(context.Background(), PageQuery{Text: "Senior Go Engineer", Intent: IntentStart, Controls: formControls})
+	if err != nil || read.Control != nil || read.Fallback == nil || read.Fallback.ID != 11 || read.Fallback.Role != RoleApply {
+		t.Fatalf("read = %+v err = %v, want an apply fallback on control 11", read, err)
 	}
 }
 
@@ -156,6 +171,80 @@ func TestReadPageAccountStepOffersAGuestPath(t *testing.T) {
 	read, err := New(decider).ReadPage(context.Background(), PageQuery{Text: "Already have an account?", Intent: IntentStart, Controls: formControls})
 	if err != nil || read.Kind != KindAccount || !read.Guest || read.Control == nil || read.Control.Role != RoleNext {
 		t.Fatalf("read = %+v control = %+v err = %v, want a guest account step moving on with next", read, read.Control, err)
+	}
+}
+
+var guestChoiceControls = []Control{
+	{ID: 20, Tag: "button", Text: "Sign Into My Account", Dialog: "dialog"},
+	{ID: 21, Tag: "button", Text: "Create an Account + Apply", Dialog: "dialog"},
+	{ID: 22, Tag: "button", Text: "Quick Apply (No Account)", Dialog: "dialog"},
+}
+
+// The guest control is asked apart from the forward pick: an account goal that
+// pulls the forward pick onto an account form never moves the guest click.
+func TestReadPageNamesTheGuestControlApartFromTheAccountGoal(t *testing.T) {
+	decider := &scriptedDecider{answers: map[string]jev.Answer{
+		pageKindQuestion:     {Choice: KindAccount},
+		controlQuestion:      {Choice: "control_1", Confidence: 0.7},
+		guestQuestion:        {Noul: yes(0.9)},
+		guestControlQuestion: {Choice: "control_2", Confidence: 0.9},
+		accountQuestion:      {Choice: AccountChoose},
+	}}
+	read, err := New(decider).ReadPage(context.Background(), PageQuery{
+		Text: "How would you like to apply?", Intent: IntentStart, Controls: guestChoiceControls, AccountGoal: AccountCreate,
+	})
+	if err != nil || read.GuestControl == nil || read.GuestControl.ID != 22 || read.GuestControl.Role != RoleNext {
+		t.Fatalf("read = %+v guest = %+v err = %v, want control 22 as the guest control", read, read.GuestControl, err)
+	}
+	if read.Control == nil || read.Control.ID != 21 {
+		t.Fatalf("control = %+v, want the forward pick kept as answered", read.Control)
+	}
+	if got := len(decider.last.Questions[guestControlQuestion].Criteria); got != len(guestChoiceControls)+1 {
+		t.Fatalf("guest criteria = %d, want controls plus none", got)
+	}
+	if !strings.Contains(decider.last.State, "only when it offers no way to go on without an account") {
+		t.Fatalf("state does not scope the account goal to pages with no guest path:\n%s", decider.last.State)
+	}
+}
+
+func TestReadPageNoGuestControlWithoutAGuestPath(t *testing.T) {
+	decider := &scriptedDecider{answers: map[string]jev.Answer{
+		pageKindQuestion:     {Choice: KindAccount},
+		controlQuestion:      {Choice: "control_1"},
+		guestQuestion:        {Noul: yes(0.1)},
+		guestControlQuestion: {Choice: "control_2"},
+		accountQuestion:      {Choice: AccountChoose},
+	}}
+	read, err := New(decider).ReadPage(context.Background(), PageQuery{Text: "Sign in", Intent: IntentStart, Controls: guestChoiceControls})
+	if err != nil || read.Guest || read.GuestControl != nil {
+		t.Fatalf("read = %+v guest = %+v err = %v, want no guest control", read, read.GuestControl, err)
+	}
+}
+
+// The application a guest path opened can leave its guest control in the page;
+// off an account step the forward pick moves the run, never the guest control.
+func TestReadPageNoGuestControlOffAnAccountStep(t *testing.T) {
+	decider := &scriptedDecider{answers: map[string]jev.Answer{
+		pageKindQuestion:     {Choice: KindForm},
+		controlQuestion:      {Choice: "control_1"},
+		guestQuestion:        {Noul: yes(0.9)},
+		guestControlQuestion: {Choice: "control_2"},
+	}}
+	read, err := New(decider).ReadPage(context.Background(), PageQuery{Text: "My application", Intent: IntentAdvance, Controls: guestChoiceControls})
+	if err != nil || read.GuestControl != nil {
+		t.Fatalf("read = %+v guest = %+v err = %v, want no guest control on a form", read, read.GuestControl, err)
+	}
+}
+
+// A dialog left open beneath a newer one is not the step: the state names the dialog on top.
+func TestPageStateNamesTheDialogOnTop(t *testing.T) {
+	controls := []Control{
+		{ID: 1, Tag: "button", Text: "Go on", Dialog: "Choose how to apply", Covered: true},
+		{ID: 2, Tag: "button", Text: "Send", Dialog: "My application"},
+	}
+	state := pageState(PageQuery{}, controls)
+	if !strings.Contains(state, `dialog is over the page: "My application"`) {
+		t.Fatalf("state does not name the dialog on top:\n%s", state)
 	}
 }
 

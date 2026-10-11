@@ -37,8 +37,6 @@ var (
 	ErrWeakPassword = errors.New("password must be at least 8 characters")
 	// ErrInvalid is a name, email, or job id Acorn will not store.
 	ErrInvalid = errors.New("check the name, email, and password")
-	// ErrAlreadyApplied is a job this account already marked applied.
-	ErrAlreadyApplied = errors.New("already applied")
 	// ErrGoogleState is a Google sign-in that expired or was already used.
 	ErrGoogleState = errors.New("the Google sign-in expired; try again")
 	// ErrGoogleMismatch is a Google account that is not the one linked to this email.
@@ -89,7 +87,6 @@ type storedAccount struct {
 	PasswordSalt  []byte    `bson:"passwordSalt,omitempty"`
 	GoogleID      string    `bson:"googleId,omitempty"`
 	SavedJobIDs   []string  `bson:"savedJobIds,omitempty"`
-	AppliedIDs    []string  `bson:"appliedJobIds,omitempty"`
 	CreatedAt     time.Time `bson:"createdAt"`
 	DeactivatedAt time.Time `bson:"deactivatedAt,omitempty"`
 }
@@ -354,36 +351,6 @@ func (doc storedAccount) deactivated() bool {
 }
 
 func (s *Store) SavedJobIDs(ctx context.Context, userID string) ([]string, error) {
-	return s.jobIDs(ctx, userID, "savedJobIds")
-}
-
-func (s *Store) AppliedJobIDs(ctx context.Context, userID string) ([]string, error) {
-	return s.jobIDs(ctx, userID, "appliedJobIds")
-}
-
-// MarkApplied records a job on this Acorn account.
-func (s *Store) MarkApplied(ctx context.Context, userID, jobID string) error {
-	jobID = strings.TrimSpace(jobID)
-	if jobID == "" {
-		return ErrInvalid
-	}
-	applied, err := s.AppliedJobIDs(ctx, userID)
-	if err != nil {
-		return err
-	}
-	for _, id := range applied {
-		if id == jobID {
-			return ErrAlreadyApplied
-		}
-	}
-	_, err = s.accounts.UpdateOne(ctx, bson.D{{Key: "id", Value: userID}}, bson.D{
-		{Key: "$addToSet", Value: bson.D{{Key: "appliedJobIds", Value: jobID}}},
-		{Key: "$pull", Value: bson.D{{Key: "savedJobIds", Value: jobID}}},
-	})
-	return err
-}
-
-func (s *Store) jobIDs(ctx context.Context, userID, field string) ([]string, error) {
 	var doc storedAccount
 	err := s.accounts.FindOne(ctx, bson.D{{Key: "id", Value: userID}}).Decode(&doc)
 	if errors.Is(err, mongo.ErrNoDocuments) {
@@ -392,10 +359,21 @@ func (s *Store) jobIDs(ctx context.Context, userID, field string) ([]string, err
 	if err != nil {
 		return nil, err
 	}
-	if field == "appliedJobIds" {
-		return doc.AppliedIDs, nil
-	}
 	return doc.SavedJobIDs, nil
+}
+
+// droppedAppliedField is where accounts once kept the jobs they applied to. Acorn
+// applies to the page in front of it and keeps no record of earlier applications.
+const droppedAppliedField = "appliedJobIds"
+
+// DropAppliedJobs erases the applied-jobs list from every account that still has
+// one. It runs at startup and does nothing once no account holds the field.
+func (s *Store) DropAppliedJobs(ctx context.Context) error {
+	_, err := s.accounts.UpdateMany(ctx,
+		bson.D{{Key: droppedAppliedField, Value: bson.D{{Key: "$exists", Value: true}}}},
+		bson.D{{Key: "$unset", Value: bson.D{{Key: droppedAppliedField, Value: ""}}}},
+	)
+	return err
 }
 
 // GetAccount loads one account by id.

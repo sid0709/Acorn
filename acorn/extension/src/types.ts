@@ -93,7 +93,6 @@ export const MSG = {
   AUTH_SIGNOUT: "acorn:auth-signout",
   LIST_WORKER_JOBS: "acorn:list-worker-jobs",
   OPEN_WORKER_JOB: "acorn:open-worker-job",
-  MARK_JOB_APPLIED: "acorn:mark-job-applied",
   GET_TAB_JOB: "acorn:get-tab-job",
   REMEMBER_CUSTOM_TAB: "acorn:remember-custom-tab",
   FORGET_CUSTOM_TAB: "acorn:forget-custom-tab",

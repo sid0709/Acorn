@@ -16,18 +16,23 @@ export function ClaimListItem({
   showReporter,
   isSelected,
   onOpen,
+  onIntent,
 }: {
   claim: SupportClaim;
   /** Support sees the reporter; the reporter sees the page instead. */
   showReporter: boolean;
   isSelected: boolean;
   onOpen: () => void;
+  /** The pointer or focus arrived: a caller can load the claim before the click lands. */
+  onIntent?: () => void;
 }) {
   const subtitle = showReporter ? claim.userName || claim.userEmail : pageHost(claim.pageUrl);
   return (
     <ListItem
       isSelected={isSelected}
       onClick={onOpen}
+      onPointerEnter={onIntent}
+      onFocus={onIntent}
       aria-current={isSelected ? "true" : undefined}
       startContent={
         showReporter ? (

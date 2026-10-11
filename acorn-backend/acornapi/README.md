@@ -15,7 +15,7 @@ go test ./acorn-backend/...
 - **Auth is Acorn's.** `POST /acorn/auth/signup` and `POST /acorn/auth/signin` create an account in `acorn_accounts`. acorn-frontend stores the token in the `acorn_session` cookie, and the extension sends it as `Authorization: Bearer`. `POST /acorn/auth/signout` revokes that session.
 - **Profile is the Acorn account.** The planner, writer and Q&A read the account's name and email. Education, demographics, and links are empty until a profile editor exists.
 - **The model is the account's.** Every AI call uses that account's OpenRouter key and `openai/gpt-6-luna`. There is no server AI key. Athens' sampling knobs (temperatures, token limits) and AI usage metering are not ported.
-- **Worker pool = saved jobs** the hunter has not applied to. `mark-applied` records the job on the Acorn account.
+- **Worker pool = saved jobs.** Acorn keeps no record of the jobs an account applied to: every run applies to the page in front of it, and stops as applied only when the page itself says so.
 - **No résumé gate.** Athens refused to fill without a résumé unless the account was an admin, and randomly skipped about 20% of a non-admin's actions. Neither is ported; the planner is always told no résumé is available.
 - **Résumé generation and recommendation are empty.** `jobs/:id/recommended-resume`, every `*/preview`, `custom/generate` (+ `/continue`, poll), `custom/recommend`, and the `custom/resumes` and `custom/library-resumes` routes keep the extension's contract and return no file, id or match.
 

@@ -115,14 +115,15 @@ func IsAccountMode(mode string) bool {
 }
 
 const (
-	pageKindQuestion = "page_kind"
-	controlQuestion  = "control"
-	finalQuestion    = "is_final_step"
-	guestQuestion    = "continues_without_account"
-	diagnoseQuestion = "failure"
-	verifyQuestion   = "verification"
-	appliedQuestion  = "already_applied"
-	accountQuestion  = "account_mode"
+	pageKindQuestion     = "page_kind"
+	controlQuestion      = "control"
+	finalQuestion        = "is_final_step"
+	guestQuestion        = "continues_without_account"
+	guestControlQuestion = "guest_control"
+	diagnoseQuestion     = "failure"
+	verifyQuestion       = "verification"
+	appliedQuestion      = "already_applied"
+	accountQuestion      = "account_mode"
 
 	controlKeyPrefix = "control"
 	noControlKey     = "none"
@@ -208,13 +209,17 @@ type PageRead struct {
 	// Control is nil when no control moves the application forward.
 	Control *ControlPick
 	// Fallback is Jev's most probable forward control when it answered none on a
-	// form it was asked to advance: the run clicks it before deciding the page is
-	// stuck, since a page that looks blocked often reacts to the click itself (it
-	// shows which fields it still needs).
+	// form it was asked to advance, an account step, or a posting: the run clicks it
+	// before deciding the page is stuck, since a page that looks blocked often reacts
+	// to the click itself (it shows which fields it still needs, or opens the form).
 	Fallback *ControlPick
 	// Guest is true when the page offers a way to go on without signing in or
 	// creating an account; on an account step the run clicks only then.
 	Guest bool
+	// GuestControl is the control that goes on without an account, asked apart from
+	// Control so the account goal never pulls the guest click onto an account form.
+	// Nil unless the page is an account step, Guest is true, and Jev names one.
+	GuestControl *ControlPick
 	// NeedsPerson is true when the page waits on something only the applicant can
 	// give in the moment (a phone code, a challenge to solve): the run waits. It is
 	// the VerifyOther answer, so the two can never disagree.
@@ -264,11 +269,15 @@ func (g *Gateway) ReadPage(ctx context.Context, q PageQuery) (PageRead, error) {
 	controlCriteria := map[string]string{
 		noControlKey: "No listed control moves the application forward from this page.",
 	}
+	guestCriteria := map[string]string{
+		noControlKey: "No listed control goes on with the application without an account.",
+	}
 	keys := make(map[string]int, len(controls))
 	for i, control := range controls {
 		key := fmt.Sprintf("%s_%d", controlKeyPrefix, i)
 		keys[key] = control.ID
 		controlCriteria[key] = describeControl(control)
+		guestCriteria[key] = controlCriteria[key]
 	}
 
 	res, err := g.decider.Decide(openai.WithCall(ctx, "read-page"), jev.Request{
@@ -297,10 +306,16 @@ func (g *Gateway) ReadPage(ctx context.Context, q PageQuery) (PageRead, error) {
 				Type:         jev.TypeNoul,
 				Instructions: "Does this page offer a way to go on with the application without signing in or creating an account?",
 				Criteria: map[string]string{
-					"true": "A control continues the application itself without any account (apply as a guest). A control that " +
-						"sends or switches between account forms (sign in, create an account, reset a password) is not one.",
+					"true":  "A control continues the application itself without any account (apply as a guest). " + guestOnly,
 					"false": "Going on requires signing in or creating an account, or the page asks neither.",
 				},
+			},
+			guestControlQuestion: {
+				Type: jev.TypeChoice,
+				Instructions: "Which control goes on with the application for this role without signing in or creating an " +
+					"account (applying as a guest)? Judge by what the control does, whatever its wording. " + guestOnly +
+					dialogSteps + "Choose none when no control does.",
+				Criteria: guestCriteria,
 			},
 			appliedQuestion: {
 				Type: jev.TypeNoul,
@@ -370,11 +385,16 @@ func (g *Gateway) ReadPage(ctx context.Context, q PageQuery) (PageRead, error) {
 		}
 	}
 	role := controlRole(read.Kind, res.Answers[finalQuestion])
+	if guest, ok := res.Answers[guestControlQuestion]; ok && read.Guest && read.Kind == KindAccount {
+		if id, listed := keys[guest.Choice]; listed {
+			read.GuestControl = &ControlPick{ID: id, Role: role, Confidence: guest.Confidence}
+		}
+	}
 	if id, listed := keys[answer.Choice]; listed {
 		read.Control = &ControlPick{ID: id, Role: role, Confidence: answer.Confidence, Probabilities: probabilities}
 		return read, nil
 	}
-	if (q.Intent == IntentAdvance && read.Kind == KindForm) || read.Kind == KindAccount {
+	if (q.Intent == IntentAdvance && read.Kind == KindForm) || read.Kind == KindAccount || read.Kind == KindPosting {
 		controlKeys := make(map[string]string, len(keys))
 		for key := range keys {
 			controlKeys[key] = key
@@ -412,12 +432,16 @@ func controlRole(kind string, final jev.Answer) string {
 	return RoleNext
 }
 
+// guestOnly says what going on without an account is, and what it is not.
+const guestOnly = "A control that sends, opens, or switches between account forms (sign in, create an account, reset a " +
+	"password), even one that also applies, needs an account and is not one. "
+
 // accountSteps steer every pick on a step that asks for an account: going on
 // without one comes first; otherwise the run signs in or creates the account with
 // the details on the page, and the account history says which to try next.
 const accountSteps = "When the page offers a way to go on with the application without signing in or creating an account, " +
-	"pick that control over signing in or creating an account. Otherwise, on a step that needs an account, do the account goal " +
-	"given in the page state: when the page shows the goal's own form, pick the control that sends it; when it shows another " +
+	"pick that control over signing in or creating an account, whatever account goal the page state gives. " + guestOnly +
+	"Otherwise, on a step that needs an account, do the account goal given in the page state: when the page shows the goal's own form, pick the control that sends it; when it shows another " +
 	"form or only choices, pick the control that opens the goal's form, or the one that leads toward it (the way to use an " +
 	"email and password, where the other account forms are offered). Never pick one that signs in through another service. "
 
@@ -445,9 +469,10 @@ const repairSteps = "When the page says a saved entry or section still has field
 
 // thisRoleOnly keeps every pick on the application to this one role: a site's
 // talent community is a different, general form that never applies to it.
-const thisRoleOnly = "Never pick a control that joins a talent community, registers general interest, or leaves the " +
-	"applicant's details or résumé to be contacted about future openings: that is a different form from applying to this " +
-	"role, and it never leads to this application. "
+const thisRoleOnly = "Never pick a control that joins a talent community or leaves the applicant's details or résumé to be " +
+	"contacted about future openings in general: that is a different form from applying to this role, and it never leads " +
+	"to this application. A control on this role's own posting that answers this role is the way to apply, whatever its " +
+	"wording: some sites word their apply control as interest in the role, and it opens the application for it. "
 
 // controlInstructions describe controls only by what they do: sites word them
 // any way they like, so no wording is quoted here.
@@ -485,7 +510,7 @@ func pageState(q PageQuery, controls []Control) string {
 		fmt.Fprintf(&b, "An open dialog is over the page: %q. The page text below includes what it covers.\n", clip(dialog, maxControlLine))
 	}
 	if goal, ok := accountGoals[q.AccountGoal]; ok {
-		fmt.Fprintf(&b, "Account goal on this page: %s (%s).\n", q.AccountGoal, goal)
+		fmt.Fprintf(&b, "Account goal on this page, only when it offers no way to go on without an account: %s (%s).\n", q.AccountGoal, goal)
 	}
 	writeAccountHistory(&b, q.Account)
 	if q.LastClick != "" {
@@ -522,10 +547,11 @@ func lastClickRole(role string) string {
 	}
 }
 
-// openDialog is the name of the dialog the page's controls sit in, when one is open.
+// openDialog is the name of the dialog on top, when one is open: a dialog left open
+// beneath a newer one has its controls covered.
 func openDialog(controls []Control) string {
 	for _, control := range controls {
-		if control.Dialog != "" {
+		if control.Dialog != "" && !control.Covered {
 			return control.Dialog
 		}
 	}

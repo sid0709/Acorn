@@ -17,7 +17,6 @@ type SidebarListCardProps = {
   selected: boolean;
   attached?: boolean;
   blocked?: boolean;
-  marking?: boolean;
   faceMode: AcornFaceMode;
   logoUrl?: string;
   logoFallback: string;
@@ -45,7 +44,6 @@ export function SidebarListCard({
   selected,
   attached = false,
   blocked = false,
-  marking = false,
   faceMode,
   logoUrl,
   logoFallback,
@@ -88,9 +86,7 @@ export function SidebarListCard({
       data-item-id={itemId}
       variant={selected ? "blue" : "default"}
       padding={3}
-      className={`acorn-row${attached && !selected ? " attached" : ""}${
-        marking ? " marking" : ""
-      }${blocked ? " is-blocked" : ""}`}
+      className={`acorn-row${attached && !selected ? " attached" : ""}${blocked ? " is-blocked" : ""}`}
     >
       <button
         type="button"

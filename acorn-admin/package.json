@@ -16,6 +16,7 @@
     "next": "catalog:",
     "react": "catalog:",
     "react-dom": "catalog:",
+    "sharp": "catalog:",
     "sid-ui": "catalog:"
   },
   "devDependencies": {
