@@ -28,7 +28,9 @@ import { SidebarNav, type AcornMainTab } from "./SidebarNav";
 import { SidebarOverlays } from "./SidebarOverlays";
 import { SignedOutView } from "./SignedOutView";
 import { SupportPanel } from "./SupportPanel";
+import { UpdateDialog } from "./UpdateDialog";
 import { useActiveTabId } from "./use-active-tab";
+import { useAvailableUpdate } from "./use-available-update";
 import { usePlanInspect } from "./use-plan-inspect";
 import { useResumePreview } from "./use-resume-preview";
 import { useSidebarAuth } from "./use-sidebar-auth";
@@ -53,6 +55,7 @@ export default function SidebarApp() {
   const [qaStatus, setQaStatus] = useState({ busy: false, error: false });
   const [helpOpen, setHelpOpen] = useState(false);
   const [reportOpen, setReportOpen] = useState(false);
+  const availableUpdate = useAvailableUpdate();
   const [reportSending, setReportSending] = useState(false);
 
   const { apiUrl, setApiUrl, session, authBusy, handleSignIn, handleSignOut } = useSidebarAuth({
@@ -378,6 +381,7 @@ export default function SidebarApp() {
         />
       )}
 
+      <UpdateDialog update={availableUpdate.update} onDismiss={availableUpdate.dismiss} />
       <SidebarOverlays
         activeTabId={activeTabId}
         preview={preview}

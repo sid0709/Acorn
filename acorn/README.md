@@ -160,6 +160,10 @@ bun run e2e:mock-apply
 
 Screenshots go to `$TMPDIR/acorn-e2e-mock-apply` (override with `E2E_OUT_DIR`).
 
+### Update notice
+
+Every deploy packs the extension and records its version on the site (`tools/extension-release.mjs`, `NEXT_PUBLIC_ACORN_EXTENSION_VERSION`). `GET /api/extension/latest` on the site answers `{ version, downloadUrl, installUrl }` (`@acorn/shared/extension-release`). When the sidebar opens, the extension asks it once; if its own version is older, a dialog says so and **Update** opens the download (`/downloads/acorn-chrome.zip`, or the store listing when only that is set). A site that cannot be reached shows nothing.
+
 ### Process capture and support reports
 
 Every build captures each tab session's process so a support report can carry it: the extension's step trace (`steps.ndjson`: what each control read before and after, option lists, typed queries, clicks, timeouts, the leftover pass, and every run event), the page HTML of each fill and of each new page (main document and the frame the run reads), `dom-tree.json`, `meta-tree.txt`, `pure-tree.txt`, `applicant.txt`, one `ai-<purpose>.md` per text-model call (response, prompts, schema, timing, error), one `jev-<call>.md` per SelectorGateway decision (the state it read, each question and its options, the answers), each Run decision's request and answer (`run-<id>-NN-read-page.json`, `account-outcome`, `dialog`, `diagnose`, `mail-verification` with the mailbox, the newest emails listed and how Jev ranked them, and any Gmail or token failure), `plan.json`, and screenshots. Passwords never appear: the extension removes them from traces and HTML before anything leaves the page, plans are redacted, and an emailed code or link is kept only masked.
