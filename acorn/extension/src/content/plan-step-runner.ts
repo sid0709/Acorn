@@ -5,6 +5,7 @@ import { shownValue } from "@acorn/shared/secret-value";
 import { traceFromPage } from "../debug-trace";
 
 import { controlAlreadyMatches } from "./agents/already-filled";
+import { fieldHoldsFile } from "./agents/attached-file";
 import { clearElement } from "./agents/clear";
 import { fillElement } from "./agents/fill";
 import { rememberPlanFilled } from "./agents/plan-fill-registry";
@@ -225,6 +226,28 @@ export async function actOnVerified(
         matchedLabel: verified.matchedLabel,
         matchedRole: verified.matchedRole,
         valueAfter: "",
+      },
+    };
+  }
+
+  // The field holds this very file already: the page took the upload and drew itself
+  // again with the file attached. Sending it again would start the page's own upload
+  // (and the reload or reset that follows it) over, so not even Refill resends it.
+  if (
+    (step.action === "upload" || step.action === "resume_upload") &&
+    fieldHoldsFile(el, step.file)
+  ) {
+    traceFromPage("step:file-held", () => ({ element_index: step.element_index }));
+    return {
+      ok: true,
+      verified: true,
+      acted: false,
+      alreadyFilled: true,
+      details: {
+        nodeId,
+        matchedLabel: verified.matchedLabel,
+        matchedRole: verified.matchedRole,
+        valueAfter: step.file?.name,
       },
     };
   }

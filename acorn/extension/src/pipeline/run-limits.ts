@@ -43,6 +43,11 @@ export const RUN_MAIL_POLL_MS = 5_000;
 /** How long the run waits for that email to arrive before it stops; mail can be slow. */
 export const RUN_MAIL_WAIT_MAX_MS = 5 * 60_000;
 /**
+ * Looks in a row that may fail to reach the applicant's Gmail (a network hiccup,
+ * a slow token refresh) before the run stops: the email is still there to read.
+ */
+export const RUN_MAIL_MAX_FAILED_LOOKS = 3;
+/**
  * Times one run goes back to the posting it started from, after an account step
  * (an emailed link, a password reset) leaves it on a page with no way forward.
  */
@@ -68,7 +73,11 @@ export const RUN_NEW_TEXT_LINES_MAX = 20;
 export const RUN_MAX_MAIL_VERIFICATIONS = 4;
 /** Page messages kept with a rejected account step, for the next decision. */
 export const RUN_ACCOUNT_MESSAGES_MAX = 3;
-/** Account steps one run may send in all. */
+/**
+ * Account steps one run may send on one site. The longest path the account order
+ * takes is six (sign in, create, sign in, ask for a reset, save the new password,
+ * sign in); the rest is room for a sign-in the site splits into parts.
+ */
 export const RUN_MAX_ACCOUNT_ATTEMPTS = 8;
 /** A probe is a single DOM pass; a frame that takes longer is treated as having moved. */
 export const RUN_PROBE_TIMEOUT_MS = 2_000;

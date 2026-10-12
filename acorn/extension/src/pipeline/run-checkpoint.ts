@@ -4,6 +4,7 @@
  * which page it had already filled. Kept for the browser session.
  */
 
+import type { SiteAccountEvidence } from "./account-goal";
 import type { AccountAttempt } from "@acorn/shared/run-types";
 
 /** chrome.storage.session key of each tab's run checkpoint. */
@@ -12,6 +13,8 @@ export const RUN_CHECKPOINTS_STORAGE_KEY = "acornRunCheckpoints";
 export interface RunCheckpoint {
   /** Account steps sent so far, with the site each was sent on. */
   accountHistory: { site: string; attempt: AccountAttempt }[];
+  /** What each site's pages showed about its account (offers, the email-first answer), by site. */
+  accountEvidence: Record<string, SiteAccountEvidence>;
   /** Sites where a reset link from the mail was opened. */
   resetLinkSites: string[];
   /** Codes and links taken from the mail so far. */
@@ -52,6 +55,7 @@ export async function clearRunCheckpoint(tabId: number): Promise<void> {
 export function restoredRun(checkpoint: RunCheckpoint | null | undefined): RunCheckpoint {
   return {
     accountHistory: [...(checkpoint?.accountHistory ?? [])],
+    accountEvidence: { ...(checkpoint?.accountEvidence ?? {}) },
     resetLinkSites: [...(checkpoint?.resetLinkSites ?? [])],
     mailVerifications: checkpoint?.mailVerifications ?? 0,
     filledSignature: checkpoint?.filledSignature ?? null,

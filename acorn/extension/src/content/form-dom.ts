@@ -11,7 +11,9 @@ import { composedClosest, drawnText } from "./shadow-control";
 import { labelCandidates, uniqueById } from "./verify/element-labels";
 import { inferRole } from "./verify/element-role";
 
-export const ACORN_ID_ATTR = "data-acorn-id";
+export { ACORN_ID_ATTR } from "./acorn-id";
+export { queryDeep } from "./query-deep";
+
 /** How far up from a control to look for its own field wrapper. */
 const MAX_WRAPPER_DEPTH = 6;
 /** Labels and messages longer than this are clipped. */
@@ -67,22 +69,6 @@ export function matchesSafe(el: Element, selector: string): boolean {
   } catch {
     return false; // Selector unsupported by this browser.
   }
-}
-
-/** Document, open shadow roots, and same-origin iframes — the same reach as the serializer. */
-export function queryDeep(root: ParentNode, selector: string, out: Element[] = []): Element[] {
-  out.push(...Array.from(root.querySelectorAll(selector)));
-  for (const el of Array.from(root.querySelectorAll("*"))) {
-    if (el.shadowRoot) queryDeep(el.shadowRoot, selector, out);
-    if (el instanceof HTMLIFrameElement) {
-      try {
-        if (el.contentDocument) queryDeep(el.contentDocument, selector, out);
-      } catch {
-        /* cross-origin frame */
-      }
-    }
-  }
-  return out;
 }
 
 /** Containers whose accessible name is the question their controls answer. */

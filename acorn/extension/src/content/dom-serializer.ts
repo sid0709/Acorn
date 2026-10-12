@@ -1,7 +1,10 @@
 import { LAYER_ATTR } from "@acorn/shared/page-controls";
 import { HIDDEN_VALUE, isSecretControl } from "@acorn/shared/secret-value";
 
+import { ACORN_ID_ATTR } from "./acorn-id";
+import { childDocument } from "./frame-reach";
 import { pageLayers, type PageLayers } from "./page-layers";
+import { queryDeep } from "./query-deep";
 import { delegatedRole, shadowDelegate } from "./shadow-control";
 
 import type { DomNode } from "../types";
@@ -86,13 +89,8 @@ function uniqueElements(els: Element[]): Element[] {
 /** Light-DOM children first, then open shadow roots (hosts can have both). */
 function getChildren(el: Element): Element[] {
   if (el.tagName === "IFRAME") {
-    try {
-      const doc = (el as HTMLIFrameElement).contentDocument;
-      if (doc && doc.documentElement) return [doc.documentElement];
-    } catch {
-      /* cross-origin */
-    }
-    return [];
+    const doc = childDocument(el);
+    return doc ? [doc.documentElement] : [];
   }
   const light = Array.from(el.children);
   const shadow = el.shadowRoot ? Array.from(el.shadowRoot.children) : [];
@@ -115,8 +113,9 @@ export function serializeDom(root?: Element, opts: SerializeOptions = {}): DomNo
   _fillableHits = 0;
   layersOf = pageLayers();
 
-  // Clean up old Acorn IDs across the whole document (including iframes)
-  document.querySelectorAll("[data-acorn-id]").forEach((el) => el.removeAttribute("data-acorn-id"));
+  // Drop this frame's old ids everywhere it reads (shadow roots and same-origin
+  // frames too), so a control the pass no longer reaches cannot answer to a new id.
+  for (const el of queryDeep(document, `[${ACORN_ID_ATTR}]`)) el.removeAttribute(ACORN_ID_ATTR);
 
   const candidates = [root, document.body, document.documentElement].filter(
     (el): el is Element => el != null,
@@ -267,7 +266,7 @@ function serializeNode(el: Element, depth: number): DomNode[] {
   }
 
   const nodeId = ++acornIdCounter;
-  el.setAttribute("data-acorn-id", String(nodeId));
+  el.setAttribute(ACORN_ID_ATTR, String(nodeId));
   const role = (el.getAttribute("role") || "").toLowerCase();
   if (
     tag === "input" ||

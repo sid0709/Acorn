@@ -81,6 +81,9 @@ const (
 	AccountCreate = "create_account"
 	AccountReset  = "reset_password"
 	AccountChoose = "choose"
+	// AccountIdentify is the first step of signing in and of creating an account alike:
+	// it asks only for the account's email, and the site picks the next form from it.
+	AccountIdentify = "identify"
 )
 
 // accountGoals say, for the decision, what each account goal asks the page to do.
@@ -97,6 +100,8 @@ var accountModes = map[string]string{
 	AccountReset:  "A step that recovers the account: a form that asks for the email to send a password reset to, or a form that sets a new password.",
 	AccountChoose: "A choice of how to go on (signing in, creating an account, a way to sign in, or going on without one), " +
 		"with no email and password fields on the page yet.",
+	AccountIdentify: "The first step of signing in or creating an account: the page asks only for the account's email or " +
+		"username, with no password field yet, and the site decides from it which form comes next.",
 }
 
 // AccountAttempt is one account step the run already sent on this site, and how
@@ -106,6 +111,31 @@ type AccountAttempt struct {
 	Accepted bool
 	// Messages are the page's own words after a rejected attempt.
 	Messages []string
+}
+
+// accountOffers say, for each account goal, what a page that offers it shows.
+// Asked on every account step, apart from the goal, so the run knows which steps
+// the site makes possible before it chooses one.
+var accountOffers = map[string]string{
+	AccountSignIn: "signing in to an existing account on this site with an email or username and a password",
+	AccountCreate: "creating a new account on this site with an email and a new password",
+	AccountReset:  "recovering the account's password on this site (asking for a reset, or setting a new password)",
+}
+
+// offerOrder lists the account goals in the order offers are reported.
+var offerOrder = []string{AccountSignIn, AccountCreate, AccountReset}
+
+// offersInstructions asks whether a page offers one account goal, whatever goal the run has.
+func offersInstructions(goal string) string {
+	return "Does this page offer " + accountOffers[goal] + ", whatever account goal the page state gives? It does when " +
+		"the page shows that form, or a control on the page opens it. Doing it through another service's account " +
+		"(signing in with another company's login) does not count, and neither does recovering only a username."
+}
+
+// IsAccountGoal says whether mode is an account step the run can set out to do.
+func IsAccountGoal(mode string) bool {
+	_, listed := accountGoals[mode]
+	return listed
 }
 
 // IsAccountMode says whether mode is one ReadPage can return.
@@ -124,6 +154,7 @@ const (
 	verifyQuestion       = "verification"
 	appliedQuestion      = "already_applied"
 	accountQuestion      = "account_mode"
+	offersQuestionPrefix = "offers_"
 
 	controlKeyPrefix = "control"
 	noControlKey     = "none"
@@ -228,6 +259,9 @@ type PageRead struct {
 	Verification string
 	// AccountMode is what an account step asks for (an Account* key); AccountNone elsewhere.
 	AccountMode string
+	// Offers are the account goals an account step makes possible: its own form, or
+	// a control on it that opens one. Empty off account steps.
+	Offers []string
 	// AlreadyApplied is true when the site says this applicant already applied to this job.
 	AlreadyApplied bool
 	Usage          jev.Usage
@@ -337,6 +371,9 @@ func (g *Gateway) ReadPage(ctx context.Context, q PageQuery) (PageRead, error) {
 				Instructions: "When this page is an account step, what does it ask for?",
 				Criteria:     accountModes,
 			},
+			offersQuestionPrefix + AccountSignIn: offersQuestion(AccountSignIn),
+			offersQuestionPrefix + AccountCreate: offersQuestion(AccountCreate),
+			offersQuestionPrefix + AccountReset:  offersQuestion(AccountReset),
 		},
 	})
 	if err != nil {
@@ -356,6 +393,9 @@ func (g *Gateway) ReadPage(ctx context.Context, q PageQuery) (PageRead, error) {
 	if _, listed := pageKindCriteria()[read.Kind]; !listed {
 		read.Kind = KindOther
 	}
+	if unfinished := unfinishedKind(kind, res.Answers[controlQuestion], keys); unfinished != "" {
+		read.Kind = unfinished
+	}
 
 	if guest := res.Answers[guestQuestion]; guest.Noul != nil {
 		read.Guest = *guest.Noul > checkThreshold
@@ -373,6 +413,9 @@ func (g *Gateway) ReadPage(ctx context.Context, q PageQuery) (PageRead, error) {
 		if read.AccountMode == AccountNone {
 			read.Kind = KindForm
 		}
+	}
+	if read.Kind == KindAccount {
+		read.Offers = offeredGoals(read.AccountMode, res.Answers)
 	}
 	answer, ok := res.Answers[controlQuestion]
 	if !ok {
@@ -408,6 +451,49 @@ func (g *Gateway) ReadPage(ctx context.Context, q PageQuery) (PageRead, error) {
 	return read, nil
 }
 
+// openKinds are the kinds of a page that still moves the application forward.
+var openKinds = map[string]string{KindPosting: KindPosting, KindForm: KindForm, KindAccount: KindAccount}
+
+// unfinishedKind is the kind of a page Jev named complete without believing it
+// (less than an even chance) while it is sure a listed control still moves the
+// application forward: a page that still offers a way on has not taken the
+// application. It is the likeliest kind that moves forward; empty when the
+// confirmation stands.
+func unfinishedKind(kind, control jev.Answer, keys map[string]int) string {
+	if kind.Choice != KindConfirmation || kind.Probabilities[KindConfirmation] >= checkThreshold {
+		return ""
+	}
+	if _, listed := keys[control.Choice]; !listed || control.Confidence < checkThreshold {
+		return ""
+	}
+	return bestKey(kind.Probabilities, openKinds)
+}
+
+// offersQuestion asks whether the page offers one account goal.
+func offersQuestion(goal string) jev.Question {
+	return jev.Question{
+		Type:         jev.TypeNoul,
+		Instructions: offersInstructions(goal),
+		Criteria: map[string]string{
+			"true":  "The page offers " + accountOffers[goal] + ".",
+			"false": "Nothing on the page does that or opens it.",
+		},
+	}
+}
+
+// offeredGoals are the goals a page offers: its own form, and each one Jev says a
+// control on the page opens. In the order the goals are listed.
+func offeredGoals(mode string, answers map[string]jev.Answer) []string {
+	var offered []string
+	for _, goal := range offerOrder {
+		answer := answers[offersQuestionPrefix+goal]
+		if goal == mode || (answer.Noul != nil && *answer.Noul > checkThreshold) {
+			offered = append(offered, goal)
+		}
+	}
+	return offered
+}
+
 // listedChoice is a choice answer when it names a listed key, otherwise fallback.
 func listedChoice(answer jev.Answer, listed map[string]string, fallback string) string {
 	if _, ok := listed[answer.Choice]; ok {
@@ -437,13 +523,14 @@ const guestOnly = "A control that sends, opens, or switches between account form
 	"password), even one that also applies, needs an account and is not one. "
 
 // accountSteps steer every pick on a step that asks for an account: going on
-// without one comes first; otherwise the run signs in or creates the account with
-// the details on the page, and the account history says which to try next.
+// without one comes first; otherwise the pick does the account goal the run chose
+// (from what the site offered and how it answered earlier steps).
 const accountSteps = "When the page offers a way to go on with the application without signing in or creating an account, " +
 	"pick that control over signing in or creating an account, whatever account goal the page state gives. " + guestOnly +
 	"Otherwise, on a step that needs an account, do the account goal given in the page state: when the page shows the goal's own form, pick the control that sends it; when it shows another " +
 	"form or only choices, pick the control that opens the goal's form, or the one that leads toward it (the way to use an " +
-	"email and password, where the other account forms are offered). Never pick one that signs in through another service. "
+	"email and password, where the other account forms are offered). A step that asks only for the account's email is on the way to " +
+	"every account form: pick the control that sends it. Never pick one that signs in through another service. "
 
 // dialogSteps steer every pick when a dialog is open over the page: the dialog is
 // the step, and what it covers cannot be clicked. A dialog that asks how to start

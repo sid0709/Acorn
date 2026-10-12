@@ -23,6 +23,7 @@ var routeFeatures = map[string]string{
 	"POST /acorn/run/read-page":                      featureRun,
 	"POST /acorn/run/diagnose":                       featureRun,
 	"POST /acorn/run/dialog":                         featureRun,
+	"POST /acorn/run/account-outcome":                featureRun,
 	"POST /acorn/custom/extract-jd":                  featureCustomJob,
 	"POST /acorn/custom/analyze-meta":                featureCustomJob,
 	"POST /acorn/custom/generate":                    featureResumeGenerate,

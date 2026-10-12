@@ -12,6 +12,7 @@ import { appendPlanTurn, type PlanTurn } from "@acorn/shared/plan-history";
 import {
   ACCOUNT_MODE,
   CONTROL_ROLE,
+  ACCOUNT_OUTCOME,
   MAIL_VERIFICATION_STATUS,
   PAGE_KIND,
   RUN_FAILURE_REASON,
@@ -20,6 +21,7 @@ import {
   VERIFICATION,
   type AccountAttempt,
   type AccountMode,
+  type AccountOutcome,
   type ControlRole,
   type MailRow,
   type PageKind,
@@ -35,8 +37,17 @@ import { markTabUsage, usageSince, type UsageMark } from "../background/tab-usag
 import { rekeyCustomTab } from "../tab-custom-session";
 import { getTabJob, rekeyTabJob } from "../tab-job-session";
 
-import { nextAccountGoal } from "./account-goal";
 import {
+  emptyAccountEvidence,
+  fillsAccountForm,
+  identifiedBy,
+  nextAccountGoal,
+  triedGoals,
+  withOffers,
+  type SiteAccountEvidence,
+} from "./account-goal";
+import {
+  requestAccountOutcome,
   requestDiagnose,
   requestDialogDecision,
   requestMailVerification,
@@ -70,6 +81,7 @@ import { watchPageDialogs } from "./run-dialogs";
 import { failureEvidence } from "./run-evidence";
 import {
   RUN_ACCOUNT_MESSAGES_MAX,
+  RUN_MAIL_MAX_FAILED_LOOKS,
   RUN_MAIL_POLL_MS,
   RUN_MAIL_WAIT_MAX_MS,
   RUN_MAX_ACCOUNT_ATTEMPTS,
@@ -124,6 +136,7 @@ const ACCOUNT_MESSAGE: Record<AccountMode, string> = {
   [ACCOUNT_MODE.createAccount]: "Creating an account",
   [ACCOUNT_MODE.resetPassword]: "Resetting the password",
   [ACCOUNT_MODE.choose]: "Choosing how to go on",
+  [ACCOUNT_MODE.identify]: "Entering your email",
 };
 
 /** Page kinds that may only be a page still loading; looked at again before the run stops. */
@@ -234,12 +247,27 @@ const BUDGET_SPENT = "The run reached its limit on AI work";
 
 /** The emailed code or link could not be found. */
 const VERIFICATION_NOT_FOUND = "The code or link the site emailed was not found in your Gmail";
+/** The connected Gmail could not be read, look after look. */
+const MAIL_UNREADABLE = "Acorn could not read your Gmail";
 /** The site kept refusing the account step. */
 const ACCOUNT_REJECTED = "The site kept rejecting the sign-in or sign-up";
 /** The page itself says this job was applied to already. */
 const ALREADY_APPLIED = "You already applied to this job";
-/** Every account step was tried on the site and refused. */
-const ACCOUNT_EXHAUSTED = "Tried creating an account, signing in, and resetting the password";
+/** What each account step is called when the run says it tried it. */
+const ACCOUNT_TRIED: Partial<Record<AccountMode, string>> = {
+  [ACCOUNT_MODE.signIn]: "signing in",
+  [ACCOUNT_MODE.createAccount]: "creating an account",
+  [ACCOUNT_MODE.resetPassword]: "resetting the password",
+};
+/** Every account step the site offered was tried and refused: say which ones. */
+function accountExhausted(attempts: readonly AccountAttempt[]): string {
+  const tried = triedGoals(attempts)
+    .map((mode) => ACCOUNT_TRIED[mode])
+    .filter(Boolean) as string[];
+  const listed =
+    tried.length > 1 ? `${tried.slice(0, -1).join(", ")} and ${tried.at(-1)}` : (tried[0] ?? "");
+  return listed ? `Tried ${listed}; the site refused each` : "The site refused every account step";
+}
 /** The person pressed Stop. */
 const STOPPED_BY_YOU = "You stopped the run";
 const STOPPED_FAILURE: Omit<RunFailure, "stage"> = {
@@ -350,6 +378,8 @@ export async function runOrchestrator(args: RunOrchestratorArgs): Promise<RunRep
   let accountSent: {
     site: string;
     mode: AccountMode;
+    urlBefore: string;
+    titleBefore: string;
     textBefore: string;
     messagesBefore: string[];
     /** The form that was sent: landing on it again is no sign the site took the step. */
@@ -362,11 +392,33 @@ export async function runOrchestrator(args: RunOrchestratorArgs): Promise<RunRep
   const resetLinkSites = new Set<string>(restored.resetLinkSites);
   /** The account form the current page shows, from its last read; null on a new page. */
   let pageAccountMode: AccountMode | null = null;
+  /** The account steps the current page offers, from its last read; null when unknown. */
+  let pageOffers: AccountMode[] | null = null;
+  /** What each site's pages showed about its account, by site. */
+  const accountEvidence = new Map<string, SiteAccountEvidence>(
+    Object.entries(restored.accountEvidence),
+  );
+  const evidenceOf = (url: string): SiteAccountEvidence =>
+    accountEvidence.get(siteOf(url)) ?? emptyAccountEvidence();
+  const noteEvidence = (url: string, patch: Partial<SiteAccountEvidence>) => {
+    accountEvidence.set(siteOf(url), { ...evidenceOf(url), ...patch });
+  };
+  /**
+   * The run just sent an email-first step: the next account form the site shows
+   * (on whatever host) says whether the account exists.
+   */
+  let identifySent = false;
   /** This site's account attempts, oldest first. */
   const siteAttempts = (url: string) =>
     accountHistory.filter((entry) => entry.site === siteOf(url)).map((entry) => entry.attempt);
   /** The account step the run tries next on this page's site (see account-goal). */
-  const accountGoal = (url: string) => nextAccountGoal(siteAttempts(url), pageAccountMode);
+  const accountGoal = (url: string) =>
+    nextAccountGoal(siteAttempts(url), evidenceOf(url), {
+      mode: pageAccountMode,
+      offers: pageOffers,
+    });
+  /** Whether the page last read is an account step (its account form is known). */
+  const onAccountStep = () => pageAccountMode != null && pageAccountMode !== ACCOUNT_MODE.none;
   /** When the run last clicked: an email the site sent for this step arrived after it. */
   let lastClickAt = 0;
   /** Codes and links taken from the applicant's mail so far. */
@@ -591,7 +643,9 @@ export async function runOrchestrator(args: RunOrchestratorArgs): Promise<RunRep
             flagged: within.flagged,
             pageMessages: within.scan.pageMessages,
             account: siteAttempts(within.url),
-            accountGoal: accountGoal(within.url) ?? undefined,
+            // Only an account step works on a goal: elsewhere a sign-in goal would pull
+            // the pick toward the site's header sign-in link.
+            accountGoal: onAccountStep() ? (accountGoal(within.url) ?? undefined) : undefined,
             newText: newText.length ? newText : undefined,
             lastClick: lastClicked
               ? {
@@ -613,6 +667,21 @@ export async function runOrchestrator(args: RunOrchestratorArgs): Promise<RunRep
     }
     kind = res.kind;
     pageAccountMode = res.accountMode ?? null;
+    pageOffers = res.kind === PAGE_KIND.accountStep ? (res.accountOffers ?? null) : null;
+    if (res.kind === PAGE_KIND.accountStep) {
+      noteEvidence(within.url, withOffers(evidenceOf(within.url), res.accountOffers));
+      // The site answered the email-first step with this form: it says whether the
+      // account exists. Another email-first page is not an answer yet.
+      const identified = identifySent ? identifiedBy(pageAccountMode) : null;
+      if (identified) {
+        identifySent = false;
+        noteEvidence(within.url, { identified });
+        log.event("account:identified", { identified });
+      }
+    } else if (!UNCLEAR_KINDS.has(res.kind)) {
+      // The site went past its account after the email (straight to the application).
+      identifySent = false;
+    }
     const find = (id?: number) =>
       id == null ? undefined : within.controls.find((candidate) => candidate.id === id);
     const picked = find(res.control?.id);
@@ -624,6 +693,7 @@ export async function runOrchestrator(args: RunOrchestratorArgs): Promise<RunRep
       kindConfidence: res.kindConfidence,
       verification: res.verification,
       accountMode: res.accountMode,
+      offers: res.accountOffers,
       newText: newText.length,
       controls: within.controls.length,
       flagged: within.flagged,
@@ -739,54 +809,110 @@ export async function runOrchestrator(args: RunOrchestratorArgs): Promise<RunRep
   };
 
   /**
-   * The page that follows an account step is its answer: a new step means the
-   * site took it; the same step saying something new (an alert, a flagged field,
-   * new words) means it refused. The same step saying nothing is a click that had
-   * no effect, not a refusal: it is left to the no-effect path and clicked again.
-   * The same form at the same address is the same step even when the site reloaded
-   * it to answer (a sign-in that posts and comes back with an error).
-   * True when it was refused.
+   * How the site answered the account step the run sent, without the decision
+   * model: a new step means it took it; the same step saying something new (an
+   * alert, a flagged field, new words) means it refused; saying nothing, the click
+   * sent nothing. A reset request counts as taken unless the page flags a field.
+   * Used only when the decision model cannot be asked.
    */
-  const settleAccount = (navigated: boolean, page: PageSnapshot): boolean => {
-    if (!accountSent) return false;
-    const sent = accountSent;
-    accountSent = null;
-    const sameForm = addressOf(page.url) === sent.address && page.signature === sent.signature;
-    const moved = navigated && !sameForm;
-    // A reset request is answered by email, whatever the page shows: read the mail
-    // next. Only a field the page flags (the email it needs) refuses it.
+  const outcomeWithoutModel = (
+    sent: NonNullable<typeof accountSent>,
+    navigated: boolean,
+    page: PageSnapshot,
+    said: string[],
+  ): AccountOutcome => {
     if (
       sent.mode === ACCOUNT_MODE.resetPassword &&
       !resetLinkSites.has(sent.site) &&
       page.flagged === 0
     ) {
-      accountHistory.push({
-        site: sent.site,
-        attempt: { mode: sent.mode, accepted: true, messages: [] },
-      });
-      log.event("account:reset-requested", {});
-      mailExpected = true;
-      return false;
+      return ACCOUNT_OUTCOME.accepted;
     }
+    const sameForm = addressOf(page.url) === sent.address && page.signature === sent.signature;
+    if (navigated && !sameForm) return ACCOUNT_OUTCOME.accepted;
+    if (said.length === 0 && page.flagged === 0) return ACCOUNT_OUTCOME.notSent;
+    return ACCOUNT_OUTCOME.refused;
+  };
+
+  /**
+   * How the site answered the account step the run sent, judged by the decision
+   * model from what the page says now: took it, refused it, or never got it. A
+   * site that answers a wrong password by drawing its form again at the same
+   * address, or advances in place after a new account, reads the same to a
+   * signature but not to the model. Null when the model could not be asked.
+   */
+  const judgeAccount = async (
+    sent: NonNullable<typeof accountSent>,
+    page: PageSnapshot,
+    newText: string[],
+    newMessages: string[],
+  ): Promise<AccountOutcome | null> => {
+    enter(RUN_STAGE.account, "Reading how the site answered…");
+    const res = await until(
+      clock.time("decide", () =>
+        requestAccountOutcome(
+          {
+            runId,
+            step: log.step,
+            sent: sent.mode,
+            beforeUrl: sent.urlBefore,
+            beforeTitle: sent.titleBefore,
+            url: page.url,
+            title: page.title,
+            text: page.text,
+            newText: newText.slice(0, RUN_NEW_TEXT_LINES_MAX),
+            pageMessages: newMessages,
+            flagged: page.flagged,
+          },
+          apiUrl,
+          tabId,
+        ),
+      ),
+    );
+    if (!res.ok || !res.outcome) {
+      log.event("account:judge-failed", { mode: sent.mode, error: res.error });
+      return null;
+    }
+    return res.outcome;
+  };
+
+  /**
+   * The page that follows an account step is its answer, and the decision model
+   * reads it (see judgeAccount). A step the site took or refused is recorded for
+   * the account order; a click that sent nothing is not. True when it was refused.
+   */
+  const settleAccount = async (navigated: boolean, page: PageSnapshot): Promise<boolean> => {
+    if (!accountSent) return false;
+    const sent = accountSent;
+    accountSent = null;
     // Only what the page says after the click is its answer; messages it already
     // showed (a form's own instructions) are not.
     const newMessages = page.scan.pageMessages.filter(
       (message) => !sent.messagesBefore.includes(message),
     );
-    const said = moved ? [] : [...newMessages, ...newLines(sent.textBefore, page.text)];
-    if (!moved && said.length === 0 && page.flagged === 0) {
-      log.event("account:no-effect", { mode: sent.mode });
-      return false;
+    const newText = newLines(sent.textBefore, page.text);
+    const said = [...new Set([...newMessages, ...newText])];
+    const outcome =
+      (await judgeAccount(sent, page, newText, newMessages)) ??
+      outcomeWithoutModel(sent, navigated, page, said);
+    log.event("account:outcome", { mode: sent.mode, outcome });
+    if (outcome === ACCOUNT_OUTCOME.notSent) return false;
+    const accepted = outcome === ACCOUNT_OUTCOME.accepted;
+    accountHistory.push({
+      site: sent.site,
+      attempt: {
+        mode: sent.mode,
+        accepted,
+        messages: accepted ? [] : said.slice(0, RUN_ACCOUNT_MESSAGES_MAX),
+      },
+    });
+    // A reset request is answered by email: read the site's link next.
+    if (accepted && sent.mode === ACCOUNT_MODE.resetPassword && !resetLinkSites.has(sent.site)) {
+      log.event("account:reset-requested", {});
+      mailExpected = true;
     }
-    const attempt: AccountAttempt = {
-      mode: sent.mode,
-      accepted: moved,
-      messages: [...new Set(said)].slice(0, RUN_ACCOUNT_MESSAGES_MAX),
-    };
-    accountHistory.push({ site: sent.site, attempt });
-    log.event(moved ? "account:accepted" : "account:rejected", { mode: sent.mode });
     // A refusal moves the account goal on (account-goal); the next read follows it.
-    return !moved;
+    return !accepted;
   };
 
   /**
@@ -796,8 +922,10 @@ export async function runOrchestrator(args: RunOrchestratorArgs): Promise<RunRep
   const goalOrStop = (page: PageSnapshot): AccountMode => {
     const goal = accountGoal(page.url);
     if (goal) return goal;
-    const detail = siteAttempts(page.url).at(-1)?.messages[0] ?? ACCOUNT_EXHAUSTED;
-    throw new RunStop(RUN_STAGE.account, page, [ACCOUNT_EXHAUSTED, detail], undefined, {
+    const attempts = siteAttempts(page.url);
+    const exhausted = accountExhausted(attempts);
+    const detail = attempts.at(-1)?.messages[0] ?? exhausted;
+    throw new RunStop(RUN_STAGE.account, page, [exhausted, detail], undefined, {
       reason: RUN_FAILURE_REASON.accountRejected,
       label: ACCOUNT_REJECTED,
       detail,
@@ -819,8 +947,9 @@ export async function runOrchestrator(args: RunOrchestratorArgs): Promise<RunRep
 
   /** Remember the account step a click is about to send, so its outcome is recorded. */
   const sendAccount = (page: PageSnapshot, mode: AccountMode) => {
-    if (accountHistory.length >= RUN_MAX_ACCOUNT_ATTEMPTS) {
-      const detail = `${accountHistory.length} account steps without getting past the site's account`;
+    const sentHere = siteAttempts(page.url).length;
+    if (sentHere >= RUN_MAX_ACCOUNT_ATTEMPTS) {
+      const detail = `${sentHere} account steps without getting past the site's account`;
       throw new RunStop(RUN_STAGE.account, page, [detail], undefined, {
         reason: RUN_FAILURE_REASON.accountRejected,
         label: ACCOUNT_REJECTED,
@@ -830,6 +959,8 @@ export async function runOrchestrator(args: RunOrchestratorArgs): Promise<RunRep
     accountSent = {
       site: siteOf(page.url),
       mode,
+      urlBefore: page.url,
+      titleBefore: page.title,
       textBefore: page.text,
       messagesBefore: page.scan.pageMessages,
       address: addressOf(page.url),
@@ -880,16 +1011,25 @@ export async function runOrchestrator(args: RunOrchestratorArgs): Promise<RunRep
       detail,
     });
 
+  const mailUnreadable = (page: PageSnapshot, detail: string) =>
+    new RunStop(RUN_STAGE.verifying, page, [detail], undefined, {
+      reason: RUN_FAILURE_REASON.mailUnreadable,
+      label: MAIL_UNREADABLE,
+      detail,
+    });
+
   /**
    * Look in the applicant's Gmail for the code or link the site emailed, until it
    * arrives or the wait runs out. Jev ranks the newest emails and reads the best
-   * one, then the second best; when neither holds it, the run stops. Null when no
-   * Gmail is connected (the applicant does the step themselves).
+   * one, then the second best; when neither holds it, the run stops. A look that
+   * fails to reach Gmail is tried again, up to RUN_MAIL_MAX_FAILED_LOOKS in a row.
+   * Null when no Gmail is connected (the applicant does the step themselves).
    */
   const findInMail = async (kind: Verification, page: PageSnapshot): Promise<string | null> => {
     const wanted = kind === VERIFICATION.emailCode ? "code" : "link";
     let seen = "";
     let judgedNone = false;
+    let failedLooks = 0;
     const started = Date.now();
     const say = () => {
       const waited = Math.round((Date.now() - started) / 1000);
@@ -928,11 +1068,16 @@ export async function runOrchestrator(args: RunOrchestratorArgs): Promise<RunRep
         unchanged: res.unchanged,
         error: res.error,
       });
+      const waitedOut = Date.now() - started >= RUN_MAIL_WAIT_MAX_MS;
       if (!res.ok) {
-        throw new RunStop(RUN_STAGE.verifying, page, [
-          `Reading your Gmail failed: ${res.error ?? "no answer"}`,
-        ]);
+        failedLooks += 1;
+        if (failedLooks >= RUN_MAIL_MAX_FAILED_LOOKS || waitedOut) {
+          throw mailUnreadable(page, `Reading your Gmail failed: ${res.error ?? "no answer"}`);
+        }
+        await until(sleep(RUN_MAIL_POLL_MS));
+        continue;
       }
+      failedLooks = 0;
       if (res.status === MAIL_VERIFICATION_STATUS.noMailbox) return null;
       if (res.status === MAIL_VERIFICATION_STATUS.found && res.value) return res.value;
       // Not in these emails: the site's may still be on its way. Keep watching; the
@@ -943,7 +1088,7 @@ export async function runOrchestrator(args: RunOrchestratorArgs): Promise<RunRep
         mailRows = res.emails;
         say();
       }
-      if (Date.now() - started >= RUN_MAIL_WAIT_MAX_MS) {
+      if (waitedOut) {
         const minutes = Math.round(RUN_MAIL_WAIT_MAX_MS / 60_000);
         throw verificationNotFound(
           page,
@@ -1148,7 +1293,10 @@ export async function runOrchestrator(args: RunOrchestratorArgs): Promise<RunRep
       enter(RUN_STAGE.advancing, `${verb} · ${click.label}`);
       return;
     }
-    if (page.fields > 0 && click.goal === click.pageMode) sendAccount(page, click.goal);
+    // The run's account work on this site has started: its guest path is no longer taken.
+    noteEvidence(page.url, { opened: true });
+    if (page.fields > 0 && click.pageMode === ACCOUNT_MODE.identify) identifySent = true;
+    else if (page.fields > 0 && click.goal === click.pageMode) sendAccount(page, click.goal);
     enter(RUN_STAGE.account, `${ACCOUNT_MESSAGE[click.goal]} · ${click.label}`);
   };
 
@@ -1162,18 +1310,19 @@ export async function runOrchestrator(args: RunOrchestratorArgs): Promise<RunRep
 
   /**
    * The control that goes on without an account, when the read names one on an
-   * account step. The run takes it only off the account goal's own form: once the
-   * account order brought the run to that form, the form is sent. Anywhere else
-   * (the application the guest path opened) the forward pick moves the run on.
+   * account step. The run takes it whenever the site offers it, until its own
+   * account work there started (it opened or sent an account form), and only once:
+   * the guest path's own form is moved on by the forward pick, not by taking the
+   * guest control again.
    */
-  const guestOf = (r: Awaited<ReturnType<typeof read>>, url: string) =>
-    r.kind === PAGE_KIND.accountStep &&
-    r.guest &&
-    r.guestControl &&
-    r.guestPicked &&
-    r.accountMode !== accountGoal(url)
-      ? { control: r.guestControl, picked: r.guestPicked, fallback: false }
-      : null;
+  const guestOf = (r: Awaited<ReturnType<typeof read>>, url: string) => {
+    if (r.kind !== PAGE_KIND.accountStep || !r.guest || !r.guestControl || !r.guestPicked) {
+      return null;
+    }
+    const site = evidenceOf(url);
+    if (site.guestTaken || site.opened || siteAttempts(url).length > 0) return null;
+    return { control: r.guestControl, picked: r.guestPicked, fallback: false };
+  };
 
   const diagnose = async (stop: RunStop): Promise<RunFailure> => {
     enter(RUN_STAGE.diagnosing);
@@ -1504,7 +1653,7 @@ export async function runOrchestrator(args: RunOrchestratorArgs): Promise<RunRep
           if (!first.accountPassword) throw noAccountPassword(page);
           const goal = goalOrStop(page);
           enter(RUN_STAGE.account, `${ACCOUNT_MESSAGE[goal]}…`);
-          if (goal !== first.accountMode) {
+          if (!fillsAccountForm(goal, first.accountMode)) {
             log.event("account:open", { goal, page: first.accountMode });
             skipFill = `the page shows ${first.accountMode}, the goal is ${goal}`;
           }

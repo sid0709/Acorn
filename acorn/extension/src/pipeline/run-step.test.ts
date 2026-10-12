@@ -27,6 +27,17 @@ describe("isNewStep", () => {
     );
   });
 
+  it("keeps the step when the site drew the same form again with refused fields", () => {
+    assert.equal(
+      isNewStep({ previous: form, page: { ...form, flagged: 1 }, settled: "navigated" }),
+      false,
+    );
+  });
+
+  it("moves on when a navigation drew the same form with nothing refused", () => {
+    assert.equal(isNewStep({ previous: form, page: form, settled: "navigated" }), true);
+  });
+
   it("moves on to a new address", () => {
     assert.equal(
       isNewStep({

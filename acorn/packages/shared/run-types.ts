@@ -60,6 +60,8 @@ export const ACCOUNT_MODE = {
   createAccount: "create_account",
   resetPassword: "reset_password",
   choose: "choose",
+  /** Only the account's email, asked first; the site picks the next form from it. */
+  identify: "identify",
 } as const;
 
 export type AccountMode = (typeof ACCOUNT_MODE)[keyof typeof ACCOUNT_MODE];
@@ -71,6 +73,18 @@ export interface AccountAttempt {
   /** The page's own words after a rejected attempt. */
   messages: string[];
 }
+
+/** How a site answered an account step the run sent (mirrors the backend's outcomes). */
+export const ACCOUNT_OUTCOME = {
+  /** The site took it and went on. */
+  accepted: "accepted",
+  /** The site said no: wrong password, account exists, locked, a flagged field. */
+  refused: "refused",
+  /** Nothing was sent: the click only switched which account form shows. */
+  notSent: "not_sent",
+} as const;
+
+export type AccountOutcome = (typeof ACCOUNT_OUTCOME)[keyof typeof ACCOUNT_OUTCOME];
 
 /** How a search of the applicant's mail ended (mirrors the backend's statuses). */
 export const MAIL_VERIFICATION_STATUS = {
@@ -117,6 +131,8 @@ export const RUN_FAILURE_REASON = {
   waitedForPerson: "waited_for_person",
   /** The emailed code or link was not in the site's best emails, or never arrived. */
   verificationNotFound: "verification_not_found",
+  /** Every look at the connected Gmail failed (the mailbox or Google did not answer). */
+  mailUnreadable: "mail_unreadable",
   /** The site kept rejecting the sign-in, sign-up, or password reset. */
   accountRejected: "account_rejected",
   /** The site needs an account and the profile has no default account password. */

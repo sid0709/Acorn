@@ -75,7 +75,7 @@ func accountHistory(attempts []runAccountAttempt) []selector.AccountAttempt {
 
 // accountGoal keeps a goal the gateway knows; "" otherwise.
 func accountGoal(goal string) string {
-	if selector.IsAccountMode(goal) && goal != selector.AccountNone && goal != selector.AccountChoose {
+	if selector.IsAccountGoal(goal) {
 		return goal
 	}
 	return ""
@@ -199,6 +199,8 @@ func (s *Server) runReadPage(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		out["accountPassword"] = password != ""
+		out["accountOffers"] = read.Offers
+		attrs = append(attrs, "accountOffers", read.Offers)
 	}
 	if read.Control != nil {
 		picked := byID[read.Control.ID]
@@ -273,6 +275,63 @@ func (s *Server) runDialog(w http.ResponseWriter, r *http.Request) {
 		"ms", elapsed.Milliseconds(), "costUsd", answer.Usage.Cost)
 	writeJSON(w, http.StatusOK, map[string]any{
 		"ok": true, "accept": answer.Accept, "confidence": answer.Confidence,
+		"model": gateway.Model(), "usage": decisionUsage(gateway.Model(), answer.Usage),
+	})
+}
+
+// runAccountOutcome has Jev say how a site answered the account step the run just
+// sent: took it, refused it, or never got it. The run's account order moves on
+// from that answer, never from the page's wording.
+func (s *Server) runAccountOutcome(w http.ResponseWriter, r *http.Request) {
+	session, ok := s.session(w, r)
+	if !ok {
+		return
+	}
+	var body struct {
+		RunID        string   `json:"runId"`
+		Step         int      `json:"step"`
+		Sent         string   `json:"sent"`
+		BeforeURL    string   `json:"beforeUrl"`
+		BeforeTitle  string   `json:"beforeTitle"`
+		URL          string   `json:"url"`
+		Title        string   `json:"title"`
+		Text         string   `json:"text"`
+		NewText      []string `json:"newText"`
+		PageMessages []string `json:"pageMessages"`
+		Flagged      int      `json:"flagged"`
+	}
+	if !decode(w, r, &body) {
+		return
+	}
+	if !selector.IsAccountGoal(body.Sent) {
+		writeError(w, http.StatusBadRequest, "sent must be "+selector.AccountSignIn+", "+selector.AccountCreate+", or "+selector.AccountReset)
+		return
+	}
+	gateway, ok := s.selectorFor(w, r, session.User.ID)
+	if !ok {
+		return
+	}
+	runID := cleanRunID(body.RunID)
+	log := slog.With("runId", runID, "step", body.Step, "sent", body.Sent, "page", logPage(body.URL))
+
+	started := time.Now()
+	answer, err := gateway.JudgeAccountOutcome(s.withUsage(r, session.User.ID), selector.AccountOutcomeQuery{
+		Sent: body.Sent, BeforeURL: body.BeforeURL, BeforeTitle: body.BeforeTitle, URL: body.URL, Title: body.Title,
+		Text: body.Text, NewText: body.NewText, PageMessages: body.PageMessages, Flagged: body.Flagged,
+	})
+	elapsed := time.Since(started)
+	s.recordRunStep(r, session.User.ID, runID, body.Step, "account-outcome", map[string]any{
+		"request": body, "answer": answer, "error": errText(err), "ms": elapsed.Milliseconds(),
+	})
+	if err != nil {
+		log.Warn("acorn run account-outcome failed", "error", err, "ms", elapsed.Milliseconds())
+		writeJSON(w, http.StatusOK, map[string]any{"ok": false, "error": err.Error()})
+		return
+	}
+	log.Info("acorn run account-outcome decided", "outcome", answer.Outcome, "confidence", answer.Confidence,
+		"ms", elapsed.Milliseconds(), "costUsd", answer.Usage.Cost)
+	writeJSON(w, http.StatusOK, map[string]any{
+		"ok": true, "outcome": answer.Outcome, "confidence": answer.Confidence,
 		"model": gateway.Model(), "usage": decisionUsage(gateway.Model(), answer.Usage),
 	})
 }
