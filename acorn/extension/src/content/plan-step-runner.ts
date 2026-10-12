@@ -1,6 +1,11 @@
 import { rewriteApplicantIdentityValue } from "@acorn/shared/plan-runner/applicant-identity";
 import { isCustomResumeFile } from "@acorn/shared/plan-runner/step-file";
-import { shownValue } from "@acorn/shared/secret-value";
+import {
+  HIDDEN_VALUE,
+  PASSWORD_ROLE,
+  isSecretControl,
+  shownValue,
+} from "@acorn/shared/secret-value";
 
 import { traceFromPage } from "../debug-trace";
 
@@ -191,12 +196,14 @@ export async function actOnVerified(
   }
 
   const startedAt = Date.now();
+  const secretStep = isSecretControl(el) || step.expected_role === PASSWORD_ROLE;
   traceFromPage("step:start", () => ({
     action: step.action,
     element_index: step.element_index,
     expected_label: step.expected_label,
-    planValue: step.value,
-    intended,
+    // A password never reaches a trace: shown as hidden, by its box or its role.
+    planValue: secretStep ? HIDDEN_VALUE : step.value,
+    intended: secretStep ? HIDDEN_VALUE : intended,
     el: describeEl(el),
     widget: describeWidget(el),
     combos: comboSnapshot(),

@@ -1,4 +1,4 @@
-import { ACORN_DEBUG, DEBUG_HTML_MAX_CHARS, traceFromPage } from "../debug-trace";
+import { ACORN_CAPTURE, DEBUG_HTML_MAX_CHARS, traceFromPage } from "../debug-trace";
 import { MSG, PLAN_STEP_PAGE_TIMEOUT_MS, type PlanStepPayload } from "../types";
 
 import { holdsAcornIds } from "./acorn-id";
@@ -7,7 +7,7 @@ import { fillLeftoverComboboxes } from "./agents/leftover-combobox";
 import { waitForDomQuiet } from "./agents/wait";
 import { collectChoiceItems, type ChoiceBatchStep } from "./choice-batch";
 import { CLICK_AFTER_REPLY_MS, prepareControlClick } from "./click-control";
-import { comboSnapshot } from "./debug-snapshot";
+import { capturedPageHtml, comboSnapshot } from "./debug-snapshot";
 import { serializeDom } from "./dom-serializer";
 import { repairDrift } from "./drift-repair";
 import { resolveElementByNodeId } from "./element-resolver";
@@ -112,15 +112,27 @@ if (!contentWindow[CONTENT_BOOT]) {
             pageScore,
             fetchedAt: new Date().toISOString(),
             frameId: sender.frameId ?? null,
-            html: ACORN_DEBUG
-              ? document.documentElement.outerHTML.slice(0, DEBUG_HTML_MAX_CHARS)
-              : undefined,
+            // Only the fill's read carries the page HTML: it rides to the backend's capture.
+            html:
+              ACORN_CAPTURE && message.html === true
+                ? capturedPageHtml(DEBUG_HTML_MAX_CHARS)
+                : undefined,
           });
         } catch (err) {
           sendResponse({ error: String(err), formScore: score });
         }
       })();
       return true;
+    }
+
+    if (message.type === MSG.CAPTURE_HTML) {
+      if (!ACORN_CAPTURE) return false;
+      sendResponse({
+        ok: true,
+        url: window.location.href,
+        html: capturedPageHtml(DEBUG_HTML_MAX_CHARS),
+      });
+      return false;
     }
 
     if (message.type === MSG.HIGHLIGHT) {

@@ -1,4 +1,5 @@
 import { authHeaders, getAcornApiUrl } from "../auth/acorn-auth";
+import { ACORN_DEBUG } from "../debug-trace";
 import { broadcastOperatorNotice } from "../operator-notice";
 
 /** Shown when debug capture cannot record; the detail says why and what to do. */
@@ -11,13 +12,14 @@ function report(key: string, detail: string): void {
   console.warn(`[acorn debug] ${detail}`);
   if (reported.has(key)) return;
   reported.add(key);
-  broadcastOperatorNotice({ kind: "error", title: DEBUG_UNRECORDED, detail });
+  // Only a developer can act on it; a user's run goes on whatever capture does.
+  if (ACORN_DEBUG) broadcastOperatorNotice({ kind: "error", title: DEBUG_UNRECORDED, detail });
 }
 
 /** Why a debug upload to base was refused, in words the person can act on. */
 function refusal(base: string, status: number): string {
   if (status === 404) {
-    return `${base} has no debug capture. Run the local API with ACORN_DEBUG_DIR set (acorn-backend/.env).`;
+    return `${base} has no capture routes yet (an older API).`;
   }
   if (status === 401 || status === 403) {
     return `Sign in to Acorn on ${base} so debug capture can record.`;

@@ -69,13 +69,19 @@ Acorn HTTP in `acorn-backend/acornapi` should compose the existing My Resume Edi
 
 ---
 
-## 7. Change discipline
+## 7. Process capture
+
+Every tab session's process (step traces, page HTML and trees, model prompts and answers, SelectorGateway decisions, Gmail looks, screenshots) is captured to the API, kept 3 days per tab (`debugtrace.SessionRetention`), and copied onto a support claim when the person reports. A password never enters capture: the extension redacts it from traces and HTML (`content/debug-snapshot.ts`, `plan-step-runner.ts`), plans are redacted, and emailed codes or links are kept only masked. Capture is best effort and never stops or slows a run.
+
+---
+
+## 8. Change discipline
 
 - **Bump the Acorn extension version on every shipped change.** It lives only in `extension/package.json`; the build copies it into the manifest, `VITE_ACORN_VERSION`, and the build log. Rules: [`.claude/CLAUDE.md`](.claude/CLAUDE.md), [`.cursor/rules/acorn-versioning.mdc`](.cursor/rules/acorn-versioning.mdc).
 - Update `acorn/README.md` when routes or operator steps change.
 
 ---
 
-## 8. UI language
+## 9. UI language
 
 Acorn UI follows [`design/README.md`](design/README.md) and [`design/tokens.md`](design/tokens.md). Cursor enforcement: [`.cursor/rules/acorn-ui-design.mdc`](.cursor/rules/acorn-ui-design.mdc).

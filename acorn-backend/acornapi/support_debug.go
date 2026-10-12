@@ -6,23 +6,20 @@ import (
 	"log/slog"
 	"net/http"
 	"path"
+	"strings"
 
 	"github.com/sid0709/OpenSeat/acorn-backend/support"
 )
 
-// storeClaimDebugLog copies the tab's current debug run onto the claim, when this
-// server is recording one. messageID is empty for the opening report. A report
-// still succeeds when there is no run or the copy fails; the count is how many
-// files were stored.
+// storeClaimDebugLog copies the tab's whole captured session onto the claim: every
+// run folder kept for it (pages, trees, decisions, prompts, plans, step traces,
+// screenshots). messageID is empty for the opening report. A report still succeeds
+// when nothing was captured or the copy fails; the count is how many files were stored.
 func (s *Server) storeClaimDebugLog(r *http.Request, claimID, accountID, messageID string) int {
 	if s.debug == nil || s.claims == nil || claimID == "" || accountID == "" {
 		return 0
 	}
-	run := s.debug.Current(debugKey(r, accountID))
-	if run == nil {
-		return 0
-	}
-	artifacts, err := run.Snapshot(support.MaxDebugFileBytes)
+	artifacts, err := s.debug.Session(r.Context(), debugKey(r, accountID), support.MaxDebugFileBytes)
 	if err != nil {
 		slog.Error("acorn support debug log", "error", err, "claimId", claimID)
 		return 0
@@ -80,10 +77,16 @@ func (s *Server) adminClaimDebugLog(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
+// debugZipPath files a stored debug file under the report or follow-up it came
+// with, keeping its run folder. Nothing climbs out of that folder.
 func debugZipPath(file support.DebugFile) string {
 	dir := "report"
 	if file.MessageID != "" {
 		dir = "follow-up-" + file.MessageID
 	}
-	return dir + "/" + path.Base(file.Name)
+	name := strings.TrimPrefix(path.Clean("/"+file.Name), "/")
+	if name == "" || name == "." {
+		name = "file"
+	}
+	return dir + "/" + name
 }

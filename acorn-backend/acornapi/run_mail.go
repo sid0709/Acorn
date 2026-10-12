@@ -3,6 +3,7 @@ package acornapi
 import (
 	"context"
 	"errors"
+	"fmt"
 	"log/slog"
 	"net/http"
 	"strings"
@@ -31,7 +32,12 @@ type gmailReader struct {
 	google    *mailbox.Google
 	mailboxID string
 	token     string
+	// address is the mailbox's email, for the capture of each look.
+	address string
 }
+
+// errLoadMailboxes is a failure to list the account's connected mailboxes.
+var errLoadMailboxes = errors.New("could not load mailboxes")
 
 func (g gmailReader) Recent(ctx context.Context, n int) ([]mailbox.Message, error) {
 	page, err := g.google.ListMessages(ctx, g.mailboxID, g.token, mailbox.ListQuery{
@@ -71,16 +77,31 @@ func (s *Server) runMailVerification(w http.ResponseWriter, r *http.Request) {
 	}
 	runID := cleanRunID(body.RunID)
 	log := slog.With("runId", runID, "step", body.Step, "kind", body.Kind, "page", logPage(body.URL))
+	// Every look is captured for the tab session: which mailbox, what it listed,
+	// how Jev ranked it, and what failed (never the code or link).
+	record := func(data map[string]any) {
+		data["kind"] = body.Kind
+		s.recordRunStep(r, session.User.ID, runID, body.Step, "mail-verification", data)
+	}
 	if !s.gmailReady() {
+		record(map[string]any{"status": statusNoMailbox, "why": "gmail is not configured on this server"})
 		writeJSON(w, http.StatusOK, map[string]any{"ok": true, "status": statusNoMailbox})
 		return
 	}
-	reader, ok := s.verificationMailbox(w, r, session.User.ID, session.User.Email)
-	if !ok {
+	reader, err := s.verificationMailbox(r.Context(), session.User.ID, session.User.Email)
+	if err != nil {
+		record(map[string]any{"status": "mailbox_failed", "error": err.Error()})
+		if errors.Is(err, errLoadMailboxes) {
+			slog.Error("list gmail mailboxes", "error", err)
+			writeError(w, http.StatusInternalServerError, "could not load mailboxes")
+			return
+		}
+		writeGmailError(w, err)
 		return
 	}
 	if reader == nil {
 		log.Info("acorn run mail-verification: no mailbox")
+		record(map[string]any{"status": statusNoMailbox, "why": "no connected Gmail receives the profile's email"})
 		writeJSON(w, http.StatusOK, map[string]any{"ok": true, "status": statusNoMailbox})
 		return
 	}
@@ -97,7 +118,7 @@ func (s *Server) runMailVerification(w http.ResponseWriter, r *http.Request) {
 	if body.Since > 0 {
 		since = time.UnixMilli(body.Since)
 	}
-	ctx, cancel := context.WithTimeout(s.withUsage(r, session.User.ID), mailVerificationTimeout)
+	ctx, cancel := context.WithTimeout(s.traceContext(r, session.User.ID), mailVerificationTimeout)
 	defer cancel()
 	started := time.Now()
 	result, err := mailcode.Find(ctx, gateway, *reader, mailcode.Query{
@@ -107,9 +128,9 @@ func (s *Server) runMailVerification(w http.ResponseWriter, r *http.Request) {
 		Since: since, Seen: clipField(body.Seen, maxSeen),
 	})
 	elapsed := time.Since(started)
-	s.recordRunStep(r, session.User.ID, runID, body.Step, "mail-verification", map[string]any{
-		"kind": body.Kind, "status": result.Status, "messageId": result.MessageID,
-		"unchanged": result.Unchanged, "judged": result.Judged, "opened": result.Opened,
+	record(map[string]any{
+		"mailbox": reader.address, "status": result.Status, "messageId": result.MessageID,
+		"unchanged": result.Unchanged, "emails": result.Emails, "judged": result.Judged, "opened": result.Opened,
 		"error": errText(err), "ms": elapsed.Milliseconds(),
 	})
 	if err != nil {
@@ -138,27 +159,24 @@ func (s *Server) runMailVerification(w http.ResponseWriter, r *http.Request) {
 
 // verificationMailbox is the connected mailbox that receives the profile's
 // email (the address the run signs up with). Nil when none is connected.
-func (s *Server) verificationMailbox(w http.ResponseWriter, r *http.Request, accountID, accountEmail string) (*gmailReader, bool) {
-	boxes, err := s.gmail.List(r.Context(), accountID)
+func (s *Server) verificationMailbox(ctx context.Context, accountID, accountEmail string) (*gmailReader, error) {
+	boxes, err := s.gmail.List(ctx, accountID)
 	if err != nil {
-		slog.Error("list gmail mailboxes", "error", err)
-		writeError(w, http.StatusInternalServerError, "could not load mailboxes")
-		return nil, false
+		return nil, fmt.Errorf("%w: %w", errLoadMailboxes, err)
 	}
 	email := accountEmail
-	if doc, stored, err := s.profiles.Load(r.Context(), accountID); err == nil && stored && strings.TrimSpace(doc.Email) != "" {
+	if doc, stored, err := s.profiles.Load(ctx, accountID); err == nil && stored && strings.TrimSpace(doc.Email) != "" {
 		email = doc.Email
 	}
 	box, found := mailbox.ForAddress(boxes, email)
 	if !found {
-		return nil, true
+		return nil, nil
 	}
-	token, err := s.gmail.RefreshToken(r.Context(), accountID, box.ID)
+	token, err := s.gmail.RefreshToken(ctx, accountID, box.ID)
 	if err != nil {
-		writeGmailError(w, err)
-		return nil, false
+		return nil, err
 	}
-	return &gmailReader{google: s.gmailGoogle, mailboxID: box.ID, token: token}, true
+	return &gmailReader{google: s.gmailGoogle, mailboxID: box.ID, token: token, address: email}, nil
 }
 
 // mailRow is one email as the sidebar lists it while the run reads the mail.

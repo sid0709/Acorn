@@ -27,6 +27,9 @@ func WithCall(ctx context.Context, name string) context.Context {
 	return context.WithValue(ctx, callKey{}, name)
 }
 
+// CallName is the name WithCall gave ctx's call, or "" when none.
+func CallName(ctx context.Context) string { return callName(ctx) }
+
 func callName(ctx context.Context) string {
 	if ctx == nil {
 		return ""

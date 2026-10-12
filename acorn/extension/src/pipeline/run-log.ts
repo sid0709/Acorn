@@ -1,4 +1,5 @@
 import { authHeaders, getAcornApiUrl } from "../auth/acorn-auth";
+import { captureDebugHtml } from "../background/debug-html";
 import { queueDebugShot } from "../background/debug-shot";
 import { traceFromBackground } from "../background/debug-trace-sink";
 
@@ -55,8 +56,12 @@ export class RunLog {
     this.timer ??= setTimeout(() => void this.flush(), RUN_LOG_FLUSH_MS);
   }
 
-  /** A stitched full-page image for a moment the run is standing still. */
-  screenshot(label: string): Promise<void> {
+  /**
+   * A stitched full-page image for a moment the run is standing still, with the
+   * page's HTML (and that of the frame the run reads) next to it.
+   */
+  screenshot(label: string, frameId?: number | null): Promise<void> {
+    void captureDebugHtml(this.tabId, label, frameId);
     return queueDebugShot(this.tabId, label, true);
   }
 

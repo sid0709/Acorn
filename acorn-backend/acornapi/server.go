@@ -193,6 +193,7 @@ func New(accounts Accounts, listings *jobs.Store, brain *acorn.Service, opts Opt
 	if s.debug != nil {
 		mux.HandleFunc("POST /acorn/debug/log", s.debugLog)
 		mux.HandleFunc("POST /acorn/debug/shot", s.debugShot)
+		mux.HandleFunc("POST /acorn/debug/html", s.debugHTML)
 	}
 
 	mux.HandleFunc("GET /acorn/ai-usage", s.listAIUsage)

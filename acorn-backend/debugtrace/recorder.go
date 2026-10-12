@@ -1,8 +1,11 @@
-// Package debugtrace is Acorn's local debug capture. With a directory set, every
-// Analyze opens a run folder holding the page, the trees the planner read, each model
-// prompt and answer, the plan, and the extension's step trace for that fill.
+// Package debugtrace is Acorn's process capture. Every Analyze opens a run folder
+// holding the page, the trees the planner read, each model prompt and answer, every
+// decision, the plan, and the extension's step trace for that fill.
 //
-// It writes applicant data and page HTML to disk, so it is for local runs only.
+// Locally the folders are written to a directory. A deployed server keeps them in a
+// Store (MongoDB) per tab session for SessionRetention, so a report can carry the
+// whole session; nothing else reads them. Passwords never reach it: the extension
+// and the planner redact them before anything is captured.
 package debugtrace
 
 import (
@@ -11,6 +14,7 @@ import (
 	"fmt"
 	"log/slog"
 	"os"
+	"path"
 	"path/filepath"
 	"regexp"
 	"strings"
@@ -21,6 +25,9 @@ import (
 const (
 	// runTimeLayout prefixes run folders so they sort by start time.
 	runTimeLayout = "20060102-150405"
+	// storedRunTimeLayout names a run kept only in the Store, to the millisecond, so
+	// two runs of one tab never share a name.
+	storedRunTimeLayout = "20060102-150405.000"
 	// maxSlug bounds the page-derived part of a run folder name.
 	maxSlug = 48
 	// stepLogName is the extension's NDJSON trace inside a run folder.
@@ -31,21 +38,23 @@ const (
 
 var unsafeSlug = regexp.MustCompile(`[^a-z0-9]+`)
 
-// Recorder owns the capture directory. A nil Recorder records nothing.
+// Recorder owns the capture. A nil Recorder records nothing.
 type Recorder struct {
-	dir string
+	dir   string
+	store Store
 
 	mu     sync.Mutex
 	latest map[string]*Run
 }
 
-// New returns a Recorder writing under dir, or nil when dir is empty (capture off).
-func New(dir string) *Recorder {
+// New returns a Recorder writing under dir and into store (either may be absent),
+// or nil when both are (capture off).
+func New(dir string, store Store) *Recorder {
 	dir = strings.TrimSpace(dir)
-	if dir == "" {
+	if dir == "" && store == nil {
 		return nil
 	}
-	return &Recorder{dir: dir, latest: map[string]*Run{}}
+	return &Recorder{dir: dir, store: store, latest: map[string]*Run{}}
 }
 
 // Dir is where runs are written.
@@ -58,31 +67,50 @@ func (r *Recorder) Dir() string {
 
 // Run is one fill: the Analyze that started it and every call after it.
 type Run struct {
+	// dir is the run's folder on disk; empty when capture is only stored.
 	dir string
+	// key and name file the run in the Store: whose tab session, and which folder.
+	key   string
+	name  string
+	store Store
 
 	mu   sync.Mutex
 	next int
 }
 
-// StartRun opens a new run folder for a user's Analyze and makes it their latest.
-func (r *Recorder) StartRun(userID, label string) *Run {
+// StartRun opens a new run folder for a tab session's Analyze and makes it its latest.
+// key is whose session it is (the user and the tab).
+func (r *Recorder) StartRun(key, label string) *Run {
 	if r == nil {
 		return nil
 	}
-	name := time.Now().Format(runTimeLayout)
-	if slug := slugify(label); slug != "" {
-		name += "-" + slug
+	now := time.Now()
+	slug := slugify(label)
+	run := &Run{key: key, store: r.store}
+	if r.dir != "" {
+		name := now.Format(runTimeLayout)
+		if slug != "" {
+			name += "-" + slug
+		}
+		run.name = uniqueName(r.dir, name)
+		run.dir = filepath.Join(r.dir, run.name)
+		if err := os.MkdirAll(run.dir, dirMode); err != nil {
+			slog.Warn("debug capture: create run", "dir", run.dir, "error", err)
+			if r.store == nil {
+				return nil
+			}
+			run.dir = ""
+		}
+	} else {
+		run.name = now.UTC().Format(storedRunTimeLayout)
+		if slug != "" {
+			run.name += "-" + slug
+		}
 	}
-	dir := filepath.Join(r.dir, uniqueName(r.dir, name))
-	if err := os.MkdirAll(dir, dirMode); err != nil {
-		slog.Warn("debug capture: create run", "dir", dir, "error", err)
-		return nil
-	}
-	run := &Run{dir: dir}
 	r.mu.Lock()
-	r.latest[userID] = run
+	r.latest[key] = run
 	r.mu.Unlock()
-	slog.Info("debug capture: run started", "dir", dir)
+	slog.Debug("debug capture: run started", "run", run.name)
 	return run
 }
 
@@ -135,20 +163,48 @@ func (run *Run) Dir() string {
 }
 
 // WriteFile saves one artifact as NN-name, numbered in capture order.
-// The returned name is empty when the run is nil or the write fails.
+// The returned name is empty when the run is nil or nothing could be written.
 func (run *Run) WriteFile(name string, data []byte) string {
 	if run == nil {
 		return ""
 	}
 	run.mu.Lock()
 	run.next++
-	file := fmt.Sprintf("%02d-%s", run.next, name)
+	seq := run.next
 	run.mu.Unlock()
-	if err := os.WriteFile(filepath.Join(run.dir, file), data, fileMode); err != nil {
-		slog.Warn("debug capture: write", "file", file, "error", err)
+	file := fmt.Sprintf("%02d-%s", seq, name)
+	written := run.save(file, seq, data)
+	if run.dir != "" {
+		if err := os.WriteFile(filepath.Join(run.dir, file), data, fileMode); err != nil {
+			slog.Warn("debug capture: write", "file", file, "error", err)
+		} else {
+			written = true
+		}
+	}
+	if !written {
 		return ""
 	}
 	return file
+}
+
+// save hands one file to the Store in the background, so capture never holds the
+// request up. False when the run keeps no Store.
+func (run *Run) save(name string, seq int, data []byte) bool {
+	if run.store == nil {
+		return false
+	}
+	file := File{
+		Key: run.key, Run: run.name, Seq: seq, Name: name,
+		Data: append([]byte(nil), data...), At: time.Now().UTC(),
+	}
+	go func() {
+		ctx, cancel := context.WithTimeout(context.Background(), saveTimeout)
+		defer cancel()
+		if err := run.store.Save(ctx, file); err != nil {
+			slog.Warn("debug capture: store", "file", file.Name, "error", err)
+		}
+	}()
+	return true
 }
 
 // WriteJSON saves v indented.
@@ -172,7 +228,7 @@ type Artifact struct {
 // Snapshot reads the run folder. Files larger than maxFile bytes are left out.
 // A nil run or a maxFile below 1 yields no files.
 func (run *Run) Snapshot(maxFile int) ([]Artifact, error) {
-	if run == nil || maxFile < 1 {
+	if run == nil || maxFile < 1 || run.dir == "" {
 		return nil, nil
 	}
 	run.mu.Lock()
@@ -203,6 +259,54 @@ func (run *Run) Snapshot(maxFile int) ([]Artifact, error) {
 	return files, nil
 }
 
+// Session is everything captured for one tab session (key), each file named
+// run/NN-name so the folders stay apart. From the Store when there is one (every
+// run kept within SessionRetention), else the session's current folder on disk.
+// Files larger than maxFile bytes are left out.
+func (r *Recorder) Session(ctx context.Context, key string, maxFile int) ([]Artifact, error) {
+	if r == nil || maxFile < 1 {
+		return nil, nil
+	}
+	if r.store == nil {
+		run := r.Current(key)
+		files, err := run.Snapshot(maxFile)
+		for i := range files {
+			files[i].Name = path.Join(run.name, files[i].Name)
+		}
+		return files, err
+	}
+	ctx, cancel := context.WithTimeout(ctx, loadTimeout)
+	defer cancel()
+	stored, err := r.store.Session(ctx, key, time.Now().Add(-SessionRetention))
+	if err != nil {
+		return nil, err
+	}
+	return sessionArtifacts(stored, maxFile), nil
+}
+
+// sessionArtifacts lays stored files out as folders, in capture order. A run's step
+// trace was stored a batch at a time; its batches join into one steps.ndjson.
+func sessionArtifacts(stored []File, maxFile int) []Artifact {
+	var files []Artifact
+	steps := map[string]int{}
+	for _, file := range stored {
+		if len(file.Data) == 0 || len(file.Data) > maxFile {
+			continue
+		}
+		if file.Name == stepLogName {
+			if at, ok := steps[file.Run]; ok {
+				if len(files[at].Data)+len(file.Data) <= maxFile {
+					files[at].Data = append(files[at].Data, file.Data...)
+				}
+				continue
+			}
+			steps[file.Run] = len(files)
+		}
+		files = append(files, Artifact{Name: path.Join(file.Run, file.Name), Data: file.Data})
+	}
+	return files
+}
+
 // AppendSteps adds the extension's trace lines to steps.ndjson, one JSON value per line.
 func (run *Run) AppendSteps(lines []json.RawMessage) {
 	if run == nil || len(lines) == 0 {
@@ -215,6 +319,10 @@ func (run *Run) AppendSteps(lines []json.RawMessage) {
 	}
 	run.mu.Lock()
 	defer run.mu.Unlock()
+	run.save(stepLogName, run.next, []byte(b.String()))
+	if run.dir == "" {
+		return
+	}
 	f, err := os.OpenFile(filepath.Join(run.dir, stepLogName), os.O_CREATE|os.O_APPEND|os.O_WRONLY, fileMode)
 	if err != nil {
 		slog.Warn("debug capture: open step log", "error", err)

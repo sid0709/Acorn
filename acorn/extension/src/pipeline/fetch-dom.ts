@@ -62,6 +62,8 @@ export async function fetchDomFromTab(
     formFields?: boolean;
     pendingFields?: boolean;
     blockedFields?: boolean;
+    /** Capture: the page HTML (passwords removed) for the backend's capture. */
+    html?: boolean;
   } = {},
 ): Promise<DomTreePayload> {
   const tried = new Set<number>();
@@ -81,6 +83,7 @@ export async function fetchDomFromTab(
         formFields: Boolean(opts.formFields),
         pendingFields: Boolean(opts.pendingFields),
         blockedFields: Boolean(opts.blockedFields),
+        html: Boolean(opts.html),
       },
       frameId,
     );

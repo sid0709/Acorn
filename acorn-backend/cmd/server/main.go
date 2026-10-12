@@ -117,6 +117,9 @@ func main() {
 	})
 	gmailGoogle := &mailbox.Google{OAuth: oauth, RedirectURL: googleConfig.GmailRedirectURL}
 	gmailStore := mailbox.NewStore(p.Mongo(), db.DestDB, gmailGoogle)
+	// Process capture of every tab session (pages, trees, decisions, prompts), kept
+	// for debugtrace.SessionRetention so a support report can carry the whole session.
+	traces := debugtrace.NewMongoStore(p.Mongo(), db.DestDB)
 
 	// Each store owns its own collections, so the index builds run side by side.
 	indexed := []struct {
@@ -131,6 +134,7 @@ func main() {
 		{"acorn admin", adminStore},
 		{"acorn support access", supportAccess},
 		{"acorn gmail", gmailStore},
+		{"acorn debug traces", traces},
 	}
 	indexGroup, indexCtx := errgroup.WithContext(context.Background())
 	for _, item := range indexed {
@@ -145,10 +149,15 @@ func main() {
 		slog.Error("acorn indexes", "error", err)
 		os.Exit(1)
 	}
-	// Local debug capture: pages, profiles, prompts, and plans land on disk. Never set in production.
-	debug := debugtrace.New(config.Env("ACORN_DEBUG_DIR", ""))
-	if debug != nil {
-		slog.Warn("Acorn debug capture is on: page HTML, applicant profiles, and AI prompts are written to disk", "dir", debug.Dir())
+	// Capture goes to MongoDB for support reports; ACORN_DEBUG_DIR also writes it to
+	// local folders (a developer's machine only).
+	var traceStore debugtrace.Store
+	if traces != nil {
+		traceStore = traces
+	}
+	debug := debugtrace.New(config.Env("ACORN_DEBUG_DIR", ""), traceStore)
+	if debug != nil && debug.Dir() != "" {
+		slog.Warn("Acorn debug capture also writes page HTML, applicant profiles, and AI prompts to disk", "dir", debug.Dir())
 	}
 	acornHandler, gateway := acornapi.New(accounts, p.Jobs, acorn.New(nil), acornapi.Options{
 		Resumes:       resumes,
