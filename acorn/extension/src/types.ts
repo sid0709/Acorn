@@ -106,6 +106,8 @@ export const MSG = {
   SELECTION_QA: "acorn:selection-qa",
   /** Debug builds only: a page trace event relayed to the backend debug run. */
   DEBUG_TRACE: "acorn:debug-trace",
+  /** Capture: this frame's page HTML, passwords removed. */
+  CAPTURE_HTML: "acorn:capture-html",
 } as const;
 
 export type AcornNoticeKind = "error" | "success" | "info";

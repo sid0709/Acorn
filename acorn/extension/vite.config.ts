@@ -19,12 +19,17 @@ function logAcornVersion(): Plugin {
     name: "acorn-version",
     configResolved(config) {
       config.logger.info(`\nAcorn extension v${ACORN_VERSION} (${config.mode})\n`);
-      // Mirrors ACORN_DEBUG in src/debug-trace.ts: only development builds capture.
-      if (config.env.VITE_ACORN_DEBUG !== "true") return;
-      if (config.mode === "development") {
-        config.logger.warn("Debug capture is ON: Fill sends page HTML and step traces.\n");
+      // Mirrors ACORN_CAPTURE in src/debug-trace.ts: capture is on unless turned off.
+      if (config.env.VITE_ACORN_CAPTURE === "false") {
+        config.logger.warn("Process capture is OFF: support reports carry no session history.\n");
       } else {
-        config.logger.info("VITE_ACORN_DEBUG is ignored: debug capture is off in this build.\n");
+        config.logger.info("Process capture is on: reports carry the tab's session history.\n");
+      }
+      // Mirrors ACORN_DEBUG: developer conveniences only in development builds.
+      if (config.env.VITE_ACORN_DEBUG === "true" && config.mode !== "development") {
+        config.logger.info(
+          "VITE_ACORN_DEBUG is ignored: developer conveniences are off in this build.\n",
+        );
       }
     },
   };

@@ -163,7 +163,7 @@ func (s *Server) runReadPage(w http.ResponseWriter, r *http.Request) {
 		"flagged", body.Flagged, "pageMessages", len(body.PageMessages))
 
 	started := time.Now()
-	read, err := gateway.ReadPage(s.withUsage(r, session.User.ID), selector.PageQuery{
+	read, err := gateway.ReadPage(s.traceContext(r, session.User.ID), selector.PageQuery{
 		URL: body.URL, Title: body.Title, Text: body.Text, Intent: intent,
 		Controls: controls, Flagged: body.Flagged, PageMessages: body.PageMessages,
 		Account: accountHistory(body.Account), AccountGoal: accountGoal(body.AccountGoal),
@@ -259,7 +259,7 @@ func (s *Server) runDialog(w http.ResponseWriter, r *http.Request) {
 	log := slog.With("runId", runID, "step", body.Step, "kind", body.Kind, "page", logPage(body.URL))
 
 	started := time.Now()
-	answer, err := gateway.DecideDialog(s.withUsage(r, session.User.ID), selector.DialogQuery{
+	answer, err := gateway.DecideDialog(s.traceContext(r, session.User.ID), selector.DialogQuery{
 		Kind: body.Kind, Message: body.Message, URL: body.URL, Title: body.Title, LastControl: body.LastControl,
 	})
 	elapsed := time.Since(started)
@@ -315,7 +315,7 @@ func (s *Server) runAccountOutcome(w http.ResponseWriter, r *http.Request) {
 	log := slog.With("runId", runID, "step", body.Step, "sent", body.Sent, "page", logPage(body.URL))
 
 	started := time.Now()
-	answer, err := gateway.JudgeAccountOutcome(s.withUsage(r, session.User.ID), selector.AccountOutcomeQuery{
+	answer, err := gateway.JudgeAccountOutcome(s.traceContext(r, session.User.ID), selector.AccountOutcomeQuery{
 		Sent: body.Sent, BeforeURL: body.BeforeURL, BeforeTitle: body.BeforeTitle, URL: body.URL, Title: body.Title,
 		Text: body.Text, NewText: body.NewText, PageMessages: body.PageMessages, Flagged: body.Flagged,
 	})
@@ -369,7 +369,7 @@ func (s *Server) runDiagnose(w http.ResponseWriter, r *http.Request) {
 	log.Info("acorn run diagnose", "evidence", len(body.Evidence), "attempts", body.Attempts)
 
 	started := time.Now()
-	failure, err := gateway.Diagnose(s.withUsage(r, session.User.ID), selector.FailureQuery{
+	failure, err := gateway.Diagnose(s.traceContext(r, session.User.ID), selector.FailureQuery{
 		URL: body.URL, Title: body.Title, Stage: body.Stage, Attempts: body.Attempts,
 		Evidence: body.Evidence, Text: body.Text,
 	})

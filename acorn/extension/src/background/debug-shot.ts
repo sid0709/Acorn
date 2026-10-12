@@ -1,4 +1,4 @@
-import { ACORN_DEBUG } from "../debug-trace";
+import { ACORN_CAPTURE } from "../debug-trace";
 
 import { blobToBase64, captureFullPage, captureVisible } from "./capture/full-page";
 import { postDebug } from "./debug-post";
@@ -24,13 +24,13 @@ function sleep(ms: number) {
  * Store a screenshot on the user's current debug run.
  * `full` stitches the whole page (and scrolls it, then puts the scroll back).
  * Viewport shots are the frequent ones and never move the page.
- * Both no-op unless this is a debug build, and both skip a tab that is not focused:
+ * Both no-op when capture is off, and both skip a tab that is not focused:
  * Chrome can only photograph the visible tab, and stitching a background tab would
  * scroll it while photographing whichever tab is in front.
  */
 /** Wait until screenshots already queued have been sent. */
 export async function flushDebugShots(): Promise<void> {
-  if (!ACORN_DEBUG) return;
+  if (!ACORN_CAPTURE) return;
   let current = chain;
   for (;;) {
     await current.then(
@@ -43,7 +43,7 @@ export async function flushDebugShots(): Promise<void> {
 }
 
 export function queueDebugShot(tabId: number, label: string, full: boolean): Promise<void> {
-  if (!ACORN_DEBUG) return Promise.resolve();
+  if (!ACORN_CAPTURE) return Promise.resolve();
   const now = Date.now();
   if (!full && now - lastAccepted < VISIBLE_SHOT_MIN_MS) return Promise.resolve();
   lastAccepted = now;

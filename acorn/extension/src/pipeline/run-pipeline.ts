@@ -12,7 +12,7 @@ import { formatAnalyzeTrees } from "@acorn/shared/tree-export";
 import { DEFAULT_ACORN_API_URL } from "../auth/acorn-auth";
 import { queueDebugShot } from "../background/debug-shot";
 import { traceFromBackground } from "../background/debug-trace-sink";
-import { ACORN_DEBUG } from "../debug-trace";
+import { ACORN_CAPTURE } from "../debug-trace";
 import { customTabHasResume, getCustomTab } from "../tab-custom-session";
 import { getTabJob } from "../tab-job-session";
 import { sendPlanStepToTab, sendTabMessage } from "../tab-messaging";
@@ -168,6 +168,7 @@ export async function runFabPipeline(args: RunPipelineArgs): Promise<void> {
         fetchDomFromTab(tabId, preferredFrameId, {
           fieldIssues: refill,
           formFields: wantsFastPlan(mode),
+          html: ACORN_CAPTURE,
         }),
         loadFillResume({
           source: resumeSource,
@@ -278,7 +279,7 @@ export async function runFabPipeline(args: RunPipelineArgs): Promise<void> {
 
       // The planner reads the compact tree; the full Meta Tree only rides to debug capture.
       const pureTree = formatPlannerTree(treePayload.tree);
-      const metaTree = ACORN_DEBUG ? formatAnalyzeTrees(treePayload.tree).metaTree : undefined;
+      const metaTree = ACORN_CAPTURE ? formatAnalyzeTrees(treePayload.tree).metaTree : undefined;
 
       const page = {
         title: treePayload.title || "Untitled",
@@ -314,7 +315,7 @@ export async function runFabPipeline(args: RunPipelineArgs): Promise<void> {
           null,
       };
 
-      if (ACORN_DEBUG && !pendingOnly) await queueDebugShot(tabId, "analyze", true);
+      if (ACORN_CAPTURE && !pendingOnly) await queueDebugShot(tabId, "analyze", true);
       const analyze = pendingOnly
         ? { mode: FAST_PLAN_MODE, plan: emptyPlan() }
         : await clock.time("plan", () =>
@@ -326,7 +327,7 @@ export async function runFabPipeline(args: RunPipelineArgs): Promise<void> {
                 history: refill && history?.length ? history : undefined,
                 page,
                 verificationCode,
-                debug: ACORN_DEBUG
+                debug: ACORN_CAPTURE
                   ? { html: pageHtml, domTree: treePayload.tree, metaTree }
                   : undefined,
               },
@@ -556,6 +557,7 @@ export async function runFabPipeline(args: RunPipelineArgs): Promise<void> {
         fetchDomFromTab(tabId, frameId, {
           fieldIssues: refill,
           formFields: wantsFastPlan(mode),
+          html: ACORN_CAPTURE,
         }),
       ));
       emitDomTree?.(treePayload);

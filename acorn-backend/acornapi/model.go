@@ -6,6 +6,7 @@ import (
 	"net/http"
 
 	"github.com/sid0709/OpenSeat/acorn-backend/acorn"
+	"github.com/sid0709/OpenSeat/acorn-backend/debugtrace"
 	"github.com/sid0709/OpenSeat/acorn-backend/resume"
 	"github.com/sid0709/OpenSeat/acorn-backend/selector"
 	"github.com/sid0709/OpenSeat/backend-core/jev"
@@ -49,6 +50,10 @@ func (s *Server) selectorFor(w http.ResponseWriter, r *http.Request, accountID s
 	if err != nil {
 		s.writeProfileErr(w, err)
 		return nil, false
+	}
+	if s.debug != nil {
+		// Each decision (what the model read, was asked, and answered) is captured.
+		return selector.New(debugtrace.TraceDecisions(jev.New(key))), true
 	}
 	return selector.New(jev.New(key)), true
 }

@@ -1509,7 +1509,7 @@ export async function runOrchestrator(args: RunOrchestratorArgs): Promise<RunRep
         };
         refillsOnPage = 0;
         log.event("page", { page: pageCount, url: logUrl(page.url), flagged: page.flagged });
-        await log.screenshot("page");
+        await log.screenshot("page", page.frameId);
         enterNewPage(page, current);
       }
       const state = current as PageState;

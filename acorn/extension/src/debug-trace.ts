@@ -1,13 +1,20 @@
 import { MSG } from "./types";
 
 /**
- * Local debug capture: development builds (`bun run dev:acorn`) with VITE_ACORN_DEBUG=true.
- * Analyze then carries the page HTML and trees, and every trace event goes to the
- * backend's debug run (ACORN_DEBUG_DIR). A production build is always off, whatever
- * acorn/.env says, so a release can never send page HTML or traces.
+ * Developer conveniences: development builds (`bun run dev:acorn`) with
+ * VITE_ACORN_DEBUG=true (the local API by default, capture problems shown in the
+ * sidebar). A production build is always off.
  */
 export const ACORN_DEBUG =
   import.meta.env.MODE === "development" && import.meta.env.VITE_ACORN_DEBUG === "true";
+
+/**
+ * Process capture, in every build unless built with VITE_ACORN_CAPTURE=false: each
+ * tab session's step trace, page HTML and trees, and screenshots go to the backend,
+ * which keeps them for a few days so a support report carries the whole session.
+ * Passwords are redacted before anything leaves the page.
+ */
+export const ACORN_CAPTURE = import.meta.env.VITE_ACORN_CAPTURE !== "false";
 
 /** Page HTML beyond this is cut so Analyze stays under the API body limit. */
 export const DEBUG_HTML_MAX_CHARS = 6_000_000;
@@ -27,7 +34,7 @@ export type TraceEntry = {
 
 /** Content script: relay a trace event through the service worker. */
 export function traceFromPage(event: string, data?: TraceData): void {
-  if (!ACORN_DEBUG) return;
+  if (!ACORN_CAPTURE) return;
   const entry: TraceEntry = { t: Date.now(), from: "page", event, data: data?.() };
   try {
     void chrome.runtime.sendMessage({ type: MSG.DEBUG_TRACE, entry }).catch(() => undefined);

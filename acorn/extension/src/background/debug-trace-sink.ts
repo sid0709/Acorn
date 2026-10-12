@@ -1,4 +1,4 @@
-import { ACORN_DEBUG, type TraceData, type TraceEntry } from "../debug-trace";
+import { ACORN_CAPTURE, type TraceData, type TraceEntry } from "../debug-trace";
 
 import { postDebug } from "./debug-post";
 
@@ -25,7 +25,7 @@ async function flush(): Promise<void> {
 
 /** Queue one entry for the backend debug run, keeping arrival order. */
 export function sinkTrace(entry: TraceEntry): void {
-  if (!ACORN_DEBUG) return;
+  if (!ACORN_CAPTURE) return;
   pending.push(entry);
   startFlush();
 }
@@ -40,7 +40,7 @@ function startFlush(): void {
 
 /** Wait until trace entries already queued have been sent. */
 export async function flushDebugTraces(): Promise<void> {
-  if (!ACORN_DEBUG) return;
+  if (!ACORN_CAPTURE) return;
   while (pending.length > 0 || flushing) {
     startFlush();
     const current = flushing;
@@ -51,6 +51,6 @@ export async function flushDebugTraces(): Promise<void> {
 
 /** Background code (pipeline, router): trace straight to the sink, filed under tabId's run. */
 export function traceFromBackground(event: string, data?: TraceData, tabId?: number): void {
-  if (!ACORN_DEBUG) return;
+  if (!ACORN_CAPTURE) return;
   sinkTrace({ t: Date.now(), from: "background", event, data: data?.(), tabId });
 }

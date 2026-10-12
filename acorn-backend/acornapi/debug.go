@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/base64"
 	"encoding/json"
+	"fmt"
 	"net/http"
 	"net/url"
 	"strings"
@@ -141,14 +142,59 @@ func (s *Server) debugShot(w http.ResponseWriter, r *http.Request) {
 	w.WriteHeader(http.StatusNoContent)
 }
 
+// debugHTML stores one page's HTML (the extension removed every password first)
+// in the tab's capture, next to the screenshot of the same moment.
+func (s *Server) debugHTML(w http.ResponseWriter, r *http.Request) {
+	session, ok := s.session(w, r)
+	if !ok {
+		return
+	}
+	var body struct {
+		Label   string `json:"label"`
+		FrameID int    `json:"frameId"`
+		URL     string `json:"url"`
+		HTML    string `json:"html"`
+	}
+	if !decode(w, r, &body) {
+		return
+	}
+	if strings.TrimSpace(body.HTML) == "" {
+		writeError(w, http.StatusBadRequest, "html is required")
+		return
+	}
+	run := s.debug.Latest(debugKey(r, session.User.ID))
+	file := run.WriteFile(htmlFileName(body.Label, body.FrameID), []byte(body.HTML))
+	if file != "" {
+		line, err := json.Marshal(map[string]any{
+			"t": time.Now().UnixMilli(), "from": "background", "event": "html",
+			"data": map[string]any{"file": file, "label": strings.TrimSpace(body.Label), "frameId": body.FrameID, "url": logPage(body.URL)},
+		})
+		if err == nil {
+			run.AppendSteps([]json.RawMessage{line})
+		}
+	}
+	w.WriteHeader(http.StatusNoContent)
+}
+
 func jpeg(raw []byte) bool {
 	return len(raw) >= 3 && len(raw) <= debugShotMaxBytes && raw[0] == 0xff && raw[1] == 0xd8 && raw[2] == 0xff
 }
 
 // shotFileName turns a step label into a filename the run folder can list, like screen-fill-done.jpg.
-func shotFileName(label string) string {
+func shotFileName(label string) string { return captureFileName("screen", label, ".jpg") }
+
+// htmlFileName names a captured page, like page-run-end-frame-12.html.
+func htmlFileName(label string, frameID int) string {
+	if frameID > 0 {
+		label = fmt.Sprintf("%s frame %d", label, frameID)
+	}
+	return captureFileName("page", label, ".html")
+}
+
+// captureFileName joins a prefix and a step label into a short, safe filename.
+func captureFileName(prefix, label, ext string) string {
 	var b strings.Builder
-	b.WriteString("screen")
+	b.WriteString(prefix)
 	lastDash := true
 	for _, r := range strings.ToLower(strings.TrimSpace(label)) {
 		if b.Len() >= 48 {
@@ -166,9 +212,9 @@ func shotFileName(label string) string {
 	}
 	name := strings.Trim(b.String(), "-")
 	if name == "" {
-		name = "screen"
+		name = prefix
 	}
-	return name + ".jpg"
+	return name + ext
 }
 
 // pageLabel names a run folder after the page host and title.
