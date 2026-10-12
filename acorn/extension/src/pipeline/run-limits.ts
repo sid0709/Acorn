@@ -73,7 +73,11 @@ export const RUN_NEW_TEXT_LINES_MAX = 20;
 export const RUN_MAX_MAIL_VERIFICATIONS = 4;
 /** Page messages kept with a rejected account step, for the next decision. */
 export const RUN_ACCOUNT_MESSAGES_MAX = 3;
-/** Account steps one run may send in all. */
+/**
+ * Account steps one run may send on one site. The longest path the account order
+ * takes is six (sign in, create, sign in, ask for a reset, save the new password,
+ * sign in); the rest is room for a sign-in the site splits into parts.
+ */
 export const RUN_MAX_ACCOUNT_ATTEMPTS = 8;
 /** A probe is a single DOM pass; a frame that takes longer is treated as having moved. */
 export const RUN_PROBE_TIMEOUT_MS = 2_000;

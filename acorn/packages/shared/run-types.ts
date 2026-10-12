@@ -74,6 +74,18 @@ export interface AccountAttempt {
   messages: string[];
 }
 
+/** How a site answered an account step the run sent (mirrors the backend's outcomes). */
+export const ACCOUNT_OUTCOME = {
+  /** The site took it and went on. */
+  accepted: "accepted",
+  /** The site said no: wrong password, account exists, locked, a flagged field. */
+  refused: "refused",
+  /** Nothing was sent: the click only switched which account form shows. */
+  notSent: "not_sent",
+} as const;
+
+export type AccountOutcome = (typeof ACCOUNT_OUTCOME)[keyof typeof ACCOUNT_OUTCOME];
+
 /** How a search of the applicant's mail ended (mirrors the backend's statuses). */
 export const MAIL_VERIFICATION_STATUS = {
   found: "found",

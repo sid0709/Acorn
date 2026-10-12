@@ -113,6 +113,25 @@ type AccountAttempt struct {
 	Messages []string
 }
 
+// accountOffers say, for each account goal, what a page that offers it shows.
+// Asked on every account step, apart from the goal, so the run knows which steps
+// the site makes possible before it chooses one.
+var accountOffers = map[string]string{
+	AccountSignIn: "signing in to an existing account on this site with an email or username and a password",
+	AccountCreate: "creating a new account on this site with an email and a new password",
+	AccountReset:  "recovering the account's password on this site (asking for a reset, or setting a new password)",
+}
+
+// offerOrder lists the account goals in the order offers are reported.
+var offerOrder = []string{AccountSignIn, AccountCreate, AccountReset}
+
+// offersInstructions asks whether a page offers one account goal, whatever goal the run has.
+func offersInstructions(goal string) string {
+	return "Does this page offer " + accountOffers[goal] + ", whatever account goal the page state gives? It does when " +
+		"the page shows that form, or a control on the page opens it. Doing it through another service's account " +
+		"(signing in with another company's login) does not count, and neither does recovering only a username."
+}
+
 // IsAccountGoal says whether mode is an account step the run can set out to do.
 func IsAccountGoal(mode string) bool {
 	_, listed := accountGoals[mode]
@@ -135,6 +154,7 @@ const (
 	verifyQuestion       = "verification"
 	appliedQuestion      = "already_applied"
 	accountQuestion      = "account_mode"
+	offersQuestionPrefix = "offers_"
 
 	controlKeyPrefix = "control"
 	noControlKey     = "none"
@@ -239,6 +259,9 @@ type PageRead struct {
 	Verification string
 	// AccountMode is what an account step asks for (an Account* key); AccountNone elsewhere.
 	AccountMode string
+	// Offers are the account goals an account step makes possible: its own form, or
+	// a control on it that opens one. Empty off account steps.
+	Offers []string
 	// AlreadyApplied is true when the site says this applicant already applied to this job.
 	AlreadyApplied bool
 	Usage          jev.Usage
@@ -348,6 +371,9 @@ func (g *Gateway) ReadPage(ctx context.Context, q PageQuery) (PageRead, error) {
 				Instructions: "When this page is an account step, what does it ask for?",
 				Criteria:     accountModes,
 			},
+			offersQuestionPrefix + AccountSignIn: offersQuestion(AccountSignIn),
+			offersQuestionPrefix + AccountCreate: offersQuestion(AccountCreate),
+			offersQuestionPrefix + AccountReset:  offersQuestion(AccountReset),
 		},
 	})
 	if err != nil {
@@ -387,6 +413,9 @@ func (g *Gateway) ReadPage(ctx context.Context, q PageQuery) (PageRead, error) {
 		if read.AccountMode == AccountNone {
 			read.Kind = KindForm
 		}
+	}
+	if read.Kind == KindAccount {
+		read.Offers = offeredGoals(read.AccountMode, res.Answers)
 	}
 	answer, ok := res.Answers[controlQuestion]
 	if !ok {
@@ -440,6 +469,31 @@ func unfinishedKind(kind, control jev.Answer, keys map[string]int) string {
 	return bestKey(kind.Probabilities, openKinds)
 }
 
+// offersQuestion asks whether the page offers one account goal.
+func offersQuestion(goal string) jev.Question {
+	return jev.Question{
+		Type:         jev.TypeNoul,
+		Instructions: offersInstructions(goal),
+		Criteria: map[string]string{
+			"true":  "The page offers " + accountOffers[goal] + ".",
+			"false": "Nothing on the page does that or opens it.",
+		},
+	}
+}
+
+// offeredGoals are the goals a page offers: its own form, and each one Jev says a
+// control on the page opens. In the order the goals are listed.
+func offeredGoals(mode string, answers map[string]jev.Answer) []string {
+	var offered []string
+	for _, goal := range offerOrder {
+		answer := answers[offersQuestionPrefix+goal]
+		if goal == mode || (answer.Noul != nil && *answer.Noul > checkThreshold) {
+			offered = append(offered, goal)
+		}
+	}
+	return offered
+}
+
 // listedChoice is a choice answer when it names a listed key, otherwise fallback.
 func listedChoice(answer jev.Answer, listed map[string]string, fallback string) string {
 	if _, ok := listed[answer.Choice]; ok {
@@ -469,8 +523,8 @@ const guestOnly = "A control that sends, opens, or switches between account form
 	"password), even one that also applies, needs an account and is not one. "
 
 // accountSteps steer every pick on a step that asks for an account: going on
-// without one comes first; otherwise the run signs in or creates the account with
-// the details on the page, and the account history says which to try next.
+// without one comes first; otherwise the pick does the account goal the run chose
+// (from what the site offered and how it answered earlier steps).
 const accountSteps = "When the page offers a way to go on with the application without signing in or creating an account, " +
 	"pick that control over signing in or creating an account, whatever account goal the page state gives. " + guestOnly +
 	"Otherwise, on a step that needs an account, do the account goal given in the page state: when the page shows the goal's own form, pick the control that sends it; when it shows another " +

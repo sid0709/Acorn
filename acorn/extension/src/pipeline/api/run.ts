@@ -5,6 +5,7 @@ import type { PageControl } from "@acorn/shared/page-controls";
 import type {
   AccountAttempt,
   AccountMode,
+  AccountOutcome,
   ControlRole,
   MailRow,
   MailVerificationStatus,
@@ -31,7 +32,7 @@ export interface ReadPageRequest {
   pageMessages: string[];
   /** Account steps the run already sent on this site, oldest first. */
   account: AccountAttempt[];
-  /** The account step the run tries next on this site (create, sign in, or reset); absent off account steps. */
+  /** The account step the run tries next on this site (sign in, create, or reset); sent only on account steps. */
   accountGoal?: AccountMode;
   /** Lines the page shows now that it did not at the run's last read of the same address. */
   newText?: string[];
@@ -66,6 +67,8 @@ export interface ReadPageResponse {
   accountMode?: AccountMode;
   /** On an account step: whether the profile holds a default account password. */
   accountPassword?: boolean;
+  /** On an account step: the account steps it offers (its own form, or a control that opens one). */
+  accountOffers?: AccountMode[];
   /** The site says this applicant has already applied to this job. */
   alreadyApplied?: boolean;
   usage?: AiUsageSummary;
@@ -120,6 +123,31 @@ export interface DialogResponse {
   usage?: AiUsageSummary;
 }
 
+export interface AccountOutcomeRequest {
+  runId: string;
+  step: number;
+  /** The account step the run's click sent. */
+  sent: AccountMode;
+  beforeUrl: string;
+  beforeTitle: string;
+  url: string;
+  title: string;
+  text: string;
+  /** Lines the page shows now that it did not before the click. */
+  newText: string[];
+  /** The page's own alerts and messages now. */
+  pageMessages: string[];
+  flagged: number;
+}
+
+export interface AccountOutcomeResponse {
+  ok: boolean;
+  error?: string;
+  outcome?: AccountOutcome;
+  confidence?: number;
+  usage?: AiUsageSummary;
+}
+
 export interface DiagnoseRequest {
   runId: string;
   step: number;
@@ -167,6 +195,15 @@ export function requestReadPage(
   tabId: number,
 ): Promise<ReadPageResponse> {
   return post<ReadPageResponse>("read-page", request, apiUrl, tabId);
+}
+
+/** How the site answered the account step the run just sent, decided by Jev. */
+export function requestAccountOutcome(
+  request: AccountOutcomeRequest,
+  apiUrl: string,
+  tabId: number,
+): Promise<AccountOutcomeResponse> {
+  return post<AccountOutcomeResponse>("account-outcome", request, apiUrl, tabId);
 }
 
 /** Why a run stopped, decided by Jev from what the page flagged. */

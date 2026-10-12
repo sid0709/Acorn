@@ -407,3 +407,62 @@ func TestReadPageEmailFirstStepIsIdentify(t *testing.T) {
 		t.Fatal("identify and choose are page forms, never goals")
 	}
 }
+
+// An account step reports which account goals it makes possible: its own form, and
+// each one a control on it opens. Off account steps it reports none.
+func TestReadPageReportsWhatAnAccountStepOffers(t *testing.T) {
+	decider := &scriptedDecider{answers: map[string]jev.Answer{
+		pageKindQuestion:                     {Choice: KindAccount},
+		accountQuestion:                      {Choice: AccountSignIn},
+		offersQuestionPrefix + AccountSignIn: {Noul: yes(0.1)},
+		offersQuestionPrefix + AccountCreate: {Noul: yes(0.2)},
+		offersQuestionPrefix + AccountReset:  {Noul: yes(0.9)},
+	}}
+	read, err := New(decider).ReadPage(context.Background(), PageQuery{Text: "Enter your password", Controls: formControls})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := strings.Join(read.Offers, ","); got != AccountSignIn+","+AccountReset {
+		t.Fatalf("offers = %q, want the page's own sign-in form and the reset it opens", got)
+	}
+
+	decider.answers[pageKindQuestion] = jev.Answer{Choice: KindForm}
+	read, err = New(decider).ReadPage(context.Background(), PageQuery{Text: "Your details", Controls: formControls})
+	if err != nil || len(read.Offers) != 0 {
+		t.Fatalf("offers off an account step = %v err = %v, want none", read.Offers, err)
+	}
+}
+
+func TestOffersInstructionsQuoteNoWording(t *testing.T) {
+	quoted := regexp.MustCompile(`"[^"]+"|\([A-Z][a-z]+(, [A-Z][a-z]+)+`)
+	for _, goal := range offerOrder {
+		if found := quoted.FindString(offersInstructions(goal)); found != "" {
+			t.Errorf("%s offers instructions quote wording %q", goal, found)
+		}
+	}
+}
+
+func TestJudgeAccountOutcome(t *testing.T) {
+	decider := &scriptedDecider{answers: map[string]jev.Answer{
+		outcomeQuestion: {Choice: OutcomeRefused, Confidence: 0.9},
+	}}
+	gateway := New(decider)
+	got, err := gateway.JudgeAccountOutcome(context.Background(), AccountOutcomeQuery{
+		Sent: AccountSignIn, URL: "https://login.example/password", Title: "Log in",
+		NewText: []string{"Wrong username or password"}, Flagged: 1,
+	})
+	if err != nil || got.Outcome != OutcomeRefused {
+		t.Fatalf("outcome = %+v err = %v, want refused", got, err)
+	}
+	if !strings.Contains(decider.last.State, "Wrong username or password") {
+		t.Fatalf("state does not carry what the page said:\n%s", decider.last.State)
+	}
+
+	if _, err := gateway.JudgeAccountOutcome(context.Background(), AccountOutcomeQuery{Sent: AccountIdentify}); !errors.Is(err, ErrInvalid) {
+		t.Fatalf("err = %v, want ErrInvalid for a step that is not an account goal", err)
+	}
+	decider.answers[outcomeQuestion] = jev.Answer{Choice: "maybe"}
+	if _, err := gateway.JudgeAccountOutcome(context.Background(), AccountOutcomeQuery{Sent: AccountReset}); err == nil {
+		t.Fatal("an unknown outcome must be an error, not a guess")
+	}
+}
