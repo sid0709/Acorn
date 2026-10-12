@@ -160,6 +160,10 @@ bun run e2e:mock-apply
 
 Screenshots go to `$TMPDIR/acorn-e2e-mock-apply` (override with `E2E_OUT_DIR`).
 
+### Update notice
+
+Every deploy packs the extension and records its version on the site (`tools/extension-release.mjs`, `NEXT_PUBLIC_ACORN_EXTENSION_VERSION`). `GET /api/extension/latest` on the site answers `{ version, downloadUrl, installUrl }` (`@acorn/shared/extension-release`). When the sidebar opens, the extension asks it once; if its own version is older, a dialog says so and **Update** opens the download (`/downloads/acorn-chrome.zip`, or the store listing when only that is set). A site that cannot be reached shows nothing.
+
 ### Debug capture (local only)
 
 To see exactly what Fill saw and what the AI decided, turn on debug capture on both sides:
