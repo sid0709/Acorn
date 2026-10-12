@@ -1412,6 +1412,7 @@ export async function runOrchestrator(args: RunOrchestratorArgs): Promise<RunRep
           : `Done · ${result.pages} page${result.pages === 1 ? "" : "s"} · ${seconds}s${cost}`;
     const canContinue = await keepRunEnd(tabId, result.outcome, {
       accountHistory,
+      accountEvidence: Object.fromEntries(accountEvidence),
       resetLinkSites: [...resetLinkSites],
       mailVerifications,
       filledSignature: current?.filled ? current.signature : null,
@@ -1479,6 +1480,7 @@ export async function runOrchestrator(args: RunOrchestratorArgs): Promise<RunRep
       }
       if (moved) {
         pageAccountMode = null;
+        pageOffers = null;
         pageCount += 1;
         if (pageCount > RUN_MAX_PAGES) {
           throw new RunStop(stage, page, [
@@ -1514,7 +1516,10 @@ export async function runOrchestrator(args: RunOrchestratorArgs): Promise<RunRep
       const retrying = state.retryClick;
       state.retryClick = false;
       // An account step the site refused is answered by another account step, not a refill.
-      const accountRefused = settleAccount(moved, page);
+      const accountRefused = await settleAccount(moved, page);
+      // A refused account step on the same page: read it again, so the next goal
+      // decides whether its form is filled (never a refill of a refused password).
+      if (accountRefused && !moved) state.filled = false;
       if (mailExpected) {
         mailExpected = false;
         pending = await linkOrWait(followMail(VERIFICATION.emailLink, page, state), page);
@@ -1640,14 +1645,16 @@ export async function runOrchestrator(args: RunOrchestratorArgs): Promise<RunRep
             state.clicks += 1;
             const label = target.picked.text || target.picked.label;
             enter(RUN_STAGE.applying, `Going on without an account · ${label}`);
+            noteEvidence(page.url, { guestTaken: true });
             const clicked = await click(page, target.control, label);
             if (clicked.missed != null) missedClick(state, label, clicked.missed);
             else pending = { snapshot: clicked.settled.snapshot, how: clicked.settled.how };
             continue;
           }
-          // The account is mandatory. The goal comes from the fixed order and this
-          // site's history; the page's own form is filled only when it is the goal's
-          // form (the applicant's email and name, the profile's default password).
+          // The account is mandatory. The goal comes from the account order, fed by
+          // what this site offered and how it answered earlier steps; the page's own
+          // form is filled only when it is the goal's form (the applicant's email and
+          // name, the profile's default password).
           // Otherwise nothing is filled and the control that opens the goal's form
           // is clicked below.
           if (!first.accountPassword) throw noAccountPassword(page);
@@ -1715,6 +1722,7 @@ export async function runOrchestrator(args: RunOrchestratorArgs): Promise<RunRep
       if (sendsAccount && !next.accountPassword) throw noAccountPassword(page);
       const goal = sendsAccount ? goalOrStop(page) : null;
       const target = guest ?? pickOf(next);
+      if (guest) noteEvidence(page.url, { guestTaken: true });
       // An account step finished somewhere with nothing to go on with (a page that
       // says the account is unblocked or its password is set): the account is ready,
       // so apply again from the posting the run started on, in this same tab.

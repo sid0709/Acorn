@@ -15,12 +15,14 @@ import { scanFieldIssues } from "./field-errors";
 import { scanFormFields } from "./form-fields";
 import {
   MIN_CHILD_FORM_CONTROLS,
+  MIN_PAGE_FIELDS,
   formControlScore,
   isAcornDomFrame,
   waitForFormSurface,
 } from "./form-frame";
 import { claimOwnDocument } from "./frame-reach";
 import { clearHighlight, highlightElement } from "./highlighter";
+import { pageFieldScore } from "./page-fields";
 import { probePage } from "./page-probe";
 import { pageTimeout } from "./page-timer";
 import { scanPendingFormFields } from "./pending-fields";
@@ -34,11 +36,20 @@ type AcornContentWindow = Window & { [CONTENT_BOOT]?: boolean };
 const contentWindow = window as AcornContentWindow;
 
 /**
+ * A frame that holds an application form: the top frame, a frame with enough
+ * fields, or one whose page asks for a field of its own (an email-first sign-in
+ * embedded under the site's consent panel).
+ */
+function isFormFrame(): boolean {
+  return isAcornDomFrame() || pageFieldScore() >= MIN_PAGE_FIELDS;
+}
+
+/**
  * A frame the run reads or presses controls in: a form frame, or any frame whose
  * own elements the run read (a job posting in an embedded job-board frame).
  */
 function isRunFrame(): boolean {
-  return isAcornDomFrame() || holdsAcornIds();
+  return isFormFrame() || holdsAcornIds();
 }
 
 /**
@@ -64,13 +75,18 @@ if (!contentWindow[CONTENT_BOOT]) {
         const isTop = window === window.top;
         // A posting read wants the page's text now, not a form that may still hydrate.
         const posting = message.posting === true;
-        const minScore = isTop ? 1 : MIN_CHILD_FORM_CONTROLS;
+        const ownFields = pageFieldScore();
+        const minScore = isTop || ownFields >= MIN_PAGE_FIELDS ? 1 : MIN_CHILD_FORM_CONTROLS;
         const score = posting ? formControlScore() : await waitForFormSurface(minScore);
-        const acornFrame = posting || isTop || score >= MIN_CHILD_FORM_CONTROLS;
+        // Fields of the page itself, not of a layer laid over it, read once the form drew.
+        const pageScore = posting ? ownFields : pageFieldScore();
+        const acornFrame =
+          posting || isTop || score >= MIN_CHILD_FORM_CONTROLS || pageScore >= MIN_PAGE_FIELDS;
         if (!acornFrame) {
           sendResponse({
             skipped: true,
             formScore: score,
+            pageScore,
             url: window.location.href,
             title: document.title,
             fetchedAt: new Date().toISOString(),
@@ -93,6 +109,7 @@ if (!contentWindow[CONTENT_BOOT]) {
                   ? scanPendingFormFields({ blocked: message.blockedFields === true })
                   : scanFormFields(),
             formScore: score,
+            pageScore,
             fetchedAt: new Date().toISOString(),
             frameId: sender.frameId ?? null,
             html: ACORN_DEBUG
@@ -107,7 +124,7 @@ if (!contentWindow[CONTENT_BOOT]) {
     }
 
     if (message.type === MSG.HIGHLIGHT) {
-      if (!isAcornDomFrame()) return false;
+      if (!isFormFrame()) return false;
 
       try {
         const el = resolveElementByNodeId(message.nodeId as number);
@@ -124,7 +141,7 @@ if (!contentWindow[CONTENT_BOOT]) {
     }
 
     if (message.type === MSG.GET_CONTENT) {
-      if (!isAcornDomFrame()) return false;
+      if (!isFormFrame()) return false;
 
       try {
         const content = getElementContent(
@@ -139,7 +156,7 @@ if (!contentWindow[CONTENT_BOOT]) {
     }
 
     if (message.type === MSG.EXECUTE_ACTIONS) {
-      if (!isAcornDomFrame()) return false;
+      if (!isFormFrame()) return false;
 
       executeActions(message.nodeId as number, message.steps)
         .then(() => sendResponse({ ok: true }))
@@ -149,7 +166,7 @@ if (!contentWindow[CONTENT_BOOT]) {
 
     if (message.type === MSG.PLAN_STEP) {
       // Non-form frames must not claim the async channel (that caused silent hangs).
-      if (!isAcornDomFrame()) {
+      if (!isFormFrame()) {
         sendResponse({ ok: false, skipped: true, error: "Not a form frame" });
         return false;
       }
@@ -200,7 +217,7 @@ if (!contentWindow[CONTENT_BOOT]) {
     }
 
     if (message.type === MSG.FILL_LEFTOVER_COMBOS) {
-      if (!isAcornDomFrame()) {
+      if (!isFormFrame()) {
         sendResponse({ ok: false, skipped: true, error: "Not a form frame" });
         return false;
       }
@@ -218,7 +235,7 @@ if (!contentWindow[CONTENT_BOOT]) {
     }
 
     if (message.type === MSG.COLLECT_CHOICES) {
-      if (!isAcornDomFrame()) {
+      if (!isFormFrame()) {
         sendResponse({ ok: false, skipped: true, error: "Not a form frame" });
         return false;
       }
@@ -231,7 +248,7 @@ if (!contentWindow[CONTENT_BOOT]) {
     }
 
     if (message.type === MSG.SCAN_FIELD_ISSUES) {
-      if (!isAcornDomFrame()) {
+      if (!isFormFrame()) {
         sendResponse({ ok: false, skipped: true, error: "Not a form frame" });
         return false;
       }
@@ -264,7 +281,7 @@ if (!contentWindow[CONTENT_BOOT]) {
     }
 
     if (message.type === MSG.REPAIR_DRIFT) {
-      if (!isAcornDomFrame()) {
+      if (!isFormFrame()) {
         sendResponse({ ok: false, skipped: true, error: "Not a form frame" });
         return false;
       }
@@ -296,7 +313,7 @@ if (!contentWindow[CONTENT_BOOT]) {
     }
 
     if (message.type === MSG.CLEAR_HIGHLIGHT) {
-      if (!isAcornDomFrame()) return false;
+      if (!isFormFrame()) return false;
 
       clearHighlight();
       sendResponse({ ok: true });

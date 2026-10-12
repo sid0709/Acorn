@@ -7,6 +7,11 @@ import { waitMs } from "./agents/wait";
 
 /** Minimum fillable controls for a child frame to participate in Acorn. */
 export const MIN_CHILD_FORM_CONTROLS = 2;
+/**
+ * Fields of its own a frame's page needs (outside any layer laid over it) to be
+ * where the application is: an email-first sign-in asks for one field only.
+ */
+export const MIN_PAGE_FIELDS = 1;
 /** How often to re-count controls while an SPA hydrates. */
 export const FORM_SURFACE_POLL_MS = 200;
 /** Cap waiting for fillable controls before serializing anyway. */
