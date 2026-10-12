@@ -75,7 +75,7 @@ func accountHistory(attempts []runAccountAttempt) []selector.AccountAttempt {
 
 // accountGoal keeps a goal the gateway knows; "" otherwise.
 func accountGoal(goal string) string {
-	if selector.IsAccountMode(goal) && goal != selector.AccountNone && goal != selector.AccountChoose {
+	if selector.IsAccountGoal(goal) {
 		return goal
 	}
 	return ""

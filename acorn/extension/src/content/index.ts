@@ -1,6 +1,7 @@
 import { ACORN_DEBUG, DEBUG_HTML_MAX_CHARS, traceFromPage } from "../debug-trace";
 import { MSG, PLAN_STEP_PAGE_TIMEOUT_MS, type PlanStepPayload } from "../types";
 
+import { holdsAcornIds } from "./acorn-id";
 import { executeActions, getElementContent } from "./action-runner";
 import { fillLeftoverComboboxes } from "./agents/leftover-combobox";
 import { waitForDomQuiet } from "./agents/wait";
@@ -18,6 +19,7 @@ import {
   isAcornDomFrame,
   waitForFormSurface,
 } from "./form-frame";
+import { claimOwnDocument } from "./frame-reach";
 import { clearHighlight, highlightElement } from "./highlighter";
 import { probePage } from "./page-probe";
 import { pageTimeout } from "./page-timer";
@@ -32,6 +34,14 @@ type AcornContentWindow = Window & { [CONTENT_BOOT]?: boolean };
 const contentWindow = window as AcornContentWindow;
 
 /**
+ * A frame the run reads or presses controls in: a form frame, or any frame whose
+ * own elements the run read (a job posting in an embedded job-board frame).
+ */
+function isRunFrame(): boolean {
+  return isAcornDomFrame() || holdsAcornIds();
+}
+
+/**
  * Page work that touches form controls runs one at a time. A step that outlives its
  * reply must not keep clicking while the next step (or the leftover pass) starts.
  */
@@ -44,6 +54,7 @@ function runExclusive<T>(work: () => Promise<T>): Promise<T> {
 
 if (!contentWindow[CONTENT_BOOT]) {
   contentWindow[CONTENT_BOOT] = true;
+  claimOwnDocument();
   initSelectionQa();
   initSupportHandoff();
 
@@ -240,7 +251,7 @@ if (!contentWindow[CONTENT_BOOT]) {
     }
 
     if (message.type === MSG.PAGE_PROBE) {
-      if (!isAcornDomFrame()) {
+      if (!isRunFrame()) {
         sendResponse({ ok: false, skipped: true, error: "Not a form frame" });
         return false;
       }
@@ -266,7 +277,7 @@ if (!contentWindow[CONTENT_BOOT]) {
     }
 
     if (message.type === MSG.CLICK_CONTROL) {
-      if (!isAcornDomFrame()) {
+      if (!isRunFrame()) {
         sendResponse({ ok: false, skipped: true, error: "Not a form frame" });
         return false;
       }

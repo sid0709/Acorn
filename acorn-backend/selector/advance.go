@@ -81,6 +81,9 @@ const (
 	AccountCreate = "create_account"
 	AccountReset  = "reset_password"
 	AccountChoose = "choose"
+	// AccountIdentify is the first step of signing in and of creating an account alike:
+	// it asks only for the account's email, and the site picks the next form from it.
+	AccountIdentify = "identify"
 )
 
 // accountGoals say, for the decision, what each account goal asks the page to do.
@@ -97,6 +100,8 @@ var accountModes = map[string]string{
 	AccountReset:  "A step that recovers the account: a form that asks for the email to send a password reset to, or a form that sets a new password.",
 	AccountChoose: "A choice of how to go on (signing in, creating an account, a way to sign in, or going on without one), " +
 		"with no email and password fields on the page yet.",
+	AccountIdentify: "The first step of signing in or creating an account: the page asks only for the account's email or " +
+		"username, with no password field yet, and the site decides from it which form comes next.",
 }
 
 // AccountAttempt is one account step the run already sent on this site, and how
@@ -106,6 +111,12 @@ type AccountAttempt struct {
 	Accepted bool
 	// Messages are the page's own words after a rejected attempt.
 	Messages []string
+}
+
+// IsAccountGoal says whether mode is an account step the run can set out to do.
+func IsAccountGoal(mode string) bool {
+	_, listed := accountGoals[mode]
+	return listed
 }
 
 // IsAccountMode says whether mode is one ReadPage can return.
@@ -356,6 +367,9 @@ func (g *Gateway) ReadPage(ctx context.Context, q PageQuery) (PageRead, error) {
 	if _, listed := pageKindCriteria()[read.Kind]; !listed {
 		read.Kind = KindOther
 	}
+	if unfinished := unfinishedKind(kind, res.Answers[controlQuestion], keys); unfinished != "" {
+		read.Kind = unfinished
+	}
 
 	if guest := res.Answers[guestQuestion]; guest.Noul != nil {
 		read.Guest = *guest.Noul > checkThreshold
@@ -408,6 +422,24 @@ func (g *Gateway) ReadPage(ctx context.Context, q PageQuery) (PageRead, error) {
 	return read, nil
 }
 
+// openKinds are the kinds of a page that still moves the application forward.
+var openKinds = map[string]string{KindPosting: KindPosting, KindForm: KindForm, KindAccount: KindAccount}
+
+// unfinishedKind is the kind of a page Jev named complete without believing it
+// (less than an even chance) while it is sure a listed control still moves the
+// application forward: a page that still offers a way on has not taken the
+// application. It is the likeliest kind that moves forward; empty when the
+// confirmation stands.
+func unfinishedKind(kind, control jev.Answer, keys map[string]int) string {
+	if kind.Choice != KindConfirmation || kind.Probabilities[KindConfirmation] >= checkThreshold {
+		return ""
+	}
+	if _, listed := keys[control.Choice]; !listed || control.Confidence < checkThreshold {
+		return ""
+	}
+	return bestKey(kind.Probabilities, openKinds)
+}
+
 // listedChoice is a choice answer when it names a listed key, otherwise fallback.
 func listedChoice(answer jev.Answer, listed map[string]string, fallback string) string {
 	if _, ok := listed[answer.Choice]; ok {
@@ -443,7 +475,8 @@ const accountSteps = "When the page offers a way to go on with the application w
 	"pick that control over signing in or creating an account, whatever account goal the page state gives. " + guestOnly +
 	"Otherwise, on a step that needs an account, do the account goal given in the page state: when the page shows the goal's own form, pick the control that sends it; when it shows another " +
 	"form or only choices, pick the control that opens the goal's form, or the one that leads toward it (the way to use an " +
-	"email and password, where the other account forms are offered). Never pick one that signs in through another service. "
+	"email and password, where the other account forms are offered). A step that asks only for the account's email is on the way to " +
+	"every account form: pick the control that sends it. Never pick one that signs in through another service. "
 
 // dialogSteps steer every pick when a dialog is open over the page: the dialog is
 // the step, and what it covers cannot be clicked. A dialog that asks how to start

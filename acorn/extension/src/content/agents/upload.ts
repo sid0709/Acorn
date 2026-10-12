@@ -1,3 +1,4 @@
+import { ACORN_ID_ATTR } from "../acorn-id";
 import { resolveElementByNodeId } from "../element-resolver";
 
 import { chooseUploadFile } from "./upload-format";
@@ -52,21 +53,21 @@ function findSuccessorInput(
 ): HTMLInputElement | null {
   const connected = listFileInputs(doc);
   const sameAcorn = acornId
-    ? connected.find((node) => node.getAttribute("data-acorn-id") === acornId)
+    ? connected.find((node) => node.getAttribute(ACORN_ID_ATTR) === acornId)
     : null;
   if (sameAcorn) return sameAcorn;
 
   const form = target.form || original.form;
   const pool = (form ? connected.filter((node) => node.form === form) : connected).filter(
     (node) => {
-      const id = node.getAttribute("data-acorn-id");
+      const id = node.getAttribute(ACORN_ID_ATTR);
       // A different stamped acorn id is a different field (e.g. cover letter vs resume).
       if (id && acornId && id !== acornId) return false;
       return true;
     },
   );
 
-  const unstamped = pool.filter((node) => !node.getAttribute("data-acorn-id"));
+  const unstamped = pool.filter((node) => !node.getAttribute(ACORN_ID_ATTR));
   if (original.name) {
     const byName = unstamped.find((node) => node.name === original.name);
     if (byName) return byName;
@@ -74,7 +75,7 @@ function findSuccessorInput(
 
   return (
     unstamped.find((node) => node !== target) ||
-    pool.find((node) => node !== target && !node.getAttribute("data-acorn-id")) ||
+    pool.find((node) => node !== target && !node.getAttribute(ACORN_ID_ATTR)) ||
     null
   );
 }
@@ -100,7 +101,7 @@ async function waitForUploadEvidence(
       Array.from(node.files ?? []).some((f) => f.name === fileName),
     );
     if (withFile) {
-      if (acornId) withFile.setAttribute("data-acorn-id", acornId);
+      if (acornId) withFile.setAttribute(ACORN_ID_ATTR, acornId);
       return true;
     }
 
@@ -123,7 +124,7 @@ async function persistUploadAcrossRemount(
     await waitMs(150);
 
     if (target.isConnected && (target.files?.length ?? 0) > 0) {
-      if (acornId) target.setAttribute("data-acorn-id", acornId);
+      if (acornId) target.setAttribute(ACORN_ID_ATTR, acornId);
       rememberUploadedFile(acornId, fileName);
       return { names: Array.from(target.files ?? []).map((f) => f.name), input: target };
     }
@@ -136,7 +137,7 @@ async function persistUploadAcrossRemount(
     const successor = findSuccessorInput(original, target, acornId, doc);
 
     if (successor && (successor.files?.length ?? 0) > 0) {
-      if (acornId) successor.setAttribute("data-acorn-id", acornId);
+      if (acornId) successor.setAttribute(ACORN_ID_ATTR, acornId);
       rememberUploadedFile(acornId, fileName);
       return {
         names: Array.from(successor.files ?? []).map((f) => f.name),
@@ -146,7 +147,7 @@ async function persistUploadAcrossRemount(
 
     if (successor && successor !== target) {
       // Replacement of THIS control only — re-apply once onto unstamped/same-id successor.
-      if (acornId) successor.setAttribute("data-acorn-id", acornId);
+      if (acornId) successor.setAttribute(ACORN_ID_ATTR, acornId);
       target = successor;
       applyFiles(target, fileObj);
       continue;
@@ -186,7 +187,7 @@ export async function uploadFileToElement(
     throw new Error(`Upload target is not a file input (got <${el.tagName.toLowerCase()}>)`);
   }
 
-  const acornId = el.getAttribute("data-acorn-id");
+  const acornId = el.getAttribute(ACORN_ID_ATTR);
   const fileObj = buildFile(chooseUploadFile(el, file, wanted));
   const { names } = await persistUploadAcrossRemount(el, fileObj, acornId);
 

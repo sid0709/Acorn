@@ -58,3 +58,12 @@ function lastIndexWhere<T>(items: readonly T[], test: (item: T) => boolean): num
   }
   return -1;
 }
+
+/**
+ * Whether the run fills the account form the page shows while it works on `goal`:
+ * the goal's own form, or a step every goal goes through (only the account's
+ * email, asked first). Any other form is left alone; its control opens the goal's.
+ */
+export function fillsAccountForm(goal: AccountMode, pageMode: AccountMode): boolean {
+  return pageMode === goal || pageMode === ACCOUNT_MODE.identify;
+}

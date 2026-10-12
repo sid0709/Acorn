@@ -12,6 +12,7 @@ Chrome tab id is the session key. Persist per-tab maps in `chrome.storage.sessio
 - Switching the focused tab must show that tab’s state. Background work on tab A must not disable Generate/Fill on tab B.
 - Same tab: fill and generate stay mutually exclusive (both touch that tab’s DOM). Across tabs they may run together.
 - Keep the MV3 service worker alive while **any** tab has generate or fill in flight.
+- A same-origin embedded frame that runs Acorn's own content script (an embedded job board) is read, numbered, and clicked only from inside that frame (`content/frame-reach.ts`). A parent frame reads a child only when the child has no script of its own; content code assumes one realm per frame.
 
 ---
 
@@ -60,9 +61,9 @@ Acorn HTTP in `acorn-backend/acornapi` should compose the existing My Resume Edi
 
 ## 6. Accounts and emailed verification in Run
 
-- Run goes on without an account whenever the page offers it. When the account is mandatory, it signs in, creates the account, or resets the password with the profile email and the profile's **Default account password**. The order is a fixed mechanism in code (`extension/src/pipeline/account-goal.ts`): create the account, then sign in, and when signing in is refused, reset the password and sign in again. A refusal needs evidence (an alert, a flagged field, new text); a page asking to verify by email means the site took the step. The SelectorGateway only reads which account form the page shows and picks the control that sends or opens the goal's form; the run never matches button wording or DOM.
+- Run goes on without an account whenever the page offers it. When the account is mandatory, it signs in, creates the account, or resets the password with the profile email and the profile's **Default account password**. The order is a fixed mechanism in code (`extension/src/pipeline/account-goal.ts`): create the account, then sign in, and when signing in is refused, reset the password and sign in again. A refusal needs evidence (an alert, a flagged field, new text); a page asking to verify by email means the site took the step. A step that asks only for the account email first (`identify`) belongs to every goal: the run fills it and sends it, and it is not an attempt of any goal. A site that draws the same form again at the same address with fields it now refuses has refused the click: that is the same step, not a new page. The SelectorGateway only reads which account form the page shows and picks the control that sends or opens the goal's form; the run never matches button wording or DOM.
 - The account password is a planner fact (`account_password`) filled straight from the profile. It never reaches a model prompt, the pure tree, field issues, progress, plans shown in the sidebar, or logs (`@acorn/shared/secret-value`). A password box takes nothing else.
-- An emailed code or link comes from the connected Gmail through `POST /acorn/run/mail-verification` (`acorn-backend/mailcode`): each look lists the newest 10 inbox emails (rows only); when that list changed, Jev judges all 10 together and only the picked email (then the second best) is opened. Looks repeat until the email arrives or the wait runs out. A code is filled through the plan runner (`verification_code` fact); a link is opened in the run's own tab (`chrome.tabs.update`), never a new one.
+- An emailed code or link comes from the connected Gmail through `POST /acorn/run/mail-verification` (`acorn-backend/mailcode`): each look lists the newest 10 inbox emails (rows only); when that list changed, Jev judges all 10 together and only the picked email (then the second best) is opened. Looks repeat until the email arrives or the wait runs out; a look that cannot reach Gmail (a network hiccup) is tried again, and only a few failures in a row stop the run. A code is filled through the plan runner (`verification_code` fact); a link is opened in the run's own tab (`chrome.tabs.update`), never a new one.
 
 ---
 

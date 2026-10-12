@@ -35,7 +35,7 @@ import { markTabUsage, usageSince, type UsageMark } from "../background/tab-usag
 import { rekeyCustomTab } from "../tab-custom-session";
 import { getTabJob, rekeyTabJob } from "../tab-job-session";
 
-import { nextAccountGoal } from "./account-goal";
+import { fillsAccountForm, nextAccountGoal } from "./account-goal";
 import {
   requestDiagnose,
   requestDialogDecision,
@@ -70,6 +70,7 @@ import { watchPageDialogs } from "./run-dialogs";
 import { failureEvidence } from "./run-evidence";
 import {
   RUN_ACCOUNT_MESSAGES_MAX,
+  RUN_MAIL_MAX_FAILED_LOOKS,
   RUN_MAIL_POLL_MS,
   RUN_MAIL_WAIT_MAX_MS,
   RUN_MAX_ACCOUNT_ATTEMPTS,
@@ -124,6 +125,7 @@ const ACCOUNT_MESSAGE: Record<AccountMode, string> = {
   [ACCOUNT_MODE.createAccount]: "Creating an account",
   [ACCOUNT_MODE.resetPassword]: "Resetting the password",
   [ACCOUNT_MODE.choose]: "Choosing how to go on",
+  [ACCOUNT_MODE.identify]: "Entering your email",
 };
 
 /** Page kinds that may only be a page still loading; looked at again before the run stops. */
@@ -234,6 +236,8 @@ const BUDGET_SPENT = "The run reached its limit on AI work";
 
 /** The emailed code or link could not be found. */
 const VERIFICATION_NOT_FOUND = "The code or link the site emailed was not found in your Gmail";
+/** The connected Gmail could not be read, look after look. */
+const MAIL_UNREADABLE = "Acorn could not read your Gmail";
 /** The site kept refusing the account step. */
 const ACCOUNT_REJECTED = "The site kept rejecting the sign-in or sign-up";
 /** The page itself says this job was applied to already. */
@@ -880,16 +884,25 @@ export async function runOrchestrator(args: RunOrchestratorArgs): Promise<RunRep
       detail,
     });
 
+  const mailUnreadable = (page: PageSnapshot, detail: string) =>
+    new RunStop(RUN_STAGE.verifying, page, [detail], undefined, {
+      reason: RUN_FAILURE_REASON.mailUnreadable,
+      label: MAIL_UNREADABLE,
+      detail,
+    });
+
   /**
    * Look in the applicant's Gmail for the code or link the site emailed, until it
    * arrives or the wait runs out. Jev ranks the newest emails and reads the best
-   * one, then the second best; when neither holds it, the run stops. Null when no
-   * Gmail is connected (the applicant does the step themselves).
+   * one, then the second best; when neither holds it, the run stops. A look that
+   * fails to reach Gmail is tried again, up to RUN_MAIL_MAX_FAILED_LOOKS in a row.
+   * Null when no Gmail is connected (the applicant does the step themselves).
    */
   const findInMail = async (kind: Verification, page: PageSnapshot): Promise<string | null> => {
     const wanted = kind === VERIFICATION.emailCode ? "code" : "link";
     let seen = "";
     let judgedNone = false;
+    let failedLooks = 0;
     const started = Date.now();
     const say = () => {
       const waited = Math.round((Date.now() - started) / 1000);
@@ -928,11 +941,16 @@ export async function runOrchestrator(args: RunOrchestratorArgs): Promise<RunRep
         unchanged: res.unchanged,
         error: res.error,
       });
+      const waitedOut = Date.now() - started >= RUN_MAIL_WAIT_MAX_MS;
       if (!res.ok) {
-        throw new RunStop(RUN_STAGE.verifying, page, [
-          `Reading your Gmail failed: ${res.error ?? "no answer"}`,
-        ]);
+        failedLooks += 1;
+        if (failedLooks >= RUN_MAIL_MAX_FAILED_LOOKS || waitedOut) {
+          throw mailUnreadable(page, `Reading your Gmail failed: ${res.error ?? "no answer"}`);
+        }
+        await until(sleep(RUN_MAIL_POLL_MS));
+        continue;
       }
+      failedLooks = 0;
       if (res.status === MAIL_VERIFICATION_STATUS.noMailbox) return null;
       if (res.status === MAIL_VERIFICATION_STATUS.found && res.value) return res.value;
       // Not in these emails: the site's may still be on its way. Keep watching; the
@@ -943,7 +961,7 @@ export async function runOrchestrator(args: RunOrchestratorArgs): Promise<RunRep
         mailRows = res.emails;
         say();
       }
-      if (Date.now() - started >= RUN_MAIL_WAIT_MAX_MS) {
+      if (waitedOut) {
         const minutes = Math.round(RUN_MAIL_WAIT_MAX_MS / 60_000);
         throw verificationNotFound(
           page,
@@ -1504,7 +1522,7 @@ export async function runOrchestrator(args: RunOrchestratorArgs): Promise<RunRep
           if (!first.accountPassword) throw noAccountPassword(page);
           const goal = goalOrStop(page);
           enter(RUN_STAGE.account, `${ACCOUNT_MESSAGE[goal]}…`);
-          if (goal !== first.accountMode) {
+          if (!fillsAccountForm(goal, first.accountMode)) {
             log.event("account:open", { goal, page: first.accountMode });
             skipFill = `the page shows ${first.accountMode}, the goal is ${goal}`;
           }

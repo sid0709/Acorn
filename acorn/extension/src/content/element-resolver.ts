@@ -1,3 +1,6 @@
+import { ACORN_ID_ATTR } from "./acorn-id";
+import { childDocument } from "./frame-reach";
+
 function isDisplayed(el: Element): boolean {
   if (!(el instanceof HTMLElement)) return false;
   if (el.getClientRects().length === 0) return false;
@@ -28,7 +31,7 @@ function pickAcornIdMatch(nodes: Element[]): Element | null {
 function collectAcornIdMatches(nodeId: number, root: Document | Element | ShadowRoot): Element[] {
   const found: Element[] = [];
   if ("querySelectorAll" in root) {
-    found.push(...Array.from(root.querySelectorAll(`[data-acorn-id="${nodeId}"]`)));
+    found.push(...Array.from(root.querySelectorAll(`[${ACORN_ID_ATTR}="${nodeId}"]`)));
   }
 
   const allElements = root.querySelectorAll("*");
@@ -36,14 +39,8 @@ function collectAcornIdMatches(nodeId: number, root: Document | Element | Shadow
     if (child.shadowRoot) {
       found.push(...collectAcornIdMatches(nodeId, child.shadowRoot));
     }
-    if (child.tagName === "IFRAME") {
-      try {
-        const doc = (child as HTMLIFrameElement).contentDocument;
-        if (doc) found.push(...collectAcornIdMatches(nodeId, doc));
-      } catch {
-        // CORS blocked cross-origin iframe
-      }
-    }
+    const doc = childDocument(child);
+    if (doc) found.push(...collectAcornIdMatches(nodeId, doc));
   }
   return found;
 }

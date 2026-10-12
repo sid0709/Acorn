@@ -43,6 +43,11 @@ export const RUN_MAIL_POLL_MS = 5_000;
 /** How long the run waits for that email to arrive before it stops; mail can be slow. */
 export const RUN_MAIL_WAIT_MAX_MS = 5 * 60_000;
 /**
+ * Looks in a row that may fail to reach the applicant's Gmail (a network hiccup,
+ * a slow token refresh) before the run stops: the email is still there to read.
+ */
+export const RUN_MAIL_MAX_FAILED_LOOKS = 3;
+/**
  * Times one run goes back to the posting it started from, after an account step
  * (an emailed link, a password reset) leaves it on a page with no way forward.
  */

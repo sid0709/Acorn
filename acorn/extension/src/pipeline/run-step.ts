@@ -4,6 +4,8 @@ import type { SettleHow } from "./run-click";
 export interface SeenPage {
   url: string;
   signature: string;
+  /** Fields the page marks invalid; only the page in view needs it. */
+  flagged?: number;
 }
 
 /** A page address without query or fragment: the same step keeps it while its form changes. */
@@ -35,5 +37,10 @@ export function isNewStep(args: {
   if (addressOf(page.url) !== addressOf(previous.url)) return true;
   if (settled == null) return false;
   if (settled === "unchanged") return false;
+  // The site drew the same form again at the same address and now refuses fields
+  // in it (a form posted back to itself): the click did not move the application on.
+  if (settled === "navigated" && page.signature === previous.signature && (page.flagged ?? 0) > 0) {
+    return false;
+  }
   return settled === "navigated" || settled === "new-tab" || page.signature !== previous.signature;
 }
