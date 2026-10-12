@@ -24,6 +24,7 @@ import { loadCoverLetter } from "./cover-letter";
 import { repairDriftInTab } from "./drift";
 import { fetchDomFromTab } from "./fetch-dom";
 import { keepResumeIfSameSite, loadFillResume } from "./fill-resume";
+import { watchFrameDocument } from "./frame-navigation";
 import { planLateFields } from "./late-fields";
 import { localIsoDate } from "./local-date";
 import { requestPlan, wantsFastPlan } from "./plan-request";
@@ -35,6 +36,7 @@ import {
   rescanFieldIssues,
 } from "./refill";
 import { buildResumeUploadProgress } from "./resume-upload-status";
+import { waitForPageSettled } from "./run-click";
 import { autoPauseDecision, countDomNodes, mergeReports, shortLabel } from "./run-pipeline-helpers";
 import { beginPipelineUsageTracking, endPipelineUsageTracking } from "./usage-tracker";
 
@@ -43,6 +45,7 @@ import type { PlanTurn } from "@acorn/shared/plan-history";
 import type {
   ActionPlan,
   PlanStepPayload,
+  RunReport,
   RunStepRecord,
   RuntimeAttachedFile,
 } from "@acorn/shared/plan-runner/types";
@@ -57,6 +60,13 @@ const LEFTOVER_PASS_TIMEOUT_MS = 120_000;
  * one in hand can finish and the page is free again when the run moves on.
  */
 const LEFTOVER_STOP_MARGIN_MS = 15_000;
+/**
+ * Times one fill starts over on a page the site replaced under it (an upload that
+ * sends the form and draws the page again); past it the fill fails.
+ */
+const FILL_MAX_PAGE_RELOADS = 3;
+/** What the fill says while the site loads the page it sent away. */
+const PAGE_RELOADING = "The page reloaded while Acorn filled it; filling it again once it loads…";
 
 export type PipelineEmit = (progress: PipelineProgress) => void;
 
@@ -170,7 +180,7 @@ export async function runFabPipeline(args: RunPipelineArgs): Promise<void> {
       ]),
     );
     // The page HTML only rides to Analyze's debug capture, not the socket or sidebar.
-    const { html: pageHtml, fieldIssues, formFields, ...treePayload } = fetchedDom;
+    let { html: pageHtml, fieldIssues, formFields, ...treePayload } = fetchedDom;
     const boundResume =
       resumeSource === "custom"
         ? { file: resumeLoad.file, skipReason: resumeLoad.skipReason }
@@ -236,274 +246,325 @@ export async function runFabPipeline(args: RunPipelineArgs): Promise<void> {
       return;
     }
 
-    const nodeCount = countDomNodes(treePayload.tree);
-    emit({
-      phase: "analyzing",
-      message:
-        refill && fieldIssues
-          ? refillAnalyzingMessage(fieldIssues)
-          : resumeFile
-            ? `Analyzing ${nodeCount} nodes · resume ${resumeFile.label || resumeFile.name}`
-            : source === "custom"
-              ? usingLibrary && customTab?.recommendedResumeId
-                ? `Analyzing ${nodeCount} nodes · Library file unavailable`
-                : customTab?.generationId
-                  ? `Analyzing ${nodeCount} nodes · generated file unavailable`
-                  : `Analyzing ${nodeCount} nodes…`
-              : tabJob?.resumeStack
-                ? `Analyzing ${nodeCount} nodes · ${tabJob.resumeStack} file unavailable`
-                : `Analyzing ${nodeCount} nodes…`,
-      tree: treeSnapshot,
-      resumeUpload: resumeUpload(),
-    });
-
-    // The planner reads the compact tree; the full Meta Tree only rides to debug capture.
-    const pureTree = formatPlannerTree(treePayload.tree);
-    const metaTree = ACORN_DEBUG ? formatAnalyzeTrees(treePayload.tree).metaTree : undefined;
-
-    const page = {
-      title: treePayload.title || "Untitled",
-      url: treePayload.url,
-      fetchedAt: treePayload.fetchedAt,
-      // The applicant's own date: a date-of-signing field takes today as they see it.
-      today: localIsoDate(),
-      job:
-        source === "custom"
-          ? null
-          : tabJob
-            ? {
-                id: tabJob.jobId,
-                title: tabJob.title,
-                company: tabJob.company,
-              }
-            : null,
-      customGenerationId:
-        source === "custom" && !usingLibrary ? (customTab?.generationId ?? null) : null,
-      customLibraryResumeId:
-        source === "custom" && usingLibrary ? (customTab?.recommendedResumeId ?? null) : null,
-      customRemembered: source === "custom",
-      recommendedResumeAvailable: Boolean(resumeFile),
-      recommendedResumeStack:
-        resumeFile?.label ||
-        (source === "custom"
-          ? usingLibrary
-            ? customTab?.recommendedResumeStack
-            : customTab?.generationId
-              ? "Generated"
-              : null
-          : tabJob?.resumeStack) ||
-        null,
-    };
-
-    if (ACORN_DEBUG && !pendingOnly) await queueDebugShot(tabId, "analyze", true);
-    const analyze = pendingOnly
-      ? { mode: FAST_PLAN_MODE, plan: emptyPlan() }
-      : await clock.time("plan", () =>
-          requestPlan(
-            {
-              pureTree,
-              mode,
-              fieldIssues: refill ? fieldIssues : undefined,
-              history: refill && history?.length ? history : undefined,
-              page,
-              verificationCode,
-              debug: ACORN_DEBUG
-                ? { html: pageHtml, domTree: treePayload.tree, metaTree }
-                : undefined,
-            },
-            formFields,
-            aiServerUrl,
-            tabId,
-          ),
-        );
-    if (refill && analyze.mode !== FILL_MODE.refill) {
-      throw new Error(REFILL_UNSUPPORTED);
-    }
-
-    const plan = analyze.plan as ActionPlan;
-    applyApplicantIdentityToActions(plan.actions);
-    planSnapshot = redactPlan(plan);
-    const stepTotal = plan.actions?.length ?? 0;
-
-    emit({
-      phase: "running",
-      message: stepTotal ? `Running 0/${stepTotal}…` : "Running…",
-      stepIndex: 0,
-      stepTotal,
-      plan,
-      resumeUpload: resumeUpload(),
-    });
-
-    const frameId = treePayload.frameId ?? preferredFrameId ?? null;
-    traceFromBackground(
-      "plan",
-      () => ({
-        frameId,
-        actions: (redactPlan(plan).actions ?? []).map((a, i) => ({
-          i,
-          action: a.action,
-          element_index: a.element_index,
-          label: a.expected_label,
-          role: a.expected_role,
-          value: a.value,
-        })),
-      }),
-      tabId,
-    );
-
     // A cover letter is chosen only when the plan uploads one, once per fill.
     let coverLetterLoad: Promise<RuntimeAttachedFile | null> | null = null;
-    const coverLetterFor = (target: ActionPlan) => {
-      if (!planWantsCoverLetter(target.actions)) return Promise.resolve(null);
-      coverLetterLoad ??= clock
-        .time("cover-letter", () =>
-          loadCoverLetter({
-            tabId,
-            customTab,
-            tabJob,
-            pageText: pureTree,
-            apiUrl: aiServerUrl,
-          }),
-        )
-        .catch((err) => {
-          traceFromBackground("cover-letter:failed", () => ({ error: String(err) }), tabId);
-          return null;
-        });
-      return coverLetterLoad;
-    };
+    let report: RunReport;
+    let stepTotal = 0;
+    let frameId: number | null = null;
+    // One pass reads the page, plans it, and fills it. A site that replaces the page
+    // under the fill (an upload that sends the form and draws it again) gets a new
+    // pass on the page it drew: nothing is written into a page that is going away.
+    for (let reloads = 0; ; reloads += 1) {
+      const nodeCount = countDomNodes(treePayload.tree);
+      emit({
+        phase: "analyzing",
+        message:
+          refill && fieldIssues
+            ? refillAnalyzingMessage(fieldIssues)
+            : resumeFile
+              ? `Analyzing ${nodeCount} nodes · resume ${resumeFile.label || resumeFile.name}`
+              : source === "custom"
+                ? usingLibrary && customTab?.recommendedResumeId
+                  ? `Analyzing ${nodeCount} nodes · Library file unavailable`
+                  : customTab?.generationId
+                    ? `Analyzing ${nodeCount} nodes · generated file unavailable`
+                    : `Analyzing ${nodeCount} nodes…`
+                : tabJob?.resumeStack
+                  ? `Analyzing ${nodeCount} nodes · ${tabJob.resumeStack} file unavailable`
+                  : `Analyzing ${nodeCount} nodes…`,
+        tree: treeSnapshot,
+        resumeUpload: resumeUpload(),
+      });
 
-    const runPlan = async (target: ActionPlan, total: number) => {
-      const coverLetter = await coverLetterFor(target);
-      return clock.time("steps", () =>
-        runActionPlan({
-          plan: target,
-          runtimeFile,
-          recommendedResume,
-          customResume,
-          resumeFileKind,
-          coverLetter,
-          force: refill,
-          executeStep: async (step: PlanStepPayload) => {
-            const sentAt = Date.now();
-            const res = await sendPlanStepToTab(tabId, step, frameId);
-            traceFromBackground(
-              "step:result",
-              () => ({
-                element_index: step.element_index,
-                label: step.expected_label,
-                ok: res.ok,
-                alreadyFilled: res.alreadyFilled,
-                error: res.error,
-                valueAfter: res.details?.valueAfter,
-                ms: Date.now() - sentAt,
-              }),
-              tabId,
-            );
-            const details = res.details ?? {};
-            return {
-              ok: Boolean(res.ok),
-              verified: res.verified,
-              acted: res.acted,
-              alreadyFilled: Boolean(res.alreadyFilled),
-              error: res.error,
-              details: {
-                nodeId: typeof details.nodeId === "number" ? details.nodeId : undefined,
-                matchedLabel:
-                  typeof details.matchedLabel === "string" ? details.matchedLabel : undefined,
-                matchedRole:
-                  typeof details.matchedRole === "string" ? details.matchedRole : undefined,
-                valueAfter: typeof details.valueAfter === "string" ? details.valueAfter : undefined,
+      // The planner reads the compact tree; the full Meta Tree only rides to debug capture.
+      const pureTree = formatPlannerTree(treePayload.tree);
+      const metaTree = ACORN_DEBUG ? formatAnalyzeTrees(treePayload.tree).metaTree : undefined;
+
+      const page = {
+        title: treePayload.title || "Untitled",
+        url: treePayload.url,
+        fetchedAt: treePayload.fetchedAt,
+        // The applicant's own date: a date-of-signing field takes today as they see it.
+        today: localIsoDate(),
+        job:
+          source === "custom"
+            ? null
+            : tabJob
+              ? {
+                  id: tabJob.jobId,
+                  title: tabJob.title,
+                  company: tabJob.company,
+                }
+              : null,
+        customGenerationId:
+          source === "custom" && !usingLibrary ? (customTab?.generationId ?? null) : null,
+        customLibraryResumeId:
+          source === "custom" && usingLibrary ? (customTab?.recommendedResumeId ?? null) : null,
+        customRemembered: source === "custom",
+        recommendedResumeAvailable: Boolean(resumeFile),
+        recommendedResumeStack:
+          resumeFile?.label ||
+          (source === "custom"
+            ? usingLibrary
+              ? customTab?.recommendedResumeStack
+              : customTab?.generationId
+                ? "Generated"
+                : null
+            : tabJob?.resumeStack) ||
+          null,
+      };
+
+      if (ACORN_DEBUG && !pendingOnly) await queueDebugShot(tabId, "analyze", true);
+      const analyze = pendingOnly
+        ? { mode: FAST_PLAN_MODE, plan: emptyPlan() }
+        : await clock.time("plan", () =>
+            requestPlan(
+              {
+                pureTree,
+                mode,
+                fieldIssues: refill ? fieldIssues : undefined,
+                history: refill && history?.length ? history : undefined,
+                page,
+                verificationCode,
+                debug: ACORN_DEBUG
+                  ? { html: pageHtml, domTree: treePayload.tree, metaTree }
+                  : undefined,
               },
-            };
-          },
-          hooks: {
-            shouldAbort: () => signal?.aborted === true,
-            beforeFills: () =>
-              decideChoicesInBatch({ tabId, frameId, plan: target, apiUrl: aiServerUrl }),
-            onSteps: (steps) => {
-              const running = steps.find((s) => s.status === "running" || s.status === "paused");
-              const doneCount = steps.filter((s) =>
-                ["ok", "skipped", "blocked", "failed", "aborted"].includes(s.status),
-              ).length;
-              const current = running ?? steps[Math.min(doneCount, steps.length - 1)];
-              const idx = current ? current.index + 1 : doneCount;
-              emit({
-                phase: "running",
-                message: `Running ${Math.min(idx, total)}/${total}…`,
-                stepIndex: current?.index,
-                stepTotal: total,
-                stepLabel: current ? shortLabel(current.expected_label, current.action) : undefined,
-                steps,
-                resumeUpload: buildResumeUploadProgress({
-                  recommendedResume: resumeFile,
-                  resumeStack: boundResumeStack,
-                  skipReason: resumeSkipReason,
-                  steps,
-                }),
-              });
-            },
-            onPause: (request) => {
-              emit({
-                phase: "running",
-                message:
-                  request.kind === "error"
-                    ? `Skipping: ${shortLabel(request.expected_label, request.action)}`
-                    : `Review: ${shortLabel(request.expected_label, request.action)}`,
-                stepIndex: request.index,
-                stepTotal: total,
-                stepLabel: shortLabel(request.expected_label, request.action),
-                resumeUpload: resumeUpload(),
-              });
-              return autoPauseDecision(request);
-            },
-          },
+              formFields,
+              aiServerUrl,
+              tabId,
+            ),
+          );
+      if (refill && analyze.mode !== FILL_MODE.refill) {
+        throw new Error(REFILL_UNSUPPORTED);
+      }
+
+      const plan = analyze.plan as ActionPlan;
+      applyApplicantIdentityToActions(plan.actions);
+      planSnapshot = redactPlan(plan);
+      stepTotal = plan.actions?.length ?? 0;
+
+      emit({
+        phase: "running",
+        message: stepTotal ? `Running 0/${stepTotal}…` : "Running…",
+        stepIndex: 0,
+        stepTotal,
+        plan,
+        resumeUpload: resumeUpload(),
+      });
+
+      frameId = treePayload.frameId ?? preferredFrameId ?? null;
+      traceFromBackground(
+        "plan",
+        () => ({
+          frameId,
+          actions: (redactPlan(plan).actions ?? []).map((a, i) => ({
+            i,
+            action: a.action,
+            element_index: a.element_index,
+            label: a.expected_label,
+            role: a.expected_role,
+            value: a.value,
+          })),
         }),
+        tabId,
       );
-    };
 
-    let report = await runPlan(plan, stepTotal);
-
-    // Fields the first scan could not see: a section that rendered late, fields an
-    // import re-rendered, follow-ups an answer revealed.
-    const late =
-      !report.aborted && (pendingOnly || wantsFastPlan(mode))
-        ? await clock.time("late", () =>
-            planLateFields({ tabId, frameId, page, apiUrl: aiServerUrl, blocked: pendingOnly }),
+      const coverLetterFor = (target: ActionPlan) => {
+        if (!planWantsCoverLetter(target.actions)) return Promise.resolve(null);
+        coverLetterLoad ??= clock
+          .time("cover-letter", () =>
+            loadCoverLetter({
+              tabId,
+              customTab,
+              tabJob,
+              pageText: pureTree,
+              apiUrl: aiServerUrl,
+            }),
           )
-        : null;
-    if (late) {
-      planSnapshot = redactPlan({ ...plan, actions: [...(plan.actions ?? []), ...late.actions] });
-      report = mergeReports(report, await runPlan(late, late.actions.length));
-    }
+          .catch((err) => {
+            traceFromBackground("cover-letter:failed", () => ({ error: String(err) }), tabId);
+            return null;
+          });
+        return coverLetterLoad;
+      };
 
-    // A page that rewrote itself under the fill (a résumé import, a reset) gets its
-    // answers back before the leftover pass reads what is still empty.
-    if (!report.aborted) {
-      const drift = await clock.time("drift", () => repairDriftInTab(tabId, frameId, startedAt));
-      traceFromBackground("drift:repair", () => drift, tabId);
-    }
+      const watch = await watchFrameDocument(tabId, frameId);
+      try {
+        const runPlan = async (target: ActionPlan, total: number) => {
+          const coverLetter = await coverLetterFor(target);
+          return clock.time("steps", () =>
+            runActionPlan({
+              plan: target,
+              runtimeFile,
+              recommendedResume,
+              customResume,
+              resumeFileKind,
+              coverLetter,
+              force: refill,
+              executeStep: async (step: PlanStepPayload) => {
+                const sentAt = Date.now();
+                const res = await sendPlanStepToTab(tabId, step, frameId);
+                traceFromBackground(
+                  "step:result",
+                  () => ({
+                    element_index: step.element_index,
+                    label: step.expected_label,
+                    ok: res.ok,
+                    alreadyFilled: res.alreadyFilled,
+                    error: res.error,
+                    valueAfter: res.details?.valueAfter,
+                    ms: Date.now() - sentAt,
+                  }),
+                  tabId,
+                );
+                const details = res.details ?? {};
+                return {
+                  ok: Boolean(res.ok),
+                  verified: res.verified,
+                  acted: res.acted,
+                  alreadyFilled: Boolean(res.alreadyFilled),
+                  error: res.error,
+                  details: {
+                    nodeId: typeof details.nodeId === "number" ? details.nodeId : undefined,
+                    matchedLabel:
+                      typeof details.matchedLabel === "string" ? details.matchedLabel : undefined,
+                    matchedRole:
+                      typeof details.matchedRole === "string" ? details.matchedRole : undefined,
+                    valueAfter:
+                      typeof details.valueAfter === "string" ? details.valueAfter : undefined,
+                  },
+                };
+              },
+              hooks: {
+                // A page on its way out takes no more steps: the next pass fills the new one.
+                shouldAbort: () => signal?.aborted === true || watch.left(),
+                beforeFills: () =>
+                  decideChoicesInBatch({ tabId, frameId, plan: target, apiUrl: aiServerUrl }),
+                onSteps: (steps) => {
+                  const running = steps.find(
+                    (s) => s.status === "running" || s.status === "paused",
+                  );
+                  const doneCount = steps.filter((s) =>
+                    ["ok", "skipped", "blocked", "failed", "aborted"].includes(s.status),
+                  ).length;
+                  const current = running ?? steps[Math.min(doneCount, steps.length - 1)];
+                  const idx = current ? current.index + 1 : doneCount;
+                  emit({
+                    phase: "running",
+                    message: `Running ${Math.min(idx, total)}/${total}…`,
+                    stepIndex: current?.index,
+                    stepTotal: total,
+                    stepLabel: current
+                      ? shortLabel(current.expected_label, current.action)
+                      : undefined,
+                    steps,
+                    resumeUpload: buildResumeUploadProgress({
+                      recommendedResume: resumeFile,
+                      resumeStack: boundResumeStack,
+                      skipReason: resumeSkipReason,
+                      steps,
+                    }),
+                  });
+                },
+                onPause: (request) => {
+                  emit({
+                    phase: "running",
+                    message:
+                      request.kind === "error"
+                        ? `Skipping: ${shortLabel(request.expected_label, request.action)}`
+                        : `Review: ${shortLabel(request.expected_label, request.action)}`,
+                    stepIndex: request.index,
+                    stepTotal: total,
+                    stepLabel: shortLabel(request.expected_label, request.action),
+                    resumeUpload: resumeUpload(),
+                  });
+                  return autoPauseDecision(request);
+                },
+              },
+            }),
+          );
+        };
 
-    // Refill only touches the fields the page flagged.
-    if (!report.aborted && !refill) {
-      await clock.time("leftover", () =>
-        sendTabMessage<{
-          ok?: boolean;
-          found?: number;
-          filled?: number;
-          error?: string;
-          skipped?: boolean;
-        }>(
-          tabId,
-          {
-            type: MSG.FILL_LEFTOVER_COMBOS,
-            // A pass the run stopped waiting for must not hold the page: its next
-            // steps (a fill, the Submit click) queue behind it.
-            deadline: Date.now() + LEFTOVER_PASS_TIMEOUT_MS - LEFTOVER_STOP_MARGIN_MS,
-          },
-          frameId ?? undefined,
-          LEFTOVER_PASS_TIMEOUT_MS,
-        ),
-      );
+        report = await runPlan(plan, stepTotal);
+
+        // Fields the first scan could not see: a section that rendered late, fields an
+        // import re-rendered, follow-ups an answer revealed.
+        const late =
+          !report.aborted && (pendingOnly || wantsFastPlan(mode))
+            ? await clock.time("late", () =>
+                planLateFields({ tabId, frameId, page, apiUrl: aiServerUrl, blocked: pendingOnly }),
+              )
+            : null;
+        if (late) {
+          planSnapshot = redactPlan({
+            ...plan,
+            actions: [...(plan.actions ?? []), ...late.actions],
+          });
+          report = mergeReports(report, await runPlan(late, late.actions.length));
+        }
+
+        // A page that rewrote itself under the fill (a résumé import, a reset) gets its
+        // answers back before the leftover pass reads what is still empty.
+        if (!report.aborted) {
+          const drift = await clock.time("drift", () =>
+            repairDriftInTab(tabId, frameId, startedAt),
+          );
+          traceFromBackground("drift:repair", () => drift, tabId);
+        }
+
+        // Refill only touches the fields the page flagged.
+        if (!report.aborted && !refill) {
+          await clock.time("leftover", () =>
+            sendTabMessage<{
+              ok?: boolean;
+              found?: number;
+              filled?: number;
+              error?: string;
+              skipped?: boolean;
+            }>(
+              tabId,
+              {
+                type: MSG.FILL_LEFTOVER_COMBOS,
+                // A pass the run stopped waiting for must not hold the page: its next
+                // steps (a fill, the Submit click) queue behind it.
+                deadline: Date.now() + LEFTOVER_PASS_TIMEOUT_MS - LEFTOVER_STOP_MARGIN_MS,
+              },
+              frameId ?? undefined,
+              LEFTOVER_PASS_TIMEOUT_MS,
+            ),
+          );
+        }
+
+        if (!watch.left() || signal?.aborted) break;
+        if (reloads >= FILL_MAX_PAGE_RELOADS) {
+          throw new Error(`The page reloaded ${reloads + 1} times while Acorn filled it`);
+        }
+        traceFromBackground("fill:page-replaced", () => ({ pass: reloads + 1, frameId }), tabId);
+        emit({ phase: "fetching", message: PAGE_RELOADING, mode });
+        await watch.arrived();
+      } finally {
+        watch.stop();
+      }
+      await waitForPageSettled(tabId, frameId ?? undefined);
+      ({
+        html: pageHtml,
+        fieldIssues,
+        formFields,
+        ...treePayload
+      } = await clock.time("dom", () =>
+        fetchDomFromTab(tabId, frameId, {
+          fieldIssues: refill,
+          formFields: wantsFastPlan(mode),
+        }),
+      ));
+      emitDomTree?.(treePayload);
+      treeSnapshot = {
+        url: treePayload.url,
+        title: treePayload.title,
+        tree: treePayload.tree,
+        fetchedAt: treePayload.fetchedAt,
+      };
     }
 
     const { durationMs, usage } = await finishMeta();

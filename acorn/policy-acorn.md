@@ -30,6 +30,8 @@ Shared `plan-runner` is the extension's fill engine. Do not add a second Custom/
 
 Analyze → plan → run steps go through the existing pipeline. Custom Generate vs Library Recommend only changes which résumé file is attached (`custom_resume` vs `recommended_resume`), not the runner.
 
+A fill never writes into a page that is going away. The pipeline watches the fill's frame and the frames that hold it (`pipeline/frame-navigation.ts`); when one starts to navigate mid-fill (a site that sends its form as soon as a résumé is attached, then draws the page again), the remaining steps are dropped, and the fill reads, plans, and fills the page that loads, a bounded number of times. An upload field that already shows the very file the step would attach (by the file's own name) is done: the upload is not sent again.
+
 ---
 
 ## 4. Custom generate, recommend, and fill

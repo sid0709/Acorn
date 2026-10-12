@@ -124,17 +124,21 @@ const sameProbe = (a: PageProbe, b: PageProbe) =>
   a.textLength === b.textLength;
 
 /**
- * Wait until a page that just loaded is done rendering: its main document answers
+ * Wait until a page that just loaded is done rendering: its document (the main one
+ * unless a frame is named) answers
  * and its address, fields, controls, and text stay the same for a quiet spell. An
  * app that draws itself after the load (most job sites) is read only once drawn.
  */
-export async function waitForPageSettled(tabId: number): Promise<void> {
+export async function waitForPageSettled(
+  tabId: number,
+  frameId: number = MAIN_FRAME_ID,
+): Promise<void> {
   const started = Date.now();
   let last: PageProbe | null = null;
   let quietSince = Date.now();
   while (Date.now() - started < RUN_PAGE_SETTLE_MAX_MS) {
     await sleep(RUN_SETTLE_POLL_MS);
-    const probe = await probePage(tabId, MAIN_FRAME_ID);
+    const probe = await probePage(tabId, frameId);
     const drawn = probe != null && (probe.controls > 0 || probe.textLength > 0);
     if (!probe || !last || !sameProbe(probe, last) || !drawn) {
       last = probe;
