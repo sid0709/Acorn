@@ -213,6 +213,7 @@ func New(accounts Accounts, listings *jobs.Store, brain *acorn.Service, opts Opt
 	mux.HandleFunc("GET /acorn/admin/claims/{id}", s.adminGetClaim)
 	mux.HandleFunc("PATCH /acorn/admin/claims/{id}", s.adminPatchClaim)
 	mux.HandleFunc("GET /acorn/admin/claims/{id}/screenshot", s.adminClaimScreenshot)
+	mux.HandleFunc("GET /acorn/admin/claims/{id}/debug-log", s.adminClaimDebugLog)
 	mux.HandleFunc("POST /acorn/admin/claims/{id}/messages", s.adminPostClaimMessage)
 	mux.HandleFunc("POST /acorn/admin/claims/{id}/read", s.adminReadClaim)
 	mux.HandleFunc("GET /acorn/admin/claims/{id}/attachments/{attachmentId}", s.adminClaimAttachment)

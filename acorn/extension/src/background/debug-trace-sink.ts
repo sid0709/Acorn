@@ -38,6 +38,17 @@ function startFlush(): void {
   });
 }
 
+/** Wait until trace entries already queued have been sent. */
+export async function flushDebugTraces(): Promise<void> {
+  if (!ACORN_DEBUG) return;
+  while (pending.length > 0 || flushing) {
+    startFlush();
+    const current = flushing;
+    if (!current) return;
+    await current;
+  }
+}
+
 /** Background code (pipeline, router): trace straight to the sink, filed under tabId's run. */
 export function traceFromBackground(event: string, data?: TraceData, tabId?: number): void {
   if (!ACORN_DEBUG) return;

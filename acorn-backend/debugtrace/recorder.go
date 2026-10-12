@@ -100,6 +100,16 @@ func (r *Recorder) Latest(userID string) *Run {
 	return r.StartRun(userID, "no-analyze")
 }
 
+// Current is the user's current run, or nil when they have none. It does not open a run.
+func (r *Recorder) Current(userID string) *Run {
+	if r == nil {
+		return nil
+	}
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	return r.latest[userID]
+}
+
 type runKey struct{}
 
 // WithRun attaches a run to a request so model calls land in it.
@@ -151,6 +161,46 @@ func (run *Run) WriteJSON(name string, v any) {
 		data = []byte(fmt.Sprintf("marshal %s: %v", name, err))
 	}
 	run.WriteFile(name, data)
+}
+
+// Artifact is one file in a run folder.
+type Artifact struct {
+	Name string
+	Data []byte
+}
+
+// Snapshot reads the run folder. Files larger than maxFile bytes are left out.
+// A nil run or a maxFile below 1 yields no files.
+func (run *Run) Snapshot(maxFile int) ([]Artifact, error) {
+	if run == nil || maxFile < 1 {
+		return nil, nil
+	}
+	run.mu.Lock()
+	defer run.mu.Unlock()
+	entries, err := os.ReadDir(run.dir)
+	if err != nil {
+		return nil, fmt.Errorf("read debug run: %w", err)
+	}
+	files := make([]Artifact, 0, len(entries))
+	for _, entry := range entries {
+		if entry.IsDir() {
+			continue
+		}
+		name := entry.Name()
+		info, err := entry.Info()
+		if err != nil || info.Size() == 0 || info.Size() > int64(maxFile) {
+			continue
+		}
+		data, err := os.ReadFile(filepath.Join(run.dir, name))
+		if err != nil {
+			return nil, fmt.Errorf("read debug run %s: %w", name, err)
+		}
+		if len(data) == 0 || len(data) > maxFile {
+			continue
+		}
+		files = append(files, Artifact{Name: name, Data: data})
+	}
+	return files, nil
 }
 
 // AppendSteps adds the extension's trace lines to steps.ndjson, one JSON value per line.

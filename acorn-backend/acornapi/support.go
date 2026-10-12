@@ -30,7 +30,8 @@ func (s *Server) claimsReady(w http.ResponseWriter) bool {
 	return true
 }
 
-// createSupportClaim files a report: the page, a full-page screenshot, and the reporter's notes.
+// createSupportClaim files a report: the page, a full-page screenshot, the reporter's notes,
+// and, when this server is recording one, the tab's current debug run.
 func (s *Server) createSupportClaim(w http.ResponseWriter, r *http.Request) {
 	session, ok := s.session(w, r)
 	if !ok || !s.claimsReady(w) {
@@ -103,6 +104,7 @@ func (s *Server) createSupportClaim(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusInternalServerError, "could not save the report")
 		return
 	}
+	saved.DebugLogFiles += s.storeClaimDebugLog(r, saved.ID, saved.AccountID, "")
 	s.publishStaffClaim(saved)
 	writeJSON(w, http.StatusCreated, map[string]any{"claim": claimRow(saved, support.AuthorUser)})
 }
@@ -222,6 +224,7 @@ func claimRow(claim support.Claim, reader string) map[string]any {
 		"screenshotMime":   claim.ScreenshotMIME,
 		"screenshotWidth":  claim.ScreenshotWidth,
 		"screenshotHeight": claim.ScreenshotHeight,
+		"debugLogFiles":    claim.DebugLogFiles,
 		"messageCount":     claim.MessageCount,
 		"lastMessageAt":    claim.LastMessageAt,
 		"lastMessageBy":    claim.LastMessageBy,
