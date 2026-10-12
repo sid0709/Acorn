@@ -47,6 +47,8 @@ export type SupportClaim = {
   screenshotMime: string;
   screenshotWidth: number;
   screenshotHeight: number;
+  /** Debug-run files stored with this report. Absent or zero when none was recorded. */
+  debugLogFiles?: number;
   messageCount: number;
   lastMessageAt: string;
   lastMessageBy: ClaimAuthor | "";

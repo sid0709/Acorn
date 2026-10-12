@@ -28,6 +28,20 @@ function sleep(ms: number) {
  * Chrome can only photograph the visible tab, and stitching a background tab would
  * scroll it while photographing whichever tab is in front.
  */
+/** Wait until screenshots already queued have been sent. */
+export async function flushDebugShots(): Promise<void> {
+  if (!ACORN_DEBUG) return;
+  let current = chain;
+  for (;;) {
+    await current.then(
+      () => undefined,
+      () => undefined,
+    );
+    if (chain === current) return;
+    current = chain;
+  }
+}
+
 export function queueDebugShot(tabId: number, label: string, full: boolean): Promise<void> {
   if (!ACORN_DEBUG) return Promise.resolve();
   const now = Date.now();

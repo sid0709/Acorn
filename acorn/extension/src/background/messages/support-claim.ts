@@ -8,6 +8,8 @@ import {
 import { authHeaders, getAcornApiUrl } from "../../auth/acorn-auth";
 import { usageTabKey } from "../../tab-usage-key";
 import { blobToBase64, captureFullPage, captureVisible } from "../capture/full-page";
+import { flushDebugShots } from "../debug-shot";
+import { flushDebugTraces } from "../debug-trace-sink";
 
 import type { FullPageShot } from "../capture/full-page";
 
@@ -37,9 +39,13 @@ export async function handleSubmitSupportClaim(
   }
   const notes =
     typeof message.notes === "string" ? message.notes.trim().slice(0, MAX_NOTES_LENGTH) : "";
+  // The server copies this tab's debug run as the claim is saved. Screenshots can
+  // queue a trace as they finish, so they go out before the trace flush.
+  const flushed = flushDebugShots().then(() => flushDebugTraces());
   const shot = await captureFullPage(tabId, tab.windowId, MAX_SCREENSHOT_BYTES).catch(() =>
     captureVisible(tab.windowId),
   );
+  await flushed;
   const base = (await getAcornApiUrl()).replace(/\/$/, "");
   const claimId = typeof message.claimId === "string" && message.claimId ? message.claimId : null;
   const res = claimId

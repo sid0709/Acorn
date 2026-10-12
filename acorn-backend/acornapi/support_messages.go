@@ -68,6 +68,9 @@ func (s *Server) postMessage(w http.ResponseWriter, r *http.Request, claim suppo
 		writeError(w, http.StatusInternalServerError, "could not send the message")
 		return
 	}
+	if draft.Author == support.AuthorUser && strings.TrimSpace(draft.PageURL) != "" {
+		updated.DebugLogFiles += s.storeClaimDebugLog(r, updated.ID, updated.AccountID, msg.ID)
+	}
 	row := messageRow(msg)
 	s.publishStaffMessage(updated, row)
 	if s.sockets != nil {

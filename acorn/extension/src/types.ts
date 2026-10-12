@@ -22,6 +22,8 @@ export interface DomTreePayload {
   frameId?: number;
   /** Fillable control count used to pick the form frame among iframes. */
   formScore?: number;
+  /** Fields of the frame's page itself, outside any layer laid over it (a consent panel, a dialog). */
+  pageScore?: number;
   /** Debug builds only: the form frame's HTML, for the backend debug run. */
   html?: string;
   /** Refill only: fields the page flags, keyed by this tree's node ids. */

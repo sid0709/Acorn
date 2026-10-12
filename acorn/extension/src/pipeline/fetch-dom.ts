@@ -1,4 +1,4 @@
-import { MIN_CHILD_FORM_CONTROLS } from "../content/form-frame";
+import { MIN_CHILD_FORM_CONTROLS, MIN_PAGE_FIELDS } from "../content/form-frame";
 import { sendTabMessage } from "../tab-messaging";
 import { MSG, type DomTreePayload } from "../types";
 
@@ -86,7 +86,7 @@ export async function fetchDomFromTab(
     );
   };
 
-  type Candidate = DomTreePayload & { formScore: number };
+  type Candidate = DomTreePayload & { formScore: number; pageScore: number };
   const candidates: Candidate[] = [];
   const attempts: DomFrameAttempt[] = [];
 
@@ -113,6 +113,7 @@ export async function fetchDomFromTab(
         tabId,
         frameId,
         formScore: typeof res.formScore === "number" ? res.formScore : 0,
+        pageScore: typeof res.pageScore === "number" ? res.pageScore : 0,
       });
       return;
     }
@@ -143,12 +144,15 @@ export async function fetchDomFromTab(
   }
 
   // The frame the run already reads still holds the form: no other frame can win,
-  // and asking them costs each one's wait for a form that never comes.
+  // and asking them costs each one's wait for a form that never comes. A frame
+  // whose page asks for one field of its own (an email-first sign-in) holds it too.
   if (preferredFrameId != null) {
     const preferred = await attempt(preferredFrameId);
     consider(preferred, preferredFrameId, null);
     const kept = candidates.find((candidate) => candidate.frameId === preferredFrameId);
-    if (kept && kept.formScore >= MIN_CHILD_FORM_CONTROLS) return kept;
+    if (kept && (kept.formScore >= MIN_CHILD_FORM_CONTROLS || kept.pageScore >= MIN_PAGE_FIELDS)) {
+      return kept;
+    }
   }
   // Every other frame at once: a frame with no form waits out its hydration window,
   // and in turn those waits would add up frame by frame.
@@ -165,6 +169,9 @@ export async function fetchDomFromTab(
   }
 
   candidates.sort((a, b) => {
+    // Fields of a frame's own page first: a consent panel's toggles over the site's
+    // page never outrank the sign-in form of the frame embedded in it.
+    if (b.pageScore !== a.pageScore) return b.pageScore - a.pageScore;
     if (b.formScore !== a.formScore) return b.formScore - a.formScore;
     if (a.frameId === preferredFrameId) return -1;
     if (b.frameId === preferredFrameId) return 1;

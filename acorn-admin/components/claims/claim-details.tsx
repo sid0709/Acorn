@@ -8,7 +8,7 @@ import { ScreenshotPreview } from "./screenshot-preview";
 import { formatDateTime } from "@/lib/format";
 import { ROUTES } from "@/lib/routes";
 
-/** The report's context: the full-page screenshot, the page, the reporter and their setup. */
+/** The report's context: the full-page screenshot, the page, the debug log, and the reporter. */
 export function ClaimDetails({ claim }: { claim: SupportClaim }) {
   const alt = `Full-page screenshot of ${claimTitle(claim)}`;
   return (
@@ -29,6 +29,13 @@ export function ClaimDetails({ claim }: { claim: SupportClaim }) {
           </Link>
         </MetadataListItem>
         <MetadataListItem label="Reported">{formatDateTime(claim.createdAt)}</MetadataListItem>
+        {claim.debugLogFiles ? (
+          <MetadataListItem label="Debug log">
+            <Link href={ROUTES.claimDebugLog(claim.id)} target="_blank" rel="noreferrer">
+              Download
+            </Link>
+          </MetadataListItem>
+        ) : null}
       </MetadataList>
       <MetadataList title="Reporter">
         <MetadataListItem label="Name">

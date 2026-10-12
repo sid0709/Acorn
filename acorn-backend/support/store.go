@@ -50,7 +50,7 @@ const (
 )
 
 // Claim is one support report: the page, a full-page screenshot, the reporter's
-// notes, and where the conversation stands.
+// notes, the debug-run log when the API recorded one, and where the conversation stands.
 type Claim struct {
 	ID               string    `bson:"_id"`
 	AccountID        string    `bson:"accountId"`
@@ -66,6 +66,7 @@ type Claim struct {
 	ScreenshotMIME   string    `bson:"screenshotMime"`
 	ScreenshotWidth  int       `bson:"screenshotWidth"`
 	ScreenshotHeight int       `bson:"screenshotHeight"`
+	DebugLogFiles    int       `bson:"debugLogFiles,omitempty"`
 	MessageCount     int       `bson:"messageCount"`
 	LastMessageAt    time.Time `bson:"lastMessageAt"`
 	LastMessageBy    string    `bson:"lastMessageBy"`
@@ -161,6 +162,7 @@ type Store struct {
 	claims      *mongo.Collection
 	messages    *mongo.Collection
 	attachments *mongo.Collection
+	debugLogs   *mongo.Collection
 }
 
 func NewStore(client *mongo.Client, database string) *Store {
@@ -170,6 +172,7 @@ func NewStore(client *mongo.Client, database string) *Store {
 		store.claims = db.Collection(claimsCollection)
 		store.messages = db.Collection(messagesCollection)
 		store.attachments = db.Collection(attachmentsCollection)
+		store.debugLogs = db.Collection(debugLogsCollection)
 	}
 	return store
 }
@@ -193,10 +196,18 @@ func (s *Store) EnsureIndexes(ctx context.Context) error {
 	}); err != nil {
 		return err
 	}
-	_, err := s.attachments.Indexes().CreateMany(ctx, []mongo.IndexModel{
+	if _, err := s.attachments.Indexes().CreateMany(ctx, []mongo.IndexModel{
 		{Keys: bson.D{{Key: "claimId", Value: 1}}},
 		{Keys: bson.D{{Key: "messageId", Value: 1}}},
 		{Keys: bson.D{{Key: "accountId", Value: 1}, {Key: "author", Value: 1}, {Key: "createdAt", Value: -1}}},
+	}); err != nil {
+		return err
+	}
+	if s.debugLogs == nil {
+		return nil
+	}
+	_, err := s.debugLogs.Indexes().CreateMany(ctx, []mongo.IndexModel{
+		{Keys: bson.D{{Key: "claimId", Value: 1}, {Key: "name", Value: 1}}},
 	})
 	return err
 }

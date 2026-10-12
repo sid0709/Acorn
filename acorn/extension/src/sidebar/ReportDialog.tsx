@@ -35,21 +35,21 @@ const COPY: Record<
     notesLabel: "What went wrong?",
     placeholder: "e.g. Fill typed my postcode into the city field",
     sends:
-      "Acorn sends this page’s address and a screenshot of the whole page. Support replies in the Support tab.",
+      "Acorn sends this page’s address, a screenshot of the whole page, and this tab’s debug log when one was recorded. Support replies in the Support tab.",
     action: "Send report",
   },
   "follow-up": {
     notesLabel: "What happened this time?",
     placeholder: "e.g. Same thing again, on the next step",
     sends:
-      "Acorn adds this page’s address and a screenshot of the whole page to that conversation, and opens it.",
+      "Acorn adds this page’s address, a screenshot of the whole page, and this tab’s debug log when one was recorded. It opens that conversation.",
     action: "Add to report",
   },
 };
 
 /**
  * Asks what went wrong before Acorn screenshots the page. It files a new report, or
- * (Follow-up) adds the page, screenshot, and notes to one of the person's open reports.
+ * (Follow-up) adds the page, screenshot, debug log, and notes to one of the person's open reports.
  */
 export function ReportDialog({
   isOpen,
