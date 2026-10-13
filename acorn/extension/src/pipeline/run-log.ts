@@ -9,8 +9,10 @@ import { RUN_LOG_BATCH_MAX, RUN_LOG_FLUSH_MS } from "./run-limits";
  * These pause for a stitched full-page image. The caller awaits `screenshot`
  * before the run touches the page again, so the scroll-and-restore does not
  * land under a click. Every other event stores a viewport shot, debounced.
+ * "page" is not here: the stitch takes tens of seconds on a long page and it
+ * would hold up the first read of every page.
  */
-const FULL_PAGE_SHOTS = new Set(["page", "fill:done", "refill:done", "run:end"]);
+const FULL_PAGE_SHOTS = new Set(["fill:done", "refill:done", "run:end"]);
 
 type RunLogEvent = { t: number; step: number; event: string; data?: Record<string, unknown> };
 
@@ -57,12 +59,13 @@ export class RunLog {
   }
 
   /**
-   * A stitched full-page image for a moment the run is standing still, with the
-   * page's HTML (and that of the frame the run reads) next to it.
+   * A screenshot for a moment the run is standing still, with the page's HTML
+   * (and that of the frame the run reads) next to it. Only the labels in
+   * FULL_PAGE_SHOTS stitch the whole page; any other is one viewport shot.
    */
   screenshot(label: string, frameId?: number | null): Promise<void> {
     void captureDebugHtml(this.tabId, label, frameId);
-    return queueDebugShot(this.tabId, label, true);
+    return queueDebugShot(this.tabId, label, FULL_PAGE_SHOTS.has(label));
   }
 
   /** Send what is queued and wait for it. Called when the run ends. */

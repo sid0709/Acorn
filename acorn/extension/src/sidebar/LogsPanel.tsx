@@ -13,6 +13,7 @@ import {
 
 import { LOG_KIND, type LogKind, type TabLogEntry } from "../tab-log-session";
 
+import { downloadLogZip } from "./log-zip";
 import { useTabLog } from "./use-tab-log";
 
 import type { AcornMainTab } from "./SidebarNav";
@@ -121,6 +122,13 @@ export function LogsPanel({ mainTab, tabId }: { mainTab: AcornMainTab; tabId: nu
             label="Copy all"
             isDisabled={shown.length === 0}
             onClick={() => void copyAll()}
+          />
+          <Button
+            variant="secondary"
+            size="sm"
+            label="Download"
+            isDisabled={shown.length === 0}
+            onClick={() => downloadLogZip(shown, tabId)}
           />
           <Button
             variant="ghost"
