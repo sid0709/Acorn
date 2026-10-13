@@ -29,6 +29,9 @@ const (
 	RoleApply  = "apply"
 	RoleNext   = "next"
 	RoleSubmit = "submit"
+	// RoleResolve starts or completes something the page still requires before it
+	// can be sent (an assessment, a document, a section the page names as an issue).
+	RoleResolve = "resolve"
 )
 
 // Intents say what the caller wants from this page.
@@ -150,6 +153,7 @@ const (
 	finalQuestion        = "is_final_step"
 	guestQuestion        = "continues_without_account"
 	guestControlQuestion = "guest_control"
+	requirementQuestion  = "outstanding_requirement"
 	diagnoseQuestion     = "failure"
 	verifyQuestion       = "verification"
 	appliedQuestion      = "already_applied"
@@ -264,7 +268,11 @@ type PageRead struct {
 	Offers []string
 	// AlreadyApplied is true when the site says this applicant already applied to this job.
 	AlreadyApplied bool
-	Usage          jev.Usage
+	// Requirement is the control that does what the page still reports as required
+	// before it can go on (role RoleResolve): the best next step ahead of Control.
+	// Nil when nothing outstanding is done through a control, or on a first look.
+	Requirement *ControlPick
+	Usage       jev.Usage
 }
 
 var pageKinds = []struct{ key, description string }{
@@ -314,67 +322,81 @@ func (g *Gateway) ReadPage(ctx context.Context, q PageQuery) (PageRead, error) {
 		guestCriteria[key] = controlCriteria[key]
 	}
 
-	res, err := g.decider.Decide(openai.WithCall(ctx, "read-page"), jev.Request{
-		State: pageState(q, controls),
-		Questions: map[string]jev.Question{
-			pageKindQuestion: {
-				Type:         jev.TypeChoice,
-				Instructions: "What kind of page is this in a job application?",
-				Criteria:     pageKindCriteria(),
-			},
-			controlQuestion: {
-				Type:         jev.TypeChoice,
-				Instructions: controlInstructions(q.Intent),
-				Criteria:     controlCriteria,
-			},
-			finalQuestion: {
-				Type: jev.TypeNoul,
-				Instructions: "Is this the last step of the application, so that the control which moves forward sends the " +
-					"application rather than opening another page or step?",
-				Criteria: map[string]string{
-					"true":  "The last step: the forward control submits the application.",
-					"false": "Not the last step: the forward control opens another page or step.",
-				},
-			},
-			guestQuestion: {
-				Type:         jev.TypeNoul,
-				Instructions: "Does this page offer a way to go on with the application without signing in or creating an account?",
-				Criteria: map[string]string{
-					"true":  "A control continues the application itself without any account (apply as a guest). " + guestOnly,
-					"false": "Going on requires signing in or creating an account, or the page asks neither.",
-				},
-			},
-			guestControlQuestion: {
-				Type: jev.TypeChoice,
-				Instructions: "Which control goes on with the application for this role without signing in or creating an " +
-					"account (applying as a guest)? Judge by what the control does, whatever its wording. " + guestOnly +
-					dialogSteps + "Choose none when no control does.",
-				Criteria: guestCriteria,
-			},
-			appliedQuestion: {
-				Type: jev.TypeNoul,
-				Instructions: "Does this page say the applicant has already applied to this job: an application to this role " +
-					"that was already submitted before, as opposed to one being filled in now or just completed? A candidate home or " +
-					"dashboard that lists this job as submitted or in progress, seen before the run sent anything, says so.",
-				Criteria: map[string]string{
-					"true":  "The site says an application to this job was already submitted earlier.",
-					"false": "Nothing on the page says this job was applied to before.",
-				},
-			},
-			verifyQuestion: {
-				Type:         jev.TypeChoice,
-				Instructions: "Does this page ask the applicant to verify something before it can go on, and how?",
-				Criteria:     verifications,
-			},
-			accountQuestion: {
-				Type:         jev.TypeChoice,
-				Instructions: "When this page is an account step, what does it ask for?",
-				Criteria:     accountModes,
-			},
-			offersQuestionPrefix + AccountSignIn: offersQuestion(AccountSignIn),
-			offersQuestionPrefix + AccountCreate: offersQuestion(AccountCreate),
-			offersQuestionPrefix + AccountReset:  offersQuestion(AccountReset),
+	questions := map[string]jev.Question{
+		pageKindQuestion: {
+			Type:         jev.TypeChoice,
+			Instructions: "What kind of page is this in a job application?",
+			Criteria:     pageKindCriteria(),
 		},
+		controlQuestion: {
+			Type:         jev.TypeChoice,
+			Instructions: controlInstructions(q.Intent),
+			Criteria:     controlCriteria,
+		},
+		finalQuestion: {
+			Type: jev.TypeNoul,
+			Instructions: "Is this the last step of the application, so that the control which moves forward sends the " +
+				"application rather than opening another page or step?",
+			Criteria: map[string]string{
+				"true":  "The last step: the forward control submits the application.",
+				"false": "Not the last step: the forward control opens another page or step.",
+			},
+		},
+		guestQuestion: {
+			Type:         jev.TypeNoul,
+			Instructions: "Does this page offer a way to go on with the application without signing in or creating an account?",
+			Criteria: map[string]string{
+				"true":  "A control continues the application itself without any account (apply as a guest). " + guestOnly,
+				"false": "Going on requires signing in or creating an account, or the page asks neither.",
+			},
+		},
+		guestControlQuestion: {
+			Type: jev.TypeChoice,
+			Instructions: "Which control goes on with the application for this role without signing in or creating an " +
+				"account (applying as a guest)? Judge by what the control does, whatever its wording. " + guestOnly +
+				dialogSteps + "Choose none when no control does.",
+			Criteria: guestCriteria,
+		},
+		appliedQuestion: {
+			Type: jev.TypeNoul,
+			Instructions: "Does this page say the applicant has already applied to this job: an application to this role " +
+				"that was already submitted before, as opposed to one being filled in now or just completed? A candidate home or " +
+				"dashboard that lists this job as submitted or in progress, seen before the run sent anything, says so.",
+			Criteria: map[string]string{
+				"true":  "The site says an application to this job was already submitted earlier.",
+				"false": "Nothing on the page says this job was applied to before.",
+			},
+		},
+		verifyQuestion: {
+			Type:         jev.TypeChoice,
+			Instructions: "Does this page ask the applicant to verify something before it can go on, and how?",
+			Criteria:     verifications,
+		},
+		accountQuestion: {
+			Type:         jev.TypeChoice,
+			Instructions: "When this page is an account step, what does it ask for?",
+			Criteria:     accountModes,
+		},
+		offersQuestionPrefix + AccountSignIn: offersQuestion(AccountSignIn),
+		offersQuestionPrefix + AccountCreate: offersQuestion(AccountCreate),
+		offersQuestionPrefix + AccountReset:  offersQuestion(AccountReset),
+	}
+	if q.Intent == IntentAdvance {
+		requirementCriteria := map[string]string{noControlKey: noRequirement}
+		for key, description := range guestCriteria {
+			if key != noControlKey {
+				requirementCriteria[key] = description
+			}
+		}
+		questions[requirementQuestion] = jev.Question{
+			Type:         jev.TypeChoice,
+			Instructions: requirementInstructions,
+			Criteria:     requirementCriteria,
+		}
+	}
+	res, err := g.decider.Decide(openai.WithCall(ctx, "read-page"), jev.Request{
+		State:     pageState(q, controls),
+		Questions: questions,
 	})
 	if err != nil {
 		return PageRead{}, err
@@ -418,6 +440,12 @@ func (g *Gateway) ReadPage(ctx context.Context, q PageQuery) (PageRead, error) {
 		read.Offers = offeredGoals(read.AccountMode, res.Answers)
 	}
 	answer, ok := res.Answers[controlQuestion]
+	if requirement, asked := res.Answers[requirementQuestion]; asked && requirement.Confidence >= minRequirementConfidence {
+		// The same control as the forward pick is no separate step.
+		if id, listed := keys[requirement.Choice]; listed && (!ok || requirement.Choice != answer.Choice) {
+			read.Requirement = &ControlPick{ID: id, Role: RoleResolve, Confidence: requirement.Confidence}
+		}
+	}
 	if !ok {
 		return read, nil
 	}
@@ -561,6 +589,29 @@ const thisRoleOnly = "Never pick a control that joins a talent community or leav
 	"to this application. A control on this role's own posting that answers this role is the way to apply, whatever its " +
 	"wording: some sites word their apply control as interest in the role, and it opens the application for it. "
 
+// minRequirementConfidence is the least confidence Jev must have in an outstanding
+// requirement before the run clicks it ahead of the forward control: an unsure
+// pick on a page that reports nothing outstanding would only undo work.
+const minRequirementConfidence = 0.5
+
+// requirementInstructions ask for the best next step when the page is not yet
+// complete: what it still reports as required may be done through a control
+// rather than a field, and doing it comes before sending or moving on.
+const requirementInstructions = "Before this step can be sent or moved on, does the page report something still required " +
+	"that is done through one of the listed controls rather than by typing into or choosing in a field: an assessment or " +
+	"questionnaire to take (on this site or a partner's), a document or section to complete, a statement to open and " +
+	"acknowledge, or a required item the page names as an issue still to fix? Judge from the page messages and the text " +
+	"around each control, whatever its wording. When it does, pick the control that starts or completes that requirement: " +
+	"doing it is the next step, ahead of the control that sends or moves the application on. Never pick a control that " +
+	"only scrolls to, jumps to, or lists the issues, the control that sends or moves the application on, or one that goes " +
+	"back, cancels, saves a draft, signs out, or leaves the application. Never pick a control that imports or uploads a " +
+	"profile or résumé to fill the form in, starts the form over, or otherwise replaces answers already given: that undoes " +
+	"the work instead of completing it. When the page reports nothing outstanding, choose none. " + dialogSteps
+
+// noRequirement is the "nothing outstanding through a control" answer.
+const noRequirement = "Nothing the page reports as still required is done through a listed control: every requirement is " +
+	"met, or what remains is a field to fill or fix."
+
 // controlInstructions describe controls only by what they do: sites word them
 // any way they like, so no wording is quoted here.
 func controlInstructions(intent string) string {
@@ -629,6 +680,8 @@ func lastClickRole(role string) string {
 		return "the control that sends the application"
 	case RoleApply:
 		return "the control that opens the application"
+	case RoleResolve:
+		return "a control for something the page seemed to still require; it does not move the application on"
 	default:
 		return "the control that moves the application to its next step"
 	}

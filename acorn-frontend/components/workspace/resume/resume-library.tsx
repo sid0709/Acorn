@@ -50,6 +50,7 @@ import {
   resumesFromFolder,
   runPool,
   stackCounts,
+  storedPdfText,
   type FolderResume,
 } from "./library-batch";
 
@@ -222,7 +223,8 @@ export function ResumeLibrary({ initial }: { initial: LibraryStart }) {
         targets,
         RESUME_ANALYZE_CONCURRENCY,
         async (row) => {
-          const result = await analyzeLibraryFile(row.id, force);
+          const text = await storedPdfText(row);
+          const result = await analyzeLibraryFile(row.id, force, text || undefined);
           if (!result.ok) return { fileName: row.fileName, error: result.message };
           finished += 1;
           setRows((current) =>

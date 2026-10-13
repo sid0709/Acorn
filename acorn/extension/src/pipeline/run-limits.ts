@@ -18,6 +18,11 @@ export const RUN_MAX_FILLS_PER_PAGE = 5;
 export const RUN_MAX_AI_CALLS = 200;
 /** Clicks on a page that change nothing and flag nothing before the run stops. */
 export const RUN_MAX_NO_EFFECT = 2;
+/**
+ * Clicks per page on a control that does what the page still requires (an
+ * assessment, a document). Past it the forward pick and its checks decide.
+ */
+export const RUN_MAX_RESOLVES_PER_PAGE = 2;
 /** Orchestrator iterations in one run; a page takes a few. */
 export const RUN_MAX_STEPS = 60;
 /** Pages one run moves through. */

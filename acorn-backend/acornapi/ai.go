@@ -130,6 +130,8 @@ func (s *Server) matchOption(w http.ResponseWriter, r *http.Request) {
 		FieldLabel     string   `json:"fieldLabel"`
 		TypedQuery     string   `json:"typedQuery"`
 		AllowNotListed bool     `json:"allowNotListed"`
+		// ListComplete says the options are the field's whole list, not a search window.
+		ListComplete bool `json:"listComplete"`
 		// Multiple is a checkbox group: the answer is the set of options to check.
 		Multiple bool `json:"multiple"`
 	}
@@ -151,7 +153,7 @@ func (s *Server) matchOption(w http.ResponseWriter, r *http.Request) {
 	ctx := s.withUsage(r, session.User.ID)
 	query := selector.OptionQuery{
 		Field: body.FieldLabel, Intended: body.IntendedValue, Typed: body.TypedQuery,
-		Options: body.Options, AllowNotListed: body.AllowNotListed, Applicant: applicant,
+		Options: body.Options, AllowNotListed: body.AllowNotListed, ListComplete: body.ListComplete, Applicant: applicant,
 	}
 	if body.Multiple {
 		many, err := gateway.PickMany(ctx, query)

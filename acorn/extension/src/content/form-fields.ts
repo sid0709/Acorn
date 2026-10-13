@@ -65,6 +65,10 @@ const ARIA_CHOICE_SELECTOR = '[role="radio"], [aria-pressed]';
 /** A single on/off control built without a native checkbox (ARIA). */
 const ARIA_TOGGLE_SELECTOR = '[role="checkbox"], [role="switch"]';
 export const BUTTON_SELECTOR = 'button, [role="button"], [role="radio"], [aria-pressed]';
+/** Plain buttons that may be one question's answers: no native input or ARIA state behind them. */
+const PLAIN_BUTTON_SELECTOR = 'button, [role="button"]';
+/** How far above a set of option buttons its question text is looked for. */
+const QUESTION_SCOPE_DEPTH = 3;
 
 function nodeId(el: Element): number {
   return Number(el.getAttribute(ACORN_ID_ATTR)) || 0;
@@ -299,6 +303,59 @@ function ariaButtonFields(claimed: Set<number>): FormField[] {
 }
 
 /**
+ * The text a person reads as the question right before a set of option buttons:
+ * the nearest title, else the nearest text before the first button, looked for
+ * from the buttons' own container outward. Empty when nothing precedes them.
+ */
+function questionBefore(root: Element, first: HTMLElement, buttons: HTMLElement[]): string {
+  const titled = groupQuestion(fieldWrapper(first), first, buttons);
+  if (titled) return titled;
+  let scope: Element | null = root;
+  for (let depth = 0; scope && depth < QUESTION_SCOPE_DEPTH; depth += 1) {
+    const before = Array.from(scope.querySelectorAll("*")).filter(
+      (el) =>
+        Boolean(first.compareDocumentPosition(el) & Node.DOCUMENT_POSITION_PRECEDING) &&
+        !el.contains(first) &&
+        !buttons.some((button) => button.contains(el)) &&
+        isPersonFacing(el),
+    );
+    for (const el of before.reverse()) {
+      const text = getDirectText(el);
+      if (text) return clip(text, MAX_TEXT_CHARS);
+    }
+    scope = scope.parentElement;
+  }
+  return "";
+}
+
+/**
+ * Option buttons with no native input and no ARIA state behind them (Yes / No
+ * pills whose choice shows only in their styling): one question's answers when a
+ * few short buttons share a container and a question precedes them.
+ */
+function plainButtonFields(claimed: Set<number>): FormField[] {
+  const fields: FormField[] = [];
+  const seenRoots = new Set<ParentNode>();
+  for (const el of queryDeep(document, PLAIN_BUTTON_SELECTOR)) {
+    if (!(el instanceof HTMLElement) || nodeId(el) <= 0 || claimed.has(nodeId(el))) continue;
+    if (el.matches(ARIA_CHOICE_SELECTOR) || !hasClickableBox(el)) continue;
+    const root = groupRoot(el);
+    if (seenRoots.has(root) || !(root instanceof Element)) continue;
+    seenRoots.add(root);
+    const buttons = optionButtons(root);
+    if (
+      buttons.some((button) => claimed.has(nodeId(button)) || button.matches(ARIA_CHOICE_SELECTOR))
+    ) {
+      continue;
+    }
+    const label = questionBefore(root, buttons[0] ?? el, buttons);
+    const field = buttonsField(buttons, label, isRequired(buttons));
+    if (field) fields.push(withSection(field, el));
+  }
+  return fields;
+}
+
+/**
  * Checkboxes and switches built from ARIA roles rather than a native box (an
  * agreement, an opt-in). Skipped when a native checkbox stands behind them: that
  * box is already a field, and answering both would toggle it twice.
@@ -321,6 +378,11 @@ function ariaToggleFields(claimed: Set<number>): FormField[] {
     );
   }
   return fields;
+}
+
+/** Every control a listed field already answers through: its own and its options'. */
+function claimedBy(fields: FormField[]): Set<number> {
+  return new Set(fields.map((field) => field.elementIndex));
 }
 
 /** The field plus its section heading, when that adds anything beyond the label. */
@@ -378,5 +440,6 @@ export function scanFormFields(): FormField[] {
   const claimed = new Set(fields.map((field) => field.elementIndex));
   fields.push(...ariaButtonFields(claimed));
   fields.push(...ariaToggleFields(new Set(fields.map((field) => field.elementIndex))));
+  fields.push(...plainButtonFields(claimedBy(fields)));
   return fields.slice(0, MAX_FORM_FIELDS);
 }

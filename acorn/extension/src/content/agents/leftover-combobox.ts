@@ -95,10 +95,14 @@ export async function fillLeftoverComboboxes(deadline = Number.POSITIVE_INFINITY
   const tried = new Set<HTMLElement>();
   let found = 0;
   let filled = 0;
+  // A value the site put in itself (a country taken from the job's location) is
+  // the applicant's only when the profile agrees: one that contradicts it is answered again.
+  const contradicted = await prefilledAgainstProfile();
   for (let round = 0; round < MAX_LEFTOVER_ROUNDS && found < MAX_LEFTOVER; round += 1) {
     if (late()) return stopAtDeadline(found, filled);
     const { all, leftovers } = leftoverCandidates(tried);
-    const batch = leftovers.slice(0, MAX_LEFTOVER - found);
+    const fresh = round === 0 ? contradicted.filter((el) => !leftovers.includes(el)) : [];
+    const batch = [...fresh, ...leftovers].slice(0, MAX_LEFTOVER - found);
     if (!batch.length) break;
     traceFromPage("leftover:candidates", () => ({
       round,
@@ -117,11 +121,19 @@ export async function fillLeftoverComboboxes(deadline = Number.POSITIVE_INFINITY
       planned.push({ el, label, answer: decideLeftover(label, listed) });
     }
     const answers = await Promise.all(planned.map((row) => row.answer));
+    const unanswered: HTMLElement[] = [];
+    let answeredNow = 0;
     for (const [i, { el, label }] of planned.entries()) {
       if (late()) return stopAtDeadline(found, filled);
-      if (await fillLeftover(el, label, answers[i])) filled += 1;
+      if (await fillLeftover(el, label, answers[i])) {
+        filled += 1;
+        answeredNow += 1;
+      } else unanswered.push(el);
     }
     found += batch.length;
+    // An answer changes what the lists after it hold (a state narrows the cities):
+    // a list left unanswered is looked at again once another one was answered.
+    if (answeredNow > 0) for (const el of unanswered) tried.delete(el);
   }
   return { found, filled };
 }
@@ -141,6 +153,8 @@ type LeftoverAnswer =
   | { kind: "option"; label: string }
   /** A long or remote list: the writer's estimate, typed as a search. */
   | { kind: "search"; estimate: Promise<string | null> }
+  /** The whole list holds no option that is the applicant's answer: left as it is. */
+  | { kind: "none" }
   /** Nothing decided ahead: the one-by-one path. */
   | { kind: "live" };
 
@@ -169,15 +183,19 @@ async function decideLeftover(label: string, listed: ListedOptions): Promise<Lef
   const whole =
     listed.labels.length > 0 && (listed.labels.length <= JEV_LIST_MAX || !listed.searchable);
   if (whole) {
+    // The whole list: a specific fact the profile holds (a city) that no option is
+    // stays unanswered, never a different one; a category question still gets the
+    // closest option.
     const ai = await askAiMatchOption({
       intendedValue: PROFILE_ANSWER,
       options: listed.labels,
       fieldLabel: label || null,
       typedQuery: null,
-      allowNotListed: false,
+      allowNotListed: true,
+      listComplete: true,
     });
-    const picked = ai.matched_option || ai.fallback_option;
-    return picked ? { kind: "option", label: picked } : { kind: "live" };
+    if (ai.matched_option) return { kind: "option", label: ai.matched_option };
+    return ai.ok ? { kind: "none" } : { kind: "live" };
   }
   if (listed.searchable && label) {
     return { kind: "search", estimate: estimateOptionAnswer(label) };
@@ -190,6 +208,12 @@ async function fillLeftover(
   label: string,
   answer: LeftoverAnswer,
 ): Promise<boolean> {
+  if (answer.kind === "none") {
+    traceFromPage("leftover:no-answer", () => ({ id: el.id, label }));
+    return false;
+  }
+  // A value the site put in itself counts as answered only once it changed.
+  const before = readControlValue(el);
   for (let attempt = 1; attempt <= LEFTOVER_FILL_ATTEMPTS; attempt += 1) {
     try {
       await applyLeftoverAnswer(el, label, answer);
@@ -204,7 +228,7 @@ async function fillLeftover(
       continue;
     }
     const read = readControlValue(el);
-    if (read) {
+    if (read && read !== before) {
       traceFromPage("leftover:filled", () => ({
         id: el.id,
         label,
@@ -239,6 +263,55 @@ async function applyLeftoverAnswer(
   });
 }
 
+/** Shown, enabled dropdowns the applicant can still change. */
+function isOpenToAnswer(el: HTMLElement): boolean {
+  if (!isCombobox(el) || !isDisplayed(el)) return false;
+  if (el instanceof HTMLInputElement && (el.disabled || el.readOnly)) return false;
+  if (el instanceof HTMLSelectElement && el.disabled) return false;
+  return el.getAttribute("aria-disabled") !== "true";
+}
+
+/**
+ * Dropdowns the site filled in itself whose value the applicant's profile
+ * contradicts (a country or phone code taken from the job's location). The
+ * profile's own answer for each field is written out, then compared with what the
+ * field shows as the same fact or not, all at once. No answer, or an unanswered
+ * comparison, keeps the value.
+ */
+async function prefilledAgainstProfile(): Promise<HTMLElement[]> {
+  const prefilled = deepQueryAll(document, '[role="combobox"], select, [aria-haspopup="listbox"]')
+    .filter((node): node is HTMLElement => node instanceof HTMLElement)
+    .filter((el) => isOpenToAnswer(el) && !wasPlanFilled(el) && readControlValue(el) !== "")
+    .slice(0, MAX_LEFTOVER);
+  const judged = await Promise.all(
+    prefilled.map(async (el) => {
+      const label = fieldLabel(el);
+      const current = readControlValue(el);
+      if (!label) return null;
+      const answer = await estimateOptionAnswer(label);
+      if (!answer) return null;
+      // One option, the field's own value: "not listed" means it is not the profile's answer.
+      const ai = await askAiMatchOption({
+        intendedValue: answer,
+        options: [current],
+        fieldLabel: label,
+        typedQuery: null,
+        allowNotListed: true,
+      });
+      const contradicts = ai.ok && !ai.matched_option;
+      traceFromPage("leftover:prefilled", () => ({
+        id: el.id,
+        label,
+        current,
+        answer,
+        contradicts,
+      }));
+      return contradicts ? el : null;
+    }),
+  );
+  return judged.filter((el): el is HTMLElement => el != null);
+}
+
 /** Empty, enabled dropdowns no plan step answered and this pass has not tried. */
 function leftoverCandidates(tried: Set<HTMLElement>): { all: number; leftovers: HTMLElement[] } {
   // Custom elements keep their dropdown inputs in shadow roots: search those too.
@@ -247,10 +320,7 @@ function leftoverCandidates(tried: Set<HTMLElement>): { all: number; leftovers: 
     '[role="combobox"], select, [aria-haspopup="listbox"]',
   ).filter((node): node is HTMLElement => node instanceof HTMLElement);
   const leftovers = nodes.filter((el) => {
-    if (tried.has(el) || !isCombobox(el) || !isDisplayed(el)) return false;
-    if (el instanceof HTMLInputElement && (el.disabled || el.readOnly)) return false;
-    if (el instanceof HTMLSelectElement && el.disabled) return false;
-    if (el.getAttribute("aria-disabled") === "true") return false;
+    if (tried.has(el) || !isOpenToAnswer(el)) return false;
     // The plan already answered this widget; a generic profile answer would overwrite it.
     if (wasPlanFilled(el)) return false;
     return !readControlValue(el);

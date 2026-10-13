@@ -27,6 +27,7 @@ export function handleMatchOption(
       }
       if (incoming.allowNotListed) {
         payload.allowNotListed = true;
+        if (incoming.listComplete) payload.listComplete = true;
       }
       if (incoming.multiple) {
         payload.multiple = true;

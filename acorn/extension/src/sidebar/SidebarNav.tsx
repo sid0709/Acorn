@@ -1,9 +1,9 @@
 import { useEffect } from "react";
 import { PillNav } from "sid-ui";
 
-export type AcornMainTab = "fill" | "qa" | "custom" | "support";
+export type AcornMainTab = "fill" | "qa" | "custom" | "support" | "logs";
 
-const NAV_TABS: AcornMainTab[] = ["fill", "qa", "support"];
+const NAV_TABS: AcornMainTab[] = ["fill", "qa", "support", "logs"];
 
 function tabFromHash(): AcornMainTab | null {
   const hash = window.location.hash.slice(1);
@@ -21,7 +21,7 @@ type SidebarNavProps = {
 };
 
 /**
- * Jobs / Ask / Support as a PillNav. The pills are hash links, so the side panel needs no
+ * Jobs / Ask / Support / Logs as a PillNav. The pills are hash links, so the side panel needs no
  * router: the hash is the selected tab.
  */
 export function SidebarNav({ value, onChange, busyJobs, unreadSupport }: SidebarNavProps) {
@@ -44,6 +44,7 @@ export function SidebarNav({ value, onChange, busyJobs, unreadSupport }: Sidebar
           { href: "#fill", label: "Jobs", icon: "list", count: busyJobs },
           { href: "#qa", label: "Ask", icon: "sparkle" },
           { href: "#support", label: "Support", icon: "chat", count: unreadSupport },
+          { href: "#logs", label: "Logs", icon: "list" },
         ]}
       />
     </div>

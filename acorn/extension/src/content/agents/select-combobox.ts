@@ -117,12 +117,14 @@ export async function selectComboboxOption(
       )
       .join(" ") || null;
 
-  const { match, options } = await chooseOption(html, doc, value, fieldLabel, {
+  const { match, options, kept } = await chooseOption(html, doc, value, fieldLabel, {
     allowTypeahead,
     estimateQuery,
     estimate,
     searchFirst,
   });
+  // No suggestion is the answer, and the field holds it as typed.
+  if (!match && kept) return kept;
   if (!match) {
     dismissOpenOverlays(doc, html);
     throw new Error(

@@ -59,6 +59,10 @@ type OptionQuery struct {
 	// AllowNotListed is true when the list may be partial (a search box can reveal
 	// more), so "not here" is a valid answer and the caller keeps searching.
 	AllowNotListed bool
+	// ListComplete is true when the options are the field's whole list: "none" then
+	// means no option is the answer, and the caller leaves the field rather than
+	// select a different fact (another city for the applicant's city).
+	ListComplete bool
 	// Applicant is the signed-in applicant's profile: the facts behind the answer.
 	Applicant string
 }
@@ -91,13 +95,13 @@ func (g *Gateway) PickOption(ctx context.Context, q OptionQuery) (OptionPick, er
 
 	keys, criteria := keyed(options, "option")
 	if q.AllowNotListed {
-		criteria[notListedKey] = "None of the listed options means the intended answer, and this list may be only part of the options (a search can show more)."
+		criteria[notListedKey] = notListedCriterion(q.ListComplete)
 	}
 	res, err := g.decider.Decide(openai.WithCall(ctx, "match-option"), jev.Request{
 		State: optionState(q),
 		Questions: map[string]jev.Question{optionQuestion: {
 			Type:         jev.TypeChoice,
-			Instructions: optionInstructions(q.AllowNotListed),
+			Instructions: optionInstructions(q.AllowNotListed, q.ListComplete),
 			Criteria:     criteria,
 		}},
 	})
@@ -198,18 +202,48 @@ func optionState(q OptionQuery) string {
 	return strings.Join(lines, "\n")
 }
 
-func optionInstructions(allowNotListed bool) string {
-	base := "Pick the option the applicant should select in this form field. " +
-		"Prefer the option that means the same as the intended answer (same fact, wording may differ). " +
-		"When the intended answer points at the profile, answer from the applicant profile. " +
-		"If no option means it, pick the option a careful applicant would choose instead: " +
-		"the closest broader category, or Other when that exists. " +
+// sameEntity says what "means the same" is: one fact, however a site writes it.
+const sameEntity = "An option means the intended answer when it names the same fact or entity, however it is written: " +
+	"abbreviations, punctuation, word order, a leading article, letter case, or a place or campus written another way " +
+	"(\"The X at Y\", \"X, Y\", and \"X - Y\" are one entity). Two different entities that only share words are not the same. "
+
+// profileSilence says what a profile that never mentions something means for a
+// question about the applicant's own history or circumstances.
+const profileSilence = "The profile is the applicant's own record of their history: when a question asks whether something " +
+	"happened to or applies to the applicant (service, a benefit or program, an employer, a relationship, a condition, an " +
+	"event) and the profile never mentions it, the answer is that it did not: pick the option that says no or none, not an " +
+	"unsure or skip option. When the profile does mention it, or the question asks about something every adult applicant " +
+	"has (being of working age, being able to work where they live), answer from what the profile shows. "
+
+func optionInstructions(allowNotListed, listComplete bool) string {
+	base := "Pick the option the applicant should select in this form field. " + sameEntity +
+		"Prefer the option that means the same as the intended answer. " +
+		"When the intended answer points at the profile, answer from the applicant profile. " + profileSilence +
 		"When the field asks where or how to send a verification code, always pick the applicant's email, whatever the " +
 		"intended answer says. " + emailOnly
-	if allowNotListed {
-		return base + " Choose not_listed only when the intended answer is a specific value that should be in a complete list (a country, school, or company name) and it is missing here."
+	switch {
+	case allowNotListed && listComplete:
+		return base + " When no option means it, pick the option a careful applicant would choose instead only when the " +
+			"question asks for a category (the closest broader category, or Other when that exists). When the intended answer " +
+			"is a specific fact (a place, school, company, address, or code) and no option is that fact, choose not_listed: " +
+			"selecting a different place or name would state something false about the applicant."
+	case allowNotListed:
+		return base + " If no option means it, pick the option a careful applicant would choose instead: the closest " +
+			"broader category, or Other when that exists. Choose not_listed only when the intended answer is a specific " +
+			"value that should be in a complete list (a country, school, or company name) and it is missing here."
+	default:
+		return base + " If no option means it, pick the option a careful applicant would choose instead: " +
+			"the closest broader category, or Other when that exists."
 	}
-	return base
+}
+
+// notListedCriterion is what "none" means: missing from a partial window of a
+// searchable list, or not among the whole list's options at all.
+func notListedCriterion(listComplete bool) string {
+	if listComplete {
+		return "No listed option is the intended answer, and the answer is a specific fact that no category or Other option stands for."
+	}
+	return "None of the listed options means the intended answer, and this list may be only part of the options (a search can show more)."
 }
 
 // Candidate is one thing a posting can match, such as a Library résumé.

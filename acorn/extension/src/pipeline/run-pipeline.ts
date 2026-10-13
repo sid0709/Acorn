@@ -3,6 +3,7 @@ import { FILL_MODE, type FillMode } from "@acorn/shared/field-issues";
 import { FAST_PLAN_MODE } from "@acorn/shared/form-fields";
 import { PhaseClock } from "@acorn/shared/phase-clock";
 import { applyApplicantIdentityToActions } from "@acorn/shared/plan-runner/applicant-identity";
+import { planCodeFill, spreadCodeAcrossBoxes } from "@acorn/shared/plan-runner/code-fill";
 import { runActionPlan } from "@acorn/shared/plan-runner/orchestrator";
 import { planWantsCoverLetter } from "@acorn/shared/plan-runner/step-file";
 import { formatPlannerTree } from "@acorn/shared/planner-tree";
@@ -10,11 +11,11 @@ import { redactPlan } from "@acorn/shared/secret-value";
 import { formatAnalyzeTrees } from "@acorn/shared/tree-export";
 
 import { DEFAULT_ACORN_API_URL } from "../auth/acorn-auth";
-import { queueDebugShot } from "../background/debug-shot";
 import { traceFromBackground } from "../background/debug-trace-sink";
 import { ACORN_CAPTURE } from "../debug-trace";
 import { customTabHasResume, getCustomTab } from "../tab-custom-session";
 import { getTabJob } from "../tab-job-session";
+import { LOG_KIND, logTab } from "../tab-log-session";
 import { sendPlanStepToTab, sendTabMessage } from "../tab-messaging";
 import { MSG, type DomTreePayload, type PipelineSource } from "../types";
 
@@ -65,6 +66,11 @@ const LEFTOVER_STOP_MARGIN_MS = 15_000;
  * sends the form and draws the page again); past it the fill fails.
  */
 const FILL_MAX_PAGE_RELOADS = 3;
+/**
+ * Looks for fields drawn after the plan ran, each planning only new ones. The
+ * page settles within a few: the bound only stops a page that keeps adding fields.
+ */
+const LATE_PASSES_MAX = 3;
 /** What the fill says while the site loads the page it sent away. */
 const PAGE_RELOADING = "The page reloaded while Acorn filled it; filling it again once it loads…";
 
@@ -203,6 +209,15 @@ export async function runFabPipeline(args: RunPipelineArgs): Promise<void> {
               : null)
         : (tabJob?.resumeStack ?? null);
     emitDomTree?.(treePayload);
+    logTab(tabId, LOG_KIND.dom, `DOM tree · ${treePayload.title || "Untitled"}`, () => ({
+      url: treePayload.url,
+      title: treePayload.title,
+      fetchedAt: treePayload.fetchedAt,
+      frameId: treePayload.frameId ?? null,
+      nodes: countDomNodes(treePayload.tree),
+      treeJsonChars: JSON.stringify(treePayload.tree).length,
+      pageHtmlChars: pageHtml?.length ?? null,
+    }));
     treeSnapshot = {
       url: treePayload.url,
       title: treePayload.title,
@@ -279,7 +294,20 @@ export async function runFabPipeline(args: RunPipelineArgs): Promise<void> {
 
       // The planner reads the compact tree; the full Meta Tree only rides to debug capture.
       const pureTree = formatPlannerTree(treePayload.tree);
-      const metaTree = ACORN_CAPTURE ? formatAnalyzeTrees(treePayload.tree).metaTree : undefined;
+      const metaTree = formatAnalyzeTrees(treePayload.tree).metaTree;
+      logTab(
+        tabId,
+        LOG_KIND.pureTree,
+        `Compressed tree · ${pureTree.length} characters`,
+        () => pureTree,
+      );
+      logTab(tabId, LOG_KIND.metaTree, `Meta tree · ${metaTree.length} characters`, () => metaTree);
+      logTab(tabId, LOG_KIND.analysis, `Analysis · ${formFields?.length ?? 0} fields`, () => ({
+        mode,
+        nodes: nodeCount,
+        formFields,
+        fieldIssues,
+      }));
 
       const page = {
         title: treePayload.title || "Untitled",
@@ -315,33 +343,40 @@ export async function runFabPipeline(args: RunPipelineArgs): Promise<void> {
           null,
       };
 
-      if (ACORN_CAPTURE && !pendingOnly) await queueDebugShot(tabId, "analyze", true);
+      // An emailed code is typed from the page's own boxes: no planner call.
+      const codeActions =
+        verificationCode && !refill && formFields
+          ? planCodeFill(formFields, verificationCode)
+          : null;
       const analyze = pendingOnly
         ? { mode: FAST_PLAN_MODE, plan: emptyPlan() }
-        : await clock.time("plan", () =>
-            requestPlan(
-              {
-                pureTree,
-                mode,
-                fieldIssues: refill ? fieldIssues : undefined,
-                history: refill && history?.length ? history : undefined,
-                page,
-                verificationCode,
-                debug: ACORN_CAPTURE
-                  ? { html: pageHtml, domTree: treePayload.tree, metaTree }
-                  : undefined,
-              },
-              formFields,
-              aiServerUrl,
-              tabId,
-            ),
-          );
+        : codeActions
+          ? { mode: FAST_PLAN_MODE, plan: { ...emptyPlan(), actions: codeActions } }
+          : await clock.time("plan", () =>
+              requestPlan(
+                {
+                  pureTree,
+                  mode,
+                  fieldIssues: refill ? fieldIssues : undefined,
+                  history: refill && history?.length ? history : undefined,
+                  page,
+                  verificationCode,
+                  debug: ACORN_CAPTURE
+                    ? { html: pageHtml, domTree: treePayload.tree, metaTree }
+                    : undefined,
+                },
+                formFields,
+                aiServerUrl,
+                tabId,
+              ),
+            );
       if (refill && analyze.mode !== FILL_MODE.refill) {
         throw new Error(REFILL_UNSUPPORTED);
       }
 
       const plan = analyze.plan as ActionPlan;
       applyApplicantIdentityToActions(plan.actions);
+      spreadCodeAcrossBoxes(plan.actions, verificationCode);
       planSnapshot = redactPlan(plan);
       stepTotal = plan.actions?.length ?? 0;
 
@@ -355,6 +390,7 @@ export async function runFabPipeline(args: RunPipelineArgs): Promise<void> {
       });
 
       frameId = treePayload.frameId ?? preferredFrameId ?? null;
+      logTab(tabId, LOG_KIND.plan, `Action plan · ${stepTotal} actions`, () => redactPlan(plan));
       traceFromBackground(
         "plan",
         () => ({
@@ -490,20 +526,36 @@ export async function runFabPipeline(args: RunPipelineArgs): Promise<void> {
         report = await runPlan(plan, stepTotal);
 
         // Fields the first scan could not see: a section that rendered late, fields an
-        // import re-rendered, follow-ups an answer revealed.
-        const late =
-          !report.aborted && (pendingOnly || wantsFastPlan(mode))
-            ? await clock.time("late", () =>
-                planLateFields({ tabId, frameId, page, apiUrl: aiServerUrl, blocked: pendingOnly }),
-              )
-            : null;
-        if (late) {
-          planSnapshot = redactPlan({
-            ...plan,
-            actions: [...(plan.actions ?? []), ...late.actions],
-          });
-          report = mergeReports(report, await runPlan(late, late.actions.length));
-        }
+        // import re-rendered, follow-ups an answer revealed. The page is looked at
+        // again until a look finds nothing new, however long it took to draw.
+        // Fields the plan answered are done; one it left is looked at once more.
+        const lateSeen = new Set<number>(
+          (plan.actions ?? [])
+            .map((action) => action.element_index)
+            .filter((index): index is number => index != null),
+        );
+        const settleLate = async () => {
+          for (let pass = 0; pass < LATE_PASSES_MAX && !report.aborted; pass += 1) {
+            const late = await clock.time("late", () =>
+              planLateFields({
+                tabId,
+                frameId,
+                page,
+                apiUrl: aiServerUrl,
+                blocked: pendingOnly,
+                seen: lateSeen,
+              }),
+            );
+            if (!late) return;
+            planSnapshot = redactPlan({
+              ...plan,
+              actions: [...(planSnapshot?.actions ?? plan.actions ?? []), ...late.actions],
+            });
+            report = mergeReports(report, await runPlan(late, late.actions.length));
+          }
+        };
+        const looksLate = pendingOnly || wantsFastPlan(mode);
+        if (looksLate) await settleLate();
 
         // A page that rewrote itself under the fill (a résumé import, a reset) gets its
         // answers back before the leftover pass reads what is still empty.
@@ -535,6 +587,8 @@ export async function runFabPipeline(args: RunPipelineArgs): Promise<void> {
               LEFTOVER_PASS_TIMEOUT_MS,
             ),
           );
+          // A dropdown answer can draw new fields (an address block after a country).
+          if (looksLate) await settleLate();
         }
 
         if (!watch.left() || signal?.aborted) break;

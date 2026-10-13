@@ -9,7 +9,8 @@
     "alarms",
     "webNavigation",
     "sidePanel",
-    "debugger"
+    "debugger",
+    "unlimitedStorage"
   ],
   "side_panel": {
     "default_path": "sidebar.html"

@@ -378,6 +378,8 @@ func (s *Server) analyzeLibrary(w http.ResponseWriter, r *http.Request) {
 	}
 	var body struct {
 		Force bool `json:"force"`
+		// ExtractedText is the file's text as the browser just read it (PDF.js).
+		ExtractedText string `json:"extractedText"`
 	}
 	if !decode(w, r, &body) {
 		return
@@ -386,7 +388,7 @@ func (s *Server) analyzeLibrary(w http.ResponseWriter, r *http.Request) {
 	if !ok {
 		return
 	}
-	row, err := s.resumes.AnalyzeLibrary(s.withUsage(r, session.User.ID), session.User.ID, r.PathValue("resumeId"), body.Force, model)
+	row, err := s.resumes.AnalyzeLibrary(s.withUsage(r, session.User.ID), session.User.ID, r.PathValue("resumeId"), body.Force, model, body.ExtractedText)
 	if err != nil {
 		s.writeResumeErr(w, err)
 		return

@@ -13,6 +13,7 @@ import { AskPanel } from "./AskPanel";
 import { hostOf } from "./custom-tab-resume";
 import { CustomPanel } from "./CustomPanel";
 import { JobsPanel } from "./JobsPanel";
+import { LogsPanel } from "./LogsPanel";
 import { NowCard } from "./NowCard";
 import { ReportDialog } from "./ReportDialog";
 import { sendMessage } from "./runtime";
@@ -351,6 +352,8 @@ export default function SidebarApp() {
               onReport={() => setReportOpen(true)}
               reportDisabled={reportDisabled}
             />
+
+            <LogsPanel mainTab={mainTab} tabId={activeTabId} />
           </main>
           <ReportDialog
             isOpen={reportOpen}

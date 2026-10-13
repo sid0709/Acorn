@@ -12,3 +12,6 @@ blob-report
 .claude/CLAUDE.md
 next-env.d.ts
 *.tsbuildinfo
+
+# Downloaded Acorn run logs: data, not code
+logs

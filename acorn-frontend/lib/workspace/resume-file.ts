@@ -12,9 +12,13 @@ export function bytesToBase64(bytes: Uint8Array) {
   return btoa(binary);
 }
 
+export function base64ToBytes(base64: string): Uint8Array<ArrayBuffer> {
+  return Uint8Array.from(atob(base64), (char) => char.charCodeAt(0));
+}
+
 /** Hands the browser a base64 file to save, e.g. an exported DOCX. */
 export function saveBase64File(name: string, base64: string) {
-  const bytes = Uint8Array.from(atob(base64), (char) => char.charCodeAt(0));
+  const bytes = base64ToBytes(base64);
   const url = URL.createObjectURL(new Blob([bytes]));
   const link = document.createElement("a");
   link.href = url;

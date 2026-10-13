@@ -100,6 +100,7 @@ import {
   RUN_MAX_NO_EFFECT,
   RUN_MAX_PAGES,
   RUN_MAX_REFILLS_PER_PAGE,
+  RUN_MAX_RESOLVES_PER_PAGE,
   RUN_MAX_RETURNS_TO_START,
   RUN_MAX_STEPS,
   RUN_NEW_TEXT_LINES_MAX,
@@ -198,6 +199,10 @@ interface PageState {
   busyWaits: number;
   /** Passes over what was still blank, made because the page answered a click with an alert. */
   alertPasses: number;
+  /** Clicks on a control that does what the page still requires (an assessment, a document). */
+  resolves: number;
+  /** Those controls, by their text: one that did not clear the requirement is not clicked again. */
+  resolved: Set<string>;
 }
 
 /** A click either landed and settled, or never reached its control. */
@@ -247,6 +252,18 @@ const BUDGET_SPENT = "The run reached its limit on AI work";
 
 /** The emailed code or link could not be found. */
 const VERIFICATION_NOT_FOUND = "The code or link the site emailed was not found in your Gmail";
+/** The site refused the code that was typed from the email. */
+const CODE_REJECTED = "The site rejected the code from the email";
+/** What the run says while it goes back from a requirement's own site to the application. */
+const RETURNING_TO_APPLICATION = "Going back to the application";
+/** Page kinds that end a detour: the requirement's site is done, or offers nothing to do. */
+const DETOUR_END_KINDS = new Set<string>([
+  PAGE_KIND.confirmation,
+  PAGE_KIND.other,
+  PAGE_KIND.blocked,
+]);
+/** What the run says while it does something the page still requires. */
+const COMPLETING_REQUIREMENT = "Completing what the page still needs";
 /** The connected Gmail could not be read, look after look. */
 const MAIL_UNREADABLE = "Acorn could not read your Gmail";
 /** The site kept refusing the account step. */
@@ -425,6 +442,12 @@ export async function runOrchestrator(args: RunOrchestratorArgs): Promise<RunRep
   let mailVerifications = restored.mailVerifications;
   /** Times this run went back to the posting it started from. */
   let returnsToStart = 0;
+  /**
+   * Where the application was when the run followed a requirement to another site
+   * or tab (an assessment on a partner's site). That site's own end is not the
+   * application's: the run goes back here instead of finishing or stopping.
+   */
+  let detour: { tabId: number; url: string } | null = null;
   /** The newest emails the current mail look hands to Jev, for the sidebar. */
   let mailRows: MailRow[] | undefined;
   const clock = new PhaseClock();
@@ -508,10 +531,12 @@ export async function runOrchestrator(args: RunOrchestratorArgs): Promise<RunRep
   const adoptTab = async (next: number) => {
     if (next === tabId) return;
     log.event("tab:adopted", { from: tabId, to: next });
-    await dialogs.add(next);
     await rekeyTabJob(tabId, next);
     await rekeyCustomTab(tabId, next);
     tabId = next;
+    // A tab the run worked in before (the application, back from a detour) is already watched.
+    if (tabs.includes(next)) return;
+    await dialogs.add(next);
     tabs.push(next);
     usageMarks.push(markTabUsage(next).catch(() => null));
     args.claimTab(next);
@@ -687,6 +712,7 @@ export async function runOrchestrator(args: RunOrchestratorArgs): Promise<RunRep
     const picked = find(res.control?.id);
     const fallbackPicked = find(res.fallback?.id);
     const guestPicked = find(res.guestControl?.id);
+    const requirementPicked = find(res.requirement?.id);
     log.event("read", {
       intent,
       kind: res.kind,
@@ -714,6 +740,12 @@ export async function runOrchestrator(args: RunOrchestratorArgs): Promise<RunRep
       guest: res.guestControl
         ? { confidence: res.guestControl.confidence, text: guestPicked?.text || guestPicked?.label }
         : null,
+      requirement: res.requirement
+        ? {
+            confidence: res.requirement.confidence,
+            text: requirementPicked?.text || requirementPicked?.label,
+          }
+        : null,
     });
     return {
       kind: res.kind,
@@ -724,6 +756,8 @@ export async function runOrchestrator(args: RunOrchestratorArgs): Promise<RunRep
       guest: res.guest === true,
       guestControl: res.guestControl ?? null,
       guestPicked,
+      requirement: res.requirement ?? null,
+      requirementPicked,
       needsPerson: res.needsPerson === true,
       verification: res.verification ?? VERIFICATION.none,
       /** The site says this applicant has already applied to this job. */
@@ -1178,6 +1212,27 @@ export async function runOrchestrator(args: RunOrchestratorArgs): Promise<RunRep
     returnsToStart < RUN_MAX_RETURNS_TO_START;
 
   /** Open the posting the run started on again, in this tab, and hand back what loads. */
+  /**
+   * Back from a detour to the application: its own tab when the requirement opened
+   * another, else its address. The page is read as it now stands.
+   */
+  const endDetour = async (page: PageSnapshot, why: string) => {
+    const back = detour as { tabId: number; url: string };
+    detour = null;
+    log.event("resolve:return", { why, from: logUrl(page.url), to: logUrl(back.url) });
+    enter(RUN_STAGE.advancing, RETURNING_TO_APPLICATION);
+    checkStop();
+    const open = back.tabId !== tabId && (await chrome.tabs.get(back.tabId).catch(() => null));
+    if (open) {
+      await chrome.tabs.update(back.tabId, { active: true }).catch(() => undefined);
+      await adoptTab(back.tabId);
+      await until(waitForPageSettled(tabId));
+      return { snapshot: await snap({ form: false }), how: "changed" as SettleHow };
+    }
+    const opened = await until(clock.time("click", () => openLinkInTab(tabId, back.url)));
+    return { snapshot: opened.snapshot, how: opened.how };
+  };
+
   const returnToStart = async (page: PageSnapshot, why: string) => {
     returnsToStart += 1;
     log.event("return:start", { count: returnsToStart, why, from: logUrl(page.url) });
@@ -1289,7 +1344,12 @@ export async function runOrchestrator(args: RunOrchestratorArgs): Promise<RunRep
     click: { goal: AccountMode | null; pageMode: AccountMode; role: string; label: string },
   ) => {
     if (!click.goal) {
-      const verb = click.role === CONTROL_ROLE.submit ? "Submitting" : "Next step";
+      const verb =
+        click.role === CONTROL_ROLE.submit
+          ? "Submitting"
+          : click.role === CONTROL_ROLE.resolve
+            ? COMPLETING_REQUIREMENT
+            : "Next step";
       enter(RUN_STAGE.advancing, `${verb} · ${click.label}`);
       return;
     }
@@ -1307,6 +1367,29 @@ export async function runOrchestrator(args: RunOrchestratorArgs): Promise<RunRep
       : r.fallback && r.fallbackPicked
         ? { control: r.fallback, picked: r.fallbackPicked, fallback: true }
         : null;
+
+  /**
+   * What the page still requires, done through a control (an assessment, a
+   * document, a section it names as an issue): the best next step, ahead of the
+   * forward control. Taken a bounded number of times per page, so a requirement
+   * the click does not clear hands back to the forward pick and its checks.
+   */
+  const requirementOf = (r: Awaited<ReturnType<typeof read>>, state: PageState) => {
+    if (!r.requirement || !r.requirementPicked || r.requirementPicked.disabled) return null;
+    const text = r.requirementPicked.text || r.requirementPicked.label;
+    if (state.resolves >= RUN_MAX_RESOLVES_PER_PAGE || state.resolved.has(text)) {
+      log.event("resolve:spent", { text, repeated: state.resolved.has(text) });
+      return null;
+    }
+    state.resolves += 1;
+    state.resolved.add(text);
+    log.event("resolve", {
+      text,
+      confidence: r.requirement.confidence,
+      pass: state.resolves,
+    });
+    return { control: r.requirement, picked: r.requirementPicked, fallback: false };
+  };
 
   /**
    * The control that goes on without an account, when the read names one on an
@@ -1506,6 +1589,8 @@ export async function runOrchestrator(args: RunOrchestratorArgs): Promise<RunRep
           landedAt: 0,
           busyWaits: 0,
           alertPasses: 0,
+          resolves: 0,
+          resolved: new Set(),
         };
         refillsOnPage = 0;
         log.event("page", { page: pageCount, url: logUrl(page.url), flagged: page.flagged });
@@ -1536,6 +1621,12 @@ export async function runOrchestrator(args: RunOrchestratorArgs): Promise<RunRep
         log.event("after-click", { flagged, missing, noted, shown: page.flagged });
         const onlyNoted = flagged === 0 && missing === 0;
         if (flagged > 0 || missing > 0 || noted > 0) {
+          // The emailed code was typed and the page refused it: a refill has no other
+          // code to give, so it would only spend the run's budget on empty passes.
+          if (state.verified && (flagged > 0 || missing > 0)) {
+            log.event("verify:code-rejected", { flagged, missing });
+            throw verificationNotFound(page, CODE_REJECTED);
+          }
           if (state.refills >= RUN_MAX_REFILLS_PER_PAGE) {
             throw new RunStop(RUN_STAGE.refilling, page, [
               `Still flagged after ${state.refills} refills (limit ${RUN_MAX_REFILLS_PER_PAGE})`,
@@ -1570,8 +1661,17 @@ export async function runOrchestrator(args: RunOrchestratorArgs): Promise<RunRep
           newAlerts(state.scanBeforeClick, page.scan) > 0 &&
           state.alertPasses < RUN_MAX_ALERT_PASSES
         ) {
-          // The page answered the click with an alert of its own ("the above information
-          // is required") but marked no field: answer whatever is still blank or unset.
+          // The page answered the click with an alert but marked no field. That alert
+          // may say the application went through (a single-page site shows it before
+          // its address changes): read the page first, a moment's decision, before any
+          // pass over the form.
+          const look = await read(READ_INTENT.advance, page);
+          if (look.kind === PAGE_KIND.confirmation || look.alreadyApplied) {
+            log.event("alert:sent", { kind: look.kind, applied: look.alreadyApplied });
+            return await finish(report(RUN_OUTCOME.completed));
+          }
+          // Otherwise it says something is still missing ("the above information is
+          // required"): answer whatever is still blank or unset.
           state.alertPasses += 1;
           log.event("alert:pass", { pass: state.alertPasses });
           enter(RUN_STAGE.filling, "Answering what the page says is still missing…");
@@ -1591,6 +1691,11 @@ export async function runOrchestrator(args: RunOrchestratorArgs): Promise<RunRep
         const looked = await readUntilClear(page, state);
         const first = looked.first;
         page = looked.page;
+        // A requirement's own site said it is done, or led nowhere the run can work.
+        if (detour && DETOUR_END_KINDS.has(first.kind)) {
+          pending = await endDetour(page, first.kind);
+          continue;
+        }
         if (first.kind === PAGE_KIND.confirmation) {
           return await finish(report(RUN_OUTCOME.completed));
         }
@@ -1708,6 +1813,10 @@ export async function runOrchestrator(args: RunOrchestratorArgs): Promise<RunRep
         }
       }
       const next = await read(READ_INTENT.advance, page);
+      if (detour && DETOUR_END_KINDS.has(next.kind)) {
+        pending = await endDetour(page, next.kind);
+        continue;
+      }
       if (next.kind === PAGE_KIND.confirmation) {
         return await finish(report(RUN_OUTCOME.completed));
       }
@@ -1721,7 +1830,9 @@ export async function runOrchestrator(args: RunOrchestratorArgs): Promise<RunRep
       const sendsAccount = next.kind === PAGE_KIND.accountStep && !guest;
       if (sendsAccount && !next.accountPassword) throw noAccountPassword(page);
       const goal = sendsAccount ? goalOrStop(page) : null;
-      const target = guest ?? pickOf(next);
+      // The best next step: what the page still requires comes before moving on.
+      const requirement = guest || sendsAccount ? null : requirementOf(next, state);
+      const target = guest ?? requirement ?? pickOf(next);
       if (guest) noteEvidence(page.url, { guestTaken: true });
       // An account step finished somewhere with nothing to go on with (a page that
       // says the account is unblocked or its password is set): the account is ready,
@@ -1758,7 +1869,18 @@ export async function runOrchestrator(args: RunOrchestratorArgs): Promise<RunRep
         return await finish(report(RUN_OUTCOME.readyToSubmit));
       }
       announceForward(page, { goal, pageMode: next.accountMode, role: target.control.role, label });
+      const from = { tabId, url: page.url };
       const clicked = await click(page, target.control, label);
+      // The requirement opened another tab or site: its end returns to this page.
+      if (
+        requirement &&
+        clicked.settled &&
+        !detour &&
+        (tabId !== from.tabId || siteOf(clicked.settled.snapshot.url) !== siteOf(from.url))
+      ) {
+        detour = from;
+        log.event("resolve:detour", { to: logUrl(clicked.settled.snapshot.url) });
+      }
       // A click that never landed sent no account step.
       if (!clicked.settled) accountSent = null;
       if (clicked.settled) {

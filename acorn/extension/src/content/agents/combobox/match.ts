@@ -52,6 +52,7 @@ export async function decideAmongOptions(
   fieldLabel: string | null,
   typedQuery: string | null,
   allowNotListed: boolean,
+  listComplete = false,
 ): Promise<OptionDecision> {
   if (!options.length || !value.trim()) return NO_DECISION;
   const ai = await askAiMatchOption({
@@ -60,6 +61,7 @@ export async function decideAmongOptions(
     fieldLabel,
     typedQuery,
     allowNotListed,
+    listComplete: allowNotListed && listComplete,
   });
   return {
     match: ai.matched_option ? resolveOptionElement(options, ai.matched_option) : null,

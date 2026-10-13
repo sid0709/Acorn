@@ -107,7 +107,7 @@ func batchQuestions(items []ChoiceItem) []batchQuestion {
 		keys, criteria := keyed(options[:min(len(options), jev.MaxChoiceOptions)], "option")
 		out = append(out, batchQuestion{
 			key: fmt.Sprintf("f%d", item.ID), item: item.ID, keys: keys,
-			question: jev.Question{Type: jev.TypeChoice, Instructions: field + "\n" + optionInstructions(false), Criteria: criteria},
+			question: jev.Question{Type: jev.TypeChoice, Instructions: field + "\n" + optionInstructions(false, false), Criteria: criteria},
 		})
 	}
 	return out

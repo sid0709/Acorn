@@ -19,15 +19,44 @@ func extractFileText(name string, data []byte) string {
 	}
 }
 
-// bestResumeText keeps the longer of text the browser already read and text
-// read from the file bytes. PDF.js text wins over a short or empty server extract.
-func bestResumeText(name, provided string, data []byte) string {
-	provided = strings.TrimSpace(provided)
-	fresh := strings.TrimSpace(extractFileText(name, data))
-	if utf8.RuneCountInString(fresh) > utf8.RuneCountInString(provided) {
+// minReadableRunes is the least text a résumé read can hold and still be one.
+const minReadableRunes = 40
+
+// minReadableShare is the least share of a text's characters that a person reads
+// (letters, digits, spacing, punctuation, symbols). A PDF whose fonts store glyph
+// numbers rather than characters reads as control codes and stray bytes instead.
+const minReadableShare = 0.9
+
+// readableText reports whether text reads as words a person wrote, whatever its
+// language, rather than raw glyph codes pulled out of a file.
+func readableText(text string) bool {
+	total, reading := 0, 0
+	for _, r := range text {
+		total++
+		switch {
+		case r == utf8.RuneError, unicode.Is(unicode.Co, r):
+		case unicode.IsControl(r) && !unicode.IsSpace(r):
+		case unicode.IsLetter(r), unicode.IsDigit(r), unicode.IsSpace(r), unicode.IsPunct(r), unicode.IsSymbol(r):
+			reading++
+		}
+	}
+	return total >= minReadableRunes && float64(reading) >= minReadableShare*float64(total)
+}
+
+// bestResumeText is the résumé's text as a person reads it, whatever the file's
+// format: the first readable of the texts already read (the browser's PDF.js text
+// first), else the server's own read of the file. Length decides nothing: a PDF
+// whose fonts keep glyph numbers reads as long junk. Empty when nothing is readable.
+func bestResumeText(name string, data []byte, read ...string) string {
+	for _, text := range read {
+		if text = strings.TrimSpace(text); readableText(text) {
+			return text
+		}
+	}
+	if fresh := strings.TrimSpace(extractFileText(name, data)); readableText(fresh) {
 		return fresh
 	}
-	return provided
+	return ""
 }
 
 func analyzeText(text string) []string {

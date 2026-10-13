@@ -218,6 +218,14 @@ func (s *Server) runReadPage(w http.ResponseWriter, r *http.Request) {
 		}
 		attrs = append(attrs, "fallbackId", read.Fallback.ID, "fallbackConfidence", read.Fallback.Confidence)
 	}
+	if read.Requirement != nil {
+		picked := byID[read.Requirement.ID]
+		out["requirement"] = map[string]any{
+			"id": read.Requirement.ID, "role": read.Requirement.Role, "confidence": read.Requirement.Confidence,
+		}
+		attrs = append(attrs, "requirementId", read.Requirement.ID, "requirementConfidence", read.Requirement.Confidence,
+			"requirementText", firstText(picked.Text, picked.Label))
+	}
 	if read.GuestControl != nil {
 		out["guestControl"] = map[string]any{
 			"id": read.GuestControl.ID, "role": read.GuestControl.Role, "confidence": read.GuestControl.Confidence,

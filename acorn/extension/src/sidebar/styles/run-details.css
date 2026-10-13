@@ -150,3 +150,40 @@
   border-radius: var(--radius-inner);
   background: var(--color-background-surface);
 }
+
+/* Logs tab: one collapsible row per pipeline event, its data as a code block. */
+.log-entry {
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+  background: var(--color-background-surface);
+  padding: var(--spacing-2) var(--spacing-3);
+}
+
+.log-entry-summary {
+  display: flex;
+  align-items: center;
+  gap: var(--spacing-2);
+  cursor: pointer;
+  min-width: 0;
+}
+
+.log-entry-title {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: var(--font-size-sm);
+}
+
+.log-code {
+  margin: var(--spacing-2) 0 0;
+  padding: var(--spacing-3);
+  max-height: 60vh;
+  overflow: auto;
+  border-radius: var(--radius-sm);
+  background: var(--color-background-body);
+  font-family: var(--font-family-code);
+  font-size: var(--font-size-sm);
+  white-space: pre;
+}
