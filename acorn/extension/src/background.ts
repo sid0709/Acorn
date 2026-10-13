@@ -18,6 +18,7 @@ import { bindContentScriptInjection, injectIntoOpenTabs } from "./inject-content
 import { rekeyPipelineUsage } from "./pipeline/usage-tracker";
 import { rekeyCustomTab, refreshCustomTabMeta, unbindCustomTab } from "./tab-custom-session";
 import { rekeyTabJob, unbindTabJob } from "./tab-job-session";
+import { clearTabLog } from "./tab-log-session";
 import { clearTabPipeline, rekeyTabPipeline } from "./tab-pipeline-session";
 import { rekeyUsageTab } from "./tab-usage-key";
 import { MSG, ACORN_SIDEBAR_PORT } from "./types";
@@ -70,6 +71,7 @@ chrome.tabs.onRemoved.addListener((tabId) => {
   void unbindTabJob(tabId);
   void unbindCustomTab(tabId);
   void clearTabPipeline(tabId);
+  void clearTabLog(tabId);
 });
 
 chrome.tabs.onReplaced.addListener((addedTabId, removedTabId) => {

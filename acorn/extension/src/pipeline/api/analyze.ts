@@ -1,4 +1,5 @@
 import { authHeaders, getAcornApiUrl } from "../../auth/acorn-auth";
+import { LOG_KIND, logTab } from "../../tab-log-session";
 
 import { extractError } from "./http";
 
@@ -57,6 +58,15 @@ export async function requestAiAnalyze(
   tabId?: number | null,
 ): Promise<AiAnalyzeResponse> {
   const base = (_apiUrl || (await getAcornApiUrl())).replace(/\/$/, "");
+  const startedAt = Date.now();
+  const tabKey = tabId ?? undefined;
+  // The trees ride in their own entries; the page's HTML and the one-time code stay out.
+  logTab(tabKey, LOG_KIND.aiRequest, `POST /acorn/ai-analyze · ${payload.mode ?? "fill"}`, () => ({
+    ...payload,
+    pureTree: `(${payload.pureTree.length} characters, see the Pure tree entry)`,
+    debug: payload.debug ? "(page capture, not sent to the model)" : undefined,
+    verificationCode: payload.verificationCode ? "(hidden)" : undefined,
+  }));
   const res = await fetch(`${base}/acorn/ai-analyze`, {
     method: "POST",
     headers: await authHeaders(tabId),
@@ -67,11 +77,15 @@ export async function requestAiAnalyze(
     message?: string;
     success?: boolean;
   };
-  if (!res.ok) {
-    throw new Error(extractError(data, `AI analyze failed: ${res.status}`));
-  }
-  if (!data.plan) {
+  const ms = Date.now() - startedAt;
+  if (!res.ok || !data.plan) {
+    logTab(tabKey, LOG_KIND.aiResponse, `ai-analyze failed · ${res.status} · ${ms} ms`, () => data);
+    if (!res.ok) throw new Error(extractError(data, `AI analyze failed: ${res.status}`));
     throw new Error(extractError(data, "AI backend returned no plan"));
   }
+  logTab(tabKey, LOG_KIND.aiResponse, `ai-analyze ${res.status} · ${ms} ms`, () => ({
+    ...data,
+    plan: `(${data.plan?.actions?.length ?? 0} actions, see the Action plan entry)`,
+  }));
   return data;
 }

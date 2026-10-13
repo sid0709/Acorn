@@ -15,6 +15,7 @@ import { traceFromBackground } from "../background/debug-trace-sink";
 import { ACORN_CAPTURE } from "../debug-trace";
 import { customTabHasResume, getCustomTab } from "../tab-custom-session";
 import { getTabJob } from "../tab-job-session";
+import { LOG_KIND, logTab } from "../tab-log-session";
 import { sendPlanStepToTab, sendTabMessage } from "../tab-messaging";
 import { MSG, type DomTreePayload, type PipelineSource } from "../types";
 
@@ -203,6 +204,15 @@ export async function runFabPipeline(args: RunPipelineArgs): Promise<void> {
               : null)
         : (tabJob?.resumeStack ?? null);
     emitDomTree?.(treePayload);
+    logTab(tabId, LOG_KIND.dom, `DOM tree · ${treePayload.title || "Untitled"}`, () => ({
+      url: treePayload.url,
+      title: treePayload.title,
+      fetchedAt: treePayload.fetchedAt,
+      frameId: treePayload.frameId ?? null,
+      nodes: countDomNodes(treePayload.tree),
+      treeJsonChars: JSON.stringify(treePayload.tree).length,
+      pageHtmlChars: pageHtml?.length ?? null,
+    }));
     treeSnapshot = {
       url: treePayload.url,
       title: treePayload.title,
@@ -279,7 +289,20 @@ export async function runFabPipeline(args: RunPipelineArgs): Promise<void> {
 
       // The planner reads the compact tree; the full Meta Tree only rides to debug capture.
       const pureTree = formatPlannerTree(treePayload.tree);
-      const metaTree = ACORN_CAPTURE ? formatAnalyzeTrees(treePayload.tree).metaTree : undefined;
+      const metaTree = formatAnalyzeTrees(treePayload.tree).metaTree;
+      logTab(
+        tabId,
+        LOG_KIND.pureTree,
+        `Compressed tree · ${pureTree.length} characters`,
+        () => pureTree,
+      );
+      logTab(tabId, LOG_KIND.metaTree, `Meta tree · ${metaTree.length} characters`, () => metaTree);
+      logTab(tabId, LOG_KIND.analysis, `Analysis · ${formFields?.length ?? 0} fields`, () => ({
+        mode,
+        nodes: nodeCount,
+        formFields,
+        fieldIssues,
+      }));
 
       const page = {
         title: treePayload.title || "Untitled",
@@ -355,6 +378,7 @@ export async function runFabPipeline(args: RunPipelineArgs): Promise<void> {
       });
 
       frameId = treePayload.frameId ?? preferredFrameId ?? null;
+      logTab(tabId, LOG_KIND.plan, `Action plan · ${stepTotal} actions`, () => redactPlan(plan));
       traceFromBackground(
         "plan",
         () => ({
