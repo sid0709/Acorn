@@ -7,6 +7,11 @@ export function rememberUploadedFile(acornId: string | null | undefined, fileNam
   uploadedByAcornId.set(String(acornId), fileName);
 }
 
+/** Some file went up through this document already (a résumé, a cover letter). */
+export function uploadedAny(): boolean {
+  return uploadedByAcornId.size > 0;
+}
+
 export function getRememberedUpload(acornId: number | string): string | null {
   return uploadedByAcornId.get(String(acornId)) ?? null;
 }

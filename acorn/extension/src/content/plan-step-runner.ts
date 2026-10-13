@@ -13,7 +13,7 @@ import { controlAlreadyMatches } from "./agents/already-filled";
 import { fieldHoldsFile } from "./agents/attached-file";
 import { clearElement } from "./agents/clear";
 import { fillElement } from "./agents/fill";
-import { rememberPlanFilled } from "./agents/plan-fill-registry";
+import { rememberAnsweredGroup, rememberPlanFilled } from "./agents/plan-fill-registry";
 import { readControlValue } from "./agents/read-control-value";
 import { resumeUpload } from "./agents/resume-upload";
 import { selectComboboxOption } from "./agents/select-combobox";
@@ -23,7 +23,7 @@ import { uploadFileToElement } from "./agents/upload";
 import { validateElementIndexes } from "./agents/validate";
 import { waitMs } from "./agents/wait";
 import { comboSnapshot, describeEl, describeWidget } from "./debug-snapshot";
-import { NAMED_GROUP_SELECTOR } from "./form-dom";
+import { NAMED_GROUP_SELECTOR, choiceGroupKey } from "./form-dom";
 import { FILLABLE_SELECTOR } from "./form-frame";
 import { highlightElement } from "./highlighter";
 import { relocateElementByPlan } from "./verify/relocate";
@@ -346,6 +346,7 @@ export async function actOnVerified(
       throw new Error("The page did not keep the typed value");
     }
     rememberPlanFilled(el, step, readControlValue(el));
+    if (step.action === "select_radio") rememberAnsweredGroup(choiceGroupKey(el));
     traceFromPage("step:acted", () => ({
       element_index: step.element_index,
       intended: shownValue(el, intended),

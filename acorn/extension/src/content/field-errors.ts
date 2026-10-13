@@ -11,6 +11,7 @@
 import { shownValue } from "@acorn/shared/secret-value";
 
 import { choiceOptionLabel } from "./agents/choice-group";
+import { wasGroupAnswered } from "./agents/plan-fill-registry";
 import { readControlValue } from "./agents/read-control-value";
 import {
   ACORN_ID_ATTR,
@@ -100,7 +101,16 @@ function describeControl(control: Element): FieldIssue | null {
   const label = fieldLabel(control, members, wrapper);
   const skip = new Set([normalize(label), normalize(value), ...linked.map(normalize)]);
   const nearby = nearbyMessages(control, wrapper, skip);
-  const emptyRequired = required && !value;
+  // A choice the plan answered in this document reads empty when the page drew the
+  // group again and reset its hidden inputs while keeping the answer itself. Only
+  // the page marking it (invalid, or an error tied to it) says it is really unanswered.
+  const redrawnAnswer =
+    members.length > 1 &&
+    !value &&
+    wasGroupAnswered(choiceGroupKey(control)) &&
+    !invalid &&
+    !linked.length;
+  const emptyRequired = required && !value && !redrawnAnswer;
 
   if (!invalid && !linked.length && !nearby.length && !emptyRequired) return null;
   return {

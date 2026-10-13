@@ -26,7 +26,7 @@ import { repairDriftInTab } from "./drift";
 import { fetchDomFromTab } from "./fetch-dom";
 import { keepResumeIfSameSite, loadFillResume } from "./fill-resume";
 import { watchFrameDocument } from "./frame-navigation";
-import { planLateFields } from "./late-fields";
+import { lateFieldKey, planLateFields } from "./late-fields";
 import { localIsoDate } from "./local-date";
 import { requestPlan, wantsFastPlan } from "./plan-request";
 import {
@@ -528,11 +528,9 @@ export async function runFabPipeline(args: RunPipelineArgs): Promise<void> {
         // Fields the first scan could not see: a section that rendered late, fields an
         // import re-rendered, follow-ups an answer revealed. The page is looked at
         // again until a look finds nothing new, however long it took to draw.
-        // Fields the plan answered are done; one it left is looked at once more.
-        const lateSeen = new Set<number>(
-          (plan.actions ?? [])
-            .map((action) => action.element_index)
-            .filter((index): index is number => index != null),
+        // Questions the plan answered are done; one it left is looked at once more.
+        const lateSeen = new Set<string>(
+          (plan.actions ?? []).map((action) => lateFieldKey(action.expected_label)).filter(Boolean),
         );
         const settleLate = async () => {
           for (let pass = 0; pass < LATE_PASSES_MAX && !report.aborted; pass += 1) {
@@ -554,7 +552,9 @@ export async function runFabPipeline(args: RunPipelineArgs): Promise<void> {
             report = mergeReports(report, await runPlan(late, late.actions.length));
           }
         };
-        const looksLate = pendingOnly || wantsFastPlan(mode);
+        // A refill's answers reveal questions too (a "which platform?" after "Social
+        // Media"): it looks again like any other pass, though it plans no field it fixed.
+        const looksLate = pendingOnly || wantsFastPlan(mode) || refill;
         if (looksLate) await settleLate();
 
         // A page that rewrote itself under the fill (a résumé import, a reset) gets its

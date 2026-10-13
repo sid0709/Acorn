@@ -6,11 +6,12 @@
  */
 
 import { isChoiceSelected } from "./agents/choice-state";
-import { wasPlanFilled } from "./agents/plan-fill-registry";
+import { wasGroupAnswered, wasPlanFilled } from "./agents/plan-fill-registry";
 import { readControlValue } from "./agents/read-control-value";
 import { groupRoot } from "./agents/select-radio";
+import { uploadedAny } from "./agents/upload-registry";
 import { resolveElementByNodeId } from "./element-resolver";
-import { fieldWrapper, groupMembers, isVisible } from "./form-dom";
+import { choiceGroupKey, fieldWrapper, groupMembers, isVisible } from "./form-dom";
 import { BUTTON_SELECTOR, scanFormFields } from "./form-fields";
 
 import type { FormField } from "@acorn/shared/form-fields";
@@ -19,7 +20,10 @@ function answered(field: FormField, control: Element): boolean {
   switch (field.kind) {
     case "radio":
     case "checkbox":
-      return groupMembers(control).some(isChoiceSelected);
+      // A group the page drew again keeps its answer though its hidden inputs reset.
+      return (
+        groupMembers(control).some(isChoiceSelected) || wasGroupAnswered(choiceGroupKey(control))
+      );
     case "buttons":
       return Array.from(groupRoot(control as HTMLElement).querySelectorAll(BUTTON_SELECTOR)).some(
         isChoiceSelected,
@@ -39,14 +43,18 @@ function toggleOff(control: Element): boolean {
 }
 
 /**
- * Fields to plan in a late pass. Uploads are never repeated. When the page keeps
+ * Fields to plan in a late pass. Uploads are planned only while none went up. When the page keeps
  * its forward control disabled (`blocked`), a box the plan chose to leave off is
  * asked about again, marked as possibly what the page is waiting for.
  */
 export function scanPendingFormFields(opts: { blocked?: boolean } = {}): FormField[] {
   const pending = scanFormFields().filter((field) => {
-    if (field.kind === "file") return false;
     const control = resolveElementByNodeId(field.elementIndex);
+    // An upload is planned again only while nothing went up through this document:
+    // a form drawn behind a dialog at the first look still gets its résumé, and a
+    // file is never sent twice.
+    if (field.kind === "file")
+      return !uploadedAny() && Boolean(control) && !readControlValue(control);
     // The field's own box: a follow-up an answer hid again is gone; a hidden proxy input is not.
     if (!control || !isVisible(fieldWrapper(control))) return false;
     if (opts.blocked && field.kind === "toggle") return toggleOff(control);

@@ -10,6 +10,14 @@ import { fetchDomFromTab } from "./fetch-dom";
 import type { ActionPlan } from "@acorn/shared/plan-runner/types";
 
 /**
+ * A question by its wording: the page numbers its nodes afresh on every read, and
+ * a question an answer revealed shifts the numbers of all after it.
+ */
+export function lateFieldKey(label: string | null | undefined): string {
+  return (label ?? "").replace(/\s+/g, " ").trim().toLowerCase();
+}
+
+/**
  * After the plan ran, look at the page once more: a section that rendered after
  * the first scan, fields an import re-rendered, or follow-up questions an answer
  * revealed. Only fields still unanswered and untouched are planned, with the fast
@@ -23,11 +31,11 @@ export async function planLateFields(args: {
   /** The page holds its forward control disabled: boxes left off are asked about again. */
   blocked?: boolean;
   /**
-   * Fields an earlier look already planned or left: only new ones are planned, so
-   * looking again until nothing new shows costs nothing once the page settled.
-   * Each field planned here is added to it.
+   * Questions an earlier look already planned or left, by `lateFieldKey`: only new
+   * ones are planned, so looking again until nothing new shows costs nothing once
+   * the page settled. Each field planned here is added to it.
    */
-  seen?: Set<number>;
+  seen?: Set<string>;
 }): Promise<ActionPlan | null> {
   const { tabId, frameId, page, apiUrl, blocked = false, seen } = args;
   const started = Date.now();
@@ -37,8 +45,8 @@ export async function planLateFields(args: {
       pendingFields: true,
       blockedFields: blocked,
     });
-    const fields = (dom.formFields ?? []).filter((field) => !seen?.has(field.elementIndex));
-    for (const field of fields) seen?.add(field.elementIndex);
+    const fields = (dom.formFields ?? []).filter((field) => !seen?.has(lateFieldKey(field.label)));
+    for (const field of fields) seen?.add(lateFieldKey(field.label));
     traceFromBackground(
       "late:fields",
       () => ({

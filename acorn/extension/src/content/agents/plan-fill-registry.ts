@@ -44,6 +44,21 @@ export function wasPlanFilled(el: Element): boolean {
   return false;
 }
 
+/**
+ * Choice questions a plan step answered in this document, by their group's own
+ * key (type, form, and name), which survives the page drawing the group again.
+ */
+const answeredGroups = new Set<string>();
+
+export function rememberAnsweredGroup(key: string | null): void {
+  if (key) answeredGroups.add(key);
+}
+
+/** A plan step answered this choice question in this document. */
+export function wasGroupAnswered(key: string | null): boolean {
+  return key != null && answeredGroups.has(key);
+}
+
 /** Answers recorded since `since`, oldest first. Older ones belong to an earlier page. */
 export function plannedFillsSince(since: number): PlannedFill[] {
   for (const [widget, fill] of plannedFills) {
