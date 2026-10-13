@@ -107,6 +107,8 @@ export const CONTROL_ROLE = {
   submit: "submit",
   /** Starts or completes something the page still requires before it can go on. */
   resolve: "resolve",
+  /** Saves what a requirement's click opened inside the page (an entry form, a dialog). */
+  commit: "commit",
 } as const;
 
 export type ControlRole = (typeof CONTROL_ROLE)[keyof typeof CONTROL_ROLE];
@@ -143,6 +145,10 @@ export const RUN_FAILURE_REASON = {
   stoppedByUser: "stopped_by_user",
   /** This job was applied to already (by an earlier run, or the site says so). */
   alreadyApplied: "already_applied",
+  /** Round after round, the page kept needing the same things: the run went in circles. */
+  noProgress: "no_progress",
+  /** What a requirement's click opened (an entry form) was refused each time it was saved. */
+  scopeRefused: "scope_refused",
 } as const;
 
 /** Why a run could not finish, in the decision model's words (mirrors the backend's reasons). */

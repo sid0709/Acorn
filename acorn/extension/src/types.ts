@@ -30,6 +30,27 @@ export interface DomTreePayload {
   fieldIssues?: FieldIssueScan;
   /** Fast fill only: the page's fields, keyed by this tree's node ids. */
   formFields?: FormField[];
+  /** Asked for after an opening click: what it drew, keyed by this tree's node ids. */
+  scope?: OpenScope | null;
+}
+
+/** What a click drew inside the page (an entry form, a dialog), as one read sees it. */
+export interface OpenScope {
+  /** Node ids, in this read's numbering, of the controls the scope drew (its save, its cancel). */
+  controlIds: number[];
+  /** Fields the scope asks. */
+  fields: number;
+  /** What the page calls it: its heading, or the section it opened in. */
+  title: string;
+}
+
+/** Where a scope stands after the run tried to save it. */
+export interface ScopeState {
+  /** Its fields still show: the page has not taken it yet. */
+  open: boolean;
+  fields: number;
+  /** Labels of its fields the page flags or that still need an answer. */
+  issues: string[];
 }
 
 /** Long-lived side-panel port. Keeps the MV3 worker (and `/acorn/socket.io` socket) alive. */
@@ -80,6 +101,12 @@ export const MSG = {
   SUPPORT_HANDOFF: "acorn:support-handoff-relay",
   /** Press one control the Run orchestrator picked from the tree. */
   CLICK_CONTROL: "acorn:click-control",
+  /** Remember the page right before a click that may open something inside it (see scope.ts). */
+  SCOPE_CENSUS: "acorn:scope-census",
+  /** Where what the click opened stands: still showing, and what it still needs. */
+  SCOPE_STATE: "acorn:scope-state",
+  /** What the click opened is done with; `committed` when the page took it. */
+  SCOPE_END: "acorn:scope-end",
   START_PIPELINE: "acorn:start-pipeline",
   /** Run: recommend, fill, advance, and refill until the application is done. */
   START_RUN: "acorn:start-run",

@@ -1,6 +1,8 @@
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 
+import { CONTROL_ROLE } from "@acorn/shared/run-types";
+
 import { isNewStep } from "./run-step.ts";
 
 const form = { url: "https://jobs.example/apply?id=1", signature: "a" };
@@ -51,5 +53,60 @@ describe("isNewStep", () => {
 
   it("starts with a new step", () => {
     assert.equal(isNewStep({ previous: null, page: form, settled: null }), true);
+  });
+
+  it("keeps the step when a requirement's click opened an entry form in place", () => {
+    assert.equal(
+      isNewStep({
+        previous: form,
+        page: { ...form, signature: "b" },
+        settled: "changed",
+        role: CONTROL_ROLE.resolve,
+      }),
+      false,
+    );
+  });
+
+  it("keeps the step when saving what that click opened closed it", () => {
+    assert.equal(
+      isNewStep({
+        previous: form,
+        page: { ...form, signature: "c" },
+        settled: "changed",
+        role: CONTROL_ROLE.commit,
+      }),
+      false,
+    );
+  });
+
+  it("moves on when a requirement's click opened another address", () => {
+    assert.equal(
+      isNewStep({
+        previous: form,
+        page: { url: "https://assess.example/test", signature: "a" },
+        settled: "navigated",
+        role: CONTROL_ROLE.resolve,
+      }),
+      true,
+    );
+  });
+
+  it("moves on when a requirement's click opened a new tab", () => {
+    assert.equal(
+      isNewStep({ previous: form, page: form, settled: "new-tab", role: CONTROL_ROLE.resolve }),
+      true,
+    );
+  });
+
+  it("moves on when the forward control changed the step in place", () => {
+    assert.equal(
+      isNewStep({
+        previous: form,
+        page: { ...form, signature: "b" },
+        settled: "changed",
+        role: CONTROL_ROLE.next,
+      }),
+      true,
+    );
   });
 });

@@ -140,3 +140,62 @@ textarea {
   height: 1px;
   opacity: 0;
 }
+.choices,
+.pills {
+  display: flex;
+  gap: 8px;
+  list-style: none;
+  padding: 0;
+}
+.choice,
+.pill-option {
+  padding: 6px 16px;
+  border: 1px solid #888;
+  border-radius: 16px;
+  background: #fff;
+}
+.choice--on,
+.pill-option[aria-pressed="true"] {
+  background: #224;
+  color: #fff;
+}
+.entry-section {
+  margin: 16px 0;
+}
+.tile {
+  display: flex;
+  gap: 12px;
+  align-items: center;
+  border: 1px solid #ccc;
+  padding: 8px;
+  margin: 6px 0;
+}
+.tile--invalid {
+  border-color: #c00;
+}
+.icon {
+  width: 28px;
+  height: 28px;
+}
+.entry-form {
+  border: 1px solid #888;
+  padding: 12px;
+}
+.entry-form__footer {
+  display: flex;
+  gap: 8px;
+  margin-top: 12px;
+}
+.date {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+}
+/* Drawn like a real twin: on the page, the same size, behind the form. */
+.mirror {
+  position: absolute;
+  left: 0;
+  top: 0;
+  z-index: -1;
+  height: 70px;
+}

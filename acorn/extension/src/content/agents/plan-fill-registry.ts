@@ -23,13 +23,23 @@ export interface PlannedFill {
 const filledWidgets = new Set<Element>();
 const plannedFills = new Map<Element, PlannedFill>();
 
-export function rememberPlanFilled(el: Element, step?: PlanStepPayload, shown = ""): void {
+/**
+ * Mark a widget answered. `repairable` is false for an answer nothing on the page
+ * can show again (a plain button keeps no state): drift repair never replays it,
+ * since pressing it again may undo it, or act on the form.
+ */
+export function rememberPlanFilled(
+  el: Element,
+  step?: PlanStepPayload,
+  shown = "",
+  repairable = true,
+): void {
   for (const widget of filledWidgets) {
     if (!widget.isConnected) filledWidgets.delete(widget);
   }
   const widget = comboboxWidgetRoot(el);
   filledWidgets.add(widget);
-  if (step && REPAIRABLE_ACTIONS.has(step.action) && step.value != null) {
+  if (repairable && step && REPAIRABLE_ACTIONS.has(step.action) && step.value != null) {
     // The newest answer wins: a Refill's corrected value replaces the first one.
     plannedFills.set(widget, { el, step: { ...step, file: undefined }, at: Date.now(), shown });
   }
@@ -44,10 +54,36 @@ export function wasPlanFilled(el: Element): boolean {
   return false;
 }
 
+/**
+ * Choice questions a plan step answered in this document, by their group's own
+ * key (type, form, and name), which survives the page drawing the group again.
+ */
+const answeredGroups = new Set<string>();
+
+export function rememberAnsweredGroup(key: string | null): void {
+  if (key) answeredGroups.add(key);
+}
+
+/** A plan step answered this choice question in this document. */
+export function wasGroupAnswered(key: string | null): boolean {
+  return key != null && answeredGroups.has(key);
+}
+
 /** Answers recorded since `since`, oldest first. Older ones belong to an earlier page. */
 export function plannedFillsSince(since: number): PlannedFill[] {
   for (const [widget, fill] of plannedFills) {
     if (fill.at < since) plannedFills.delete(widget);
   }
   return [...plannedFills.values()].sort((a, b) => a.at - b.at);
+}
+
+/**
+ * Forget the answers given since `since`: they went into a form the page took and
+ * closed (an entry it saved). Its fields are gone, and putting their answers back
+ * would only find other fields with the same names.
+ */
+export function forgetPlannedFillsSince(since: number): void {
+  for (const [widget, fill] of plannedFills) {
+    if (fill.at >= since) plannedFills.delete(widget);
+  }
 }

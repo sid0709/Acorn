@@ -10,6 +10,7 @@ import { traceFromPage } from "../debug-trace";
 import { controlAlreadyMatches } from "./agents/already-filled";
 import { plannedFillsSince } from "./agents/plan-fill-registry";
 import { readControlValue } from "./agents/read-control-value";
+import { chosenOptionLabel } from "./agents/select-radio";
 import { actOnVerified } from "./plan-step-runner";
 import { labelCandidates } from "./verify/element-labels";
 import { inferRole } from "./verify/element-role";
@@ -42,8 +43,10 @@ export async function repairDrift(since: number): Promise<DriftRepairResult> {
       continue;
     }
     if (controlAlreadyMatches(live.element, step.value).matched) continue;
-    // Still showing what it showed when answered (a dropdown's picked option): the answer stands.
-    if (shown && sameText(readControlValue(live.element), shown)) continue;
+    // Still showing what it showed when answered (a dropdown's picked option, the
+    // chosen option of a set): the answer stands.
+    const now = chosenOptionLabel(live.element) || readControlValue(live.element);
+    if (shown && sameText(now, shown)) continue;
     traceFromPage("drift:repair", () => ({
       label: step.expected_label,
       before: readControlValue(live.element),

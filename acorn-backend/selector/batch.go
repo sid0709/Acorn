@@ -20,7 +20,20 @@ type ChoiceItem struct {
 	Intended string
 	Options  []string
 	Multiple bool
+	// MayAct is true for a field of buttons, which may act on the form instead of
+	// answering: Jev can then say none of them is an answer, and no button is picked.
+	MayAct bool
 }
+
+// actsKey is the answer that a field's buttons act on the form instead of answering.
+const actsKey = "acts_on_form"
+
+// actsCriterion says what that answer means. It names what buttons do, never their
+// wording: an entry's edit and remove, a form's save and cancel, an add-another.
+const actsCriterion = "These buttons are not answers to a question the applicant is asked: each one does something " +
+	"to the form instead (adds or opens an entry or a form, edits, removes or deletes one, saves, cancels or closes, " +
+	"uploads, or moves between steps). None of them is pressed as an answer. Choose this only for such buttons, " +
+	"never to leave a real question unanswered."
 
 // ChoicePick is a batch answer: one option, or every box to check.
 type ChoicePick struct {
@@ -104,7 +117,14 @@ func batchQuestions(items []ChoiceItem) []batchQuestion {
 			}
 			continue
 		}
-		keys, criteria := keyed(options[:min(len(options), jev.MaxChoiceOptions)], "option")
+		limit := jev.MaxChoiceOptions
+		if item.MayAct {
+			limit--
+		}
+		keys, criteria := keyed(options[:min(len(options), limit)], "option")
+		if item.MayAct {
+			criteria[actsKey] = actsCriterion
+		}
 		out = append(out, batchQuestion{
 			key: fmt.Sprintf("f%d", item.ID), item: item.ID, keys: keys,
 			question: jev.Question{Type: jev.TypeChoice, Instructions: field + "\n" + optionInstructions(false, false), Criteria: criteria},
@@ -121,6 +141,10 @@ func collectPicks(items []ChoiceItem, questions []batchQuestion, answers map[str
 	for _, q := range questions {
 		answer, ok := answers[q.key]
 		if !ok {
+			continue
+		}
+		// The field's buttons act on the form: no button is an answer, not even the likeliest.
+		if answer.Choice == actsKey {
 			continue
 		}
 		if q.keys != nil {

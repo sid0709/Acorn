@@ -2,10 +2,17 @@ import { ACORN_ID_ATTR } from "../acorn-id";
 import { resolveElementByNodeId } from "../element-resolver";
 
 import { chooseUploadFile } from "./upload-format";
-import { pageMentionsFilename, rememberUploadedFile } from "./upload-registry";
+import { pageMentionsFilename, rememberFileSent, rememberUploadedFile } from "./upload-registry";
 import { waitForUploadComplete, waitMs } from "./wait";
 
 import type { RuntimeAttachedFile } from "../../types";
+
+/**
+ * How long the page gets to show a file it took. Many sites send the file to their
+ * server before they draw it as attached, and that takes seconds: a shorter wait
+ * calls a working upload failed.
+ */
+const UPLOAD_EVIDENCE_MAX_MS = 15_000;
 
 function base64ToUint8Array(base64: string): Uint8Array {
   const binary = atob(base64);
@@ -84,7 +91,7 @@ async function waitForUploadEvidence(
   doc: Document,
   fileName: string,
   acornId: string | null,
-  maxMs = 4000,
+  maxMs = UPLOAD_EVIDENCE_MAX_MS,
 ): Promise<boolean> {
   const started = Date.now();
   while (Date.now() - started < maxMs) {
@@ -157,7 +164,7 @@ async function persistUploadAcrossRemount(
     break;
   }
 
-  const evidenced = await waitForUploadEvidence(doc, fileName, acornId, 4000);
+  const evidenced = await waitForUploadEvidence(doc, fileName, acornId);
 
   if (evidenced) {
     rememberUploadedFile(acornId, fileName);
@@ -189,6 +196,7 @@ export async function uploadFileToElement(
 
   const acornId = el.getAttribute(ACORN_ID_ATTR);
   const fileObj = buildFile(chooseUploadFile(el, file, wanted));
+  rememberFileSent();
   const { names } = await persistUploadAcrossRemount(el, fileObj, acornId);
 
   if (!names.length) {

@@ -8,7 +8,13 @@
 
 import { PASSWORD_INPUT_TYPE } from "@acorn/shared/secret-value";
 
-import { choiceOptionLabel, hasClickableBox, inputOptionLabel } from "./agents/choice-group";
+import { holdsChoiceState, looksLikeAnswers } from "./agents/button-roles";
+import {
+  choiceOptionLabel,
+  hasClickableBox,
+  inputOptionLabel,
+  isProxyControl,
+} from "./agents/choice-group";
 import { optionLabel, realOptions } from "./agents/native-select";
 import { groupRoot } from "./agents/select-radio";
 import { getDirectText } from "./dom-serializer";
@@ -28,6 +34,7 @@ import {
   normalize,
   queryDeep,
   sectionTitle,
+  withPartGroup,
   wrapperTexts,
 } from "./form-dom";
 import { FILLABLE_SELECTOR } from "./form-frame";
@@ -118,10 +125,20 @@ function optionButtons(root: ParentNode): HTMLElement[] {
   );
 }
 
+/**
+ * Buttons that are one question's answers: each carries its chosen state (ARIA),
+ * or they read as peers with words of their own. Anything else acts on the form
+ * (adds, opens, saves, cancels, removes) and is never offered as an answer.
+ */
+function answerButtons(buttons: HTMLElement[]): boolean {
+  return buttons.every(holdsChoiceState) || looksLikeAnswers(buttons);
+}
+
 function buttonsField(buttons: HTMLElement[], label: string, required: boolean): FormField | null {
   if (buttons.length < BUTTON_OPTIONS_MIN || buttons.length > BUTTON_OPTIONS_MAX || !label) {
     return null;
   }
+  if (!answerButtons(buttons)) return null;
   return {
     elementIndex: nodeId(buttons[0]),
     kind: "buttons",
@@ -150,9 +167,10 @@ function choiceField(control: HTMLInputElement): FormField | null {
   const wrapper = fieldWrapper(control);
   const required = isRequired(members);
   const single = members.length === 1;
-  if (single) {
-    // A lone box next to short option buttons is a Yes/No widget: the answer lives
-    // on the buttons, and the box only mirrors it.
+  // A lone box nobody can see, next to short option buttons, is a Yes/No widget:
+  // the answer lives on the buttons, and the box only mirrors it. A box a person
+  // can see is its own answer; buttons beside it (view the terms) are not.
+  if (single && isProxyControl(control)) {
     const buttons = optionButtons(wrapper);
     const label =
       groupQuestion(wrapper, buttons[0] ?? control, [control]) ||
@@ -187,7 +205,13 @@ function describeControl(control: Element, seenGroups: Set<string>): FormField |
     if (control.multiple) return null;
     const options = realOptions(control).map(optionLabel).filter(Boolean);
     if (!options.length) return null;
-    return { elementIndex: nodeId(control), kind: "select", label: label(), required, options };
+    return {
+      elementIndex: nodeId(control),
+      kind: "select",
+      label: withPartGroup(control, label()),
+      required,
+      options,
+    };
   }
   if (control instanceof HTMLInputElement) {
     const type = (control.type || "text").toLowerCase();
@@ -223,7 +247,7 @@ function describeControl(control: Element, seenGroups: Set<string>): FormField |
     // field no person could see or reach is a trap for robots. Neither is filled.
     if (!isPersonFacing(control) || control.closest('[aria-hidden="true"]')) return null;
     if (inferRole(control) === "combobox" || !TEXT_INPUT_TYPES.has(type)) return null;
-    const text = label();
+    const text = withPartGroup(control, label());
     return {
       elementIndex: nodeId(control),
       kind: "text",
@@ -239,7 +263,8 @@ function describeControl(control: Element, seenGroups: Set<string>): FormField |
     (control as HTMLElement).isContentEditable ||
     role === "textbox"
   ) {
-    if (!isPersonFacing(control)) return null;
+    // A text box marked aria-hidden is a widget's mirror (one that sizes a growing box), as above.
+    if (!isPersonFacing(control) || control.closest('[aria-hidden="true"]')) return null;
     const text = label();
     return {
       elementIndex: nodeId(control),
@@ -331,7 +356,9 @@ function questionBefore(root: Element, first: HTMLElement, buttons: HTMLElement[
 /**
  * Option buttons with no native input and no ARIA state behind them (Yes / No
  * pills whose choice shows only in their styling): one question's answers when a
- * few short buttons share a container and a question precedes them.
+ * few short buttons share a container, a question precedes them, and they read as
+ * peers. The buttons of an entry (edit, remove) or of a form's footer (cancel,
+ * save) share containers too, but act on the form: they are no field.
  */
 function plainButtonFields(claimed: Set<number>): FormField[] {
   const fields: FormField[] = [];

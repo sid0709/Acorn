@@ -12,7 +12,10 @@ export const RUN_MAX_CLICK_RETRIES = 2;
  * (fields left blank, boxes left off), each followed by another click.
  */
 export const RUN_MAX_BLOCKED_PASSES = 2;
-/** Fills of one step, of any kind (full, refill, pending pass), before the run stops. */
+/**
+ * Fills of one step, of any kind (full, refill, pending pass), before the run stops.
+ * Filling what a click opened (an entry form) is bounded by the requirements instead.
+ */
 export const RUN_MAX_FILLS_PER_PAGE = 5;
 /** Model calls one run may make across all its pages before it stops. */
 export const RUN_MAX_AI_CALLS = 200;
@@ -20,9 +23,22 @@ export const RUN_MAX_AI_CALLS = 200;
 export const RUN_MAX_NO_EFFECT = 2;
 /**
  * Clicks per page on a control that does what the page still requires (an
- * assessment, a document). Past it the forward pick and its checks decide.
+ * assessment, a document, an entry to add). Each one completes one requirement,
+ * and a page can ask for several (an education and a work history entry). Past it
+ * the forward pick and its checks decide.
  */
-export const RUN_MAX_RESOLVES_PER_PAGE = 2;
+export const RUN_MAX_RESOLVES_PER_PAGE = 8;
+/**
+ * Tries to save what a click opened (an entry form): the first, and one more after
+ * fixing what the page flagged in it. Past it the run stops and says what it needs.
+ */
+export const RUN_MAX_SCOPE_SAVES = 2;
+/**
+ * Rounds of work in a row on one address that leave everything the page still
+ * needs standing (no flagged field fixed, no requirement met) before the run stops:
+ * a run that goes in circles stops in seconds, not at its budget.
+ */
+export const RUN_MAX_STALLED_ROUNDS = 2;
 /** Orchestrator iterations in one run; a page takes a few. */
 export const RUN_MAX_STEPS = 60;
 /** Pages one run moves through. */

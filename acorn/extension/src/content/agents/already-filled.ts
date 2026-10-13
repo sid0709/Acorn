@@ -1,6 +1,7 @@
 import { choiceOptionLabel, findVisibleChoiceOption, isProxyControl } from "./choice-group";
 import { isChoiceSelected, isChoiceWidget } from "./choice-state";
 import { readControlValue } from "./read-control-value";
+import { chosenOptionLabel } from "./select-radio";
 
 function normalize(text: string): string {
   return text.replace(/\s+/g, " ").trim().toLowerCase();
@@ -159,14 +160,21 @@ export function controlAlreadyMatches(
     const selected = isChoiceSelected(el);
     const label = optionOwnLabel(el);
     const want = normalize(intendedStr);
-    const have = normalize(label);
-    const labelMatches =
-      Boolean(have) && (have === want || have.includes(want) || want.includes(have));
+    const sameAnswer = (text: string) => {
+      const have = normalize(text);
+      return Boolean(have) && (have === want || have.includes(want) || want.includes(have));
+    };
+    if (selected && sameAnswer(label)) {
+      return verdict("B", "choice-selected", true, label, intendedStr, el);
+    }
+    // A step names one option of a set (often its first); the set answers through
+    // whichever option is chosen.
+    const chosen = chosenOptionLabel(el);
     return verdict(
       "B",
-      selected && labelMatches ? "choice-selected" : "choice-unselected",
-      Boolean(selected && labelMatches),
-      selected ? label : "",
+      chosen && sameAnswer(chosen) ? "choice-set-chosen" : "choice-unselected",
+      Boolean(chosen && sameAnswer(chosen)),
+      selected ? label : chosen,
       intendedStr,
       el,
     );

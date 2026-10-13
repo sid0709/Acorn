@@ -33,6 +33,8 @@ import type { PipelineProgress } from "../../../acorn/packages/shared/pipeline-t
 /** The step the run must reach, and the one it must never reach. */
 const LAST_STEP = "review";
 const SENT_STEP = "submitted";
+/** Where the mock site keeps the answers it was given (see site/app.js). */
+const ANSWERS_KEY = "mockApplyAnswers";
 /** How long a session the test hands the extension lasts. */
 const SESSION_TTL_MS = 24 * 60 * 60_000;
 const VIEWPORT = { width: 1280, height: 900 };
@@ -137,6 +139,17 @@ try {
 
   const sent = seen.includes(SENT_STEP);
   const ready = report?.outcome === RUN_OUTCOME.readyToSubmit;
+  // The entry lists: the run completes them, and never deletes or cancels an entry.
+  const entries = await job.evaluate((key) => {
+    const answers = JSON.parse(localStorage.getItem(key) || "{}") as Record<string, string>;
+    return {
+      education: answers.education ?? "",
+      work: answers.work ?? "",
+      deleted: Number(document.body.dataset.deleted || 0),
+      cancelled: Number(document.body.dataset.cancelled || 0),
+    };
+  }, ANSWERS_KEY);
+  console.log("Entry lists:", JSON.stringify(entries));
   console.log("\nSteps reached:", seen.join(" → "));
   console.log(
     "Run outcome:",
@@ -145,6 +158,14 @@ try {
   );
   console.log(`Screenshots: ${OUT_DIR}`);
   if (sent) throw new Error("FAIL: the application was submitted; the run must stop before Submit");
+  if (entries.deleted || entries.cancelled) {
+    throw new Error(
+      `FAIL: the run deleted ${entries.deleted} and cancelled ${entries.cancelled} entries`,
+    );
+  }
+  if (entries.education !== "yes" || entries.work !== "yes") {
+    throw new Error("FAIL: the education and work history lists were not completed");
+  }
   if (!ready || seen.at(-1) !== LAST_STEP)
     throw new Error(`FAIL: the run did not stop ready to submit on ${LAST_STEP}`);
   console.log(`PASS: every step filled; stopped on ${LAST_STEP} without submitting`);

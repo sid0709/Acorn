@@ -639,14 +639,312 @@ function infoView() {
   );
 }
 
+/**
+ * Yes / No as two plain buttons drawn alike, the choice shown only by styling (no
+ * native input, no ARIA state). Like some platforms, a click draws both again.
+ */
+function choiceButtonsField(id, label, options) {
+  const row = el("div", { class: "choices", id });
+  const draw = () =>
+    row.replaceChildren(
+      ...options.map((option) =>
+        el(
+          "button",
+          {
+            type: "button",
+            class: answers[id] === option ? "choice choice--on" : "choice",
+            on: {
+              click: () => {
+                answers[id] = option;
+                saveAnswers();
+                draw();
+              },
+            },
+          },
+          option,
+        ),
+      ),
+    );
+  draw();
+  return {
+    id,
+    label,
+    required: true,
+    node: el("div", {}, el("p", { class: "question" }, `${label}*`), row, errorLine(id)),
+  };
+}
+
+/** Counts a press that removed or abandoned work, on <body>, for the test to read. */
+function countOnBody(name) {
+  document.body.dataset[name] = String(Number(document.body.dataset[name] || 0) + 1);
+}
+
+const MONTHS = ["01", "02", "03", "04", "05", "06", "07", "08", "09", "10", "11", "12"];
+const YEARS = Array.from({ length: 30 }, (_, i) => String(2026 - i));
+
+/** An icon button with no words of its own, as entry tiles draw their actions. */
+function iconButton(label, className, onPress) {
+  const icon = document.createElementNS("http://www.w3.org/2000/svg", "svg");
+  icon.setAttribute("width", "14");
+  icon.setAttribute("height", "14");
+  icon.setAttribute("aria-hidden", "true");
+  return el(
+    "button",
+    { type: "button", class: `icon ${className}`, "aria-label": label, on: { click: onPress } },
+    icon,
+  );
+}
+
+/**
+ * One field of an entry form. `entry` holds the answers; `bad` marks the fields
+ * the last save refused.
+ */
+function entryInput(prefix, field, entry, bad) {
+  const id = `${prefix}-${field.key}`;
+  const invalid = bad.includes(field.key) ? "true" : "false";
+  const mark = field.required ? "*" : "";
+  if (field.kind === "pills") {
+    return el(
+      "div",
+      {},
+      el("p", { class: "question" }, `${field.label}${mark}`),
+      el(
+        "ul",
+        { role: "list", "aria-label": field.label, class: "pills", "aria-invalid": invalid },
+        field.options.map((option) => {
+          const button = el("button", {
+            type: "button",
+            class: "pill-option",
+            "aria-pressed": entry[field.key] === option ? "true" : "false",
+          });
+          button.append(option);
+          button.addEventListener("click", () => {
+            entry[field.key] = option;
+            for (const other of button.closest("ul").querySelectorAll("button")) {
+              other.setAttribute("aria-pressed", other === button ? "true" : "false");
+            }
+          });
+          return el("li", {}, button);
+        }),
+      ),
+    );
+  }
+  if (field.kind === "monthYear") {
+    const [month, year] = (entry[field.key] || "/").split("/");
+    const parts = { month, year };
+    const part = (name, options) => {
+      const select = el(
+        "select",
+        { id: `${id}-${name}`, name: `${id}-${name}`, "aria-invalid": invalid },
+        el("option", { value: "" }, "Select"),
+        options.map((option) => el("option", { value: option }, option)),
+      );
+      select.value = parts[name] || "";
+      select.addEventListener("change", () => {
+        parts[name] = select.value;
+        entry[field.key] = parts.month && parts.year ? `${parts.month}/${parts.year}` : "";
+      });
+      return [el("label", { for: `${id}-${name}` }, name === "month" ? "Month" : "Year"), select];
+    };
+    return el(
+      "div",
+      { class: "date", "aria-label": field.label },
+      el("p", { class: "question" }, `${field.label}${mark}`),
+      ...part("month", MONTHS),
+      ...part("year", YEARS),
+    );
+  }
+  if (field.kind === "checkbox") {
+    const box = el("input", { type: "checkbox", id });
+    box.checked = entry[field.key] === "yes";
+    box.addEventListener("change", () => (entry[field.key] = box.checked ? "yes" : ""));
+    return el("div", {}, el("label", { for: id }, box, ` ${field.label}`));
+  }
+  const input =
+    field.kind === "textarea"
+      ? el("textarea", { id, name: id, "aria-invalid": invalid })
+      : el("input", { id, name: id, type: "text", "aria-invalid": invalid });
+  input.value = entry[field.key] || "";
+  input.addEventListener("input", () => (entry[field.key] = input.value.trim()));
+  const parts = [el("label", { for: id }, `${field.label}${mark}`), input];
+  // A growing text box measured by a hidden twin, as some platforms draw one.
+  if (field.kind === "textarea")
+    parts.push(el("textarea", { class: "mirror", "aria-hidden": "true", tabindex: "-1" }));
+  return el("div", {}, ...parts);
+}
+
+/**
+ * A list of entries the step needs at least one valid one of (education, work
+ * history), as large platforms draw it. Each saved entry is a tile with icon
+ * buttons to edit and delete it, and an entry missing a required answer says
+ * "Fields to fix". The add button opens an inline form whose own buttons cancel
+ * it or save it; the save of a new entry is worded like the add button. Deletes
+ * and cancels are counted on <body data-deleted / data-cancelled>.
+ */
+function entryListField(id, label, spec) {
+  const entries = store.get(`mockApply-${id}`, spec.seed ?? []);
+  const keep = () => store.set(`mockApply-${id}`, entries);
+  const missingIn = (entry) =>
+    spec.fields.filter((field) => field.required && !entry[field.key]).map((field) => field.key);
+  const refresh = () => {
+    const ok = entries.length > 0 && entries.every((entry) => !missingIn(entry).length);
+    answers[id] = ok ? "yes" : "";
+    saveAnswers();
+  };
+  const list = el("div", { class: "entries", id });
+  let editing = null;
+  const draw = () => {
+    refresh();
+    keep();
+    const tiles = entries.map((entry, index) => {
+      const missing = missingIn(entry).length;
+      return el(
+        "article",
+        { class: missing ? "tile tile--invalid" : "tile" },
+        el("div", {}, spec.summary(entry)),
+        missing ? el("div", { class: "err" }, `Fields to fix: ${missing}`) : "",
+        iconButton("Edit", "tile__edit", () => {
+          editing = { index, entry: { ...entry }, bad: [] };
+          draw();
+        }),
+        iconButton("Delete", "tile__delete", () => {
+          countOnBody("deleted");
+          entries.splice(index, 1);
+          draw();
+        }),
+      );
+    });
+    const body = [];
+    if (!entries.length && !editing) {
+      body.push(el("p", { class: "err" }, `You need to add at least 1 ${spec.item} item.`));
+    }
+    body.push(...tiles);
+    if (editing) {
+      const form = editing;
+      body.push(
+        el(
+          "div",
+          { class: "entry-form" },
+          spec.fields.map((field) => entryInput(`${id}-entry`, field, form.entry, form.bad)),
+          form.bad.length ? el("p", { class: "err" }, "Fix the fields marked above.") : "",
+          el(
+            "div",
+            { class: "entry-form__footer" },
+            el(
+              "button",
+              {
+                type: "button",
+                class: "btn btn--cancel",
+                on: {
+                  click: () => {
+                    countOnBody("cancelled");
+                    editing = null;
+                    draw();
+                  },
+                },
+              },
+              "Cancel",
+            ),
+            el(
+              "button",
+              {
+                type: "button",
+                class: "btn btn--save",
+                on: {
+                  click: () => {
+                    form.bad = missingIn(form.entry);
+                    if (!form.bad.length) {
+                      if (form.index == null) entries.push(form.entry);
+                      else entries[form.index] = form.entry;
+                      editing = null;
+                    }
+                    draw();
+                  },
+                },
+              },
+              form.index == null ? spec.addLabel : "Save",
+            ),
+          ),
+        ),
+      );
+    } else {
+      body.push(
+        el(
+          "button",
+          {
+            type: "button",
+            class: "btn btn--add",
+            on: {
+              click: () => {
+                editing = { index: null, entry: {}, bad: [] };
+                draw();
+              },
+            },
+          },
+          spec.addLabel,
+        ),
+      );
+    }
+    list.replaceChildren(...body);
+  };
+  draw();
+  return {
+    id,
+    label,
+    required: true,
+    node: el(
+      "section",
+      { class: "entry-section" },
+      el("h3", {}, `${label}*`),
+      el("p", {}, `Please provide details about your ${spec.item.toLowerCase()}.`),
+      list,
+      errorLine(id),
+    ),
+  };
+}
+
+const EDUCATION_ENTRY = {
+  item: "Education",
+  addLabel: "Add Education",
+  fields: [
+    {
+      key: "degree",
+      label: "Degree",
+      kind: "pills",
+      required: true,
+      options: ["Associates", "Bachelor's", "Master's", "PhD/Doctorate"],
+    },
+    { key: "school", label: "School Name", kind: "textarea", required: true },
+    { key: "major", label: "Major", kind: "text" },
+    { key: "start", label: "Start Date", kind: "monthYear", required: true },
+    { key: "end", label: "End Date", kind: "monthYear" },
+  ],
+  summary: (entry) => `${entry.school || "—"} · ${entry.degree || "—"}`,
+};
+
+/** Work history arrives imported from a résumé, with the job title missing. */
+const WORK_ENTRY = {
+  item: "Experience",
+  addLabel: "Add Experience",
+  fields: [
+    { key: "company", label: "Employer Name", kind: "text", required: true },
+    { key: "title", label: "Job Title", kind: "text", required: true },
+    { key: "start", label: "Start Date", kind: "monthYear", required: true },
+    { key: "current", label: "I currently work here", kind: "checkbox" },
+  ],
+  seed: [{ company: "Northwind Analytics", title: "", start: "03/2021", current: "yes" }],
+  summary: (entry) => `${entry.title || "—"} · ${entry.company || "—"} · ${entry.start || ""}`,
+};
+
 function experienceView() {
   return formStep(
     "experience",
     "My Experience",
     [
       fileField("resume", "Resume/CV"),
-      textField("jobTitle", "Most Recent Job Title"),
-      textField("company", "Most Recent Company"),
+      choiceButtonsField("relocate", "Are you willing to relocate for this role?", ["Yes", "No"]),
+      entryListField("education", "Education", EDUCATION_ENTRY),
+      entryListField("work", "Work Experience", WORK_ENTRY),
       textField("linkedin", "LinkedIn Profile URL", { required: false }),
     ],
     () => render("questions", questionsView),
