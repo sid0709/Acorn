@@ -105,6 +105,8 @@ export const CONTROL_ROLE = {
   apply: "apply",
   next: "next",
   submit: "submit",
+  /** Starts or completes something the page still requires before it can go on. */
+  resolve: "resolve",
 } as const;
 
 export type ControlRole = (typeof CONTROL_ROLE)[keyof typeof CONTROL_ROLE];

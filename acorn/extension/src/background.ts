@@ -18,7 +18,7 @@ import { bindContentScriptInjection, injectIntoOpenTabs } from "./inject-content
 import { rekeyPipelineUsage } from "./pipeline/usage-tracker";
 import { rekeyCustomTab, refreshCustomTabMeta, unbindCustomTab } from "./tab-custom-session";
 import { rekeyTabJob, unbindTabJob } from "./tab-job-session";
-import { clearTabLog } from "./tab-log-session";
+import { clearTabLog, dropClosedTabLogs, dropLegacySessionLogs } from "./tab-log-session";
 import { clearTabPipeline, rekeyTabPipeline } from "./tab-pipeline-session";
 import { rekeyUsageTab } from "./tab-usage-key";
 import { MSG, ACORN_SIDEBAR_PORT } from "./types";
@@ -65,6 +65,12 @@ enableSidePanelOnActionClick();
 bindContentScriptInjection();
 bindAutoFocusSetting();
 void injectIntoOpenTabs();
+// Logs of tabs a past browser session closed with, and the log's old session-storage copy.
+void chrome.tabs
+  .query({})
+  .then((open) => dropClosedTabLogs(open.flatMap((tab) => (tab.id == null ? [] : [tab.id]))))
+  .catch(() => undefined);
+void dropLegacySessionLogs().catch(() => undefined);
 chrome.runtime.onInstalled.addListener(enableSidePanelOnActionClick);
 
 chrome.tabs.onRemoved.addListener((tabId) => {

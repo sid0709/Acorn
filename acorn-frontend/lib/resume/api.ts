@@ -16,6 +16,7 @@ import type {
   ResumeHistoryRun,
 } from "@acorn/shared/resume-history";
 import type { LibraryKind, ResumeLibraryRow } from "@acorn/shared/resume-library";
+import type { RuntimeAttachedFile } from "@acorn/shared/plan-runner/types";
 import { acornHeaders } from "@/lib/auth/headers";
 
 export type ResumeCall<T> = { ok: true; data: T } | { ok: false; message: string };
@@ -144,14 +145,23 @@ export async function deleteLibraryFile(id: string): Promise<ResumeCall<{ succes
   return read(RESUME_API.libraryItem(id), { method: "DELETE" });
 }
 
+/** `extractedText` is the file's text as the browser just read it (PDF.js), when it has it. */
 export async function analyzeLibraryFile(
   id: string,
   force = false,
+  extractedText?: string,
 ): Promise<ResumeCall<{ resume: ResumeLibraryRow }>> {
   return read(RESUME_API.libraryAnalyze(id), {
     method: "POST",
-    body: JSON.stringify({ force }),
+    body: JSON.stringify({ force, ...(extractedText ? { extractedText } : {}) }),
   });
+}
+
+/** A Library file's stack as stored: the file itself, and its stack's other formats. */
+export async function loadLibraryFile(
+  id: string,
+): Promise<ResumeCall<{ file: RuntimeAttachedFile }>> {
+  return read(RESUME_API.libraryFile(id));
 }
 
 export async function makeLibraryPrimary(

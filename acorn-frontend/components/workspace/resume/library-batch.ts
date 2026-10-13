@@ -2,8 +2,11 @@ import {
   RESUME_ANALYZE_CONCURRENCY,
   RESUME_BULK_UPLOAD_CONCURRENCY,
   RESUME_BULK_UPLOAD_MAX_FILES,
+  type ResumeLibraryRow,
 } from "@acorn/shared/resume-library";
+import { loadLibraryFile } from "@/lib/resume/api";
 import { pdfText } from "@/lib/workspace/pdf-text";
+import { base64ToBytes } from "@/lib/workspace/resume-file";
 
 const RESUME_FILE_NAME = /\.(pdf|docx?|txt)$/i;
 
@@ -68,6 +71,22 @@ function bytesBase64(bytes: Uint8Array): string {
 
 const isPdf = (file: File) =>
   file.type === "application/pdf" || file.name.toLowerCase().endsWith(".pdf");
+
+/**
+ * A stored PDF's text as pdf.js reads it, for analysis: the server's own read of a
+ * PDF whose fonts keep glyph numbers is unreadable. Empty for other formats, or
+ * when the file cannot be read here (the server then uses what it can read).
+ */
+export async function storedPdfText(row: Pick<ResumeLibraryRow, "id" | "fileName">) {
+  if (!row.fileName.toLowerCase().endsWith(".pdf")) return "";
+  const stored = await loadLibraryFile(row.id);
+  if (!stored.ok) return "";
+  const own = [stored.data.file, ...(stored.data.file.variants ?? [])].find(
+    (file) => file.resumeId === row.id,
+  );
+  if (!own?.base64) return "";
+  return pdfText(base64ToBytes(own.base64)).catch(() => "");
+}
 
 /** File bytes plus, for a PDF, the text pdf.js read so analyze is not limited to raw operators. */
 export async function libraryUploadInput(file: File, title: string) {

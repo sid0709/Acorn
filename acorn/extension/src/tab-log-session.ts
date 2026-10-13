@@ -1,13 +1,10 @@
-import { withStorageLock } from "./storage-lock";
-
 /**
  * Per-tab log of what the pipeline did on that page: the compressed tree, the meta
  * tree, the analysis, the model request and response, the plan, the steps. The
- * service worker appends; the sidebar's Logs tab reads. It lives in session storage,
- * so it ends with the browser session and never leaves the machine.
+ * service worker appends; the sidebar's Logs tab reads. Every entry is kept whole,
+ * with no cap on their number or size: they live in the extension's own IndexedDB
+ * (with unlimited storage), never leave the machine, and go when the tab closes.
  */
-
-export const TAB_LOG_STORAGE_PREFIX = "acornTabLog:";
 
 export const LOG_KIND = {
   dom: "dom",
@@ -34,23 +31,61 @@ export type TabLogEntry = {
 /** What a caller hands over; the store stamps `id` and `t`. */
 export type TabLogInput = Pick<TabLogEntry, "kind" | "title" | "text">;
 
-/** One entry's text is cut here, so a huge page tree cannot fill the storage quota alone. */
-export const LOG_ENTRY_MAX_CHARS = 150_000;
-/** Text kept per tab; the oldest entries go first. Session storage holds 10 MB across all tabs. */
-export const LOG_TAB_MAX_CHARS = 1_200_000;
-/** Entries kept per tab. */
-export const LOG_TAB_MAX_ENTRIES = 300;
+/** What one write tells the sidebar: the entries a tab gained, or that its log was cleared. */
+export type TabLogChange =
+  { tabId: number; added: TabLogEntry[] } | { tabId: number; cleared: true };
+
+const DB_NAME = "acorn-tab-log";
+const DB_VERSION = 1;
+const ENTRY_STORE = "entries";
+/** Entries by tab, in the order they were written (the store's own key). */
+const BY_TAB = "byTab";
+/** The channel the service worker announces each write on; the sidebar listens. */
+const CHANGE_CHANNEL = "acorn-tab-log";
 /** Entries wait this long to be written together, so a burst of step events is one write. */
 const LOG_FLUSH_MS = 250;
+/** Where the log lived before (session storage): its leftovers are removed once. */
+const LEGACY_SESSION_PREFIX = "acornTabLog:";
 
-export function tabLogKey(tabId: number): string {
-  return `${TAB_LOG_STORAGE_PREFIX}${tabId}`;
+type StoredEntry = TabLogEntry & { tabId: number };
+
+let database: Promise<IDBDatabase> | null = null;
+
+function openDatabase(): Promise<IDBDatabase> {
+  database ??= new Promise((resolve, reject) => {
+    const request = indexedDB.open(DB_NAME, DB_VERSION);
+    request.onupgradeneeded = () => {
+      const store = request.result.createObjectStore(ENTRY_STORE, { autoIncrement: true });
+      store.createIndex(BY_TAB, "tabId");
+    };
+    request.onsuccess = () => resolve(request.result);
+    request.onerror = () => {
+      database = null;
+      reject(request.error ?? new Error("Could not open the log database"));
+    };
+  });
+  return database;
 }
 
-export function tabIdFromLogKey(key: string): number | null {
-  if (!key.startsWith(TAB_LOG_STORAGE_PREFIX)) return null;
-  const id = Number(key.slice(TAB_LOG_STORAGE_PREFIX.length));
-  return Number.isInteger(id) ? id : null;
+function done(transaction: IDBTransaction): Promise<void> {
+  return new Promise((resolve, reject) => {
+    transaction.oncomplete = () => resolve();
+    transaction.onabort = transaction.onerror = () =>
+      reject(transaction.error ?? new Error("Log write failed"));
+  });
+}
+
+function announce(change: TabLogChange): void {
+  const channel = new BroadcastChannel(CHANGE_CHANNEL);
+  channel.postMessage(change);
+  channel.close();
+}
+
+/** Follow every tab's log changes; returns the function that stops following. */
+export function onTabLogChange(listener: (change: TabLogChange) => void): () => void {
+  const channel = new BroadcastChannel(CHANGE_CHANNEL);
+  channel.onmessage = (event: MessageEvent<TabLogChange>) => listener(event.data);
+  return () => channel.close();
 }
 
 /** Text as JSON for the code block; values that cannot be stringified are named instead. */
@@ -63,26 +98,12 @@ export function toLogText(data: unknown): string {
   }
 }
 
-function clip(text: string): string {
-  if (text.length <= LOG_ENTRY_MAX_CHARS) return text;
-  return `${text.slice(0, LOG_ENTRY_MAX_CHARS)}\n… cut, ${text.length - LOG_ENTRY_MAX_CHARS} more characters`;
-}
-
-function trim(entries: TabLogEntry[]): TabLogEntry[] {
-  let kept = entries.slice(-LOG_TAB_MAX_ENTRIES);
-  let size = kept.reduce((sum, entry) => sum + entry.text.length, 0);
-  while (kept.length > 1 && size > LOG_TAB_MAX_CHARS) {
-    size -= kept[0].text.length;
-    kept = kept.slice(1);
-  }
-  return kept;
-}
-
 export async function getTabLog(tabId: number): Promise<TabLogEntry[]> {
-  const key = tabLogKey(tabId);
-  const stored = await chrome.storage.session.get(key);
-  const raw = stored[key];
-  return Array.isArray(raw) ? (raw as TabLogEntry[]) : [];
+  const db = await openDatabase();
+  const read = db.transaction(ENTRY_STORE, "readonly");
+  const request = read.objectStore(ENTRY_STORE).index(BY_TAB).getAll(IDBKeyRange.only(tabId));
+  await done(read);
+  return (request.result as StoredEntry[]).map(({ tabId: _tab, ...entry }) => entry);
 }
 
 const pending = new Map<number, TabLogEntry[]>();
@@ -90,11 +111,12 @@ let timer: ReturnType<typeof setTimeout> | null = null;
 let sequence = 0;
 
 async function flushTab(tabId: number, added: TabLogEntry[]): Promise<void> {
-  const key = tabLogKey(tabId);
-  await withStorageLock(key, async () => {
-    const next = trim([...(await getTabLog(tabId)), ...added]);
-    await chrome.storage.session.set({ [key]: next });
-  });
+  const db = await openDatabase();
+  const write = db.transaction(ENTRY_STORE, "readwrite");
+  const store = write.objectStore(ENTRY_STORE);
+  for (const entry of added) store.add({ ...entry, tabId } satisfies StoredEntry);
+  await done(write);
+  announce({ tabId, added });
 }
 
 function flushAll(): void {
@@ -112,7 +134,7 @@ export function appendTabLog(tabId: number | undefined, input: TabLogInput): voi
   if (tabId == null) return;
   const t = Date.now();
   sequence += 1;
-  const entry: TabLogEntry = { ...input, text: clip(input.text), id: `${t}-${sequence}`, t };
+  const entry: TabLogEntry = { ...input, id: `${t}-${sequence}`, t };
   pending.set(tabId, [...(pending.get(tabId) ?? []), entry]);
   timer ??= setTimeout(flushAll, LOG_FLUSH_MS);
 }
@@ -134,6 +156,41 @@ export function logTab(
 
 export async function clearTabLog(tabId: number): Promise<void> {
   pending.delete(tabId);
-  const key = tabLogKey(tabId);
-  await withStorageLock(key, () => chrome.storage.session.remove(key));
+  const db = await openDatabase();
+  const write = db.transaction(ENTRY_STORE, "readwrite");
+  const index = write.objectStore(ENTRY_STORE).index(BY_TAB);
+  const cursor = index.openKeyCursor(IDBKeyRange.only(tabId));
+  cursor.onsuccess = () => {
+    const at = cursor.result;
+    if (!at) return;
+    write.objectStore(ENTRY_STORE).delete(at.primaryKey);
+    at.continue();
+  };
+  await done(write);
+  announce({ tabId, cleared: true });
+}
+
+/**
+ * Logs of tabs that no longer exist (the browser closed with them open): a new
+ * session starts without them, as the session-storage log did.
+ */
+export async function dropClosedTabLogs(openTabIds: number[]): Promise<void> {
+  const open = new Set(openTabIds);
+  const db = await openDatabase();
+  const write = db.transaction(ENTRY_STORE, "readwrite");
+  const cursor = write.objectStore(ENTRY_STORE).openCursor();
+  cursor.onsuccess = () => {
+    const at = cursor.result;
+    if (!at) return;
+    if (!open.has((at.value as StoredEntry).tabId)) at.delete();
+    at.continue();
+  };
+  await done(write);
+}
+
+/** The log's old home in session storage held a quota-bound copy: free it. */
+export async function dropLegacySessionLogs(): Promise<void> {
+  const stored = await chrome.storage.session.get(null);
+  const keys = Object.keys(stored).filter((key) => key.startsWith(LEGACY_SESSION_PREFIX));
+  if (keys.length) await chrome.storage.session.remove(keys);
 }

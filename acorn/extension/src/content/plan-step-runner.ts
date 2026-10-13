@@ -340,6 +340,11 @@ export async function actOnVerified(
     }
 
     const after = valueAfter ?? readControlValue(el);
+    // A typed answer the page does not hold (the widget cleared or refused it) is a
+    // failed step: passing it as done would leave the field empty without a word.
+    if (step.action === "fill" && !readControlValue(el).trim() && !after.trim()) {
+      throw new Error("The page did not keep the typed value");
+    }
     rememberPlanFilled(el, step, readControlValue(el));
     traceFromPage("step:acted", () => ({
       element_index: step.element_index,

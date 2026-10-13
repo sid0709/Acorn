@@ -66,6 +66,11 @@ const LEFTOVER_STOP_MARGIN_MS = 15_000;
  * sends the form and draws the page again); past it the fill fails.
  */
 const FILL_MAX_PAGE_RELOADS = 3;
+/**
+ * Looks for fields drawn after the plan ran, each planning only new ones. The
+ * page settles within a few: the bound only stops a page that keeps adding fields.
+ */
+const LATE_PASSES_MAX = 3;
 /** What the fill says while the site loads the page it sent away. */
 const PAGE_RELOADING = "The page reloaded while Acorn filled it; filling it again once it loads…";
 
@@ -521,20 +526,36 @@ export async function runFabPipeline(args: RunPipelineArgs): Promise<void> {
         report = await runPlan(plan, stepTotal);
 
         // Fields the first scan could not see: a section that rendered late, fields an
-        // import re-rendered, follow-ups an answer revealed.
-        const late =
-          !report.aborted && (pendingOnly || wantsFastPlan(mode))
-            ? await clock.time("late", () =>
-                planLateFields({ tabId, frameId, page, apiUrl: aiServerUrl, blocked: pendingOnly }),
-              )
-            : null;
-        if (late) {
-          planSnapshot = redactPlan({
-            ...plan,
-            actions: [...(plan.actions ?? []), ...late.actions],
-          });
-          report = mergeReports(report, await runPlan(late, late.actions.length));
-        }
+        // import re-rendered, follow-ups an answer revealed. The page is looked at
+        // again until a look finds nothing new, however long it took to draw.
+        // Fields the plan answered are done; one it left is looked at once more.
+        const lateSeen = new Set<number>(
+          (plan.actions ?? [])
+            .map((action) => action.element_index)
+            .filter((index): index is number => index != null),
+        );
+        const settleLate = async () => {
+          for (let pass = 0; pass < LATE_PASSES_MAX && !report.aborted; pass += 1) {
+            const late = await clock.time("late", () =>
+              planLateFields({
+                tabId,
+                frameId,
+                page,
+                apiUrl: aiServerUrl,
+                blocked: pendingOnly,
+                seen: lateSeen,
+              }),
+            );
+            if (!late) return;
+            planSnapshot = redactPlan({
+              ...plan,
+              actions: [...(planSnapshot?.actions ?? plan.actions ?? []), ...late.actions],
+            });
+            report = mergeReports(report, await runPlan(late, late.actions.length));
+          }
+        };
+        const looksLate = pendingOnly || wantsFastPlan(mode);
+        if (looksLate) await settleLate();
 
         // A page that rewrote itself under the fill (a résumé import, a reset) gets its
         // answers back before the leftover pass reads what is still empty.
@@ -566,6 +587,8 @@ export async function runFabPipeline(args: RunPipelineArgs): Promise<void> {
               LEFTOVER_PASS_TIMEOUT_MS,
             ),
           );
+          // A dropdown answer can draw new fields (an address block after a country).
+          if (looksLate) await settleLate();
         }
 
         if (!watch.left() || signal?.aborted) break;

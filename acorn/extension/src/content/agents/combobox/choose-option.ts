@@ -1,22 +1,27 @@
 import { traceFromPage } from "../../../debug-trace";
+import { containsWords } from "../choice-group";
 import { isSearchBox } from "../field-focus";
+import { readControlValue } from "../read-control-value";
 import { waitMs } from "../wait";
 
 import { estimateOptionAnswer } from "./estimate-client";
 import { decideAmongOptions, findExactOption, type OptionDecision } from "./match";
-import { optionSignature, optionText, popupState } from "./options-dom";
+import { normalize, optionSignature, optionText, popupState } from "./options-dom";
 import { openAndCollectOptions, waitForFilteredOptions } from "./options-wait";
+import { laterWordQueries } from "./query-variants";
 import {
-  clearTypedQuery,
   dismissOpenOverlays,
   focusAndOpenCombobox,
   resolveTypeableInput,
+  settlePopupClosed,
   typeQueryIntoOpenCombobox,
   typeaheadFilterWaitMs,
 } from "./typing";
 
 /** How many option labels a trace event carries. */
 const TRACE_SAMPLE = 10;
+/** Time for a widget to put back or clear typed text after its suggestions close. */
+const TYPED_KEEP_SETTLE_MS = 250;
 /** Some menus render their options a beat after opening. */
 const EMPTY_MENU_RETRY_MS = 450;
 /**
@@ -29,6 +34,8 @@ export type ChooseResult = {
   match: HTMLElement | null;
   /** The candidates the decision saw (for the error message). */
   options: HTMLElement[];
+  /** No option is the answer, and the field kept the answer typed as written. */
+  kept?: string;
 };
 
 export type ChooseOptions = {
@@ -58,7 +65,10 @@ export type ChooseOptions = {
  *    ("United" → the United… countries) until JEV_LIST_MAX or fewer remain, and
  *    Jev decides that list. The estimate is the planned value, or — for a field
  *    the plan did not answer — a short answer from the writer (normal model).
- *    When typing runs out, the most probable option of the last list wins.
+ *    When the answer is not listed as written it is searched from later words of
+ *    it; a field that takes typed text keeps it as written; otherwise the list is
+ *    decided once more, and a specific fact (a place, a school) that no option is
+ *    stays unanswered rather than become a different one.
  */
 export async function chooseOption(
   control: HTMLElement,
@@ -105,36 +115,99 @@ export async function chooseOption(
   const canSearch = allowTypeahead && Boolean(resolveTypeableInput(control));
   if (initial.length <= JEV_LIST_MAX || !canSearch) {
     const typeable = !estimateQuery && value.trim().length >= 2;
-    const first = await decide(value, fieldLabel, null, initial, canSearch && typeable);
-    if (first.match || !canSearch)
-      return { match: first.match ?? first.fallback, options: initial };
+    // A list that cannot be searched is the whole list: a specific fact missing from
+    // it stays unanswered rather than become another (a different city).
+    const first = canSearch
+      ? await decide(value, fieldLabel, null, initial, typeable)
+      : await decide(value, fieldLabel, null, initial, true, true);
+    if (first.match || !canSearch) {
+      return { match: canSearch ? (first.match ?? first.fallback) : first.match, options: initial };
+    }
   }
 
   const query = estimateQuery ? await estimated() : value;
   traceFromPage("combo:estimate", () => ({ value, query, count: initial.length, estimateQuery }));
   if (!query || query.trim().length < 2) {
-    const forced = await decide(value, fieldLabel, null, initial, false);
-    return { match: forced.match ?? forced.fallback, options: initial };
+    const strict = await decide(value, fieldLabel, null, initial, true, true);
+    return { match: strict.match, options: initial };
   }
   return narrowAndDecide(control, doc, query, fieldLabel, initial);
 }
 
+/** A typed search and what it showed: the list the last useful word left, and its decision. */
+type Searched = {
+  match: HTMLElement | null;
+  shown: HTMLElement[];
+  shownQuery: string | null;
+  /** Typing showed suggestions at some point: the field searches as it is typed in. */
+  suggested: boolean;
+};
+
+/**
+ * Narrow the list toward `value`, then decide it. The answer is searched for as
+ * written, then from later words of it (a site may list the same school or street
+ * under other leading words). Then the list is decided once more, where a specific
+ * fact is never swapped for a different one; when no option is the answer, a field
+ * that takes typed text keeps it as written.
+ */
 async function narrowAndDecide(
   control: HTMLElement,
   doc: Document,
-  query: string,
+  value: string,
   fieldLabel: string | null,
   initial: HTMLElement[],
 ): Promise<ChooseResult> {
+  const whole = await searchWords(control, doc, value, value, fieldLabel, initial);
+  if (whole.match) return { match: whole.match, options: whole.shown };
+  let suggested = whole.suggested;
+  for (const variant of laterWordQueries(value)) {
+    const found = await searchWords(control, doc, value, variant, fieldLabel, []);
+    traceFromPage("combo:variant", () => ({
+      value,
+      variant,
+      count: found.shown.length,
+      match: found.match ? optionText(found.match) : null,
+    }));
+    if (found.match) return { match: found.match, options: found.shown };
+    suggested ||= found.suggested;
+  }
+  // The listed options first: a list of codes ("CA") answers a typed name
+  // ("California"), and a strict list may show typed text it never selects.
+  const exact = findExactOption(whole.shown, value);
+  if (exact) return { match: exact, options: whole.shown };
+  const final = await decide(value, fieldLabel, whole.shownQuery, whole.shown, true, true);
+  if (final.match) return { match: final.match, options: whole.shown };
+  // Only a field that offered suggestions as it was typed in is a typed field with
+  // hints (an address line); a list that showed nothing is a fixed set of choices,
+  // and text left in its box answers nothing.
+  const kept = suggested ? await keepTypedAnswer(control, doc, value) : null;
+  if (kept) traceFromPage("combo:kept-typed", () => ({ value, kept }));
+  return { match: null, options: whole.shown, kept: kept ?? undefined };
+}
+
+/**
+ * Type `query` word by word until the list is short enough to decide, and decide
+ * it against `value`. Long lists that typing leaves long are narrowed to the
+ * options that hold the whole query before deciding.
+ */
+async function searchWords(
+  control: HTMLElement,
+  doc: Document,
+  value: string,
+  query: string,
+  fieldLabel: string | null,
+  initial: HTMLElement[],
+): Promise<Searched> {
   const words = query.trim().split(/\s+/).filter(Boolean);
   const filterWait = typeaheadFilterWaitMs(doc);
   let shown = initial;
   let shownQuery: string | null = null;
-  let shownDecision: OptionDecision | null = null;
   let emptied = false;
+  let suggested = false;
 
   for (let i = 0; i < words.length; i += 1) {
     const typed = words.slice(0, i + 1).join(" ");
+    const lastWord = i === words.length - 1;
     await focusAndOpenCombobox(control);
     await typeQueryIntoOpenCombobox(control, typed);
     const filtered = await waitForFilteredOptions(control, doc, optionSignature(shown), filterWait);
@@ -149,40 +222,59 @@ async function narrowAndDecide(
       emptied = true;
       break;
     }
+    suggested = true;
     // A word that left the list as it was (a search a word behind, a word every
     // option shares) says nothing yet: type the next one, which may still narrow it.
-    if (optionSignature(filtered) === optionSignature(shown)) continue;
+    if (optionSignature(filtered) === optionSignature(shown) && !lastWord) continue;
     shown = filtered;
     shownQuery = typed;
-    shownDecision = null;
-    const exact = findExactOption(filtered, query);
+    const exact = findExactOption(filtered, value);
     if (exact) {
-      traceFromPage("combo:decide", () => decision(query, typed, filtered, exact, "exact"));
-      return { match: exact, options: filtered };
+      traceFromPage("combo:decide", () => decision(value, typed, filtered, exact, "exact"));
+      return { match: exact, shown, shownQuery, suggested };
     }
-    if (filtered.length > JEV_LIST_MAX) continue;
-    const moreWords = i < words.length - 1;
-    shownDecision = await decide(query, fieldLabel, typed, filtered, moreWords);
-    if (shownDecision.match) return { match: shownDecision.match, options: filtered };
+    // The whole query is typed and the list is still long (the widget filters late,
+    // or not at all): the options that hold the query are the candidates.
+    const candidates =
+      filtered.length > JEV_LIST_MAX && lastWord ? holdingQuery(filtered, query) : filtered;
+    if (!candidates.length || candidates.length > JEV_LIST_MAX) continue;
+    const decided = await decide(value, fieldLabel, typed, candidates, true);
+    if (decided.match) return { match: decided.match, shown, shownQuery, suggested };
   }
 
-  // The last word emptied the list: put back the query that still showed candidates,
-  // or clear the text so the whole list shows and the most probable option is taken.
-  if (emptied) {
+  // The last word emptied the list: put back the query that still showed candidates.
+  if (emptied && shownQuery) {
     await focusAndOpenCombobox(control);
-    if (shownQuery) await typeQueryIntoOpenCombobox(control, shownQuery);
-    else await clearTypedQuery(control);
+    await typeQueryIntoOpenCombobox(control, shownQuery);
     const restored = await waitForFilteredOptions(control, doc, "", filterWait);
-    if (restored.length) {
-      if (optionSignature(restored) !== optionSignature(shown)) shownDecision = null;
-      shown = restored;
-    }
+    if (restored.length) shown = restored;
   }
-  const exact = findExactOption(shown, query);
-  if (exact) return { match: exact, options: shown };
-  // Nothing left to search: select the most probable listed option rather than leave it blank.
-  const final = shownDecision ?? (await decide(query, fieldLabel, shownQuery, shown, false));
-  return { match: final.match ?? final.fallback, options: shown };
+  return { match: null, shown, shownQuery, suggested };
+}
+
+/** The options whose text holds every word of the query, in order. */
+function holdingQuery(options: HTMLElement[], query: string): HTMLElement[] {
+  return options.filter((option) => containsWords(optionText(option), query));
+}
+
+/**
+ * A field that takes typed text (an address line with suggestions) keeps the answer
+ * as written when no suggestion is it. Type it whole, close the suggestions, and
+ * read what the field holds: the answer when it kept it, null when it cleared it.
+ */
+async function keepTypedAnswer(
+  control: HTMLElement,
+  doc: Document,
+  value: string,
+): Promise<string | null> {
+  const input = resolveTypeableInput(control);
+  if (!input || isSearchBox(input)) return null;
+  await focusAndOpenCombobox(control);
+  await typeQueryIntoOpenCombobox(control, value);
+  await settlePopupClosed(control, doc);
+  await waitMs(TYPED_KEEP_SETTLE_MS);
+  const held = (input.value || readControlValue(control)).replace(/\s+/g, " ").trim();
+  return held && normalize(held) === normalize(value) ? held : null;
 }
 
 async function decide(
@@ -191,13 +283,22 @@ async function decide(
   typedQuery: string | null,
   options: HTMLElement[],
   allowNotListed: boolean,
+  listComplete = false,
 ): Promise<OptionDecision> {
   const started = Date.now();
-  const result = await decideAmongOptions(options, value, fieldLabel, typedQuery, allowNotListed);
+  const result = await decideAmongOptions(
+    options,
+    value,
+    fieldLabel,
+    typedQuery,
+    allowNotListed,
+    listComplete,
+  );
   traceFromPage("combo:decide", () => ({
     ...decision(value, typedQuery, options, result.match, "jev"),
     ms: Date.now() - started,
     allowNotListed,
+    listComplete,
     fallback: result.fallback ? optionText(result.fallback) : null,
   }));
   return result;

@@ -52,6 +52,12 @@ export interface ReadPageResponse {
    * control anyway. The run clicks it before deciding the page is stuck.
    */
   fallback?: { id: number; role: ControlRole; confidence: number } | null;
+  /**
+   * On a filled form: the control that does what the page still reports as
+   * required (an assessment, a document, a section named as an issue). Doing it is
+   * the next step, ahead of `control`.
+   */
+  requirement?: { id: number; role: ControlRole; confidence: number } | null;
   /** The page offers a way to go on without signing in or creating an account. */
   guest?: boolean;
   /**

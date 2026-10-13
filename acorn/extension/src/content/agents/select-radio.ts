@@ -178,6 +178,33 @@ function activateUnlessChosen(el: HTMLElement): void {
   pointerActivate(el);
 }
 
+/**
+ * A hidden native option answered through what a person clicks (its label, a
+ * drawn button): the answer counts only once the page shows it chosen. The
+ * native option the answer names is read; when the click did not reach it, the
+ * option itself is activated once, and a page that still does not keep it fails
+ * the step instead of passing it as done.
+ */
+async function confirmProxyChoice(
+  proxy: HTMLInputElement,
+  clicked: HTMLElement,
+  intended: string,
+): Promise<void> {
+  await waitMs(ARIA_STATE_SETTLE_MS);
+  const kind = proxy.type === "radio" ? "radio" : "checkbox";
+  const named = findChoiceInGroup(groupRoot(proxy), intended, kind);
+  if (named) {
+    if (named.checked) return;
+    named.click();
+    await waitMs(ARIA_STATE_SETTLE_MS);
+    if (named.checked) return;
+    throw new Error(`The page did not keep "${intended}" selected`);
+  }
+  if (choiceState(clicked) === false) {
+    throw new Error(`The page did not keep "${intended}" selected`);
+  }
+}
+
 /** The field has options, but none carries the intended label. */
 class NoChoiceMatch extends Error {}
 
@@ -336,6 +363,7 @@ async function selectChoiceLocally(el: Element, value: string | null): Promise<s
     const option = findVisibleChoiceOption(el, intended);
     if (option) {
       activateUnlessChosen(option);
+      await confirmProxyChoice(el, option, intended);
       return choiceOptionLabel(option) || intended;
     }
   }

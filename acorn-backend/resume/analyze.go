@@ -86,7 +86,10 @@ const skillAnalysisSchema = `{
   "required": ["skills"]
 }`
 
-func (s *Service) AnalyzeLibrary(ctx context.Context, accountID, id string, force bool, model Model) (LibraryRow, error) {
+// AnalyzeLibrary reads the résumé's skills from its text alone, whatever the file
+// format. browserText is text the browser read from the file just now (PDF.js), when
+// it sent any: it heals a row whose stored text came out unreadable.
+func (s *Service) AnalyzeLibrary(ctx context.Context, accountID, id string, force bool, model Model, browserText string) (LibraryRow, error) {
 	row, ok := s.store.libraryItem(accountID, id)
 	if !ok {
 		return LibraryRow{}, ErrNotFound
@@ -95,7 +98,7 @@ func (s *Service) AnalyzeLibrary(ctx context.Context, accountID, id string, forc
 		row.Bytes = nil
 		return row, nil
 	}
-	row.ExtractedText = bestResumeText(row.FileName, row.ExtractedText, row.Bytes)
+	row.ExtractedText = bestResumeText(row.FileName, row.Bytes, browserText, row.ExtractedText)
 	text := truncateRunes(strings.TrimSpace(row.ExtractedText), analyzeTextMaxRunes)
 	if text == "" {
 		if strings.EqualFold(filepathExt(row.FileName), ".pdf") {

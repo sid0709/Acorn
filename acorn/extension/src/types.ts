@@ -135,6 +135,11 @@ export interface MatchOptionRequest {
   typedQuery?: string | null;
   /** The list may be partial (a search box can show more), so "not listed" is a valid answer. */
   allowNotListed?: boolean;
+  /**
+   * With allowNotListed: these are all the options there are. "Not listed" then
+   * means no option is the answer, and a specific fact is never swapped for another.
+   */
+  listComplete?: boolean;
   /** A checkbox group: the answer is every option to check. */
   multiple?: boolean;
 }

@@ -220,7 +220,7 @@ func (s *Service) UploadLibrary(accountID, name, title, kind string, data []byte
 	if strings.TrimSpace(title) == "" {
 		title = strings.TrimSuffix(name, filepathExt(name))
 	}
-	text := bestResumeText(name, extractedText, data)
+	text := bestResumeText(name, data, extractedText)
 	row := LibraryRow{
 		ID: id, AccountID: accountID, Source: "uploaded", Kind: kind, FileName: name, Title: title,
 		Size: len(data), UploadedAt: time.Now().UTC(), ExtractedText: text,

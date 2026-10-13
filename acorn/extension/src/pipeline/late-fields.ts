@@ -22,8 +22,14 @@ export async function planLateFields(args: {
   apiUrl: string;
   /** The page holds its forward control disabled: boxes left off are asked about again. */
   blocked?: boolean;
+  /**
+   * Fields an earlier look already planned or left: only new ones are planned, so
+   * looking again until nothing new shows costs nothing once the page settled.
+   * Each field planned here is added to it.
+   */
+  seen?: Set<number>;
 }): Promise<ActionPlan | null> {
-  const { tabId, frameId, page, apiUrl, blocked = false } = args;
+  const { tabId, frameId, page, apiUrl, blocked = false, seen } = args;
   const started = Date.now();
   try {
     const dom = await fetchDomFromTab(tabId, frameId, {
@@ -31,7 +37,8 @@ export async function planLateFields(args: {
       pendingFields: true,
       blockedFields: blocked,
     });
-    const fields = dom.formFields ?? [];
+    const fields = (dom.formFields ?? []).filter((field) => !seen?.has(field.elementIndex));
+    for (const field of fields) seen?.add(field.elementIndex);
     traceFromBackground(
       "late:fields",
       () => ({
