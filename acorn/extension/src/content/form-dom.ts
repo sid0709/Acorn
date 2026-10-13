@@ -220,6 +220,44 @@ export function groupAccessibleName(control: Element): string {
   return clip(byIds || group.getAttribute("aria-label") || legend || "", MAX_TEXT_CHARS);
 }
 
+/** How far up from a field the small group it is one part of is looked for. */
+const PART_GROUP_DEPTH = 4;
+/** A group whose parts make one answer (a date, a phone) holds a few fields, no more. */
+const PART_GROUP_MAX_FIELDS = 4;
+
+/** The name a container gives itself: aria-label, aria-labelledby, or a fieldset's legend. */
+function containerName(node: Element): string {
+  const ids = (node.getAttribute("aria-labelledby") || "").split(/\s+/).filter(Boolean);
+  const byIds = ids.map((id) => uniqueById(node, id)?.textContent ?? "").join(" ");
+  const legend =
+    node instanceof HTMLFieldSetElement ? node.querySelector(":scope > legend")?.textContent : "";
+  return clip(node.getAttribute("aria-label") || byIds || legend || "", MAX_TEXT_CHARS);
+}
+
+/**
+ * The name of the small group a field is one part of — a date's Month inside
+ * "Start Date", a phone's country code inside "Phone" — as the group names itself.
+ * "" when the field stands alone: a bare "Month" does not say whose month it is.
+ */
+export function partGroupName(control: Element): string {
+  let node = control.parentElement;
+  for (let depth = 0; node && depth < PART_GROUP_DEPTH; depth += 1) {
+    const fields = distinctFieldCount(node);
+    if (fields > PART_GROUP_MAX_FIELDS) return "";
+    const name = fields > 1 ? containerName(node) : "";
+    if (name) return name;
+    node = node.parentElement;
+  }
+  return "";
+}
+
+/** A part's label with the name of the group it belongs to, unless the label says it already. */
+export function withPartGroup(control: Element, label: string): string {
+  const group = partGroupName(control);
+  if (!group || normalize(label).includes(normalize(group))) return label;
+  return label ? `${group} — ${label}` : group;
+}
+
 /** How far up from a control to look for its section's heading. */
 const MAX_SECTION_DEPTH = 12;
 const SECTION_TITLE_SELECTOR = 'h1, h2, h3, h4, h5, h6, [role="heading"], legend';

@@ -81,6 +81,9 @@ type ChoiceQuestion struct {
 	// Intended is the answer the applicant wants when the field itself sets it (a
 	// box the form needs); empty means the picker answers from the profile.
 	Intended string
+	// MayAct is true for a field of buttons: buttons can act on the form (add, edit,
+	// remove, save, cancel) instead of answering, and then none of them is an answer.
+	MayAct bool
 }
 
 // ChoicePicker answers choice fields straight from their options. The
@@ -347,7 +350,7 @@ func choiceQuestions(fields []FormField) []ChoiceQuestion {
 	for _, field := range fields {
 		question := ChoiceQuestion{
 			ElementIndex: field.ElementIndex, Field: choiceField(field), Options: field.Options,
-			Multiple: field.Kind == fieldCheckbox,
+			Multiple: field.Kind == fieldCheckbox, MayAct: field.Kind == fieldButtons,
 		}
 		if field.Kind == fieldToggle {
 			question.Options = []string{toggleCheck, toggleLeave}

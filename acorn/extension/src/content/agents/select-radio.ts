@@ -1,6 +1,7 @@
 import { fieldWrapper } from "../form-dom";
 import { inferElementRole } from "../verify-element";
 
+import { isKnownCommand, isStatelessButton, rememberCommand } from "./button-roles";
 import { applyCheckboxSet, isCheckboxGroup, pickSingleChoice } from "./choice-decision";
 import {
   choiceOptionLabel,
@@ -73,6 +74,11 @@ const GROUP_CONTAINER_SELECTOR =
 const OPTION_BUTTON_SELECTOR = 'button, [role="button"], [role="radio"], [aria-pressed]';
 /** How long an ARIA toggle gets to show its new state after a click. */
 const ARIA_STATE_SETTLE_MS = 150;
+/** How long the page gets to redraw after a plain option button is pressed. */
+const PLAIN_OPTION_SETTLE_MS = 300;
+/** Why a plain button pressed as an answer, or drawn like one that acted, is not pressed. */
+const ACTS_ON_FORM =
+  "This button acts on the form (it removed or closed what it belongs to) instead of answering";
 /** How far up from an option button to look for the set of options it belongs to. */
 const OPTION_SET_MAX_DEPTH = 4;
 
@@ -178,6 +184,81 @@ function activateUnlessChosen(el: HTMLElement): void {
   pointerActivate(el);
 }
 
+/** A press on a plain button acted on the form instead of answering. */
+class ActedOnForm extends Error {}
+
+/** The option buttons of the set `el` belongs to, displayed or not. */
+function optionPeers(el: HTMLElement): HTMLElement[] {
+  return Array.from(groupRoot(el).querySelectorAll(OPTION_BUTTON_SELECTOR)).filter(
+    (node): node is HTMLElement => node instanceof HTMLElement,
+  );
+}
+
+/** How many displayed option buttons in the page carry each of `labels`. */
+function shownWithLabels(doc: Document, labels: string[]): Map<string, number> {
+  const counts = new Map(labels.map((label) => [label, 0]));
+  for (const node of Array.from(doc.querySelectorAll(OPTION_BUTTON_SELECTOR))) {
+    if (!(node instanceof HTMLElement) || !isDisplayed(node)) continue;
+    const label = normalize(choiceOptionLabel(node));
+    const count = counts.get(label);
+    if (count != null) counts.set(label, count + 1);
+  }
+  return counts;
+}
+
+/**
+ * Press one option. A plain button shows no state of its own, so nothing tells an
+ * answer from a command before it is pressed; the press does. An answer leaves
+ * every option of its question in the page (drawn again or not; follow-ups may
+ * appear); a command takes some away: it removed the entry they belong to, closed
+ * their form, or turned it into another. Buttons drawn like one that acted are
+ * never pressed as answers on this page again.
+ */
+async function pressOption(button: HTMLElement): Promise<void> {
+  if (!isStatelessButton(button)) {
+    activateUnlessChosen(button);
+    return;
+  }
+  if (isKnownCommand(button)) throw new ActedOnForm(ACTS_ON_FORM);
+  const doc = button.ownerDocument;
+  const labels = [
+    ...new Set(optionPeers(button).map((peer) => normalize(choiceOptionLabel(peer)))),
+  ];
+  const before = shownWithLabels(doc, labels);
+  activateUnlessChosen(button);
+  await waitMs(PLAIN_OPTION_SETTLE_MS);
+  const after = shownWithLabels(doc, labels);
+  if (labels.every((label) => (after.get(label) ?? 0) >= (before.get(label) ?? 0))) return;
+  rememberCommand(button);
+  throw new ActedOnForm(ACTS_ON_FORM);
+}
+
+/**
+ * Whether the option set `el` belongs to is plain buttons only: no native input
+ * and no ARIA state behind any of them. Such a set is never answered on a guess.
+ */
+export function answersByPlainButtons(el: Element): boolean {
+  if (!(el instanceof HTMLElement) || !isStatelessButton(el)) return false;
+  const root = groupRoot(el);
+  if (root.querySelector('input[type="radio"], input[type="checkbox"]')) return false;
+  return optionPeers(el).every(isStatelessButton);
+}
+
+/**
+ * The label of the option chosen in the set `el` belongs to: a set of options
+ * (pills, radios) answers through one of them, whichever node a step named. ""
+ * when none reads as chosen or `el` is no option.
+ */
+export function chosenOptionLabel(el: Element): string {
+  if (!(el instanceof HTMLElement) || !isChoiceOption(el)) return "";
+  const chosen = optionPeers(el).find((option) => choiceState(option) === true);
+  return chosen ? inputOptionLabel(chosen) : "";
+}
+
+function isChoiceOption(el: HTMLElement): boolean {
+  return el.matches(OPTION_BUTTON_SELECTOR) && !(el instanceof HTMLInputElement);
+}
+
 /**
  * A hidden native option answered through what a person clicks (its label, a
  * drawn button): the answer counts only once the page shows it chosen. The
@@ -211,7 +292,9 @@ class NoChoiceMatch extends Error {}
 /**
  * Select a choice field's answer. A checkbox group is decided as a set by the
  * SelectorGateway (Jev). Otherwise the option whose label is the value wins; when
- * no label matches, Jev picks the field's most probable option and that is selected.
+ * no label matches, Jev picks the field's most probable option and that is
+ * selected — except among plain buttons, where a guess may press one that acts
+ * on the form (removes an entry, closes a form): those take an exact answer only.
  */
 export async function selectRadioElement(
   el: Element,
@@ -227,7 +310,7 @@ export async function selectRadioElement(
   try {
     return await selectChoiceLocally(el, value);
   } catch (err) {
-    if (!(err instanceof NoChoiceMatch)) throw err;
+    if (!(err instanceof NoChoiceMatch) || answersByPlainButtons(el)) throw err;
     const label = await pickSingleChoice(root, intended, fieldHint);
     if (!label || normalize(label) === normalize(intended)) throw err;
     return selectChoiceLocally(el, label);
@@ -380,7 +463,7 @@ async function selectChoiceLocally(el: Element, value: string | null): Promise<s
 
   // Custom choice buttons: the planned node is the option to activate.
   if (el instanceof HTMLButtonElement && intended && labelsMatch(html, intended)) {
-    activateUnlessChosen(html);
+    await pressOption(html);
     return inputOptionLabel(html) || intended;
   }
 
@@ -397,7 +480,7 @@ async function selectChoiceLocally(el: Element, value: string | null): Promise<s
     }
     const button = findButtonChoice(root, intended);
     if (button) {
-      activateUnlessChosen(button);
+      await pressOption(button);
       return inputOptionLabel(button) || intended;
     }
   }
@@ -419,6 +502,6 @@ async function selectChoiceLocally(el: Element, value: string | null): Promise<s
     return selectComboboxOption(el, intended);
   }
 
-  activateUnlessChosen(html);
+  await pressOption(html);
   return inputOptionLabel(el) || "clicked";
 }

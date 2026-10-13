@@ -1,5 +1,5 @@
 import { traceFromPage } from "../../debug-trace";
-import { fieldWrapper, groupQuestion } from "../form-dom";
+import { fieldWrapper, groupQuestion, partGroupName, sectionTitle } from "../form-dom";
 import { deepQueryAll } from "../shadow-control";
 import { forLabelOf, uniqueById } from "../verify/element-labels";
 
@@ -12,7 +12,7 @@ import { resolveDropdownInteractionTarget } from "./enhanced-select";
 import { fillElement } from "./fill";
 import { askAiMatchOption } from "./match-option-client";
 import { optionLabel, realOptions } from "./native-select";
-import { wasPlanFilled } from "./plan-fill-registry";
+import { rememberPlanFilled, wasPlanFilled } from "./plan-fill-registry";
 import { readControlValue } from "./read-control-value";
 
 /** Planner-less leftover controls: matcher AI answers from the applicant profile. */
@@ -47,7 +47,9 @@ function isCombobox(el: HTMLElement): boolean {
 /**
  * A dropdown's name, with its question: a control inside a fieldset is asked the
  * fieldset's legend (HTML's own label for a group), which a bare name such as
- * "Select One" leaves out.
+ * "Select One" leaves out. A part of a date asks the date its group names ("Start
+ * Date" around "Month"), and both ask within their section ("Education"): a bare
+ * "Month" says nothing of whose month.
  */
 function fieldLabel(el: HTMLElement): string {
   const own = ownLabel(el);
@@ -56,8 +58,16 @@ function fieldLabel(el: HTMLElement): string {
     ?.querySelector("legend")
     ?.textContent?.replace(/\s+/g, " ")
     .trim();
-  if (!legend || own.toLowerCase().includes(legend.toLowerCase())) return own;
-  return own ? `${legend} — ${own}` : legend;
+  const parts: string[] = [];
+  for (const part of [sectionTitle(el), legend ?? "", partGroupName(el), own]) {
+    const text = part.replace(/\s+/g, " ").trim();
+    if (!text || parts.some((kept) => kept.toLowerCase().includes(text.toLowerCase()))) continue;
+    // A broader part the next one already says ("Start Date" in "Start Date Month") is dropped.
+    const said = parts.findIndex((kept) => text.toLowerCase().includes(kept.toLowerCase()));
+    if (said >= 0) parts.splice(said, 1);
+    parts.push(text);
+  }
+  return parts.join(" — ");
 }
 
 function ownLabel(el: HTMLElement): string {
@@ -81,10 +91,21 @@ function ownLabel(el: HTMLElement): string {
 }
 
 /**
- * Fill the dropdowns no plan step answered. Nothing new is started after
- * `deadline` (ms since epoch): the run has moved on and needs the page.
+ * Values a site put in itself that the profile was found to agree with, by the
+ * dropdown that shows them: while one still shows that value it is not judged
+ * again, so a page looked at round after round costs no model call for it.
  */
-export async function fillLeftoverComboboxes(deadline = Number.POSITIVE_INFINITY): Promise<{
+const agreedValues = new WeakMap<Element, string>();
+
+/**
+ * Fill the dropdowns no plan step answered. Nothing new is started after
+ * `deadline` (ms since epoch): the run has moved on and needs the page. `within`
+ * keeps the pass to some dropdowns (what a click opened); null answers them all.
+ */
+export async function fillLeftoverComboboxes(
+  deadline = Number.POSITIVE_INFINITY,
+  within: ((el: Element) => boolean) | null = null,
+): Promise<{
   found: number;
   filled: number;
   stopped?: boolean;
@@ -97,10 +118,10 @@ export async function fillLeftoverComboboxes(deadline = Number.POSITIVE_INFINITY
   let filled = 0;
   // A value the site put in itself (a country taken from the job's location) is
   // the applicant's only when the profile agrees: one that contradicts it is answered again.
-  const contradicted = await prefilledAgainstProfile();
+  const contradicted = await prefilledAgainstProfile(within);
   for (let round = 0; round < MAX_LEFTOVER_ROUNDS && found < MAX_LEFTOVER; round += 1) {
     if (late()) return stopAtDeadline(found, filled);
-    const { all, leftovers } = leftoverCandidates(tried);
+    const { all, leftovers } = leftoverCandidates(tried, within);
     const fresh = round === 0 ? contradicted.filter((el) => !leftovers.includes(el)) : [];
     const batch = [...fresh, ...leftovers].slice(0, MAX_LEFTOVER - found);
     if (!batch.length) break;
@@ -212,8 +233,9 @@ async function fillLeftover(
     traceFromPage("leftover:no-answer", () => ({ id: el.id, label }));
     return false;
   }
-  // A value the site put in itself counts as answered only once it changed.
-  const before = readControlValue(el);
+  // An empty dropdown counts as answered once it shows a value. One the site had
+  // filled was picked again from the profile's option list: it may show the same
+  // short value (a code shown for its country), and the pick itself is the answer.
   for (let attempt = 1; attempt <= LEFTOVER_FILL_ATTEMPTS; attempt += 1) {
     try {
       await applyLeftoverAnswer(el, label, answer);
@@ -228,7 +250,7 @@ async function fillLeftover(
       continue;
     }
     const read = readControlValue(el);
-    if (read && read !== before) {
+    if (read) {
       traceFromPage("leftover:filled", () => ({
         id: el.id,
         label,
@@ -236,6 +258,8 @@ async function fillLeftover(
         attempt,
         read,
       }));
+      // Answered from the profile: later passes leave it, as they leave a plan's answers.
+      rememberPlanFilled(el, undefined, read);
       return true;
     }
     traceFromPage("leftover:unfilled", () => ({ id: el.id, label, by: answer.kind, attempt }));
@@ -278,10 +302,15 @@ function isOpenToAnswer(el: HTMLElement): boolean {
  * field shows as the same fact or not, all at once. No answer, or an unanswered
  * comparison, keeps the value.
  */
-async function prefilledAgainstProfile(): Promise<HTMLElement[]> {
+async function prefilledAgainstProfile(
+  within: ((el: Element) => boolean) | null,
+): Promise<HTMLElement[]> {
   const prefilled = deepQueryAll(document, '[role="combobox"], select, [aria-haspopup="listbox"]')
     .filter((node): node is HTMLElement => node instanceof HTMLElement)
+    .filter((el) => !within || within(el))
     .filter((el) => isOpenToAnswer(el) && !wasPlanFilled(el) && readControlValue(el) !== "")
+    // Found to agree with the profile on an earlier pass, and still showing that value.
+    .filter((el) => agreedValues.get(el) !== readControlValue(el))
     .slice(0, MAX_LEFTOVER);
   const judged = await Promise.all(
     prefilled.map(async (el) => {
@@ -306,6 +335,7 @@ async function prefilledAgainstProfile(): Promise<HTMLElement[]> {
         answer,
         contradicts,
       }));
+      if (ai.ok && !contradicts) agreedValues.set(el, current);
       return contradicts ? el : null;
     }),
   );
@@ -313,12 +343,14 @@ async function prefilledAgainstProfile(): Promise<HTMLElement[]> {
 }
 
 /** Empty, enabled dropdowns no plan step answered and this pass has not tried. */
-function leftoverCandidates(tried: Set<HTMLElement>): { all: number; leftovers: HTMLElement[] } {
+function leftoverCandidates(
+  tried: Set<HTMLElement>,
+  within: ((el: Element) => boolean) | null,
+): { all: number; leftovers: HTMLElement[] } {
   // Custom elements keep their dropdown inputs in shadow roots: search those too.
-  const nodes = deepQueryAll(
-    document,
-    '[role="combobox"], select, [aria-haspopup="listbox"]',
-  ).filter((node): node is HTMLElement => node instanceof HTMLElement);
+  const nodes = deepQueryAll(document, '[role="combobox"], select, [aria-haspopup="listbox"]')
+    .filter((node): node is HTMLElement => node instanceof HTMLElement)
+    .filter((el) => !within || within(el));
   const leftovers = nodes.filter((el) => {
     if (tried.has(el) || !isOpenToAnswer(el)) return false;
     // The plan already answered this widget; a generic profile answer would overwrite it.

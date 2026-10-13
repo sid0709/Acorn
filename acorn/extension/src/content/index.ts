@@ -12,7 +12,6 @@ import { serializeDom } from "./dom-serializer";
 import { repairDrift } from "./drift-repair";
 import { resolveElementByNodeId } from "./element-resolver";
 import { scanFieldIssues } from "./field-errors";
-import { scanFormFields } from "./form-fields";
 import {
   MIN_CHILD_FORM_CONTROLS,
   MIN_PAGE_FIELDS,
@@ -25,8 +24,9 @@ import { clearHighlight, highlightElement } from "./highlighter";
 import { pageFieldScore } from "./page-fields";
 import { probePage } from "./page-probe";
 import { pageTimeout } from "./page-timer";
-import { scanPendingFormFields } from "./pending-fields";
+import { readFormFields } from "./pending-fields";
 import { runPlanStep } from "./plan-step-runner";
+import { endScope, readScope, scopeState, scopeTest, takeCensus } from "./scope";
 import { initSelectionQa } from "./selection-qa";
 import { initSupportHandoff } from "./support-handoff";
 
@@ -97,6 +97,8 @@ if (!contentWindow[CONTENT_BOOT]) {
 
         try {
           const tree = serializeDom(undefined, { posting });
+          // What an opening click drew is read first: its fields are then the scope's.
+          const scope = message.scope === true ? readScope() : undefined;
           sendResponse({
             url: window.location.href,
             title: document.title,
@@ -105,9 +107,12 @@ if (!contentWindow[CONTENT_BOOT]) {
             formFields:
               message.formFields !== true
                 ? undefined
-                : message.pendingFields === true
-                  ? scanPendingFormFields({ blocked: message.blockedFields === true })
-                  : scanFormFields(),
+                : readFormFields({
+                    pending: message.pendingFields === true,
+                    blocked: message.blockedFields === true,
+                    scoped: message.scopeFields === true,
+                  }),
+            scope,
             formScore: score,
             pageScore,
             fetchedAt: new Date().toISOString(),
@@ -235,7 +240,9 @@ if (!contentWindow[CONTENT_BOOT]) {
       }
       traceFromPage("leftover:before", () => ({ combos: comboSnapshot() }));
       const deadline = Number(message.deadline) || Number.POSITIVE_INFINITY;
-      void runExclusive(() => fillLeftoverComboboxes(deadline))
+      // A scoped fill answers only the dropdowns of what the click opened.
+      const within = message.scoped === true ? (scopeTest() ?? (() => false)) : null;
+      void runExclusive(() => fillLeftoverComboboxes(deadline, within))
         .then((result) => sendResponse({ ok: true, ...result }))
         .catch((err) =>
           sendResponse({
@@ -322,6 +329,46 @@ if (!contentWindow[CONTENT_BOOT]) {
           sendResponse({ ok: false, error: err instanceof Error ? err.message : String(err) }),
         );
       return true;
+    }
+
+    if (message.type === MSG.SCOPE_CENSUS) {
+      if (!isRunFrame()) {
+        sendResponse({ ok: false, skipped: true, error: "Not a form frame" });
+        return false;
+      }
+      void runExclusive(() => Promise.resolve(takeCensus()))
+        .then(() => sendResponse({ ok: true }))
+        .catch((err) =>
+          sendResponse({ ok: false, error: err instanceof Error ? err.message : String(err) }),
+        );
+      return true;
+    }
+
+    if (message.type === MSG.SCOPE_STATE) {
+      if (!isRunFrame()) {
+        sendResponse({ ok: false, skipped: true, error: "Not a form frame" });
+        return false;
+      }
+      // The page re-validates what was just saved before its state is read.
+      void runExclusive(async () => {
+        await waitForDomQuiet();
+        return scopeState();
+      })
+        .then((state) => sendResponse({ ok: true, state }))
+        .catch((err) =>
+          sendResponse({ ok: false, error: err instanceof Error ? err.message : String(err) }),
+        );
+      return true;
+    }
+
+    if (message.type === MSG.SCOPE_END) {
+      if (!isRunFrame()) {
+        sendResponse({ ok: false, skipped: true, error: "Not a form frame" });
+        return false;
+      }
+      endScope(message.committed === true);
+      sendResponse({ ok: true });
+      return false;
     }
 
     if (message.type === MSG.CLEAR_HIGHLIGHT) {

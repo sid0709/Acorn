@@ -24,6 +24,7 @@ import {
   RUN_PAGE_TEXT_MAX_CHARS,
 } from "./run-limits";
 
+import type { OpenScope } from "../types";
 import type { DomTreeNode } from "@acorn/shared/tree-export";
 
 /** What the run knows about the page at one moment. */
@@ -45,6 +46,8 @@ export interface PageSnapshot {
   fields: number;
   /** Embedded frames outside the read frame, by title or address. */
   frames: string[];
+  /** Read with `scope`: what the run's last opening click drew, in this read's node ids. */
+  scope?: OpenScope | null;
 }
 
 /**
@@ -58,7 +61,7 @@ export interface PageSnapshot {
  */
 export async function snapshotPage(
   tabId: number,
-  opts: { form: boolean; frameId?: number | null },
+  opts: { form: boolean; frameId?: number | null; scope?: boolean },
 ): Promise<PageSnapshot> {
   const started = Date.now();
   for (let attempt = 1; ; attempt += 1) {
@@ -86,10 +89,13 @@ export async function snapshotPage(
 
 async function readPage(
   tabId: number,
-  opts: { form: boolean; frameId?: number | null },
+  opts: { form: boolean; frameId?: number | null; scope?: boolean },
 ): Promise<PageSnapshot> {
   const payload = opts.form
-    ? await fetchDomFromTab(tabId, opts.frameId ?? null, { fieldIssues: true })
+    ? await fetchDomFromTab(tabId, opts.frameId ?? null, {
+        fieldIssues: true,
+        scope: opts.scope === true,
+      })
     : await fetchPostingDomFromTab(tabId, { fieldIssues: true });
   const tree = payload.tree as DomTreeNode;
   const title = payload.title || "Untitled";
@@ -111,5 +117,6 @@ async function readPage(
     signature: pageSignature(tree, url, text),
     fields: countFormFields(tree),
     frames: await embeddedFrames(tabId, frameId, tree),
+    scope: payload.scope,
   };
 }

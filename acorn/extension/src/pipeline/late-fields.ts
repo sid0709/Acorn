@@ -36,14 +36,17 @@ export async function planLateFields(args: {
    * the page settled. Each field planned here is added to it.
    */
   seen?: Set<string>;
+  /** Only the fields of what the run's last opening click drew (an entry form). */
+  scoped?: boolean;
 }): Promise<ActionPlan | null> {
-  const { tabId, frameId, page, apiUrl, blocked = false, seen } = args;
+  const { tabId, frameId, page, apiUrl, blocked = false, seen, scoped = false } = args;
   const started = Date.now();
   try {
     const dom = await fetchDomFromTab(tabId, frameId, {
       formFields: true,
       pendingFields: true,
       blockedFields: blocked,
+      scopeFields: scoped,
     });
     const fields = (dom.formFields ?? []).filter((field) => !seen?.has(lateFieldKey(field.label)));
     for (const field of fields) seen?.add(lateFieldKey(field.label));

@@ -6,6 +6,7 @@ import { getJobGenerate } from "../tab-job-generate-session";
 import { fetchCustomResume } from "./api/custom-files";
 import { fetchCustomLibraryResume } from "./api/custom-library";
 import { fetchRecommendedResume } from "./api/job-files";
+import { cachedResumeFile } from "./resume-file-cache";
 
 import type { AcornTabJobBinding } from "../tab-job-session";
 import type { PipelineSource } from "../types";
@@ -35,7 +36,9 @@ export async function loadFillResume(input: {
   const completed = jobGen?.generateStatus === "completed";
   if (completed && jobGen?.workKind === "recommend" && libraryId) {
     try {
-      const file = await fetchCustomLibraryResume(libraryId, input.apiUrl);
+      const file = await cachedResumeFile(`library:${libraryId}`, () =>
+        fetchCustomLibraryResume(libraryId, input.apiUrl),
+      );
       if (file) return { file, skipReason: null };
     } catch (err) {
       return {
@@ -46,7 +49,9 @@ export async function loadFillResume(input: {
   }
   if (generationId && completed) {
     try {
-      const file = await fetchCustomResume(generationId, input.apiUrl);
+      const file = await cachedResumeFile(`generation:${generationId}`, () =>
+        fetchCustomResume(generationId, input.apiUrl),
+      );
       if (file) return { file, skipReason: null };
     } catch (err) {
       return {
@@ -56,7 +61,10 @@ export async function loadFillResume(input: {
     }
   }
   try {
-    const file = await fetchRecommendedResume(tabJob.jobId, input.apiUrl);
+    const jobId = tabJob.jobId;
+    const file = await cachedResumeFile(`job:${jobId}`, () =>
+      fetchRecommendedResume(jobId, input.apiUrl),
+    );
     if (!file) {
       return {
         file: null,
@@ -89,7 +97,9 @@ async function loadCustomFillResume(input: {
       return { file: null, skipReason: "Recommend a Library résumé first" };
     }
     try {
-      const file = await fetchCustomLibraryResume(libraryId, input.apiUrl);
+      const file = await cachedResumeFile(`library:${libraryId}`, () =>
+        fetchCustomLibraryResume(libraryId, input.apiUrl),
+      );
       if (!file) {
         return {
           file: null,
@@ -109,7 +119,9 @@ async function loadCustomFillResume(input: {
     return { file: null, skipReason: "Generate a résumé for this tab first" };
   }
   try {
-    const file = await fetchCustomResume(generationId, input.apiUrl);
+    const file = await cachedResumeFile(`generation:${generationId}`, () =>
+      fetchCustomResume(generationId, input.apiUrl),
+    );
     if (!file) {
       return {
         file: null,

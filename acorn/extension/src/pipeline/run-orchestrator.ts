@@ -36,6 +36,8 @@ import { getAcornSocket } from "../acorn-socket";
 import { markTabUsage, usageSince, type UsageMark } from "../background/tab-usage-store";
 import { rekeyCustomTab } from "../tab-custom-session";
 import { getTabJob, rekeyTabJob } from "../tab-job-session";
+import { sendTabMessage } from "../tab-messaging";
+import { MSG, type ScopeState } from "../types";
 
 import {
   emptyAccountEvidence,
@@ -102,15 +104,19 @@ import {
   RUN_MAX_REFILLS_PER_PAGE,
   RUN_MAX_RESOLVES_PER_PAGE,
   RUN_MAX_RETURNS_TO_START,
+  RUN_MAX_SCOPE_SAVES,
+  RUN_MAX_STALLED_ROUNDS,
   RUN_MAX_STEPS,
   RUN_NEW_TEXT_LINES_MAX,
 } from "./run-limits";
 import { logUrl, RunLog } from "./run-log";
 import { snapshotPage, type PageSnapshot } from "./run-page";
 import { NO_RESUME_FILE, runFabPipeline } from "./run-pipeline";
+import { ProgressLedger, pageNeeds } from "./run-progress";
 import { ensureRecommendedResume } from "./run-resume";
 import { addressOf, isNewStep } from "./run-step";
 
+import type { PageControl } from "@acorn/shared/page-controls";
 import type { PipelineProgress } from "@acorn/shared/pipeline-types";
 import type { RunStepRecord } from "@acorn/shared/plan-runner/types";
 
@@ -201,14 +207,44 @@ interface PageState {
   alertPasses: number;
   /** Clicks on a control that does what the page still requires (an assessment, a document). */
   resolves: number;
-  /** Those controls, by their text: one that did not clear the requirement is not clicked again. */
+  /**
+   * Those controls (see controlKey): one is not clicked again while its last click
+   * is not known to have done its part; one whose entry the page took may add another.
+   */
   resolved: Set<string>;
+}
+
+/** The page a click just produced, how that click settled, and what the click did. */
+interface Pending {
+  snapshot: PageSnapshot;
+  how: SettleHow;
+  role?: ControlRole;
 }
 
 /** A click either landed and settled, or never reached its control. */
 type ClickOutcome =
   | { settled: Awaited<ReturnType<typeof settleAfterClick>>; missed?: undefined }
   | { missed: string; disabled: boolean; settled?: undefined };
+
+/** A control by what it is and what it acts on: the "Edit" of two entries are two controls. */
+function controlKey(control: PageControl): string {
+  return [control.text || control.label, control.near, control.context].join("|");
+}
+
+/** The name a person reads on a control, or the entry an icon control acts on. */
+function controlName(control: PageControl): string {
+  return control.text || control.label || control.near;
+}
+
+/** What a scope drew first: a long page never pushes its own save out of the decision's list. */
+function scopeFirst(controls: PageControl[], scope: number[] | undefined): PageControl[] {
+  if (!scope?.length) return controls;
+  const own = new Set(scope);
+  return [
+    ...controls.filter((control) => own.has(control.id)),
+    ...controls.filter((control) => !own.has(control.id)),
+  ];
+}
 
 class RunStop extends Error {
   constructor(
@@ -264,6 +300,18 @@ const DETOUR_END_KINDS = new Set<string>([
 ]);
 /** What the run says while it does something the page still requires. */
 const COMPLETING_REQUIREMENT = "Completing what the page still needs";
+/** What the run says while it fills what a requirement's click opened (an entry form). */
+const FILLING_SCOPE = "Filling in";
+/** What the run says while it saves what it filled there. */
+const SAVING_SCOPE = "Saving";
+/** What the run says while it fixes what the page flagged in it. */
+const FIXING_SCOPE = "Fixing what the page flagged in";
+/** Round after round, the page kept needing the same things. */
+const NO_PROGRESS = "The page kept asking for the same things";
+/** What a requirement's click opened was refused each time the run saved it. */
+const SCOPE_REFUSED = "The page would not take what Acorn filled in";
+/** Needs named in a stop's detail. */
+const NEEDS_SHOWN_MAX = 6;
 /** The connected Gmail could not be read, look after look. */
 const MAIL_UNREADABLE = "Acorn could not read your Gmail";
 /** The site kept refusing the account step. */
@@ -451,6 +499,10 @@ export async function runOrchestrator(args: RunOrchestratorArgs): Promise<RunRep
   /** The newest emails the current mail look hands to Jev, for the sidebar. */
   let mailRows: MailRow[] | undefined;
   const clock = new PhaseClock();
+  /** What each address still needed after each round of work (see run-progress). */
+  const progressLedger = new ProgressLedger();
+  /** The run filled or clicked since the ledger last looked: the next look is a round's outcome. */
+  let workedSinceLook = false;
 
   // Stop: every long wait races this, so the run ends the moment the person presses
   // Stop; every page action checks it first, so nothing more touches the page.
@@ -565,11 +617,18 @@ export async function runOrchestrator(args: RunOrchestratorArgs): Promise<RunRep
   const fill = async (
     mode: FillMode,
     within: PageSnapshot,
-    opts: { pendingOnly?: boolean; verificationCode?: string; history?: PlanTurn[] } = {},
+    opts: {
+      pendingOnly?: boolean;
+      verificationCode?: string;
+      history?: PlanTurn[];
+      /** Only what a requirement's click opened; bounded by the requirements, not the fill cap. */
+      scoped?: boolean;
+    } = {},
   ) => {
     await checkBudget(within);
     checkStop();
-    if (current) current.fills += 1;
+    if (current && !opts.scoped) current.fills += 1;
+    workedSinceLook = true;
     let last: PipelineProgress | undefined;
     const started = Date.now();
     await until(
@@ -582,6 +641,7 @@ export async function runOrchestrator(args: RunOrchestratorArgs): Promise<RunRep
         history: opts.history,
         requireResume: true,
         pendingOnly: opts.pendingOnly,
+        scoped: opts.scoped,
         verificationCode: opts.verificationCode,
         signal,
         emitDomTree: (payload) => getAcornSocket()?.emit("dom:tree", payload),
@@ -654,6 +714,8 @@ export async function runOrchestrator(args: RunOrchestratorArgs): Promise<RunRep
         ? newLines(lastRead.text, within.fullText).slice(0, RUN_NEW_TEXT_LINES_MAX)
         : [];
     lastRead = { address, text: within.fullText };
+    // An entry form the run opened and filled: the read names the control that saves it.
+    const scope = within.scope?.controlIds.length ? within.scope : null;
     const res = await until(
       clock.time("decide", () =>
         requestReadPage(
@@ -664,7 +726,8 @@ export async function runOrchestrator(args: RunOrchestratorArgs): Promise<RunRep
             url: within.url,
             title: within.title,
             text: within.text,
-            controls: within.controls,
+            controls: scopeFirst(within.controls, scope?.controlIds),
+            scope: scope ? { controls: scope.controlIds, title: scope.title } : undefined,
             flagged: within.flagged,
             pageMessages: within.scan.pageMessages,
             account: siteAttempts(within.url),
@@ -713,6 +776,9 @@ export async function runOrchestrator(args: RunOrchestratorArgs): Promise<RunRep
     const fallbackPicked = find(res.fallback?.id);
     const guestPicked = find(res.guestControl?.id);
     const requirementPicked = find(res.requirement?.id);
+    // Only one of the scope's own controls can save it.
+    const commitPicked =
+      res.commit && scope?.controlIds.includes(res.commit.id) ? find(res.commit.id) : undefined;
     log.event("read", {
       intent,
       kind: res.kind,
@@ -746,6 +812,13 @@ export async function runOrchestrator(args: RunOrchestratorArgs): Promise<RunRep
             text: requirementPicked?.text || requirementPicked?.label,
           }
         : null,
+      scope: scope ? { title: scope.title, controls: scope.controlIds.length } : undefined,
+      commit: res.commit
+        ? {
+            confidence: res.commit.confidence,
+            text: commitPicked ? controlName(commitPicked) : null,
+          }
+        : undefined,
     });
     return {
       kind: res.kind,
@@ -758,6 +831,8 @@ export async function runOrchestrator(args: RunOrchestratorArgs): Promise<RunRep
       guestPicked,
       requirement: res.requirement ?? null,
       requirementPicked,
+      commit: commitPicked ? (res.commit ?? null) : null,
+      commitPicked,
       needsPerson: res.needsPerson === true,
       verification: res.verification ?? VERIFICATION.none,
       /** The site says this applicant has already applied to this job. */
@@ -768,23 +843,41 @@ export async function runOrchestrator(args: RunOrchestratorArgs): Promise<RunRep
     };
   };
 
-  /** Click the control, then wait for the page to react. Returns the page that follows. */
+  /**
+   * Click the control, then wait for the page to react. Returns the page that
+   * follows. `census`: the click may open something inside the page (an entry form,
+   * a dialog), so the page is remembered right before it to tell what it drew.
+   */
   const click = async (
     on: PageSnapshot,
     picked: NonNullable<Awaited<ReturnType<typeof read>>["control"]>,
     label: string,
+    opts: { census?: boolean } = {},
   ): Promise<ClickOutcome> => {
     control = label;
     const started = Date.now();
     lastClickAt = started;
     checkStop();
     const beforeProbe = await until(probePage(tabId, on.frameId));
+    if (opts.census) {
+      const census = await until(
+        sendTabMessage<{ ok?: boolean; error?: string }>(
+          tabId,
+          { type: MSG.SCOPE_CENSUS },
+          on.frameId ?? undefined,
+        ),
+      );
+      if (!census?.ok) log.event("scope:census-failed", { error: census?.error });
+    }
     const watcher = watchOpenedTabs(tabId);
     try {
       checkStop();
       const result = await until(clickControl(tabId, on.frameId, picked.id));
       log.event("click", { role: picked.role, text: label, ok: result.ok, error: result.error });
-      if (result.ok) lastClicked = { text: label, role: picked.role, at: Date.now() };
+      if (result.ok) {
+        lastClicked = { text: label, role: picked.role, at: Date.now() };
+        workedSinceLook = true;
+      }
       // The page re-rendered since it was read (its node is gone) or held the
       // control: the caller reads it again rather than giving up.
       if (!result.ok)
@@ -1009,6 +1102,16 @@ export async function runOrchestrator(args: RunOrchestratorArgs): Promise<RunRep
       label: ALREADY_APPLIED,
       detail,
     });
+
+  /** Rounds of work left everything the page needs standing: say what it still wants. */
+  const noProgress = (page: PageSnapshot, needs: string[], stalls: number) => {
+    const detail = `Still needed after ${stalls + 1} rounds: ${needs.slice(0, NEEDS_SHOWN_MAX).join(", ")}`;
+    return new RunStop(RUN_STAGE.advancing, page, [NO_PROGRESS, detail], undefined, {
+      reason: RUN_FAILURE_REASON.noProgress,
+      label: NO_PROGRESS,
+      detail,
+    });
+  };
 
   /**
    * A new page: the first one is the posting the run applies from (and returns to).
@@ -1376,19 +1479,196 @@ export async function runOrchestrator(args: RunOrchestratorArgs): Promise<RunRep
    */
   const requirementOf = (r: Awaited<ReturnType<typeof read>>, state: PageState) => {
     if (!r.requirement || !r.requirementPicked || r.requirementPicked.disabled) return null;
-    const text = r.requirementPicked.text || r.requirementPicked.label;
-    if (state.resolves >= RUN_MAX_RESOLVES_PER_PAGE || state.resolved.has(text)) {
-      log.event("resolve:spent", { text, repeated: state.resolved.has(text) });
+    const key = controlKey(r.requirementPicked);
+    const text = controlName(r.requirementPicked);
+    if (state.resolves >= RUN_MAX_RESOLVES_PER_PAGE || state.resolved.has(key)) {
+      log.event("resolve:spent", { text, repeated: state.resolved.has(key) });
       return null;
     }
     state.resolves += 1;
-    state.resolved.add(text);
+    state.resolved.add(key);
     log.event("resolve", {
       text,
       confidence: r.requirement.confidence,
       pass: state.resolves,
     });
-    return { control: r.requirement, picked: r.requirementPicked, fallback: false };
+    return { control: r.requirement, picked: r.requirementPicked, fallback: false, key };
+  };
+
+  /** Where what a requirement's click opened stands now, in the frame it opened in. */
+  const scopeStateIn = async (frameId: number | null): Promise<ScopeState | null> => {
+    const res = await until(
+      sendTabMessage<{ ok?: boolean; state?: ScopeState }>(
+        tabId,
+        { type: MSG.SCOPE_STATE },
+        frameId ?? undefined,
+      ),
+    );
+    return res?.ok && res.state ? res.state : null;
+  };
+
+  /** The run is done with what the click opened; `committed` when the page took it. */
+  const endScope = async (frameId: number | null, committed: boolean) => {
+    await until(sendTabMessage(tabId, { type: MSG.SCOPE_END, committed }, frameId ?? undefined));
+  };
+
+  /**
+   * Finish what a requirement's click opened inside the page, as a person finishes
+   * the form they opened: fill its fields, save it with its own control, and check
+   * the page took it. A save the page refuses gets what it flagged fixed and is
+   * saved again, up to RUN_MAX_SCOPE_SAVES; past that the run stops and says what
+   * the page still wants. "saved" when the page took it, "kept" when it had nothing
+   * to save it with (its answers stand as given), "none" when the click opened nothing.
+   */
+  const completeScope = async (
+    opened: PageSnapshot,
+    state: PageState,
+    opener: string,
+  ): Promise<"saved" | "kept" | "none"> => {
+    const frameId = opened.frameId;
+    const scope = opened.scope;
+    if (!scope) {
+      log.event("scope:none", { opener });
+      await endScope(frameId, false);
+      return "none";
+    }
+    const title = scope.title || opener;
+    log.event("scope:open", { title, fields: scope.fields, controls: scope.controlIds.length });
+    let page = opened;
+    if (scope.fields > 0) {
+      enter(RUN_STAGE.filling, `${FILLING_SCOPE} · ${title}`);
+      const filled = await fill(FILL_MODE.fill, page, { scoped: true });
+      if (filled.resumeMissing) {
+        throw noResumeStop(RUN_STAGE.filling, page, filled.error ?? RESUME_NOT_CHOSEN);
+      }
+      if (filled.failed) {
+        throw new RunStop(
+          RUN_STAGE.filling,
+          page,
+          [`Filling "${title}" failed: ${filled.error ?? "unknown"}`],
+          filled.steps,
+        );
+      }
+      remember(state, FILL_MODE.fill, filled);
+    }
+    let issues: string[] = [];
+    /** The last save click that never reached its control, and why. */
+    let missed: { label: string; error: string } | null = null;
+    for (let save = 1; save <= RUN_MAX_SCOPE_SAVES; save += 1) {
+      page = await snap({ form: true, frameId, scope: true });
+      snapshot = page;
+      const look = page.scope?.controlIds.length ? await read(READ_INTENT.advance, page) : null;
+      if (!look?.commit || !look.commitPicked) {
+        // Nothing of its own saves it (a row added in place): its answers stand as given.
+        log.event("scope:no-save", { title, controls: page.scope?.controlIds.length ?? 0 });
+        await endScope(frameId, false);
+        return "kept";
+      }
+      const label = controlName(look.commitPicked);
+      enter(RUN_STAGE.advancing, `${SAVING_SCOPE} · ${title}`);
+      const clicked = await click(page, look.commit, label);
+      if (!clicked.settled) {
+        log.event("scope:save-missed", { title, error: clicked.missed });
+        missed = { label, error: clicked.missed };
+        continue;
+      }
+      missed = null;
+      const now = await scopeStateIn(frameId);
+      if (!now?.open) {
+        log.event("scope:saved", { title, save });
+        await endScope(frameId, true);
+        return "saved";
+      }
+      issues = now.issues;
+      if (!issues.length) {
+        // The page keeps the form showing and flags nothing in it: it holds what was entered.
+        log.event("scope:kept-open", { title });
+        await endScope(frameId, false);
+        return "kept";
+      }
+      log.event("scope:refused", { title, save, issues: issues.length });
+      if (save >= RUN_MAX_SCOPE_SAVES) break;
+      enter(RUN_STAGE.refilling, `${FIXING_SCOPE} ${title}`);
+      page = await snap({ form: true, frameId });
+      snapshot = page;
+      const fixed = await fill(FILL_MODE.refill, page, { history: state.turns, scoped: true });
+      if (fixed.failed) {
+        throw new RunStop(
+          RUN_STAGE.refilling,
+          page,
+          [`Fixing "${title}" failed: ${fixed.error ?? "unknown"}`],
+          fixed.steps,
+        );
+      }
+      remember(state, FILL_MODE.refill, fixed, page.scan);
+    }
+    await endScope(frameId, false);
+    if (missed) {
+      throw new RunStop(RUN_STAGE.advancing, page, [
+        `Could not click "${missed.label}" to save "${title}": ${missed.error}`,
+      ]);
+    }
+    const detail = `${title}: ${issues.slice(0, NEEDS_SHOWN_MAX).join(", ")}`;
+    throw new RunStop(RUN_STAGE.refilling, page, [`${SCOPE_REFUSED} · ${detail}`], undefined, {
+      reason: RUN_FAILURE_REASON.scopeRefused,
+      label: SCOPE_REFUSED,
+      detail,
+    });
+  };
+
+  /**
+   * Do what the page still requires through a control: click it, then finish what
+   * it opened in place (see completeScope). A click that leads to another address
+   * or tab is followed there (an assessment); a detour comes back here once done.
+   * Returns the page to look at next, or null for a fresh read of this step.
+   */
+  const doRequirement = async (
+    page: PageSnapshot,
+    state: PageState,
+    target: NonNullable<ReturnType<typeof requirementOf>>,
+    label: string,
+  ): Promise<Pending | null> => {
+    announceForward(page, {
+      goal: null,
+      pageMode: ACCOUNT_MODE.none,
+      role: CONTROL_ROLE.resolve,
+      label,
+    });
+    const from = { tabId, url: page.url };
+    const clicked = await click(page, target.control, label, { census: true });
+    if (!clicked.settled) {
+      // Never landed: the page is read again, and the requirement is still open.
+      state.resolved.delete(target.key);
+      state.resolves -= 1;
+      state.retryClick = true;
+      clickFailures += 1;
+      log.event("click:missed", { text: label, error: clicked.missed, tries: clickFailures });
+      if (clickFailures > RUN_MAX_CLICK_RETRIES) {
+        throw new RunStop(stage, snapshot, [
+          `Could not click "${label}" after ${clickFailures} fresh reads of the page: ${clicked.missed}`,
+        ]);
+      }
+      return null;
+    }
+    const landed = clicked.settled;
+    const away =
+      tabId !== from.tabId ||
+      landed.how === "new-tab" ||
+      addressOf(landed.snapshot.url) !== addressOf(from.url);
+    if (away) {
+      if (!detour && (tabId !== from.tabId || siteOf(landed.snapshot.url) !== siteOf(from.url))) {
+        detour = from;
+        log.event("resolve:detour", { to: logUrl(landed.snapshot.url) });
+      }
+      return { snapshot: landed.snapshot, how: landed.how, role: CONTROL_ROLE.resolve };
+    }
+    const opened = await snap({ form: true, frameId: page.frameId, scope: true });
+    snapshot = opened;
+    // The page took the entry: the same control may add another while the page asks for one.
+    if ((await completeScope(opened, state, label)) === "saved") state.resolved.delete(target.key);
+    // The next look is a fresh read of this step, not the outcome of a forward click.
+    state.retryClick = true;
+    return null;
   };
 
   /**
@@ -1521,8 +1801,8 @@ export async function runOrchestrator(args: RunOrchestratorArgs): Promise<RunRep
   progress("Starting…", "fetching");
 
   try {
-    /** The page a click just produced, and how that click settled. */
-    let pending: { snapshot: PageSnapshot; how: SettleHow } | null = null;
+    /** The page a click just produced, how that click settled, and what it did. */
+    let pending: Pending | null = null;
 
     while (log.step < RUN_MAX_STEPS) {
       checkStop();
@@ -1532,9 +1812,11 @@ export async function runOrchestrator(args: RunOrchestratorArgs): Promise<RunRep
       // 1. Look at the page: the one a click just produced, or a fresh read.
       let page: PageSnapshot;
       let settled: SettleHow | null = null;
+      let clickedRole: ControlRole | null = null;
       if (pending) {
         page = pending.snapshot;
         settled = pending.how;
+        clickedRole = pending.role ?? null;
         pending = null;
       } else {
         enter(RUN_STAGE.reading);
@@ -1556,7 +1838,7 @@ export async function runOrchestrator(args: RunOrchestratorArgs): Promise<RunRep
         snapshot = page;
       }
 
-      const moved = isNewStep({ previous: current, page, settled });
+      const moved = isNewStep({ previous: current, page, settled, role: clickedRole });
       if (!moved && current) {
         current.signature = page.signature;
         current.url = page.url;
@@ -1593,6 +1875,8 @@ export async function runOrchestrator(args: RunOrchestratorArgs): Promise<RunRep
           resolved: new Set(),
         };
         refillsOnPage = 0;
+        // A new step at the same address (a single-page application) needs what it needs.
+        progressLedger.forget(addressOf(page.url));
         log.event("page", { page: pageCount, url: logUrl(page.url), flagged: page.flagged });
         await log.screenshot("page", page.frameId);
         enterNewPage(page, current);
@@ -1830,9 +2114,27 @@ export async function runOrchestrator(args: RunOrchestratorArgs): Promise<RunRep
       const sendsAccount = next.kind === PAGE_KIND.accountStep && !guest;
       if (sendsAccount && !next.accountPassword) throw noAccountPassword(page);
       const goal = sendsAccount ? goalOrStop(page) : null;
+      // A round of work on a form must settle something it still needed; rounds that
+      // settle nothing are a run going in circles, and it stops in seconds.
+      if (workedSinceLook && next.kind === PAGE_KIND.form) {
+        workedSinceLook = false;
+        const needs = pageNeeds(
+          page.scan,
+          next.requirementPicked ? controlName(next.requirementPicked) : null,
+        );
+        const stalls = progressLedger.note(addressOf(page.url), needs);
+        if (stalls > 0) {
+          log.event("progress:stalled", { stalls, limit: RUN_MAX_STALLED_ROUNDS, needs });
+        }
+        if (stalls >= RUN_MAX_STALLED_ROUNDS) throw noProgress(page, needs, stalls);
+      }
       // The best next step: what the page still requires comes before moving on.
       const requirement = guest || sendsAccount ? null : requirementOf(next, state);
-      const target = guest ?? requirement ?? pickOf(next);
+      if (requirement) {
+        pending = await doRequirement(page, state, requirement, controlName(requirement.picked));
+        continue;
+      }
+      const target = guest ?? pickOf(next);
       if (guest) noteEvidence(page.url, { guestTaken: true });
       // An account step finished somewhere with nothing to go on with (a page that
       // says the account is unblocked or its password is set): the account is ready,
@@ -1869,18 +2171,7 @@ export async function runOrchestrator(args: RunOrchestratorArgs): Promise<RunRep
         return await finish(report(RUN_OUTCOME.readyToSubmit));
       }
       announceForward(page, { goal, pageMode: next.accountMode, role: target.control.role, label });
-      const from = { tabId, url: page.url };
       const clicked = await click(page, target.control, label);
-      // The requirement opened another tab or site: its end returns to this page.
-      if (
-        requirement &&
-        clicked.settled &&
-        !detour &&
-        (tabId !== from.tabId || siteOf(clicked.settled.snapshot.url) !== siteOf(from.url))
-      ) {
-        detour = from;
-        log.event("resolve:detour", { to: logUrl(clicked.settled.snapshot.url) });
-      }
       // A click that never landed sent no account step.
       if (!clicked.settled) accountSent = null;
       if (clicked.settled) {

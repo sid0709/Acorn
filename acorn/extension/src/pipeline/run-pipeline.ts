@@ -19,6 +19,7 @@ import { LOG_KIND, logTab } from "../tab-log-session";
 import { sendPlanStepToTab, sendTabMessage } from "../tab-messaging";
 import { MSG, type DomTreePayload, type PipelineSource } from "../types";
 
+import { requestAiAnalyze } from "./api/analyze";
 import { fetchRuntimeFile } from "./api/job-files";
 import { decideChoicesInBatch } from "./choice-batch";
 import { loadCoverLetter } from "./cover-letter";
@@ -110,6 +111,12 @@ export interface RunPipelineArgs {
    * the page cleared. No full plan, so nothing already answered is rewritten.
    */
   pendingOnly?: boolean;
+  /**
+   * Run, after a click opened something inside the page (an entry form the page
+   * asks for, a dialog): fill only its fields. The rest of the page was filled
+   * already and is not planned again.
+   */
+  scoped?: boolean;
   /** Emit DOM tree to the backend (optional socket emit callback). */
   emitDomTree?: (payload: DomTreePayload) => void;
   /** Broadcast progress to the Chrome side panel + backend. */
@@ -127,6 +134,7 @@ export async function runFabPipeline(args: RunPipelineArgs): Promise<void> {
     history,
     requireResume = false,
     pendingOnly = false,
+    scoped = false,
     verificationCode,
     signal,
     emitDomTree,
@@ -174,6 +182,7 @@ export async function runFabPipeline(args: RunPipelineArgs): Promise<void> {
         fetchDomFromTab(tabId, preferredFrameId, {
           fieldIssues: refill,
           formFields: wantsFastPlan(mode),
+          scopeFields: scoped,
           html: ACORN_CAPTURE,
         }),
         loadFillResume({
@@ -348,28 +357,31 @@ export async function runFabPipeline(args: RunPipelineArgs): Promise<void> {
         verificationCode && !refill && formFields
           ? planCodeFill(formFields, verificationCode)
           : null;
-      const analyze = pendingOnly
-        ? { mode: FAST_PLAN_MODE, plan: emptyPlan() }
-        : codeActions
-          ? { mode: FAST_PLAN_MODE, plan: { ...emptyPlan(), actions: codeActions } }
-          : await clock.time("plan", () =>
-              requestPlan(
-                {
-                  pureTree,
-                  mode,
-                  fieldIssues: refill ? fieldIssues : undefined,
-                  history: refill && history?.length ? history : undefined,
-                  page,
-                  verificationCode,
-                  debug: ACORN_CAPTURE
-                    ? { html: pageHtml, domTree: treePayload.tree, metaTree }
-                    : undefined,
-                },
-                formFields,
-                aiServerUrl,
-                tabId,
-              ),
-            );
+      const planRequest = {
+        pureTree,
+        mode,
+        fieldIssues: refill ? fieldIssues : undefined,
+        history: refill && history?.length ? history : undefined,
+        page,
+        verificationCode,
+        debug: ACORN_CAPTURE ? { html: pageHtml, domTree: treePayload.tree, metaTree } : undefined,
+      };
+      // What a click opened is planned from its own fields alone: the full planner
+      // reads the whole page and would plan the rest of it over again.
+      const analyze =
+        pendingOnly || (scoped && !formFields?.length)
+          ? { mode: FAST_PLAN_MODE, plan: emptyPlan() }
+          : codeActions
+            ? { mode: FAST_PLAN_MODE, plan: { ...emptyPlan(), actions: codeActions } }
+            : await clock.time("plan", () =>
+                scoped
+                  ? requestAiAnalyze(
+                      { ...planRequest, mode: FAST_PLAN_MODE, formFields },
+                      aiServerUrl,
+                      tabId,
+                    )
+                  : requestPlan(planRequest, formFields, aiServerUrl, tabId),
+              );
       if (refill && analyze.mode !== FILL_MODE.refill) {
         throw new Error(REFILL_UNSUPPORTED);
       }
@@ -542,6 +554,7 @@ export async function runFabPipeline(args: RunPipelineArgs): Promise<void> {
                 apiUrl: aiServerUrl,
                 blocked: pendingOnly,
                 seen: lateSeen,
+                scoped,
               }),
             );
             if (!late) return;
@@ -582,6 +595,7 @@ export async function runFabPipeline(args: RunPipelineArgs): Promise<void> {
                 // A pass the run stopped waiting for must not hold the page: its next
                 // steps (a fill, the Submit click) queue behind it.
                 deadline: Date.now() + LEFTOVER_PASS_TIMEOUT_MS - LEFTOVER_STOP_MARGIN_MS,
+                scoped,
               },
               frameId ?? undefined,
               LEFTOVER_PASS_TIMEOUT_MS,
@@ -611,6 +625,7 @@ export async function runFabPipeline(args: RunPipelineArgs): Promise<void> {
         fetchDomFromTab(tabId, frameId, {
           fieldIssues: refill,
           formFields: wantsFastPlan(mode),
+          scopeFields: scoped,
           html: ACORN_CAPTURE,
         }),
       ));

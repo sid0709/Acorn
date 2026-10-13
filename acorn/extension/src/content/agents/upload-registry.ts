@@ -1,15 +1,26 @@
 /** Remembers successful uploads by acorn node id after the file input is remounted away. */
 
 const uploadedByAcornId = new Map<string, string>();
+/** Files handed to a file input in this document, whether or not the page showed them yet. */
+let filesSent = 0;
 
 export function rememberUploadedFile(acornId: string | null | undefined, fileName: string): void {
   if (!acornId || !fileName) return;
   uploadedByAcornId.set(String(acornId), fileName);
 }
 
-/** Some file went up through this document already (a résumé, a cover letter). */
+/** A file was handed to a file input: the page's own upload may take a while to show it. */
+export function rememberFileSent(): void {
+  filesSent += 1;
+}
+
+/**
+ * Some file went up through this document already (a résumé, a cover letter), or
+ * was sent and the page has not shown it yet: a later pass never sends the résumé
+ * again into another file field (a profile import that rewrites the form).
+ */
 export function uploadedAny(): boolean {
-  return uploadedByAcornId.size > 0;
+  return uploadedByAcornId.size > 0 || filesSent > 0;
 }
 
 export function getRememberedUpload(acornId: number | string): string | null {

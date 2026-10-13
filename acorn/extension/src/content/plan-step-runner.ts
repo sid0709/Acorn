@@ -17,7 +17,11 @@ import { rememberAnsweredGroup, rememberPlanFilled } from "./agents/plan-fill-re
 import { readControlValue } from "./agents/read-control-value";
 import { resumeUpload } from "./agents/resume-upload";
 import { selectComboboxOption } from "./agents/select-combobox";
-import { selectRadioElement } from "./agents/select-radio";
+import {
+  answersByPlainButtons,
+  chosenOptionLabel,
+  selectRadioElement,
+} from "./agents/select-radio";
 import { opensOptionList, visibleStandIn } from "./agents/stand-in";
 import { uploadFileToElement } from "./agents/upload";
 import { validateElementIndexes } from "./agents/validate";
@@ -33,6 +37,14 @@ import type { PlanStepPayload, PlanStepResult } from "../types";
 
 /** Every control a question can have, checkboxes and radios drawn as divs included. */
 const QUESTION_CONTROL_SELECTOR = `${FILLABLE_SELECTOR}, [role="checkbox"], [role="radio"]`;
+
+/**
+ * What a control shows as its answer. A step on a set of options (pills, drawn
+ * radios) may name any one of them: the set answers through the one chosen.
+ */
+function answerShown(el: Element): string {
+  return chosenOptionLabel(el) || readControlValue(el);
+}
 
 /** Whether node holds a control of another question than the one `own` belongs to. */
 function holdsAnotherQuestion(node: Element, el: Element, own: Element): boolean {
@@ -279,7 +291,7 @@ export async function actOnVerified(
       current: shownValue(el, prior.current),
     }));
     if (prior.matched) {
-      rememberPlanFilled(el, step, readControlValue(el));
+      rememberPlanFilled(el, step, answerShown(el), !answersByPlainButtons(el));
       return {
         ok: true,
         verified: true,
@@ -345,7 +357,9 @@ export async function actOnVerified(
     if (step.action === "fill" && !readControlValue(el).trim() && !after.trim()) {
       throw new Error("The page did not keep the typed value");
     }
-    rememberPlanFilled(el, step, readControlValue(el));
+    // A plain button keeps no state: its answer is never replayed, since a second
+    // press may undo it.
+    rememberPlanFilled(el, step, answerShown(el), !answersByPlainButtons(el));
     if (step.action === "select_radio") rememberAnsweredGroup(choiceGroupKey(el));
     traceFromPage("step:acted", () => ({
       element_index: step.element_index,

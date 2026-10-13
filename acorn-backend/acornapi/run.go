@@ -27,6 +27,8 @@ const (
 	maxAccountMessages = 3
 	// maxNewTextLines bounds the new page lines one read-page request may carry.
 	maxNewTextLines = 20
+	// maxScopeControls bounds the controls of an opened form one read-page request may name.
+	maxScopeControls = 40
 )
 
 var unsafeRunID = regexp.MustCompile(`[^a-zA-Z0-9_-]+`)
@@ -124,12 +126,20 @@ func (s *Server) runReadPage(w http.ResponseWriter, r *http.Request) {
 			Role       string `json:"role"`
 			SecondsAgo int    `json:"secondsAgo"`
 		} `json:"lastClick"`
+		// Scope is what a requirement's click opened inside the page and the run filled.
+		Scope struct {
+			Controls []int  `json:"controls"`
+			Title    string `json:"title"`
+		} `json:"scope"`
 	}
 	if !decode(w, r, &body) {
 		return
 	}
 	if len(body.NewText) > maxNewTextLines {
 		body.NewText = body.NewText[:maxNewTextLines]
+	}
+	if len(body.Scope.Controls) > maxScopeControls {
+		body.Scope.Controls = body.Scope.Controls[:maxScopeControls]
 	}
 	if len(body.Controls) > maxRunControls {
 		body.Controls = body.Controls[:maxRunControls]
@@ -168,7 +178,7 @@ func (s *Server) runReadPage(w http.ResponseWriter, r *http.Request) {
 		Controls: controls, Flagged: body.Flagged, PageMessages: body.PageMessages,
 		Account: accountHistory(body.Account), AccountGoal: accountGoal(body.AccountGoal),
 		NewText: body.NewText, LastClick: body.LastClick.Text, LastClickRole: body.LastClick.Role,
-		LastClickAgo: body.LastClick.SecondsAgo,
+		LastClickAgo: body.LastClick.SecondsAgo, Scope: body.Scope.Controls, ScopeTitle: body.Scope.Title,
 	})
 	elapsed := time.Since(started)
 	s.recordRunStep(r, session.User.ID, runID, body.Step, "read-page", map[string]any{
@@ -225,6 +235,14 @@ func (s *Server) runReadPage(w http.ResponseWriter, r *http.Request) {
 		}
 		attrs = append(attrs, "requirementId", read.Requirement.ID, "requirementConfidence", read.Requirement.Confidence,
 			"requirementText", firstText(picked.Text, picked.Label))
+	}
+	if read.Commit != nil {
+		picked := byID[read.Commit.ID]
+		out["commit"] = map[string]any{
+			"id": read.Commit.ID, "role": read.Commit.Role, "confidence": read.Commit.Confidence,
+		}
+		attrs = append(attrs, "commitId", read.Commit.ID, "commitConfidence", read.Commit.Confidence,
+			"commitText", firstText(picked.Text, picked.Label))
 	}
 	if read.GuestControl != nil {
 		out["guestControl"] = map[string]any{

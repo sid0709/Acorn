@@ -38,6 +38,12 @@ export interface ReadPageRequest {
   newText?: string[];
   /** The control the run clicked last and what it does: the page's state is its answer. */
   lastClick?: { text: string; role: ControlRole; secondsAgo: number };
+  /**
+   * What a requirement's click opened inside the page and the run filled (an entry
+   * form, a dialog): its own controls, by id, and what the page calls it. The read
+   * then names the control that saves it.
+   */
+  scope?: { controls: number[]; title: string };
 }
 
 export interface ReadPageResponse {
@@ -58,6 +64,11 @@ export interface ReadPageResponse {
    * the next step, ahead of `control`.
    */
   requirement?: { id: number; role: ControlRole; confidence: number } | null;
+  /**
+   * With `scope` asked: the control among its own that saves or adds what the run
+   * opened and filled, so the page keeps it. Null when none of them does.
+   */
+  commit?: { id: number; role: ControlRole; confidence: number } | null;
   /** The page offers a way to go on without signing in or creating an account. */
   guest?: boolean;
   /**

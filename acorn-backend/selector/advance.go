@@ -32,6 +32,9 @@ const (
 	// RoleResolve starts or completes something the page still requires before it
 	// can be sent (an assessment, a document, a section the page names as an issue).
 	RoleResolve = "resolve"
+	// RoleCommit saves what a requirement's click opened inside the page and the run
+	// filled (an entry form, a dialog), so the page keeps it.
+	RoleCommit = "commit"
 )
 
 // Intents say what the caller wants from this page.
@@ -154,6 +157,7 @@ const (
 	guestQuestion        = "continues_without_account"
 	guestControlQuestion = "guest_control"
 	requirementQuestion  = "outstanding_requirement"
+	commitQuestion       = "save_opened_form"
 	diagnoseQuestion     = "failure"
 	verifyQuestion       = "verification"
 	appliedQuestion      = "already_applied"
@@ -199,6 +203,9 @@ type Control struct {
 	// Near is the text around a control that has little of its own (an icon button):
 	// the entry or section it acts on.
 	Near string
+	// Opened is true for a control of the form the run opened inside the page (see
+	// PageQuery.Scope); ReadPage sets it from the query.
+	Opened bool
 }
 
 // PageQuery is what Jev reads to say what a page is and what to click on it.
@@ -225,6 +232,11 @@ type PageQuery struct {
 	LastClick     string
 	LastClickRole string
 	LastClickAgo  int
+	// Scope lists the controls of what a requirement's click opened inside the page
+	// (an entry form, a dialog) once the run filled it: ReadPage then names the one
+	// that saves it. ScopeTitle is what the page calls it.
+	Scope      []int
+	ScopeTitle string
 }
 
 // ControlPick is the control to click and what it does.
@@ -272,7 +284,10 @@ type PageRead struct {
 	// before it can go on (role RoleResolve): the best next step ahead of Control.
 	// Nil when nothing outstanding is done through a control, or on a first look.
 	Requirement *ControlPick
-	Usage       jev.Usage
+	// Commit is the control of the opened form (PageQuery.Scope) that saves it, role
+	// RoleCommit. Nil when no scope was given or none of its controls saves it.
+	Commit *ControlPick
+	Usage  jev.Usage
 }
 
 var pageKinds = []struct{ key, description string }{
@@ -303,7 +318,15 @@ func (g *Gateway) ReadPage(ctx context.Context, q PageQuery) (PageRead, error) {
 	if strings.TrimSpace(q.Text) == "" && len(q.Controls) == 0 {
 		return PageRead{}, fmt.Errorf("%w: page text or controls are required", ErrInvalid)
 	}
-	controls := q.Controls
+	opened := make(map[int]bool, len(q.Scope))
+	for _, id := range q.Scope {
+		opened[id] = true
+	}
+	controls := make([]Control, len(q.Controls))
+	for i, control := range q.Controls {
+		control.Opened = opened[control.ID]
+		controls[i] = control
+	}
 	if limit := jev.MaxChoiceOptions - 1; len(controls) > limit {
 		controls = controls[:limit]
 	}
@@ -394,6 +417,20 @@ func (g *Gateway) ReadPage(ctx context.Context, q PageQuery) (PageRead, error) {
 			Criteria:     requirementCriteria,
 		}
 	}
+	// What the run opened and filled is saved by one of its own controls, never another.
+	commitCriteria := map[string]string{noControlKey: noCommit}
+	for key, id := range keys {
+		if opened[id] {
+			commitCriteria[key] = controlCriteria[key]
+		}
+	}
+	if len(commitCriteria) > 1 {
+		questions[commitQuestion] = jev.Question{
+			Type:         jev.TypeChoice,
+			Instructions: commitInstructions,
+			Criteria:     commitCriteria,
+		}
+	}
 	res, err := g.decider.Decide(openai.WithCall(ctx, "read-page"), jev.Request{
 		State:     pageState(q, controls),
 		Questions: questions,
@@ -444,6 +481,11 @@ func (g *Gateway) ReadPage(ctx context.Context, q PageQuery) (PageRead, error) {
 		// The same control as the forward pick is no separate step.
 		if id, listed := keys[requirement.Choice]; listed && (!ok || requirement.Choice != answer.Choice) {
 			read.Requirement = &ControlPick{ID: id, Role: RoleResolve, Confidence: requirement.Confidence}
+		}
+	}
+	if commit, asked := res.Answers[commitQuestion]; asked && commit.Confidence >= minCommitConfidence {
+		if id, listed := keys[commit.Choice]; listed && opened[id] {
+			read.Commit = &ControlPick{ID: id, Role: RoleCommit, Confidence: commit.Confidence}
 		}
 	}
 	if !ok {
@@ -602,7 +644,10 @@ const requirementInstructions = "Before this step can be sent or moved on, does 
 	"questionnaire to take (on this site or a partner's), a document or section to complete, a statement to open and " +
 	"acknowledge, or a required item the page names as an issue still to fix? Judge from the page messages and the text " +
 	"around each control, whatever its wording. When it does, pick the control that starts or completes that requirement: " +
-	"doing it is the next step, ahead of the control that sends or moves the application on. Never pick a control that " +
+	"doing it is the next step, ahead of the control that sends or moves the application on. A required list of entries " +
+	"(education, work history) with none yet is completed by the control that adds one. An entry the page already lists " +
+	"but marks with errors or fields to fix is completed by the control that opens it for editing (often an icon whose " +
+	"surroundings name the entry): never one that deletes or removes it, which only loses what the page holds. Never pick a control that " +
 	"only scrolls to, jumps to, or lists the issues, the control that sends or moves the application on, or one that goes " +
 	"back, cancels, saves a draft, signs out, or leaves the application. Never pick a control that imports or uploads a " +
 	"profile or résumé to fill the form in, starts the form over, or otherwise replaces answers already given: that undoes " +
@@ -611,6 +656,23 @@ const requirementInstructions = "Before this step can be sent or moved on, does 
 // noRequirement is the "nothing outstanding through a control" answer.
 const noRequirement = "Nothing the page reports as still required is done through a listed control: every requirement is " +
 	"met, or what remains is a field to fill or fix."
+
+// minCommitConfidence is the least confidence Jev must have in the control that
+// saves what the run opened before the run clicks it: an unsure pick between a
+// save and a cancel would lose the entry.
+const minCommitConfidence = 0.5
+
+// commitInstructions ask which of the opened form's own controls saves it. The
+// controls are described by what they do, so no wording is quoted.
+const commitInstructions = "The run opened a form inside this page to complete what the page requires (an entry the " +
+	"page asks for, such as an education or work history item, a document, or a section to complete) and filled it in. " +
+	"Its controls are the ones marked as in the form the run opened. Which of them saves or adds that entry so the page " +
+	"keeps it? Judge by what the control does, whatever its wording. Never pick one that cancels, closes, discards, " +
+	"deletes, or removes the entry, and never one that sends or moves the whole application on."
+
+// noCommit is the "none of the opened form's controls saves it" answer.
+const noCommit = "None of the opened form's controls saves or adds it: the page keeps what was entered as it is, " +
+	"or the form only offers ways to cancel, close, or remove it."
 
 // controlInstructions describe controls only by what they do: sites word them
 // any way they like, so no wording is quoted here.
@@ -647,6 +709,10 @@ func pageState(q PageQuery, controls []Control) string {
 	if dialog := openDialog(controls); dialog != "" {
 		fmt.Fprintf(&b, "An open dialog is over the page: %q. The page text below includes what it covers.\n", clip(dialog, maxControlLine))
 	}
+	if len(q.Scope) > 0 {
+		fmt.Fprintf(&b, "The run opened a form inside this page (%q) to complete what the page requires, and filled it in. "+
+			"Its controls are marked \"in the form the run opened\".\n", clip(firstNonEmpty(q.ScopeTitle, "a form"), maxControlLine))
+	}
 	if goal, ok := accountGoals[q.AccountGoal]; ok {
 		fmt.Fprintf(&b, "Account goal on this page, only when it offers no way to go on without an account: %s (%s).\n", q.AccountGoal, goal)
 	}
@@ -682,6 +748,8 @@ func lastClickRole(role string) string {
 		return "the control that opens the application"
 	case RoleResolve:
 		return "a control for something the page seemed to still require; it does not move the application on"
+	case RoleCommit:
+		return "the control that saves what the run opened inside the page; it does not move the application on"
 	default:
 		return "the control that moves the application to its next step"
 	}
@@ -741,6 +809,9 @@ func describeControl(c Control) string {
 	}
 	if c.Dialog != "" {
 		line += " in dialog \"" + clip(c.Dialog, 60) + "\""
+	}
+	if c.Opened {
+		line += " in the form the run opened"
 	}
 	if c.InForm {
 		line += " in-form"

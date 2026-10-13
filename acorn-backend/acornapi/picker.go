@@ -25,6 +25,7 @@ func (p gatewayPicker) PickChoices(ctx context.Context, applicant string, questi
 		}
 		items = append(items, selector.ChoiceItem{
 			ID: q.ElementIndex, Field: q.Field, Intended: intended, Options: q.Options, Multiple: q.Multiple,
+			MayAct: q.MayAct,
 		})
 	}
 	picks, _, err := p.gateway.PickBatch(ctx, applicant, items)
