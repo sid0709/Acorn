@@ -1,36 +1,37 @@
 package resume
 
-const (
-	systemWriter = "You are an expert resume writer. Return only JSON that matches the schema. Write in first person implied (no I). Tight, specific, ATS-friendly."
-
-	summaryPrompt = `Write a 3-4 sentence professional summary for this candidate tailored to the job.
-
-Candidate:
-{identity}
+// Defaults for a step saved with a blank prompt or schema. The system message holds the candidate's
+// profile, so these ask for the writing and name only what changes per posting.
+var defaultPrompt = map[string]string{
+	"summary": `Write a 3-4 sentence professional summary for this candidate tailored to the job.
 
 Job description:
 {job_description}
 
-Use the candidate's real background. Do not invent employers.`
+Write in first person implied (no "I"). Tight, specific, ATS-friendly. Use the candidate's real background. Do not invent employers.`,
 
-	skillsPrompt = `Group this candidate's skills into 3-6 categories that match the job. Prefer skills evidenced in their history.
-
-Candidate:
-{identity}
-
-Job description:
-{job_description}`
-
-	experiencePrompt = `Rewrite each role as achievement bullets tailored to the job. Keep company names and dates. 3-5 bullets per role. Quantify when the source allows; otherwise stay concrete.
+	"skills": `Group this candidate's skills into 3-6 categories that match the job. Prefer skills evidenced in their history.
 
 Candidate careers:
-{identity}
+{career}
 
 Job description:
-{job_description}`
-)
+{job_description}
 
-var purposeSchema = map[string]string{
+Name skills the way the posting does. Do not list a skill the candidate's history gives no sign of.`,
+
+	"experience": `Rewrite each role as achievement bullets tailored to the job. Keep company names and dates. 3-5 bullets per role. Quantify when the source allows; otherwise stay concrete.
+
+Candidate careers:
+{career}
+
+Job description:
+{job_description}
+
+Write in first person implied (no "I"). Weave the posting's skills into concrete tasks, not keyword lists.`,
+}
+
+var defaultSchema = map[string]string{
 	"summary": `{
   "type": "object",
   "additionalProperties": false,
@@ -78,10 +79,4 @@ var purposeSchema = map[string]string{
   },
   "required": ["experiences"]
 }`,
-}
-
-var purposePrompt = map[string]string{
-	"summary":    summaryPrompt,
-	"skills":     skillsPrompt,
-	"experience": experiencePrompt,
 }

@@ -22,6 +22,11 @@ export type ResumeGenStep = {
   name: string;
   prompt: string;
   schema: string;
+  /**
+   * Leave this fine-tune step out when generating for a catalog job, which arrives with its skills
+   * already fetched. Free-text generation on the résumé page always runs it.
+   */
+  skipForStructuredJobs?: boolean;
 };
 
 export type ResumeTheme = {
@@ -114,6 +119,16 @@ export type ResumeGeneratorConfig = {
 };
 
 export const JOB_DESC_TOKEN = "{job_description}";
+
+/** References a prompt may use. acorn-backend/resume/tokens.go resolves the same set. */
+export const RESUME_PROMPT_TOKENS: { token: string; description: string }[] = [
+  { token: "{job_description}", description: "The posting you pasted" },
+  { token: "{job_skills}", description: "Skills fetched for a catalog job" },
+  { token: "{career}", description: "Every role: title | company | period — description" },
+  { token: "{company1}", description: "One role as a sentence; {company2} is the next" },
+  { token: "{source_resume}", description: "The whole profile as JSON" },
+  { token: "{draft_summary}", description: "Output of the step before, in this section" },
+];
 
 export const DEFAULT_RESUME_SYSTEM_INSTRUCTION = "You are an expert resume writer.";
 
@@ -263,6 +278,18 @@ export function defaultResumeConfig(): ResumeGeneratorConfig {
   };
 }
 
+/** A step the editor adds: a fine-tune step starts blank, a final step with its section's schema. */
+export function newResumeStep(purpose: ResumePurpose, kind: ResumeStepKind): ResumeGenStep {
+  return {
+    id: uid(),
+    purpose,
+    kind,
+    name: `${RESUME_SECTION_LABEL[purpose]} (${kind === "final" ? "final" : "fine-tune"})`,
+    prompt: "",
+    schema: kind === "final" ? defaultSchemaFor(purpose) : "",
+  };
+}
+
 export function ensureResumePurposes(config: ResumeGeneratorConfig): ResumeGeneratorConfig {
   const layout = config.layout.map((section) => (section.id ? section : { ...section, id: uid() }));
   for (const type of RESUME_SECTION_TYPES) {
@@ -400,6 +427,7 @@ export function mergeStoredResumeConfig(parsed: unknown): ResumeGeneratorConfig 
             name: coerceString(row.name ?? ""),
             prompt: coerceString(row.prompt ?? ""),
             schema: coerceString(row.schema ?? ""),
+            ...(row.skipForStructuredJobs === true ? { skipForStructuredJobs: true } : {}),
           };
         })
       : base.steps,

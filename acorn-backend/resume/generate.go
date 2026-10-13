@@ -2,15 +2,16 @@ package resume
 
 import (
 	"context"
-	"encoding/json"
 	"fmt"
 	"strings"
 	"time"
-
-	"github.com/sid0709/OpenSeat/backend-core/openai"
 )
 
-var generateSteps = []string{"load-jd", "summary", "skills", "experience", "finalize"}
+// generateTimeout bounds a whole run: every configured step, in the sections' parallel series.
+const generateTimeout = 4 * time.Minute
+
+// progressIndex is the progress row of the plan's i-th step; "load-jd" is row 1.
+func progressIndex(i int) int { return i + 2 }
 
 func (s *Service) enqueue(ctx context.Context, accountID string, identity Identity, jobDescription, jobID string, checkpoint map[string]any, model Model) (Task, error) {
 	jobDescription = strings.TrimSpace(jobDescription)
@@ -24,6 +25,10 @@ func (s *Service) enqueue(ctx context.Context, accountID string, identity Identi
 		return Task{}, ErrUnavailable
 	}
 	cfg := s.Config(accountID)
+	p, err := buildPlan(cfg, identity, jobDescription, strings.TrimSpace(jobID) != "")
+	if err != nil {
+		return Task{}, err
+	}
 	id, err := newID()
 	if err != nil {
 		return Task{}, err
@@ -48,7 +53,7 @@ func (s *Service) enqueue(ctx context.Context, accountID string, identity Identi
 		Config:         cfg,
 		Partial:        partial,
 		ResumeFrom:     resumeFrom,
-		Progress:       newProgress(),
+		Progress:       newProgress(p),
 		StartedAt:      now,
 	}
 	s.store.putTask(task)
@@ -68,11 +73,12 @@ func (s *Service) enqueue(ctx context.Context, accountID string, identity Identi
 	return task, nil
 }
 
-func newProgress() Progress {
-	steps := make([]ProgressStep, 0, len(generateSteps))
-	for i, id := range generateSteps {
-		steps = append(steps, ProgressStep{Index: i + 1, Name: id, Purpose: id, Kind: "final", Status: "pending"})
+func newProgress(p plan) Progress {
+	steps := []ProgressStep{{Index: 1, Name: "load-jd", Purpose: "load-jd", Kind: stepFinal, Status: "pending"}}
+	for i, step := range p.steps {
+		steps = append(steps, ProgressStep{Index: progressIndex(i), Name: step.Name, Purpose: step.Purpose, Kind: step.Kind, Status: "pending"})
 	}
+	steps = append(steps, ProgressStep{Index: progressIndex(len(p.steps)), Name: "finalize", Purpose: "finalize", Kind: stepFinal, Status: "pending"})
 	return Progress{Steps: steps}
 }
 
@@ -80,77 +86,49 @@ func (s *Service) runTask(parent context.Context, task Task, model Model) {
 	if parent == nil {
 		parent = context.Background()
 	}
-	ctx, cancel := context.WithTimeout(parent, 2*time.Minute)
+	ctx, cancel := context.WithTimeout(parent, generateTimeout)
 	defer cancel()
-	mark := func(name, status string) {
-		for i := range task.Progress.Steps {
-			if task.Progress.Steps[i].Name == name {
-				task.Progress.Steps[i].Status = status
-			}
-		}
-		s.store.putTask(task)
-	}
-	fail := func(step, message string) {
+	finalizeIndex := len(task.Progress.Steps)
+	fail := func(message string) {
 		task.Status = "failed"
 		task.Error = message
-		mark(step, "done")
 		task.FinishedAt = ptrTime(time.Now().UTC())
-		s.store.putTask(task)
+		s.store.putTask(snapshot(task))
 		s.persistFailed(task, model)
 	}
 
-	mark("load-jd", "running")
-	mark("load-jd", "done")
-
+	p, err := buildPlan(task.Config, task.Identity, task.JobDescription, task.JobID != "")
+	if err != nil {
+		fail(err.Error())
+		return
+	}
 	sections := cloneMap(task.Partial)
 	if sections == nil {
 		sections = map[string]any{}
 	}
-	identityJSON, _ := json.MarshalIndent(task.Identity, "", "  ")
-	replacer := strings.NewReplacer("{job_description}", task.JobDescription, "{identity}", string(identityJSON))
-
-	skipUntil := task.ResumeFrom
-	skipping := skipUntil != ""
-	for _, purpose := range []string{"summary", "skills", "experience"} {
-		if skipping {
-			if purpose == skipUntil {
-				skipping = false
-			} else if sections[purpose] != nil {
-				mark(purpose, "done")
-				continue
-			} else {
-				skipping = false
-			}
-		}
-		if sections[purpose] != nil && skipUntil != purpose {
-			mark(purpose, "done")
-			continue
-		}
-		mark(purpose, "running")
-		raw, err := model.JSON(openai.WithCall(ctx, purpose), systemWriter, replacer.Replace(purposePrompt[purpose]), json.RawMessage(purposeSchema[purpose]))
-		if err != nil {
-			fail(purpose, err.Error())
-			return
-		}
-		var parsed any
-		if err := json.Unmarshal(raw, &parsed); err != nil {
-			fail(purpose, "model returned non-JSON output")
-			return
-		}
-		sections[purpose] = parsed
-		task.Partial = sections
-		mark(purpose, "done")
+	run := &runner{svc: s, model: model, plan: p, task: &task, sections: sections}
+	run.mark(1, "done")
+	if err := run.run(ctx, task.ResumeFrom); err != nil {
+		fail(err.Error())
+		return
 	}
 
-	mark("finalize", "running")
+	sections["experience"] = reconcileExperience(sections["experience"], task.Identity.Careers, p.dynamic)
+	task.Partial = cloneMap(sections)
+	if err := assertSections(sections, task.Identity.Careers); err != nil {
+		fail(err.Error())
+		return
+	}
+
+	run.mark(finalizeIndex, "running")
 	docx, err := s.renderBytes(task.AccountID, task.Identity, sections, task.Config)
 	if err != nil {
-		fail("finalize", err.Error())
+		fail(err.Error())
 		return
 	}
 	genID, err := newID()
 	if err != nil {
-		fail("finalize", err.Error())
+		fail(err.Error())
 		return
 	}
 	now := time.Now().UTC()
@@ -174,7 +152,7 @@ func (s *Service) runTask(parent context.Context, task Task, model Model) {
 	}
 	lib, err := s.saveGeneratedLibrary(task.AccountID, gen, docx)
 	if err != nil {
-		fail("finalize", err.Error())
+		fail(err.Error())
 		return
 	}
 	gen.ResumeID = lib.ID
@@ -186,7 +164,7 @@ func (s *Service) runTask(parent context.Context, task Task, model Model) {
 	task.Partial = sections
 	task.Progress.Done = true
 	task.FinishedAt = &now
-	mark("finalize", "done")
+	run.mark(finalizeIndex, "done")
 }
 
 func (s *Service) persistFailed(task Task, model Model) {

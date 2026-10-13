@@ -25,6 +25,7 @@ import {
 } from "@/lib/resume/api";
 import { FALLBACK_TEMPLATE_ID, PREVIEW_DEBOUNCE_MS, withTemplate } from "@/lib/resume/design";
 import { identityFrom } from "@/lib/resume/identity";
+import { stepIssues } from "@/lib/resume/steps";
 import { JOB_DESCRIPTION_MAX, JOB_DESCRIPTION_ROWS } from "@/lib/workspace/model";
 import { sampleProfile } from "@/lib/workspace/profile";
 import { bytesToBase64, saveBase64File } from "@/lib/workspace/resume-file";
@@ -41,10 +42,11 @@ import {
 } from "@acorn/shared/resume-templates";
 import { DesignCard } from "./design-card";
 import { LivePreview, type PreviewStage } from "./live-preview";
+import { PromptsCard } from "./prompts-card";
 import { SectionsCard } from "./sections-card";
 import { TemplateGallery, type UploadedTemplate } from "./template-gallery";
 import { TypographyCard } from "./typography-card";
-import { GENERATE_STEPS, useResumeGenerate } from "./use-resume-generate";
+import { useResumeGenerate } from "./use-resume-generate";
 import { useResumes } from "./use-resumes";
 import { useTemplateThumbs } from "./use-template-thumbs";
 
@@ -171,6 +173,11 @@ export function ResumeGenerator({
       setError("Paste the job description first.");
       return;
     }
+    const problem = Object.values(stepIssues(config))[0];
+    if (problem) {
+      setError(`Fix the prompts first: ${problem}`);
+      return;
+    }
     setError("");
     void run.generate(config, jobDescription, identity);
   };
@@ -226,7 +233,7 @@ export function ResumeGenerator({
                 {run.busy ? (
                   <ProgressBar
                     label={run.busy}
-                    value={Math.round((run.doneSteps / GENERATE_STEPS) * 100)}
+                    value={Math.round((run.doneSteps / Math.max(run.totalSteps, 1)) * 100)}
                     hasValueLabel
                     variant="accent"
                   />
@@ -243,6 +250,7 @@ export function ResumeGenerator({
                 />
               </Stack>
             </SectionCard>
+            <PromptsCard config={config} onChange={setConfig} />
             <DesignCard
               config={config}
               templateName={uploadedTemplate?.name ?? template.name}

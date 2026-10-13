@@ -13,6 +13,7 @@ import {
   Text,
   TextInput,
 } from "sid-ui";
+import { LegalLinks } from "@/components/legal/legal-links";
 import { signIn, signUp } from "@/lib/auth/actions";
 import { ROUTES } from "@/lib/routes";
 
@@ -102,6 +103,7 @@ export function AuthForm({
           </Text>
         </FormLayout>
       </form>
+      <LegalLinks action={creating ? "creating an account" : "signing in"} />
     </Stack>
   );
 }
