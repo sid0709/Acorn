@@ -3,7 +3,9 @@
 // subject, plain-text preview, time) and, when that list changed since the last
 // look, TypeSafe Jev judges all of them together. Only the email Jev picks is
 // opened, and Jev then picks the code or link among the ones it holds; nothing is
-// matched on wording. When the best email holds none, the second best is opened;
+// matched on wording. When the step's time is known only emails that arrived after
+// it compete, and of those from one sender the newest is opened first: the site
+// honours the last code it sent. When the best email holds none, the second best is opened;
 // after that the search stops.
 package mailcode
 
@@ -12,6 +14,7 @@ import (
 	"errors"
 	"fmt"
 	"hash/fnv"
+	"sort"
 	"strconv"
 	"time"
 
@@ -25,8 +28,9 @@ const (
 	RecentMessages = 10
 	// MaxOpened is how many of the best-ranked emails are opened before the search stops.
 	MaxOpened = 2
-	// arrivalSkew lets an email stamped a little before the site's step still count as after it.
-	arrivalSkew = 2 * time.Minute
+	// arrivalSkew is the clock difference allowed between the applicant's browser and
+	// Gmail: an email stamped this much before the site's step still counts as after it.
+	arrivalSkew = 5 * time.Second
 	// minOpenProbability is the least chance Jev must give an email before it is opened.
 	minOpenProbability = 0.05
 	// confidentMail is the chance at or above which Jev's pick of the email is trusted
@@ -119,8 +123,12 @@ func Find(ctx context.Context, decide Selector, mail Reader, q Query) (Result, e
 		return Result{Status: StatusPending, Seen: q.Seen}, fmt.Errorf("read recent mail: %w", err)
 	}
 	items, subjects := mailItems(recent, q.Since)
-	result := Result{Status: StatusPending, Seen: seenOf(recent), Emails: listed(items)}
-	if len(recent) == 0 {
+	result := Result{Status: StatusPending, Emails: listed(items)}
+	// An email from before the site was asked to send is an earlier request's: its
+	// code is no longer valid. Wait for the one this step caused.
+	eligible := arrivedAfter(items)
+	result.Seen = seenOf(eligible)
+	if len(eligible) == 0 {
 		return result, nil
 	}
 	if result.Seen == q.Seen {
@@ -128,12 +136,13 @@ func Find(ctx context.Context, decide Selector, mail Reader, q Query) (Result, e
 		return result, nil
 	}
 
-	rank, err := decide.RankMail(ctx, q.Ask, items)
+	rank, err := decide.RankMail(ctx, q.Ask, eligible)
 	if err != nil {
 		return result, fmt.Errorf("rank mail: %w", err)
 	}
 	result.add(rank.Usage)
-	result.Judged = judged(items, rank)
+	rank.Ranked = newestFromPicksSender(eligible, rank.Ranked)
+	result.Judged = judged(eligible, rank)
 	result.Emails = withProbabilities(result.Emails, result.Judged)
 	if rank.None {
 		return result, nil
@@ -161,10 +170,10 @@ func Find(ctx context.Context, decide Selector, mail Reader, q Query) (Result, e
 }
 
 // seenOf names a list of emails by their ids, so two looks can tell whether anything arrived.
-func seenOf(messages []mailbox.Message) string {
+func seenOf(items []selector.MailItem) string {
 	h := fnv.New64a()
-	for _, message := range messages {
-		h.Write([]byte(message.ID))
+	for _, item := range items {
+		h.Write([]byte(item.ID))
 		h.Write([]byte{0})
 	}
 	return strconv.FormatUint(h.Sum64(), 36)
@@ -189,6 +198,44 @@ func mailItems(recent []mailbox.Message, since time.Time) ([]selector.MailItem, 
 		subjects[message.ID] = message.Subject
 	}
 	return items, subjects
+}
+
+// arrivedAfter keeps the emails that arrived after the site was asked to send; all
+// of them when that time is not known.
+func arrivedAfter(items []selector.MailItem) []selector.MailItem {
+	out := make([]selector.MailItem, 0, len(items))
+	for _, item := range items {
+		if !item.AfterKnown || item.After {
+			out = append(out, item)
+		}
+	}
+	return out
+}
+
+// newestFromPicksSender puts first, newest first, the plausible emails from the
+// sender of Jev's best pick; the rest follow in Jev's order. A site's earlier
+// codes stop working once it sends a new one, so the newest is the one to try.
+func newestFromPicksSender(items []selector.MailItem, ranked []selector.Ranked) []selector.Ranked {
+	if len(ranked) < 2 {
+		return ranked
+	}
+	byID := make(map[string]selector.MailItem, len(items))
+	for _, item := range items {
+		byID[item.ID] = item
+	}
+	sender := byID[ranked[0].ID].From
+	var same, rest []selector.Ranked
+	for _, r := range ranked {
+		if byID[r.ID].From == sender && r.Probability >= minOpenProbability {
+			same = append(same, r)
+		} else {
+			rest = append(rest, r)
+		}
+	}
+	sort.SliceStable(same, func(i, j int) bool {
+		return byID[same[i].ID].ReceivedAt.After(byID[same[j].ID].ReceivedAt)
+	})
+	return append(same, rest...)
 }
 
 func judged(items []selector.MailItem, rank selector.MailRank) []Judged {

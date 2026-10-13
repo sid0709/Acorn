@@ -3,6 +3,7 @@ import { FILL_MODE, type FillMode } from "@acorn/shared/field-issues";
 import { FAST_PLAN_MODE } from "@acorn/shared/form-fields";
 import { PhaseClock } from "@acorn/shared/phase-clock";
 import { applyApplicantIdentityToActions } from "@acorn/shared/plan-runner/applicant-identity";
+import { planCodeFill, spreadCodeAcrossBoxes } from "@acorn/shared/plan-runner/code-fill";
 import { runActionPlan } from "@acorn/shared/plan-runner/orchestrator";
 import { planWantsCoverLetter } from "@acorn/shared/plan-runner/step-file";
 import { formatPlannerTree } from "@acorn/shared/planner-tree";
@@ -337,32 +338,40 @@ export async function runFabPipeline(args: RunPipelineArgs): Promise<void> {
           null,
       };
 
+      // An emailed code is typed from the page's own boxes: no planner call.
+      const codeActions =
+        verificationCode && !refill && formFields
+          ? planCodeFill(formFields, verificationCode)
+          : null;
       const analyze = pendingOnly
         ? { mode: FAST_PLAN_MODE, plan: emptyPlan() }
-        : await clock.time("plan", () =>
-            requestPlan(
-              {
-                pureTree,
-                mode,
-                fieldIssues: refill ? fieldIssues : undefined,
-                history: refill && history?.length ? history : undefined,
-                page,
-                verificationCode,
-                debug: ACORN_CAPTURE
-                  ? { html: pageHtml, domTree: treePayload.tree, metaTree }
-                  : undefined,
-              },
-              formFields,
-              aiServerUrl,
-              tabId,
-            ),
-          );
+        : codeActions
+          ? { mode: FAST_PLAN_MODE, plan: { ...emptyPlan(), actions: codeActions } }
+          : await clock.time("plan", () =>
+              requestPlan(
+                {
+                  pureTree,
+                  mode,
+                  fieldIssues: refill ? fieldIssues : undefined,
+                  history: refill && history?.length ? history : undefined,
+                  page,
+                  verificationCode,
+                  debug: ACORN_CAPTURE
+                    ? { html: pageHtml, domTree: treePayload.tree, metaTree }
+                    : undefined,
+                },
+                formFields,
+                aiServerUrl,
+                tabId,
+              ),
+            );
       if (refill && analyze.mode !== FILL_MODE.refill) {
         throw new Error(REFILL_UNSUPPORTED);
       }
 
       const plan = analyze.plan as ActionPlan;
       applyApplicantIdentityToActions(plan.actions);
+      spreadCodeAcrossBoxes(plan.actions, verificationCode);
       planSnapshot = redactPlan(plan);
       stepTotal = plan.actions?.length ?? 0;
 

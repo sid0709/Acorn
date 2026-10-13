@@ -247,6 +247,8 @@ const BUDGET_SPENT = "The run reached its limit on AI work";
 
 /** The emailed code or link could not be found. */
 const VERIFICATION_NOT_FOUND = "The code or link the site emailed was not found in your Gmail";
+/** The site refused the code that was typed from the email. */
+const CODE_REJECTED = "The site rejected the code from the email";
 /** The connected Gmail could not be read, look after look. */
 const MAIL_UNREADABLE = "Acorn could not read your Gmail";
 /** The site kept refusing the account step. */
@@ -1536,6 +1538,12 @@ export async function runOrchestrator(args: RunOrchestratorArgs): Promise<RunRep
         log.event("after-click", { flagged, missing, noted, shown: page.flagged });
         const onlyNoted = flagged === 0 && missing === 0;
         if (flagged > 0 || missing > 0 || noted > 0) {
+          // The emailed code was typed and the page refused it: a refill has no other
+          // code to give, so it would only spend the run's budget on empty passes.
+          if (state.verified && (flagged > 0 || missing > 0)) {
+            log.event("verify:code-rejected", { flagged, missing });
+            throw verificationNotFound(page, CODE_REJECTED);
+          }
           if (state.refills >= RUN_MAX_REFILLS_PER_PAGE) {
             throw new RunStop(RUN_STAGE.refilling, page, [
               `Still flagged after ${state.refills} refills (limit ${RUN_MAX_REFILLS_PER_PAGE})`,
