@@ -2,6 +2,8 @@ export const ROUTES = {
   home: "/",
   signIn: "/sign-in",
   signUp: "/sign-up",
+  privacy: "/privacy",
+  terms: "/terms",
   overview: "/overview",
   profile: "/profile",
   resume: "/resume",

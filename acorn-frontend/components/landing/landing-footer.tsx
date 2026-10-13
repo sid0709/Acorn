@@ -33,6 +33,13 @@ const COLUMNS = [
       { label: "Sign in", href: ROUTES.signIn },
     ],
   },
+  {
+    title: "Legal",
+    links: [
+      { label: "Privacy Policy", href: ROUTES.privacy },
+      { label: "Terms of Service", href: ROUTES.terms },
+    ],
+  },
 ];
 
 export function LandingFooter() {

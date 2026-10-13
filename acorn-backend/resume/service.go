@@ -41,7 +41,7 @@ func (s *Service) EnsureIndexes(ctx context.Context) error {
 
 func (s *Service) Config(accountID string) map[string]any {
 	if cfg := s.store.config(accountID); cfg != nil {
-		return cfg
+		return withDefaultSteps(cfg)
 	}
 	return defaultConfig()
 }
@@ -388,7 +388,7 @@ func defaultConfig() map[string]any {
 	return map[string]any{
 		"schemaVersion": 4, "provider": config.OpenRouterProvider, "model": config.OpenRouterModel,
 		"reasoningEffort": "low", "dynamicCareerTitles": false, "templateId": "classic",
-		"theme": theme, "systemInstruction": systemWriter, "jobDescription": "",
+		"theme": theme, "systemInstruction": defaultSystemInstruction, "jobDescription": "", "steps": defaultSteps(),
 		"coverage": map[string]any{"enabled": false, "experienceRequirementThreshold": 4, "aliases": map[string]any{}},
 	}
 }
@@ -408,7 +408,7 @@ func mergeConfig(raw map[string]any) map[string]any {
 	}
 	base["provider"] = config.OpenRouterProvider
 	base["model"] = config.OpenRouterModel
-	return base
+	return withDefaultSteps(base)
 }
 
 func firstNonEmpty(values ...string) string {

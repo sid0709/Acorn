@@ -6,6 +6,11 @@ const DEFAULT_WEB_URL = "http://localhost:6005";
 
 export const BRAND = "Acorn";
 
+/** Where privacy and terms questions go. Empty until ACORN_CONTACT_EMAIL is set. */
+export function contactEmail(): string | null {
+  return process.env.ACORN_CONTACT_EMAIL?.trim() || null;
+}
+
 /** The public origin: canonical links, the sitemap, and social cards resolve against it. */
 export function siteUrl(): string {
   return (process.env.ACORN_WEB_URL || DEFAULT_WEB_URL).replace(/\/$/, "");
