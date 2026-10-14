@@ -61,6 +61,7 @@ import {
 } from "./api/run";
 import { repairDriftInTab } from "./drift";
 import { fetchDomFromTab } from "./fetch-dom";
+import { prefetchFillResume } from "./fill-resume";
 import { watchNetwork } from "./network-activity";
 import { RESUME_NOT_CHOSEN, type ResumeGate } from "./resume-gate";
 import {
@@ -557,6 +558,9 @@ export async function runOrchestrator(args: RunOrchestratorArgs): Promise<RunRep
     recommending = clock.time("recommend", () =>
       ensureRecommendedResume({ tabId, url, title, apiUrl, log }),
     );
+    // The chosen file loads while the run clicks Apply and the form draws.
+    const on = tabId;
+    void recommending.then(() => prefetchFillResume(on, apiUrl)).catch(() => undefined);
   };
   /** Wait for the recommend before the run touches the page or moves tabs. */
   const settleRecommend = async () => {

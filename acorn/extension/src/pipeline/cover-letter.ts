@@ -1,7 +1,9 @@
 import { getJobGenerate } from "../tab-job-generate-session";
 
 import { requestCoverLetter } from "./api/cover-letter";
+import { fetchCustomLibraryResume } from "./api/custom-library";
 import { fetchStoredJobDescription } from "./api/job-files";
+import { cachedResumeFile } from "./resume-file-cache";
 
 import type { AcornCustomTabBinding } from "../tab-custom-session";
 import type { AcornTabJobBinding } from "../tab-job-session";
@@ -48,5 +50,11 @@ export async function loadCoverLetter(input: {
 }): Promise<RuntimeAttachedFile | null> {
   const posting = await postingText(input);
   const choice = await requestCoverLetter(posting, input.apiUrl, input.tabId);
-  return choice.file;
+  if (choice.file) return choice.file;
+  const letterId = choice.resumeId;
+  if (!letterId) return null;
+  // Cached like a résumé: the same letter for the next application is no download.
+  return cachedResumeFile(`library:${letterId}`, () =>
+    fetchCustomLibraryResume(letterId, input.apiUrl),
+  );
 }

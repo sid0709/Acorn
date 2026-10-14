@@ -72,7 +72,7 @@ Acorn HTTP in `acorn-backend/acornapi` should compose the existing My Resume Edi
 
 ## 7. Process capture
 
-Every tab session's process (step traces, page HTML and trees, model prompts and answers, SelectorGateway decisions, Gmail looks, screenshots) is captured to the API, kept 3 days per tab (`debugtrace.SessionRetention`), and copied onto a support claim when the person reports. A password never enters capture: the extension redacts it from traces and HTML (`content/debug-snapshot.ts`, `plan-step-runner.ts`), plans are redacted, and emailed codes or links are kept only masked. Capture is best effort and never stops or slows a run.
+Every tab session's process (step traces with the addresses clicks started from, the compact page tree, model prompts and answers, SelectorGateway decisions, Gmail looks) is captured to the API, kept 3 days per tab (`debugtrace.SessionRetention`), and copied onto a support claim when the person reports. The page's HTML never leaves the browser. A password never enters capture: the extension redacts it from traces (`content/debug-snapshot.ts`, `plan-step-runner.ts`), plans are redacted, and emailed codes or links are kept only masked. Capture is best effort and never stops or slows a run: its uploads wait a moment and go at low priority behind the run's own requests, and log entries are built when they are written, not when the run logs them.
 
 ---
 

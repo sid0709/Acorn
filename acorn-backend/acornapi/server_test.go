@@ -461,3 +461,41 @@ func TestRunLogAcceptsEvents(t *testing.T) {
 		t.Errorf("signed-out status %d, want 401", got)
 	}
 }
+
+// A Library file answers with its version tag, and with 304 when the extension
+// already holds that version; a cover letter can be named by id alone.
+func TestLibraryFileIsVersionedAndCoverLetterByID(t *testing.T) {
+	handler, _ := newTestServer(t, fakeModel{})
+	upload := func(body string) string {
+		rec := call(handler, "POST", "/acorn/resume/library", body, bearer("hunter"), "")
+		var got struct {
+			Resume struct {
+				ID string `json:"id"`
+			} `json:"resume"`
+		}
+		if err := json.Unmarshal(rec.Body.Bytes(), &got); err != nil || rec.Code != http.StatusCreated {
+			t.Fatalf("upload = %d %s", rec.Code, rec.Body)
+		}
+		return got.Resume.ID
+	}
+	resumeID := upload(`{"fileName":"go.txt","title":"Go","contentBase64":"R28gSFRUUCBzZXJ2aWNlcw=="}`)
+	first := call(handler, "GET", "/acorn/custom/library-resumes/"+resumeID, "", bearer("hunter"), "")
+	tag := first.Header().Get("ETag")
+	if first.Code != http.StatusOK || tag == "" || !strings.Contains(first.Body.String(), `"base64"`) {
+		t.Fatalf("file = %d tag %q %s", first.Code, tag, first.Body)
+	}
+	again := httptest.NewRecorder()
+	req := httptest.NewRequest("GET", "/acorn/custom/library-resumes/"+resumeID, nil)
+	req.Header.Set("Authorization", "Bearer hunter")
+	req.Header.Set("If-None-Match", tag)
+	handler.ServeHTTP(again, req)
+	if again.Code != http.StatusNotModified || again.Body.Len() != 0 {
+		t.Fatalf("revalidate = %d %q, want 304 with no body", again.Code, again.Body)
+	}
+
+	letterID := upload(`{"fileName":"letter.txt","title":"Letter","kind":"` + resume.KindCoverLetter + `","contentBase64":"RGVhciB0ZWFt"}`)
+	rec := call(handler, "POST", "/acorn/custom/cover-letter", `{"jobDescription":"Go engineer","idOnly":true}`, bearer("hunter"), "")
+	if rec.Code != http.StatusOK || !strings.Contains(rec.Body.String(), letterID) || strings.Contains(rec.Body.String(), `"base64"`) {
+		t.Fatalf("cover letter = %d %s", rec.Code, rec.Body)
+	}
+}

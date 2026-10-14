@@ -7,9 +7,15 @@ import { postDebug } from "./debug-post";
 const DEBUG_LOG_PATH = "/acorn/debug/log";
 /** Entries sent per request; the rest wait for the next flush. */
 const TRACE_BATCH_MAX = 50;
+/**
+ * Entries wait this long before they are sent: the step that traced them sends its
+ * own request first (a plan, a page read), and a burst of events goes as one batch.
+ */
+const TRACE_FLUSH_DELAY_MS = 300;
 
 const pending: TraceEntry[] = [];
 let flushing: Promise<void> | null = null;
+let flushTimer: ReturnType<typeof setTimeout> | null = null;
 
 async function flush(): Promise<void> {
   while (pending.length) {
@@ -30,7 +36,10 @@ export function sinkTrace(entry: TraceEntry): void {
   logTab(entry.tabId, LOG_KIND.event, `${entry.from} · ${entry.event}`, () => entry.data ?? {});
   if (!ACORN_CAPTURE) return;
   pending.push(entry);
-  startFlush();
+  flushTimer ??= setTimeout(() => {
+    flushTimer = null;
+    startFlush();
+  }, TRACE_FLUSH_DELAY_MS);
 }
 
 function startFlush(): void {
@@ -44,6 +53,10 @@ function startFlush(): void {
 /** Wait until trace entries already queued have been sent. */
 export async function flushDebugTraces(): Promise<void> {
   if (!ACORN_CAPTURE) return;
+  if (flushTimer) {
+    clearTimeout(flushTimer);
+    flushTimer = null;
+  }
   while (pending.length > 0 || flushing) {
     startFlush();
     const current = flushing;

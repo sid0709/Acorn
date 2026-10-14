@@ -2,6 +2,7 @@ import { readRecommendedTop, type RecommendedResumeRank } from "@acorn/shared/re
 
 import { authHeaders, getAcornApiUrl } from "../../auth/acorn-auth";
 
+import { cachedFileGet } from "./file-cache";
 import { extractError, isNestMissingRoute, readId } from "./http";
 
 import type { RuntimeAttachedFile } from "@acorn/shared/plan-runner/types";
@@ -72,16 +73,15 @@ export async function fetchCustomLibraryResume(
   const id = String(resumeId || "").trim();
   if (!id) return null;
   const base = (_apiUrl || (await getAcornApiUrl())).replace(/\/$/, "");
-  const res = await fetch(`${base}/acorn/custom/library-resumes/${encodeURIComponent(id)}`, {
-    headers: await authHeaders(),
-  });
-  const data = (await res.json().catch(() => ({}))) as {
+  // Through the file cache: an unchanged file costs a bodiless 304, not a download.
+  const res = await cachedFileGet<{
     file?: RuntimeAttachedFile;
     resumeId?: string | null;
     stack?: string | null;
     error?: string;
     message?: string;
-  };
+  }>(`${base}/acorn/custom/library-resumes/${encodeURIComponent(id)}`, await authHeaders());
+  const data = res.data;
   if (isNestMissingRoute(res.status, data)) {
     throw new Error(CUSTOM_LIBRARY_FILE_UNAVAILABLE);
   }

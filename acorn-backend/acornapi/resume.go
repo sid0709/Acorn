@@ -419,7 +419,7 @@ func (s *Server) libraryFile(w http.ResponseWriter, r *http.Request) {
 		s.writeResumeErr(w, err)
 		return
 	}
-	writeJSON(w, http.StatusOK, map[string]any{"success": true, "file": file, "resumeId": file.ResumeID, "stack": file.Label})
+	writeJSONVersioned(w, r, map[string]any{"success": true, "file": file, "resumeId": file.ResumeID, "stack": file.Label})
 }
 
 func (s *Server) libraryPreview(w http.ResponseWriter, r *http.Request) {
@@ -453,7 +453,7 @@ func (s *Server) customGeneratedResume(w http.ResponseWriter, r *http.Request) {
 		s.writeResumeErr(w, err)
 		return
 	}
-	writeJSON(w, http.StatusOK, map[string]any{
+	writeJSONVersioned(w, r, map[string]any{
 		"success": true, "file": file, "generationId": r.PathValue("generationId"), "resumeId": file.ResumeID, "stack": file.Label,
 	})
 }
@@ -499,6 +499,9 @@ func (s *Server) coverLetter(w http.ResponseWriter, r *http.Request) {
 	}
 	var body struct {
 		JobDescription string `json:"jobDescription"`
+		// IDOnly answers with the chosen letter's id alone: the extension fetches the
+		// file through the versioned Library route, which it keeps cached.
+		IDOnly bool `json:"idOnly"`
 	}
 	if !decode(w, r, &body) {
 		return
@@ -514,6 +517,10 @@ func (s *Server) coverLetter(w http.ResponseWriter, r *http.Request) {
 	}
 	if err != nil {
 		s.writeResumeErr(w, err)
+		return
+	}
+	if body.IDOnly {
+		writeJSON(w, http.StatusOK, map[string]any{"success": true, "resumeId": pick.File.ResumeID, "stack": pick.Stack, "reason": pick.Reason})
 		return
 	}
 	writeJSON(w, http.StatusOK, map[string]any{"success": true, "file": pick.File, "stack": pick.Stack, "reason": pick.Reason})
@@ -533,7 +540,7 @@ func (s *Server) jobRecommendedResume(w http.ResponseWriter, r *http.Request) {
 		s.writeResumeErr(w, err)
 		return
 	}
-	writeJSON(w, http.StatusOK, map[string]any{"success": true, "file": file, "jobId": r.PathValue("jobId"), "resumeId": resumeID, "stack": stack})
+	writeJSONVersioned(w, r, map[string]any{"success": true, "file": file, "jobId": r.PathValue("jobId"), "resumeId": resumeID, "stack": stack})
 }
 
 func (s *Server) jobResumePreview(w http.ResponseWriter, r *http.Request) {

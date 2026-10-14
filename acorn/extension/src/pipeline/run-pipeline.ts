@@ -327,14 +327,20 @@ export async function runFabPipeline(args: RunPipelineArgs): Promise<void> {
 
       // The planner reads the compact tree; the full Meta Tree only rides to debug capture.
       const pureTree = formatPlannerTree(treePayload.tree);
-      const metaTree = formatAnalyzeTrees(treePayload.tree).metaTree;
+      // The meta tree is for the Logs panel only: built when the log is written.
+      const tree = treePayload.tree;
       logTab(
         tabId,
         LOG_KIND.pureTree,
         `Compressed tree · ${pureTree.length} characters`,
         () => pureTree,
       );
-      logTab(tabId, LOG_KIND.metaTree, `Meta tree · ${metaTree.length} characters`, () => metaTree);
+      logTab(
+        tabId,
+        LOG_KIND.metaTree,
+        `Meta tree · ${nodeCount} nodes`,
+        () => formatAnalyzeTrees(tree).metaTree,
+      );
       logTab(tabId, LOG_KIND.analysis, `Analysis · ${formFields?.length ?? 0} fields`, () => ({
         mode,
         nodes: nodeCount,
@@ -428,6 +434,11 @@ export async function runFabPipeline(args: RunPipelineArgs): Promise<void> {
       applyApplicantIdentityToActions(plan.actions);
       spreadCodeAcrossBoxes(plan.actions, verificationCode);
       planSnapshot = redactPlan(plan);
+      // What the planner sent, for logs written later: the steps' values are rewritten next.
+      const shownPlan: ActionPlan = {
+        ...planSnapshot,
+        actions: (planSnapshot.actions ?? []).map((action) => ({ ...action })),
+      };
       stepTotal = plan.actions?.length ?? 0;
 
       emit({
@@ -440,12 +451,12 @@ export async function runFabPipeline(args: RunPipelineArgs): Promise<void> {
       });
 
       frameId = treePayload.frameId ?? preferredFrameId ?? null;
-      logTab(tabId, LOG_KIND.plan, `Action plan · ${stepTotal} actions`, () => redactPlan(plan));
+      logTab(tabId, LOG_KIND.plan, `Action plan · ${stepTotal} actions`, () => shownPlan);
       traceFromBackground(
         "plan",
         () => ({
           frameId,
-          actions: (redactPlan(plan).actions ?? []).map((a, i) => ({
+          actions: (shownPlan.actions ?? []).map((a, i) => ({
             i,
             action: a.action,
             element_index: a.element_index,

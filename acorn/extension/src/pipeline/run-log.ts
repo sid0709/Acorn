@@ -68,6 +68,8 @@ export class RunLog {
         method: "POST",
         headers: await authHeaders(this.tabId),
         body: JSON.stringify({ runId: this.runId, events }),
+        // The log yields to the run's own requests on a busy connection.
+        priority: "low",
       });
     } catch {
       // The log is best effort; a lost batch never stops a run.

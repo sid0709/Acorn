@@ -106,11 +106,23 @@ export async function getTabLog(tabId: number): Promise<TabLogEntry[]> {
   return (request.result as StoredEntry[]).map(({ tabId: _tab, ...entry }) => entry);
 }
 
-const pending = new Map<number, TabLogEntry[]>();
+/**
+ * An entry waiting to be written. Its text is built when the batch is written, not
+ * when it is logged: building a big entry (a tree, a plan) never holds up the step
+ * that logged it.
+ */
+type PendingEntry = Omit<TabLogEntry, "text"> & { text: () => string };
+
+const pending = new Map<number, PendingEntry[]>();
 let timer: ReturnType<typeof setTimeout> | null = null;
 let sequence = 0;
 
-async function flushTab(tabId: number, added: TabLogEntry[]): Promise<void> {
+function built(entry: PendingEntry): TabLogEntry {
+  return { ...entry, text: entry.text() };
+}
+
+async function flushTab(tabId: number, queued: PendingEntry[]): Promise<void> {
+  const added = queued.map(built);
   const db = await openDatabase();
   const write = db.transaction(ENTRY_STORE, "readwrite");
   const store = write.objectStore(ENTRY_STORE);
@@ -129,17 +141,24 @@ function flushAll(): void {
   }
 }
 
-/** Queue one entry for a tab's log. */
-export function appendTabLog(tabId: number | undefined, input: TabLogInput): void {
-  if (tabId == null) return;
+function queue(tabId: number, kind: LogKind, title: string, text: () => string): void {
   const t = Date.now();
   sequence += 1;
-  const entry: TabLogEntry = { ...input, id: `${t}-${sequence}`, t };
+  const entry: PendingEntry = { kind, title, text, id: `${t}-${sequence}`, t };
   pending.set(tabId, [...(pending.get(tabId) ?? []), entry]);
   timer ??= setTimeout(flushAll, LOG_FLUSH_MS);
 }
 
-/** Lazy form of {@link appendTabLog}: `build` runs once, and a throw is kept out of the run. */
+/** Queue one entry for a tab's log. */
+export function appendTabLog(tabId: number | undefined, input: TabLogInput): void {
+  if (tabId == null) return;
+  queue(tabId, input.kind, input.title, () => input.text);
+}
+
+/**
+ * Lazy form of {@link appendTabLog}: `build` runs once, when the batch is written
+ * (after the step that logged it went on), and a throw is kept out of the run.
+ */
 export function logTab(
   tabId: number | undefined,
   kind: LogKind,
@@ -147,11 +166,13 @@ export function logTab(
   build: () => unknown,
 ): void {
   if (tabId == null) return;
-  try {
-    appendTabLog(tabId, { kind, title, text: toLogText(build()) });
-  } catch {
-    /* logging never stops a run */
-  }
+  queue(tabId, kind, title, () => {
+    try {
+      return toLogText(build());
+    } catch (err) {
+      return `(could not render: ${String(err)})`;
+    }
+  });
 }
 
 export async function clearTabLog(tabId: number): Promise<void> {

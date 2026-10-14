@@ -1,7 +1,12 @@
 import { sameApplySite } from "@acorn/shared/apply-site";
 
-import { customTabHasResume, type AcornCustomTabBinding } from "../tab-custom-session";
+import {
+  customTabHasResume,
+  getCustomTab,
+  type AcornCustomTabBinding,
+} from "../tab-custom-session";
 import { getJobGenerate } from "../tab-job-generate-session";
+import { getTabJob } from "../tab-job-session";
 
 import { fetchCustomResume } from "./api/custom-files";
 import { fetchCustomLibraryResume } from "./api/custom-library";
@@ -135,6 +140,23 @@ async function loadCustomFillResume(input: {
       skipReason: err instanceof Error ? err.message : String(err),
     };
   }
+}
+
+/**
+ * Start loading the résumé a Run's fill will attach, the moment recommend picks it:
+ * it loads while Apply is clicked and the form draws, and the fill finds it ready
+ * (or joins the load still in flight). Chosen exactly as the fill chooses it.
+ */
+export async function prefetchFillResume(tabId: number, apiUrl: string): Promise<void> {
+  const customTab = await getCustomTab(tabId);
+  const forced = customTab != null && customTabHasResume(customTab);
+  await loadFillResume({
+    source: forced ? "custom" : "fill",
+    tabJob: await getTabJob(tabId),
+    customTab,
+    customGenerationId: customTab?.generationId ?? null,
+    apiUrl,
+  });
 }
 
 export function keepResumeIfSameSite(
