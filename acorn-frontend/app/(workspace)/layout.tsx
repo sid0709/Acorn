@@ -4,7 +4,6 @@ import { redirect } from "next/navigation";
 import { PageContainer } from "sid-ui";
 import { AcornHeader } from "@/components/shell/acorn-header";
 import { AppFrame } from "@/components/shell/app-frame";
-import { MobileWorkspaceNav } from "@/components/workspace/nav";
 import { SupportBanner } from "@/components/support/support-banner";
 import { ProfileSync } from "@/components/workspace/profile-sync";
 import { WorkspaceScope } from "@/components/workspace/workspace-scope";
@@ -27,7 +26,6 @@ export default async function WorkspaceLayout({ children }: { children: ReactNod
           ) : null}
           {children}
         </PageContainer>
-        <MobileWorkspaceNav />
       </WorkspaceScope>
     </AppFrame>
   );

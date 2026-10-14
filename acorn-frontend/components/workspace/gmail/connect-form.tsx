@@ -8,7 +8,7 @@ import { MAILBOX_LABEL_MAX, isEmail } from "@/lib/workspace/model";
 
 /** Pick the Gmail to connect; OAuth uses this address as a hint, not your Acorn login. */
 export function GmailConnectForm({
-  next = ROUTES.gmail,
+  next = ROUTES.connections,
   error = "",
 }: {
   next?: string;

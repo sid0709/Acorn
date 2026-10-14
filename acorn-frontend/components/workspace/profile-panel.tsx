@@ -14,6 +14,7 @@ import {
   Sticky,
   Tab,
   TabList,
+  Text,
   type GlyphName,
 } from "sid-ui";
 import type { AcornAccount } from "@/lib/auth/session";
@@ -42,8 +43,8 @@ const SECTIONS = [
   { value: "identity", label: "Identity", icon: "user" },
   { value: "experience", label: "Experience", icon: "seat" },
   { value: "education", label: "Education", icon: "bookmark" },
-  { value: "logistics", label: "Work & logistics", icon: "pin" },
   { value: "disclosures", label: "Disclosures", icon: "lock" },
+  { value: "logistics", label: "Work & logistics", icon: "pin" },
   { value: "assistant", label: "Job bid & AI", icon: "sparkle" },
   { value: "account", label: "Account", icon: "settings" },
 ] as const satisfies { value: string; label: string; icon: GlyphName }[];
@@ -159,15 +160,11 @@ export function ProfilePanel({
       <GridSystem gap={4} align="start">
         <GridColumn span="full" lg={4}>
           <Sticky offset={4}>
-            <ProfileSummary
-              profile={profile}
-              experience={formatDuration(experienceMonths(profile, today))}
-            />
+            <ProfileSummary profile={profile} />
           </Sticky>
         </GridColumn>
         <GridColumn span="full" lg={8}>
           <Stack gap={4}>
-            <ResumeImport profile={profile} onFilled={filled} />
             <TabList
               value={section}
               onChange={(value) => setSection(value as Section)}
@@ -188,17 +185,27 @@ export function ProfilePanel({
                 />
               ))}
             </TabList>
-            {section === "identity" ? <IdentityForm profile={profile} onChange={set} /> : null}
+            {section === "identity" ? (
+              <Stack gap={4}>
+                <ResumeImport profile={profile} onFilled={filled} />
+                <IdentityForm profile={profile} onChange={set} />
+              </Stack>
+            ) : null}
             {section === "experience" ? (
-              <TimelineSection kind="role" profile={profile} today={today} onChange={edit} />
+              <Stack gap={4}>
+                <Text type="supporting" color="secondary">
+                  {`Total experience: ${formatDuration(experienceMonths(profile, today))}`}
+                </Text>
+                <TimelineSection kind="role" profile={profile} today={today} onChange={edit} />
+              </Stack>
             ) : null}
             {section === "education" ? (
               <TimelineSection kind="education" profile={profile} today={today} onChange={edit} />
             ) : null}
-            {section === "logistics" ? <LogisticsForm profile={profile} onChange={set} /> : null}
             {section === "disclosures" ? (
               <DisclosuresForm profile={profile} onChange={set} />
             ) : null}
+            {section === "logistics" ? <LogisticsForm profile={profile} onChange={set} /> : null}
             {section === "assistant" ? <AssistantForm profile={profile} onChange={set} /> : null}
             {section === "account" ? (
               <AccountSettings email={account.email} profile={profile} onChange={set} />

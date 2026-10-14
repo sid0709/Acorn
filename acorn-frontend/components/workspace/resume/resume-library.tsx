@@ -5,12 +5,12 @@ import {
   Badge,
   Banner,
   Button,
+  Collapsible,
   Dialog,
   DialogHeader,
   FileUploader,
   Glyph,
   HStack,
-  IconButton,
   Layout,
   LayoutContent,
   LayoutFooter,
@@ -18,12 +18,9 @@ import {
   SectionCard,
   Selector,
   Stack,
-  Table,
   Text,
   TextInput,
-  formatBytes,
   useToast,
-  type TableColumn,
 } from "sid-ui";
 import {
   analyzeLibraryFile,
@@ -53,6 +50,7 @@ import {
   storedPdfText,
   type FolderResume,
 } from "./library-batch";
+import { LibraryCards, groupByStack } from "./library-cards";
 
 const VIEWS: { value: ResumeLibrarySource; label: string }[] = [
   { value: "uploaded", label: "Uploaded" },
@@ -337,98 +335,12 @@ export function ResumeLibrary({ initial }: { initial: LibraryStart }) {
     ? rows.filter((row) => reanalyzeIds.includes(row.id) && row.analyzed).length
     : 0;
 
-  const columns: TableColumn<ResumeLibraryRow>[] = [
-    {
-      key: "fileName",
-      header: "File",
-      render: (item) => (
-        <HStack gap={2} vAlign="center">
-          <Glyph name="file" />
-          <Text weight="semibold">{item.fileName}</Text>
-          {item.isPrimary ? <Badge label="Default" variant="blue" /> : null}
-          {item.analyzed ? <Badge label="Analyzed" variant="green" /> : null}
-        </HStack>
-      ),
-    },
-    {
-      key: "title",
-      header: "Tech stack",
-      render: (item) => <Text>{item.title || "—"}</Text>,
-    },
-    {
-      key: "format",
-      header: "Format",
-      render: (item) =>
-        item.format ? (
-          <Badge label={item.format.toUpperCase()} />
-        ) : (
-          <Text color="secondary">—</Text>
-        ),
-    },
-    {
-      key: "skillCount",
-      header: "Skills",
-      render: (item) => {
-        const count = item.skillCount ?? item.skillProfile?.length ?? 0;
-        if (!item.analyzed || count === 0) return <Text color="secondary">—</Text>;
-        return (
-          <Button
-            label={`${count} skills`}
-            variant="ghost"
-            size="sm"
-            onClick={(event) => {
-              event.stopPropagation();
-              setSkillsRow(item);
-            }}
-          />
-        );
-      },
-    },
-    {
-      key: "size",
-      header: "Size",
-      render: (item) => <Text color="secondary">{item.size ? formatBytes(item.size) : "—"}</Text>,
-    },
-    {
-      key: "actions",
-      header: "",
-      align: "end",
-      render: (item) => (
-        <HStack gap={1} hAlign="end">
-          {item.isPrimary ? null : (
-            <Button
-              label="Make default"
-              variant="ghost"
-              size="sm"
-              isDisabled={busy}
-              onClick={(event) => {
-                event.stopPropagation();
-                void act(async () => makeLibraryPrimary(item.id));
-              }}
-            />
-          )}
-          <IconButton
-            label={`Remove ${item.fileName}`}
-            icon={<Glyph name="trash" />}
-            variant="ghost"
-            size="sm"
-            isDisabled={busy}
-            onClick={(event) => {
-              event.stopPropagation();
-              void act(async () => deleteLibraryFile(item.id), `Removed ${item.fileName}`);
-            }}
-          />
-        </HStack>
-      ),
-    },
-  ];
-
   return (
     <Stack gap={4}>
       {error ? <Banner status="error" title="Library" description={error} /> : null}
       <SectionCard
         title="Upload"
-        description="Drop files, or bulk-upload a folder whose subfolders are tech-stack names. Each file is stored under its stack. Upload a PDF and a Word version under the same stack: a form that takes only one format gets that one, any other gets the PDF."
+        description={`Upload a ${KIND_NOUN[kind].one} for each type of role you apply to. Acorn picks the closest match automatically. A PDF and a Word version of the same role are kept together.`}
       >
         <Stack gap={3}>
           <HStack gap={3} wrap="wrap" vAlign="end">
@@ -444,19 +356,10 @@ export function ResumeLibrary({ initial }: { initial: LibraryStart }) {
               }}
             />
             <TextInput
-              label="Stack name"
-              description="For files dropped below. Leave empty to use each file's name."
+              label="Role"
+              description="Name the role for files dropped below. Leave empty to use each file's name."
               value={stackName}
               onChange={setStackName}
-            />
-          </HStack>
-          <HStack gap={2} wrap="wrap">
-            <Button
-              label="Bulk upload"
-              variant="secondary"
-              icon={<Glyph name="folder" />}
-              isDisabled={busy}
-              onClick={() => bulkRef.current?.click()}
             />
           </HStack>
           <FileUploader
@@ -483,11 +386,35 @@ export function ResumeLibrary({ initial }: { initial: LibraryStart }) {
               formatValueLabel={(value, max) => `${value} of ${max}`}
             />
           ) : null}
+          <Collapsible
+            defaultIsOpen={false}
+            trigger={
+              <Text type="supporting" color="secondary">
+                Advanced
+              </Text>
+            }
+          >
+            <Stack gap={2}>
+              <Text type="supporting" color="secondary">
+                Upload a whole folder at once. Name each subfolder for the role; every file inside
+                is stored under it.
+              </Text>
+              <HStack>
+                <Button
+                  label="Bulk upload"
+                  variant="secondary"
+                  icon={<Glyph name="folder" />}
+                  isDisabled={busy}
+                  onClick={() => bulkRef.current?.click()}
+                />
+              </HStack>
+            </Stack>
+          </Collapsible>
         </Stack>
       </SectionCard>
       <SectionCard
         title="Files"
-        description={`Select uploaded ${KIND_NOUN[kind].many} to analyze their skills or delete them before uploading again. Skills decide which one a job gets.`}
+        description={`Tick a role to analyze its skills or remove it. Skills decide which ${KIND_NOUN[kind].one} each job gets.`}
       >
         <Stack gap={3}>
           <HStack gap={3} wrap="wrap" vAlign="end">
@@ -504,11 +431,11 @@ export function ResumeLibrary({ initial }: { initial: LibraryStart }) {
             ) : null}
             <TextInput label="Search" value={search} onChange={setSearch} />
             <Selector
-              label="Stack"
+              label="Role"
               value={stack}
               options={stacks.map((item) => ({
                 value: item,
-                label: item === "all" ? "All stacks" : item,
+                label: item === "all" ? "All roles" : item,
               }))}
               onChange={setStack}
             />
@@ -560,20 +487,22 @@ export function ResumeLibrary({ initial }: { initial: LibraryStart }) {
               formatValueLabel={(value, max) => `${value} of ${max}`}
             />
           ) : null}
-          <Table
-            caption={kind === LIBRARY_KIND.resume ? "Resume library" : "Cover letter library"}
-            variant="plain"
-            selection={shownView === "uploaded" ? "multiple" : "none"}
-            selectedKeys={selected}
-            onSelectionChange={setSelected}
-            columns={columns}
-            rows={visible}
-            rowKey={(item) => item.id}
+          <LibraryCards
+            groups={groupByStack(visible)}
+            selected={selected}
+            selectable={shownView === "uploaded"}
+            busy={busy}
             empty={
               shownView === "generated"
                 ? "No generated résumés yet."
                 : `No uploaded ${KIND_NOUN[kind].many} yet.`
             }
+            onSelect={setSelected}
+            onMakeDefault={(row) => void act(async () => makeLibraryPrimary(row.id))}
+            onRemove={(row) =>
+              void act(async () => deleteLibraryFile(row.id), `Removed ${row.fileName}`)
+            }
+            onShowSkills={setSkillsRow}
           />
         </Stack>
       </SectionCard>

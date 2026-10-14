@@ -76,6 +76,27 @@ export function deltaOf(
   };
 }
 
+/** Plain-language line under the reply-rate number: "24% reply rate, down 5 pts — 3 fewer replies than last period". */
+export function replyRateContext(current: Summary, previous: Summary): string {
+  const points = current.responseRate - previous.responseRate;
+  const replies = current.replied - previous.replied;
+  const move = points === 0 ? "unchanged" : `${points > 0 ? "up" : "down"} ${Math.abs(points)} pts`;
+  const size = Math.abs(replies);
+  const count =
+    replies === 0
+      ? "the same number of replies as last period"
+      : `${size} ${replies > 0 ? "more" : "fewer"} ${size === 1 ? "reply" : "replies"} than last period`;
+  return `${current.responseRate}% reply rate, ${move} — ${count}`;
+}
+
+/** Plain-language line under the applications number: "42 sent, up 10 — 4 more than last period". */
+export function appliedContext(current: Summary, previous: Summary): string {
+  const change = current.applied - previous.applied;
+  const size = Math.abs(change);
+  if (change === 0) return `${current.applied} sent, the same as last period`;
+  return `${current.applied} sent, ${change > 0 ? "up" : "down"} ${size} — ${size} ${change > 0 ? "more" : "fewer"} than last period`;
+}
+
 export type Weekly = {
   labels: string[];
   applied: number[];

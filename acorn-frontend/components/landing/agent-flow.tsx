@@ -8,8 +8,8 @@ export function AgentFlow() {
     <LandingSection
       id={LANDING_SECTIONS.agent}
       eyebrow="How auto-bid works"
-      title="One AI agent. Six steps. Every job application."
-      description="Acorn runs the whole application for you, from reading the job description to tracking the recruiter's reply. You choose the jobs; the agent does the bidding."
+      title="One agent. Six steps. Zero retyping."
+      description="You choose the job. Acorn reads the posting, tailors the résumé, fills the form, sends it, and tells you who wrote back."
     >
       <ol className="lp-flow">
         {AGENT_FLOW.map((step, index) => (

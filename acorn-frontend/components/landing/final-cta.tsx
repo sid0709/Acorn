@@ -1,6 +1,6 @@
 import { Button, Glyph, HStack, Heading, PAGE_WIDTHS, Stack, Text } from "sid-ui";
 import { AcornMark } from "@/components/brand/acorn-mark";
-import { SLOGAN_LEAD } from "@/lib/landing";
+import { CTA_INSTALL, CTA_START, SLOGAN_LEAD } from "@/lib/landing";
 import { INSTALL_SECTION_ID, ROUTES } from "@/lib/routes";
 import { LandingContainer } from "./landing-section";
 import { SloganPayoff } from "./slogan-payoff";
@@ -39,14 +39,14 @@ export function FinalCta({
             </Stack>
             <HStack gap={3} wrap="wrap" hAlign="center">
               <Button
-                label="Start auto-bidding free"
+                label={CTA_START}
                 variant="primary"
                 size="lg"
                 icon={<Glyph name="arrowRight" />}
                 href={ROUTES.signUp}
               />
               <Button
-                label={downloadUrl ? "Download for Chrome" : "Add to Chrome"}
+                label={downloadUrl ? "Download for Chrome" : CTA_INSTALL}
                 variant="secondary"
                 size="lg"
                 icon={<Glyph name="download" />}

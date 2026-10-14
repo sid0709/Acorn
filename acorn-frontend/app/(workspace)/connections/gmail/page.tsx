@@ -16,7 +16,7 @@ export default async function GmailConnectPage({
   const account = await currentAccount();
   if (!account) redirect(ROUTES.signIn);
   const params = await searchParams;
-  const next = safeNextPath(params.next) || ROUTES.gmail;
+  const next = safeNextPath(params.next) || ROUTES.connections;
   return (
     <Stack gap={6}>
       <PageHeader

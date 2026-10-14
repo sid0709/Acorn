@@ -583,23 +583,6 @@
   --color-text-primary: var(--lp-ink);
 }
 
-/* ---- Topics ------------------------------------------------------------ */
-
-.lp-topics {
-  display: grid;
-  gap: var(--spacing-4);
-  grid-template-columns: repeat(auto-fit, minmax(20rem, 1fr));
-}
-
-.lp-token-list {
-  display: flex;
-  flex-wrap: wrap;
-  gap: var(--spacing-2);
-  margin: 0;
-  padding: 0;
-  list-style: none;
-}
-
 /* ---- Footer ------------------------------------------------------------ */
 
 .lp-footer {

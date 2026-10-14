@@ -26,7 +26,7 @@ export async function GET(request: Request) {
     ...gmailStateCookie(process.env.NODE_ENV === "production"),
     maxAge: 0,
   });
-  const next = safeNextPath(result.next || ROUTES.gmail);
-  if (!result.ok) return seeOther(gmailErrorPath(ROUTES.gmailConnect, result.error, next));
+  const next = safeNextPath(result.next || ROUTES.connections);
+  if (!result.ok) return seeOther(gmailErrorPath(ROUTES.connectGmail, result.error, next));
   return seeOther(next);
 }

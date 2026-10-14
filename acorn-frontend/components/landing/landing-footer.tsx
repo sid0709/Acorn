@@ -22,7 +22,6 @@ const COLUMNS = [
     links: [
       { label: "Who it's for", href: anchor(LANDING_SECTIONS.useCases) },
       { label: "Manual vs. auto-bid", href: anchor(LANDING_SECTIONS.compare) },
-      { label: "Job search topics", href: anchor(LANDING_SECTIONS.topics) },
       { label: "FAQ", href: anchor(LANDING_SECTIONS.faq) },
     ],
   },

@@ -10,7 +10,6 @@ import { LandingFooter } from "./landing/landing-footer";
 import { LandingNav } from "./landing/landing-nav";
 import { Pricing } from "./landing/pricing";
 import { ProductPreview } from "./landing/product-preview";
-import { Topics } from "./landing/topics";
 import { TrustStrip } from "./landing/trust-strip";
 import { UseCases } from "./landing/use-cases";
 import "./landing/landing.css";
@@ -39,7 +38,6 @@ export function LandingPage({
         <AtsResume />
         <UseCases />
         <Pricing />
-        <Topics />
         <Faq />
         <FinalCta installHref={installHref} downloadUrl={downloadUrl} />
       </main>
