@@ -5,6 +5,7 @@ import {
   type ResumeLibraryRow,
 } from "@acorn/shared/resume-library";
 import { loadLibraryFile } from "@/lib/resume/api";
+import { aliasFromPath, pathParts } from "./library-alias";
 import { pdfText } from "@/lib/workspace/pdf-text";
 import { base64ToBytes } from "@/lib/workspace/resume-file";
 
@@ -12,7 +13,8 @@ const RESUME_FILE_NAME = /\.(pdf|docx?|txt)$/i;
 
 export type FolderResume = {
   file: File;
-  techStack: string;
+  /** The name the library lists this file under. */
+  alias: string;
 };
 
 export type BatchFailure = {
@@ -20,27 +22,27 @@ export type BatchFailure = {
   error: string;
 };
 
-/** Parent folder of a directory-picked file is its tech stack, the same rule Athens uses. */
+/** How many aliases the bulk confirmation lists before it counts the rest. */
+export const BULK_ALIAS_PREVIEW = 12;
+
+/**
+ * Every résumé under the picked folder, aliased by its path relative to that folder
+ * (see `aliasFromPath`). Hidden files and folders are skipped.
+ */
 export function resumesFromFolder(
   files: FileList | File[],
 ): { ok: true; items: FolderResume[] } | { ok: false; message: string } {
   const items: FolderResume[] = [];
   for (const file of Array.from(files)) {
-    if (file.name.startsWith(".")) continue;
     if (!RESUME_FILE_NAME.test(file.name)) continue;
     const relative =
       (file as File & { webkitRelativePath?: string }).webkitRelativePath || file.name;
-    const parts = relative.split(/[/\\]/).filter(Boolean);
-    if (parts.length < 2) continue;
-    const techStack = parts[parts.length - 2]?.trim() ?? "";
-    if (!techStack || techStack.startsWith(".")) continue;
-    items.push({ file, techStack });
+    if (pathParts(relative).some((part) => part.startsWith("."))) continue;
+    const alias = aliasFromPath(relative);
+    if (alias) items.push({ file, alias });
   }
   if (!items.length) {
-    return {
-      ok: false,
-      message: "Bulk upload needs a folder of tech-stack subfolders, each holding résumé files.",
-    };
+    return { ok: false, message: "That folder has no PDF, Word, or text résumés in it." };
   }
   if (items.length > RESUME_BULK_UPLOAD_MAX_FILES) {
     return {
@@ -49,14 +51,6 @@ export function resumesFromFolder(
     };
   }
   return { ok: true, items };
-}
-
-export function stackCounts(items: FolderResume[]): { stack: string; count: number }[] {
-  const counts = new Map<string, number>();
-  for (const item of items) counts.set(item.techStack, (counts.get(item.techStack) ?? 0) + 1);
-  return [...counts.entries()]
-    .sort((left, right) => left[0].localeCompare(right[0]))
-    .map(([stack, count]) => ({ stack, count }));
 }
 
 const base64Chunk = 8192;
