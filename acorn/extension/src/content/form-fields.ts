@@ -22,6 +22,7 @@ import {
   ACORN_ID_ATTR,
   MAX_TEXT_CHARS,
   NAMED_GROUP_SELECTOR,
+  carriesWords,
   choiceGroupKey,
   clip,
   fieldLabel,
@@ -185,6 +186,7 @@ function choiceField(control: HTMLInputElement): FormField | null {
       kind: "toggle",
       label: toggleLabel(control, label),
       required,
+      group: choiceGroupKey(control) ?? undefined,
     };
   }
   const options = members.map((member) => inputOptionLabel(member)).filter(Boolean);
@@ -195,6 +197,9 @@ function choiceField(control: HTMLInputElement): FormField | null {
     label,
     required,
     options,
+    // The group's identity on the page (not its position): a step names it, so what
+    // it acts on is checked to belong to this group and no other.
+    group: choiceGroupKey(control) ?? undefined,
   };
 }
 
@@ -346,7 +351,7 @@ function questionBefore(root: Element, first: HTMLElement, buttons: HTMLElement[
     );
     for (const el of before.reverse()) {
       const text = getDirectText(el);
-      if (text) return clip(text, MAX_TEXT_CHARS);
+      if (text && carriesWords(text)) return clip(text, MAX_TEXT_CHARS);
     }
     scope = scope.parentElement;
   }

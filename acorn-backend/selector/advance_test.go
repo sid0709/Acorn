@@ -466,3 +466,28 @@ func TestJudgeAccountOutcome(t *testing.T) {
 		t.Fatal("an unknown outcome must be an error, not a guess")
 	}
 }
+
+// A question worded like a challenge is seen to be a field of the form: the page
+// state lists the fields the run fills, and the "other" answer is for widgets only.
+func TestPageStateListsTheFieldsTheRunFills(t *testing.T) {
+	state := pageState(PageQuery{
+		URL: "https://jobs.example.com/apply", Title: "Apply", Text: "If you are a human, type ALAN below.",
+		Fields: []PageField{
+			{Label: "If you are a human, type ALAN below.", Kind: "text", Required: true},
+			{Label: "Gender", Kind: "choice", Options: 3},
+		},
+	}, nil)
+	for _, want := range []string{
+		"Fields on the page, which the run fills in",
+		"- If you are a human, type ALAN below. (text, required)",
+		"- Gender (choice, 3 choices)",
+	} {
+		if !strings.Contains(state, want) {
+			t.Errorf("page state = %q, want it to contain %q", state, want)
+		}
+	}
+	if !strings.Contains(verifications[VerifyOther], "CAPTCHA") ||
+		!strings.Contains(verifications[VerifyOther], "never this") {
+		t.Errorf("the other answer must name a bot-check widget and exclude the form's own fields: %q", verifications[VerifyOther])
+	}
+}

@@ -1,0 +1,7 @@
+{
+  "element_index": 239,
+  "intended": "At Uber, I built an internal Python/FastAPI gateway that routes requests across OpenAI, Anthropic, Gemini, and Azure OpenAI, with retries, caching, and structured output parsing. I also added evaluation pipelines so changes could be checked against curated examples before they reached production.",
+  "valueAfter": "At Uber, I built an internal Python/FastAPI gateway that routes requests across OpenAI, Anthropic, Gemini, and Azure OpenAI, with retries, caching, and structured output parsing. I also added evaluation pipelines so changes could be checked against curated examples before they reached production.",
+  "readAfter": "At Uber, I built an internal Python/FastAPI gateway that routes requests across OpenAI, Anthropic, Gemini, and Azure OpenAI, with retries, caching, and structured output parsing. I also added evaluation pipelines so changes could be checked against curated examples before they reached production.",
+  "ms": 51
+}

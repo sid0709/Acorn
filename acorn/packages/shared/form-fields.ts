@@ -29,6 +29,11 @@ export interface FormField {
   /** Short text the page shows after a text field: a character counter, a format hint. */
   notes?: string[];
   required: boolean;
+  /**
+   * A choice field's identity on the page (the radio group's name, scoped to its form),
+   * which a step carries so it is never acted on in another group.
+   */
+  group?: string;
   options?: string[];
   /**
    * The page holds its forward control disabled while this field is unanswered
@@ -39,6 +44,12 @@ export interface FormField {
   issue?: FieldIssueNote;
 }
 
+/** One earlier answer to a flagged field, and how its step went. */
+export interface FieldAttempt {
+  value: string;
+  result: string;
+}
+
 /**
  * What the page shows about a field it flags, gathered from every issue the field
  * answers (see @acorn/shared/field-issues): those issues' ids, the answer the field
@@ -46,6 +57,8 @@ export interface FormField {
  * field or shows beside it.
  */
 export interface FieldIssueNote {
+  /** Answers an earlier round gave this field that the page still flags, with how each step went. */
+  attempts?: FieldAttempt[];
   elementIndexes: number[];
   value: string;
   invalid: boolean;

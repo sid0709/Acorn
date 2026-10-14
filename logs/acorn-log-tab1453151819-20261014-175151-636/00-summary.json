@@ -1,0 +1,34 @@
+{
+  "extensionVersion": "1.60.0",
+  "generatedAt": 1792018311539,
+  "entries": 304,
+  "warnings": 4,
+  "errors": 1,
+  "runs": [
+    {
+      "runId": "6cb9533c",
+      "startedAt": 1792018174536,
+      "lastAt": 1792018240446,
+      "outcome": "failed",
+      "entries": 304,
+      "warnings": 4,
+      "errors": 1,
+      "lastProblem": "The run stopped",
+      "reason": "no_progress",
+      "detail": "Still needed after 3 rounds: cards[1220f241-3c95-4352-bb76-122dd6ac91dd][field0], Upload file",
+      "seconds": 66,
+      "pages": 2,
+      "refills": 1,
+      "calls": 29,
+      "costUsd": 0.008881381,
+      "phases": {
+        "snapshot": 3170,
+        "decide": 4813,
+        "recommend": 862,
+        "click": 34591,
+        "fill": 15306,
+        "refill": 6595
+      }
+    }
+  ]
+}

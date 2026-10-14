@@ -1,0 +1,37 @@
+{
+  "action": "upload",
+  "element_index": 131,
+  "expected_label": "cards[1220f241-3c95-4352-bb76-122dd6ac91dd][field1] — Upload file — Please upload your cover letter here. — ✱",
+  "planValue": "",
+  "intended": "",
+  "el": {
+    "tag": "input",
+    "name": "cards[1220f241-3c95-4352-bb76-122dd6ac91dd][field1]",
+    "type": "file",
+    "cls": "application-file-input",
+    "inputValue": "",
+    "rendered": true
+  },
+  "widget": {
+    "root": {
+      "tag": "li",
+      "cls": "application-question custom-question",
+      "rendered": true
+    },
+    "parts": [
+      "Upload file"
+    ],
+    "read": ""
+  },
+  "combos": [
+    {
+      "read": ""
+    },
+    {
+      "read": ""
+    },
+    {
+      "read": ""
+    }
+  ]
+}

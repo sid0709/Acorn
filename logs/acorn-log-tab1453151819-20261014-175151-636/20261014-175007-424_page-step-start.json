@@ -1,0 +1,35 @@
+{
+  "action": "fill",
+  "element_index": 201,
+  "expected_label": "Type your response",
+  "planValue": "At Uber, I built an internal Python/FastAPI gateway that routes requests across OpenAI, Anthropic, Gemini, and Azure OpenAI, with retries, caching, and structured output parsing. I also set up evaluation pipelines with curated regression sets and manual feedback, so changes could be checked against examples rather than judged by feel. I’m based in Fresno and can work remotely.",
+  "intended": "At Uber, I built an internal Python/FastAPI gateway that routes requests across OpenAI, Anthropic, Gemini, and Azure OpenAI, with retries, caching, and structured output parsing. I also set up evaluation pipelines with curated regression sets and manual feedback, so changes could be checked against examples rather than judged by feel. I’m based in Fresno and can work remotely.",
+  "el": {
+    "tag": "input",
+    "name": "cards[1220f241-3c95-4352-bb76-122dd6ac91dd][field6]",
+    "type": "text",
+    "cls": "card-field-input",
+    "inputValue": "",
+    "rendered": true
+  },
+  "widget": {
+    "root": {
+      "tag": "li",
+      "cls": "application-question custom-question",
+      "rendered": true
+    },
+    "parts": [],
+    "read": ""
+  },
+  "combos": [
+    {
+      "read": ""
+    },
+    {
+      "read": ""
+    },
+    {
+      "read": ""
+    }
+  ]
+}

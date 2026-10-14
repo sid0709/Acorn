@@ -33,6 +33,12 @@ type FieldIssueScan struct {
 // the page's error in view. history is the plans already run on this page,
 // oldest first: the planner continues that conversation instead of starting over.
 func (s *Service) Refill(ctx context.Context, applicant, pureTree string, scan FieldIssueScan, page map[string]any, history []PlanTurn) (AnalyzeResult, error) {
+	return s.refillConversation(ctx, applicant, pureTree, scan, page, history, nil)
+}
+
+// refillConversation is Refill with the fields an earlier round already answered
+// (and the page still flags) named in the prompt.
+func (s *Service) refillConversation(ctx context.Context, applicant, pureTree string, scan FieldIssueScan, page map[string]any, history []PlanTurn, tried []TriedField) (AnalyzeResult, error) {
 	if strings.TrimSpace(pureTree) == "" {
 		return AnalyzeResult{}, fmt.Errorf("%w: pureTree is required", ErrInvalid)
 	}
@@ -44,7 +50,7 @@ func (s *Service) Refill(ctx context.Context, applicant, pureTree string, scan F
 	}
 	page = withResumeAvailable(page)
 
-	turns := refillTurns(history, refillUserPrompt(applicant, pureTree, scan, page))
+	turns := refillTurns(history, refillUserPrompt(applicant, pureTree, scan, page, tried))
 	text, err := s.askTurns(ctx, PurposeRefill, refillSystem, turns, refillPlanSchema())
 	if err != nil {
 		return AnalyzeResult{}, err
@@ -85,11 +91,17 @@ func issueNotes(scan FieldIssueScan) map[int]string {
 }
 
 // refillUserPrompt keeps the cacheable prefix first (see analyzeUserPrompt).
-func refillUserPrompt(applicant, pureTree string, scan FieldIssueScan, page map[string]any) string {
+func refillUserPrompt(applicant, pureTree string, scan FieldIssueScan, page map[string]any, tried []TriedField) string {
 	alerts := ""
 	if len(scan.PageMessages) > 0 {
 		alerts = "Page messages:\n" + indentedJSON(scan.PageMessages) + "\n\n"
 	}
+	earlier := ""
+	if len(tried) > 0 {
+		earlier = "Flagged fields answered before, which the page still flags (do not repeat an answer that did not take; " +
+			"a step that reported ok on a field the page still flags may have acted on another control, so choose a " +
+			"different element or way to answer it):\n" + indentedJSON(tried) + "\n\n"
+	}
 	return strings.TrimSpace("Applicant data:\n" + applicant + "\n\nPure Tree:\n" + pureTree + "\n\n" +
-		"Flagged fields:\n" + indentedJSON(scan.Issues) + "\n\n" + alerts + pageBlock(page))
+		"Flagged fields:\n" + indentedJSON(scan.Issues) + "\n\n" + alerts + earlier + pageBlock(page))
 }

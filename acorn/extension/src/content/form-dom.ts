@@ -164,6 +164,14 @@ export function fieldWrapper(control: Element): Element {
   return wrapper;
 }
 
+/**
+ * Whether text says anything: it has a letter or a digit. A lone required mark ("✱",
+ * "*") or a colon sits beside a question and is never the question.
+ */
+export function carriesWords(text: string): boolean {
+  return /[\p{L}\p{N}]/u.test(text);
+}
+
 /** Visible wrapper text before or after the control, outside any control part. */
 export function wrapperTexts(
   control: Element,
@@ -178,11 +186,38 @@ export function wrapperTexts(
     if (!(control.compareDocumentPosition(el) & position)) continue;
     if (matchesSafe(el, FILLABLE_SELECTOR) || el.closest(CONTROL_PART_SELECTOR)) continue;
     const text = getDirectText(el);
-    if (!text || skip.has(normalize(text)) || !isVisible(el)) continue;
+    if (!text || !carriesWords(text) || skip.has(normalize(text)) || !isVisible(el)) continue;
     skip.add(normalize(text));
     texts.push(clip(text, MAX_TEXT_CHARS));
   }
   return texts;
+}
+
+/** How far up from a group the text that asks its question is looked for. */
+const QUESTION_CLIMB_LEVELS = 4;
+/** Elements that are a field's controls or options, never the words that ask its question. */
+const CONTROL_HOLDER_SELECTOR = "input, select, textarea, button";
+
+/**
+ * The words that ask a group's question when they are not a label, legend, or heading:
+ * the nearest element before the group that holds no control (a group's options and
+ * other questions' options all do), looked for from the group's first option outward.
+ * Its own text is the question; a required mark inside it is not part of it.
+ */
+function questionBeforeGroup(members: Element[]): string {
+  const first = members[0];
+  let node: Element | null = first;
+  for (let level = 0; node && level < QUESTION_CLIMB_LEVELS; level += 1) {
+    for (let prev = node.previousElementSibling; prev; prev = prev.previousElementSibling) {
+      if (prev.matches(CONTROL_HOLDER_SELECTOR) || prev.querySelector(CONTROL_HOLDER_SELECTOR)) {
+        continue;
+      }
+      const text = getDirectText(prev) || (prev.textContent ?? "");
+      if (carriesWords(text) && isVisible(prev)) return clip(text, MAX_TEXT_CHARS);
+    }
+    node = node.parentElement;
+  }
+  return "";
 }
 
 /**
@@ -194,7 +229,8 @@ export function fieldLabel(control: Element, members: Element[], wrapper: Elemen
     const question =
       groupAccessibleName(control) ||
       groupQuestion(wrapper, control, members) ||
-      wrapperTexts(control, wrapper, Node.DOCUMENT_POSITION_PRECEDING, new Set()).at(-1);
+      wrapperTexts(control, wrapper, Node.DOCUMENT_POSITION_PRECEDING, new Set()).at(-1) ||
+      questionBeforeGroup(members);
     if (question) return question;
   }
   return clip(labelCandidates(control)[0] ?? "", MAX_TEXT_CHARS);
@@ -297,7 +333,10 @@ export function groupQuestion(wrapper: Element, first: Element, members: Element
     if (!(first.compareDocumentPosition(el) & Node.DOCUMENT_POSITION_PRECEDING)) return false;
     if (el.contains(first)) return false;
     const control = el instanceof HTMLLabelElement ? el.control : null;
-    return !(control && memberSet.has(control)) && isVisible(el);
+    // A title that is only a required mark names no question.
+    return (
+      !(control && memberSet.has(control)) && carriesWords(el.textContent || "") && isVisible(el)
+    );
   });
   const nearest = titles.at(-1);
   return nearest ? clip(nearest.textContent || "", MAX_TEXT_CHARS) : "";

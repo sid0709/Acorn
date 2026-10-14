@@ -10,10 +10,12 @@ import {
   type PageControl,
 } from "@acorn/shared/page-controls";
 import { clipEnds, extractVisiblePageText } from "@acorn/shared/page-text";
+import { formatPlannerTree } from "@acorn/shared/planner-tree";
 import { formatAnalyzeTrees, withoutHidden } from "@acorn/shared/tree-export";
 
 import { traceFromBackground } from "../background/debug-trace-sink";
 import { canInjectIntoUrl, injectContentScripts } from "../inject-content";
+import { LOG_KIND, logTab } from "../tab-log-session";
 
 import { fetchDomFromTab } from "./fetch-dom";
 import { fetchPostingDomFromTab } from "./fetch-posting";
@@ -25,6 +27,7 @@ import {
 } from "./run-limits";
 
 import type { OpenScope } from "../types";
+import type { FormField } from "@acorn/shared/form-fields";
 import type { DomTreeNode } from "@acorn/shared/tree-export";
 
 /** What the run knows about the page at one moment. */
@@ -44,6 +47,8 @@ export interface PageSnapshot {
   signature: string;
   /** Fields the page asks for; 0 on a page with nothing to fill (an account step, a gate). */
   fields: number;
+  /** Those fields as the planner lists them (label, kind, required, choices): what the decision model is shown. */
+  formFields: FormField[];
   /** Embedded frames outside the read frame, by title or address. */
   frames: string[];
   /** Read with `scope`: what the run's last opening click drew, in this read's node ids. */
@@ -94,6 +99,7 @@ async function readPage(
   const payload = opts.form
     ? await fetchDomFromTab(tabId, opts.frameId ?? null, {
         fieldIssues: true,
+        formFields: true,
         scope: opts.scope === true,
       })
     : await fetchPostingDomFromTab(tabId, { fieldIssues: true });
@@ -107,6 +113,20 @@ async function readPage(
   const text = clipEnds(fullText, RUN_PAGE_TEXT_MAX_CHARS);
   const scan = payload.fieldIssues ?? EMPTY_FIELD_ISSUE_SCAN;
   const frameId = payload.frameId ?? null;
+  const formFields = payload.formFields ?? [];
+  // What this read was made from, so a decision the model made on it can be explained
+  // from the log alone: the compressed tree and the fields it was shown.
+  logTab(
+    tabId,
+    LOG_KIND.pureTree,
+    `Compressed tree (page read) · ${countFormFields(tree)} fields`,
+    () => formatPlannerTree(tree),
+  );
+  logTab(tabId, LOG_KIND.analysis, `Fields (page read) · ${formFields.length} fields`, () => ({
+    url,
+    title,
+    formFields,
+  }));
   return {
     tabId,
     url,
@@ -119,6 +139,7 @@ async function readPage(
     flagged: countFlaggedFields(scan),
     signature: pageSignature(tree, url, text),
     fields: countFormFields(tree),
+    formFields,
     frames: await embeddedFrames(tabId, frameId, tree),
     scope: payload.scope,
   };

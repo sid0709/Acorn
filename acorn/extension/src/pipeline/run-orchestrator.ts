@@ -8,7 +8,7 @@ import {
   type FillMode,
 } from "@acorn/shared/field-issues";
 import { PhaseClock } from "@acorn/shared/phase-clock";
-import { appendPlanTurn, type PlanTurn } from "@acorn/shared/plan-history";
+import { appendPlanTurn, describeNeeds, type PlanTurn } from "@acorn/shared/plan-history";
 import {
   ACCOUNT_MODE,
   CONTROL_ROLE,
@@ -91,6 +91,7 @@ import {
   RUN_MAIL_MAX_FAILED_LOOKS,
   RUN_MAIL_POLL_MS,
   RUN_MAIL_REREAD_MS,
+  RUN_PERSON_REREAD_MS,
   RUN_MAIL_WAIT_MAX_MS,
   RUN_MAX_ACCOUNT_ATTEMPTS,
   RUN_MAX_AI_CALLS,
@@ -117,6 +118,7 @@ import {
 } from "./run-limits";
 import { logUrl, RunLog } from "./run-log";
 import { snapshotPage, type PageSnapshot } from "./run-page";
+import { shouldWaitForPerson, stillAsksForPerson } from "./run-person";
 import { NO_RESUME_FILE, runFabPipeline } from "./run-pipeline";
 import { ProgressLedger, pageNeeds } from "./run-progress";
 import { ensureRecommendedResume } from "./run-resume";
@@ -835,6 +837,12 @@ export async function runOrchestrator(args: RunOrchestratorArgs): Promise<RunRep
             title: within.title,
             text: within.text,
             controls: scopeFirst(within.controls, scope?.controlIds),
+            fields: within.formFields.map((field) => ({
+              label: field.label,
+              kind: field.kind,
+              required: field.required,
+              options: field.options?.length ?? 0,
+            })),
             scope: scope ? { controls: scope.controlIds, title: scope.title } : undefined,
             flagged: within.flagged,
             pageMessages: within.scan.pageMessages,
@@ -1081,7 +1089,47 @@ export async function runOrchestrator(args: RunOrchestratorArgs): Promise<RunRep
       "warn",
     );
     progress(WAITING_FOR_PERSON);
-    const moved = await until(clock.time("wait", () => waitForPerson(tabId, page.frameId, signal)));
+    // The wait is not blind: the page is read again every RUN_PERSON_REREAD_MS, and a
+    // page that asks for nothing any more ends the wait.
+    const waiting = new AbortController();
+    const abortWithRun = () => waiting.abort();
+    signal?.addEventListener("abort", abortWithRun, { once: true });
+    let carriedOn: PageSnapshot | null = null;
+    const rereading = (async () => {
+      for (;;) {
+        await sleep(RUN_PERSON_REREAD_MS);
+        if (waiting.signal.aborted) return;
+        const look = await snap({ form: true, frameId: page.frameId });
+        const again = await read(READ_INTENT.advance, look);
+        if (
+          stillAsksForPerson({
+            needsPerson: again.needsPerson,
+            mailVerification: MAIL_VERIFICATIONS.has(again.verification),
+          })
+        ) {
+          continue;
+        }
+        log.decision(
+          "Stop waiting for the applicant",
+          "The page was read again and no longer asks for anything only the applicant can do.",
+          {
+            verification: again.verification,
+            verificationProbabilities: again.verificationProbabilities,
+          },
+        );
+        carriedOn = look;
+        waiting.abort();
+        return;
+      }
+    })().catch(() => undefined);
+    const moved = await until(
+      clock.time("wait", () => waitForPerson(tabId, page.frameId, waiting.signal)),
+    ).finally(() => {
+      waiting.abort();
+      signal?.removeEventListener("abort", abortWithRun);
+    });
+    await rereading;
+    if (carriedOn) return { snapshot: carriedOn as PageSnapshot, how: "changed" as SettleHow };
     if (!moved) {
       throw new RunStop(stage, page, [WAITED_FOR_PERSON], undefined, {
         reason: RUN_FAILURE_REASON.waitedForPerson,
@@ -1264,8 +1312,15 @@ export async function runOrchestrator(args: RunOrchestratorArgs): Promise<RunRep
     });
 
   /** Rounds of work left everything the page needs standing: say what it still wants. */
-  const noProgress = (page: PageSnapshot, needs: string[], stalls: number) => {
-    const detail = `Still needed after ${stalls + 1} rounds: ${needs.slice(0, NEEDS_SHOWN_MAX).join(", ")}`;
+  const noProgress = (
+    page: PageSnapshot,
+    needs: string[],
+    stalls: number,
+    turns: PlanTurn[] = [],
+  ) => {
+    // Each need with what was tried on it, so the stop says what the run did.
+    const shown = describeNeeds(needs.slice(0, NEEDS_SHOWN_MAX), turns);
+    const detail = `Still needed after ${stalls + 1} rounds: ${shown.join(", ")}`;
     return new RunStop(RUN_STAGE.advancing, page, [NO_PROGRESS, detail], undefined, {
       reason: RUN_FAILURE_REASON.noProgress,
       label: NO_PROGRESS,
@@ -1617,6 +1672,29 @@ export async function runOrchestrator(args: RunOrchestratorArgs): Promise<RunRep
       };
     }
     if (mailed == null && r.needsPerson && !state.verified) {
+      // A form with fields to fill is filled first, and sent: whatever the page asks
+      // beyond that (a bot check) shows when the send is refused. Only a page the run
+      // has already tried to send, or one with nothing to fill, waits for a person.
+      if (
+        !shouldWaitForPerson({
+          needsPerson: true,
+          isForm: r.kind === PAGE_KIND.form,
+          fields: page.fields,
+          clicks: state.clicks,
+        })
+      ) {
+        log.decision(
+          "Fill the form first",
+          `The decision model answered verification: ${r.verification}, but this page is an application form with ${page.fields} fields the run can fill; it fills them and sends the form, and waits for the applicant only if the page refuses the send.`,
+          {
+            verification: r.verification,
+            verificationProbabilities: r.verificationProbabilities,
+            kindProbabilities: r.kindProbabilities,
+            fields: page.fields,
+          },
+        );
+        return null;
+      }
       return {
         pending: await awaitPerson(
           page,
@@ -2340,7 +2418,7 @@ export async function runOrchestrator(args: RunOrchestratorArgs): Promise<RunRep
           if (stalls > 0) {
             log.event("progress:stalled", { stalls, limit: RUN_MAX_STALLED_ROUNDS, needs });
           }
-          if (stalls >= RUN_MAX_STALLED_ROUNDS) throw noProgress(page, needs, stalls);
+          if (stalls >= RUN_MAX_STALLED_ROUNDS) throw noProgress(page, needs, stalls, state.turns);
         }
         // The best next step: what the page still requires comes before moving on.
         const requirement = guest || sendsAccount ? null : requirementOf(next, state);

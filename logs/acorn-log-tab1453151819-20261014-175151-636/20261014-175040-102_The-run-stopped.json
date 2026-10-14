@@ -1,0 +1,18 @@
+{
+  "what": "The run stopped",
+  "why": "The page kept asking for the same things",
+  "evidence": {
+    "stage": "advancing",
+    "notes": [
+      "The page kept asking for the same things",
+      "Still needed after 3 rounds: cards[1220f241-3c95-4352-bb76-122dd6ac91dd][field0], Upload file"
+    ],
+    "page": "jobs.lever.co/brightonjones/1de22ecc-67bc-4c0f-855d-99fe68a2ba7b/apply",
+    "known": {
+      "reason": "no_progress",
+      "label": "The page kept asking for the same things",
+      "detail": "Still needed after 3 rounds: cards[1220f241-3c95-4352-bb76-122dd6ac91dd][field0], Upload file"
+    },
+    "clicks": 0
+  }
+}

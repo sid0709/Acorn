@@ -1,0 +1,33 @@
+{
+  "action": "fill",
+  "element_index": 333,
+  "expected_label": "cards[1220f241-3c95-4352-bb76-122dd6ac91dd][field23]",
+  "planValue": "I’m a Senior AI Engineer at Uber, where I build production systems around language models. One part of that work is an evaluation pipeline: curated test sets and regression checks catch changes in model behavior, while a dashboard lets engineers compare outputs and flag issues for review. Before that, I spent nearly seven years building backend services at Meta, including gradual migrations of legacy systems. I bring that practical systems background to AI work, where reliability matters as much as the model itself.",
+  "intended": "I’m a Senior AI Engineer at Uber, where I build production systems around language models. One part of that work is an evaluation pipeline: curated test sets and regression checks catch changes in model behavior, while a dashboard lets engineers compare outputs and flag issues for review. Before that, I spent nearly seven years building backend services at Meta, including gradual migrations of legacy systems. I bring that practical systems background to AI work, where reliability matters as much as the model itself.",
+  "el": {
+    "tag": "textarea",
+    "name": "cards[1220f241-3c95-4352-bb76-122dd6ac91dd][field23]",
+    "cls": "card-field-input",
+    "rendered": true
+  },
+  "widget": {
+    "root": {
+      "tag": "li",
+      "cls": "application-question custom-question",
+      "rendered": true
+    },
+    "parts": [],
+    "read": ""
+  },
+  "combos": [
+    {
+      "read": ""
+    },
+    {
+      "read": ""
+    },
+    {
+      "read": ""
+    }
+  ]
+}

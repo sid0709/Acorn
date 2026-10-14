@@ -1,0 +1,41 @@
+{
+  "mode": "refill",
+  "nodes": 432,
+  "formFields": [
+    {
+      "elementIndex": 126,
+      "kind": "file",
+      "label": "cards[1220f241-3c95-4352-bb76-122dd6ac91dd][field0] — Upload file — Please upload your completed Values in Action Self-Assessment here. (See job description for the link to download and co — ✱",
+      "required": true,
+      "section": "Additional Information",
+      "issue": {
+        "elementIndexes": [
+          126
+        ],
+        "value": "",
+        "invalid": true,
+        "linkedMessages": [
+          "Please select a file."
+        ],
+        "nearbyMessages": []
+      }
+    }
+  ],
+  "fieldIssues": {
+    "issues": [
+      {
+        "elementIndex": 126,
+        "label": "cards[1220f241-3c95-4352-bb76-122dd6ac91dd][field0]",
+        "role": "file",
+        "value": "",
+        "required": true,
+        "invalid": true,
+        "linkedMessages": [
+          "Please select a file."
+        ],
+        "nearbyMessages": []
+      }
+    ],
+    "pageMessages": []
+  }
+}

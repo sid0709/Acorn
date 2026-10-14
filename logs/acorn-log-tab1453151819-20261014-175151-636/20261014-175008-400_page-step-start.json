@@ -1,0 +1,33 @@
+{
+  "action": "select_radio",
+  "element_index": 190,
+  "expected_label": "Have you ever applied to this company?",
+  "planValue": "No",
+  "intended": "No",
+  "el": {
+    "tag": "input",
+    "name": "cards[1220f241-3c95-4352-bb76-122dd6ac91dd][field5]",
+    "type": "radio",
+    "inputValue": "Yes",
+    "rendered": true
+  },
+  "widget": {
+    "root": {
+      "tag": "label",
+      "rendered": true
+    },
+    "parts": [],
+    "read": "false"
+  },
+  "combos": [
+    {
+      "read": ""
+    },
+    {
+      "read": ""
+    },
+    {
+      "read": ""
+    }
+  ]
+}

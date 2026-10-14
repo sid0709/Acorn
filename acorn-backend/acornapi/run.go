@@ -116,6 +116,7 @@ func (s *Server) runReadPage(w http.ResponseWriter, r *http.Request) {
 		Title        string              `json:"title"`
 		Text         string              `json:"text"`
 		Controls     []runControl        `json:"controls"`
+		Fields       []runField          `json:"fields"`
 		Flagged      int                 `json:"flagged"`
 		PageMessages []string            `json:"pageMessages"`
 		Account      []runAccountAttempt `json:"account"`
@@ -175,7 +176,7 @@ func (s *Server) runReadPage(w http.ResponseWriter, r *http.Request) {
 	started := time.Now()
 	read, err := gateway.ReadPage(s.traceContext(r, session.User.ID), selector.PageQuery{
 		URL: body.URL, Title: body.Title, Text: body.Text, Intent: intent,
-		Controls: controls, Flagged: body.Flagged, PageMessages: body.PageMessages,
+		Controls: controls, Fields: pageFields(body.Fields), Flagged: body.Flagged, PageMessages: body.PageMessages,
 		Account: accountHistory(body.Account), AccountGoal: accountGoal(body.AccountGoal),
 		NewText: body.NewText, LastClick: body.LastClick.Text, LastClickRole: body.LastClick.Role,
 		LastClickAgo: body.LastClick.SecondsAgo, Scope: body.Scope.Controls, ScopeTitle: body.Scope.Title,
@@ -507,4 +508,23 @@ func (s *Server) runLog(w http.ResponseWriter, r *http.Request) {
 		s.recordRunStep(r, session.User.ID, runID, body.Events[0].Step, "events", body.Events)
 	}
 	w.WriteHeader(http.StatusNoContent)
+}
+
+// runField is one field of the page as the extension lists it for a page read.
+type runField struct {
+	Label    string `json:"label"`
+	Kind     string `json:"kind"`
+	Required bool   `json:"required"`
+	Options  int    `json:"options"`
+}
+
+func pageFields(fields []runField) []selector.PageField {
+	out := make([]selector.PageField, 0, len(fields))
+	for _, field := range fields {
+		if strings.TrimSpace(field.Label) == "" {
+			continue
+		}
+		out = append(out, selector.PageField{Label: field.Label, Kind: field.Kind, Required: field.Required, Options: field.Options})
+	}
+	return out
 }

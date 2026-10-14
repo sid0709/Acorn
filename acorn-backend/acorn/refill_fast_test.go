@@ -253,3 +253,46 @@ func TestRefillFlaggedPlansTheConversationWhenTheTextCannotBeRead(t *testing.T) 
 		t.Fatalf("planner = %q, want the conversation", result.RefillPlanner)
 	}
 }
+
+// A field answered before that the page still flags is not planned again the way the
+// last round planned it: the conversation is told what was tried and how it went.
+func TestRefillFlaggedPlansAFieldAnsweredBeforeInTheConversationWithWhatFailed(t *testing.T) {
+	model := &fakeModel{replies: []string{conversationPlan}}
+	visa := func() (FormField, FieldIssue) {
+		field, issue := flagged(
+			FormField{ElementIndex: 142, Kind: "radio", Label: "Will you require sponsorship?", Required: true, Options: []string{"Yes", "No"}},
+			FieldIssue{Role: "radio", Required: true, Invalid: true, LinkedMessages: []string{"Please select one of these options."}})
+		field.Issue.Attempts = []FieldAttempt{
+			{Value: "Yes", Result: "ok"},
+			{Value: "No", Result: "ok"},
+		}
+		return field, issue
+	}
+	// The decision model could answer this field in one call; it must not be asked.
+	decider := &refillDecider{picks: map[int][]string{142: {"Yes"}}}
+	result := refill(t, model, decider, visa)
+
+	if result.RefillPlanner != RefillPlannerConversation {
+		t.Fatalf("planner = %q, want the conversation for a field answered before", result.RefillPlanner)
+	}
+	if len(model.calls) != 1 {
+		t.Fatalf("text model calls = %d, want the one conversation call", len(model.calls))
+	}
+	for _, want := range []string{"answered before", "Will you require sponsorship?", `"value": "Yes"`, `"value": "No"`, "another control"} {
+		if !strings.Contains(model.calls[0], want) {
+			t.Errorf("prompt does not contain %q:\n%s", want, model.calls[0])
+		}
+	}
+}
+
+func TestTriedFieldsListsOnlyFieldsWithEarlierAttempts(t *testing.T) {
+	fields := []FormField{
+		{ElementIndex: 1, Label: "Fresh", Issue: &FieldIssueNote{}},
+		{ElementIndex: 2, Label: "Tried", Issue: &FieldIssueNote{Attempts: []FieldAttempt{{Value: "x", Result: "ok"}}}},
+		{ElementIndex: 3, Label: "No issue"},
+	}
+	tried := triedFields(fields)
+	if len(tried) != 1 || tried[0].Field != "Tried" {
+		t.Fatalf("tried = %+v, want only the field with attempts", tried)
+	}
+}

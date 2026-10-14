@@ -1,0 +1,322 @@
+a[1] class=main-header-logo
+h2[2] "Senior Software Engineer"
+div[3] "Seattle, WA"
+div[4] "Data & Technology /"
+div[5] "Full-time /"
+div[6] "On-site"
+form[431] domId=application-form
+ h4[7] "Submit your application"
+ div[8] "LinkedIn profile"
+ button[12] type=button class="template-btn-utility awli-button awli-v3"
+  span[9] "Loading..."
+  span[10] "Apply with LinkedIn"
+  span[11] "Profile added"
+ p[16] "Authorize sharing of selected LinkedIn profile details to auto-complete this form."
+  a[15] class="learn-more-link bold text-decoration-none" "Learn more"
+ iframe[17] name={"xdOrigin":"https://jobs.lever.co","xdChannel":"f5b41f32-8982-4c44-afb4-4625249f2e0b","framework":"@linkedin/xdoor-sdk"
+ label[28]
+  div[20] "Resume/CV"
+   span[19] "✱"
+  a[24] class="postings-btn template-btn-utility visible-resume-upload"
+   span[21] "Stanley Wang.pdf"
+   span[22] "ATTACH RESUME/CV"
+   input[23] domId=resume-upload-input type=file name=resume value="C:\\fakepath\\Stanley Wang.pdf" class="application-file-input invisible-resume-upload"
+  div[25] "Couldn't auto-read resume."
+  div[26] "Analyzing resume..."
+  div[27] "Success!"
+ p[30] "File exceeds the maximum upload size of . Please try a smaller size."
+  b[29] "100MB"
+ label[35]
+  div[33] "Full name"
+   span[32] "✱"
+  input[34] type=text name=name value="Stanley Wang"
+ div[37] "Pronouns"
+ label[40]
+  input[38] type=checkbox name=pronouns value=He/him class=standardPronounsOption
+  span[39] "He/him"
+ label[44]
+  input[42] type=checkbox name=pronouns value=She/her class=standardPronounsOption
+  span[43] "She/her"
+ label[48]
+  input[46] type=checkbox name=pronouns value=They/them class=standardPronounsOption
+  span[47] "They/them"
+ label[52]
+  input[50] type=checkbox name=pronouns value=Xe/xem class=standardPronounsOption
+  span[51] "Xe/xem"
+ label[56]
+  input[54] type=checkbox name=pronouns value=Ze/hir class=standardPronounsOption
+  span[55] "Ze/hir"
+ label[60]
+  input[58] type=checkbox name=pronouns value=Ey/em class=standardPronounsOption
+  span[59] "Ey/em"
+ label[64]
+  input[62] type=checkbox name=pronouns value=Hir/hir class=standardPronounsOption
+  span[63] "Hir/hir"
+ label[68]
+  input[66] type=checkbox name=pronouns value=Fae/faer class=standardPronounsOption
+  span[67] "Fae/faer"
+ label[72]
+  input[70] type=checkbox name=pronouns value=Hu/hu class=standardPronounsOption
+  span[71] "Hu/hu"
+ label[77]
+  input[75] domId=useNameOnlyPronounsOption type=checkbox name=pronouns value="Use name only"
+  span[76] "Use name only"
+ label[82]
+  input[80] domId=customPronounsOption type=checkbox value=Custom
+  span[81] "Custom"
+ input[83] domId=customPronounsTextField type=text name=pronouns placeholder="Write here..." value=he/him class=card-field-input
+ p[85] "Let the employer know what pronouns you use so that they can address you correctly."
+ label[91]
+  div[89] "Email"
+   span[88] "✱"
+  input[90] type=email name=email value=stanleywang.myth@gmail.com
+ label[96]
+  div[94] "Phone"
+   span[93] "✱"
+  input[95] type=text name=phone value="(424) 320-7354"
+ label[103]
+  div[98] "Current location"
+  input[99] domId=location-input type=text name=location value="Fresno, CA, USA" class=location-input
+  input[100] domId=selected-location type=hidden name=selectedLocation value="{\"name\":\"Fresno, CA, USA\",\"address\":{\"city\":\"Fresno\",\"country\":{\"code\":\"US\",\"description\":\"\"},\"CountryCode\":\"US\",\"region"
+  div[101] "No location found. Try entering a different location"
+  span[102] "Loading"
+ label[108]
+  div[106] "Current company"
+   span[105] "✱"
+  input[107] type=text name=org value=Uber
+ h4[111] "Links"
+ label[114]
+  div[112] "LinkedIn URL"
+  input[113] type=text name=urls[LinkedIn] value=https://www.linkedin.com/in/stan-w-8466bb5
+ label[118]
+  div[116] "Other website"
+  input[117] type=text name=urls[Other] value=https://github.com/veniversum
+ h4[121] "Additional Information"
+ input[122] type=hidden name=cards[1220f241-3c95-4352-bb76-122dd6ac91dd][baseTemplate] value="{\"createdAt\":1458670281612,\"text\":\"Additional Information\",\"instructions\":\"\",\"type\":\"posting\",\"fields\":[{\"type\":\"file-up"
+ div[124] "Please upload your completed Values in Action Self-Assessment here. (See job description for the link to download and co"
+  span[123] "✱"
+ a[127] class=upload-file-overlay
+  span[125] "Upload file"
+  input[126] type=file name=cards[1220f241-3c95-4352-bb76-122dd6ac91dd][field0] class=application-file-input
+ div[130] "Please upload your cover letter here."
+  span[129] "✱"
+ a[134] class="upload-file-overlay has-file"
+  span[131] "Cover Letter.pdf"
+  span[132] "Upload file"
+  input[133] type=file name=cards[1220f241-3c95-4352-bb76-122dd6ac91dd][field1] value="C:\\fakepath\\Cover Letter.pdf" class=application-file-input
+ div[137] "How did you hear about this job? (click all that apply)"
+  span[136] "✱"
+ label[140]
+  input[138] type=checkbox name=cards[1220f241-3c95-4352-bb76-122dd6ac91dd][field2] value="Brighton Jones Website"
+  span[139] "Brighton Jones Website"
+ label[144]
+  input[142] type=checkbox name=cards[1220f241-3c95-4352-bb76-122dd6ac91dd][field2] value=Referral
+  span[143] "Referral"
+ label[148]
+  input[146] type=checkbox name=cards[1220f241-3c95-4352-bb76-122dd6ac91dd][field2] value=LinkedIn
+  span[147] "LinkedIn"
+ label[152]
+  input[150] type=checkbox name=cards[1220f241-3c95-4352-bb76-122dd6ac91dd][field2] value=Glassdoor
+  span[151] "Glassdoor"
+ label[156]
+  input[154] type=checkbox name=cards[1220f241-3c95-4352-bb76-122dd6ac91dd][field2] value=theMuse
+  span[155] "theMuse"
+ label[160]
+  input[158] type=checkbox name=cards[1220f241-3c95-4352-bb76-122dd6ac91dd][field2] value="CFP Job Board"
+  span[159] "CFP Job Board"
+ label[164]
+  input[162] type=checkbox name=cards[1220f241-3c95-4352-bb76-122dd6ac91dd][field2] value="Campus Career Fair"
+  span[163] "Campus Career Fair"
+ label[168]
+  input[166] type=checkbox name=cards[1220f241-3c95-4352-bb76-122dd6ac91dd][field2] value=Handshake
+  span[167] "Handshake"
+ label[172]
+  input[170] type=checkbox name=cards[1220f241-3c95-4352-bb76-122dd6ac91dd][field2] value=FPA
+  span[171] "FPA"
+ label[176]
+  input[174] type=checkbox name=cards[1220f241-3c95-4352-bb76-122dd6ac91dd][field2] value=Indeed.com
+  span[175] "Indeed.com"
+ label[180]
+  input[178] type=checkbox name=cards[1220f241-3c95-4352-bb76-122dd6ac91dd][field2] value="Other (other job board, 100 Best list, networking event, etc.)"
+  span[179] "Other (other job board, 100 Best list, networking event, etc.)"
+ div[184] "If 'other', please explain"
+ input[185] type=text name=cards[1220f241-3c95-4352-bb76-122dd6ac91dd][field3] placeholder="Type your response" value="At Uber, I built an internal AI gateway in Python and FastAPI that routes requests across OpenAI, Anthropic, Gemini, and" class=card-field-input
+ div[187] "If referral, who can we thank?"
+ input[188] type=text name=cards[1220f241-3c95-4352-bb76-122dd6ac91dd][field4] placeholder="Type your response" value="At Uber, I built an internal Python/FastAPI gateway that routes requests across OpenAI, Anthropic, Gemini, and Azure Ope" class=card-field-input
+ div[191] "Have you ever applied to this company?"
+  span[190] "✱"
+ label[194]
+  input[192] type=radio name=cards[1220f241-3c95-4352-bb76-122dd6ac91dd][field5] value=Yes
+  span[193] "Yes"
+ label[198]
+  input[196] type=radio name=cards[1220f241-3c95-4352-bb76-122dd6ac91dd][field5] value=No
+  span[197] "No"
+ div[202] "If so, when, what location, and for what role?"
+ input[203] type=text name=cards[1220f241-3c95-4352-bb76-122dd6ac91dd][field6] placeholder="Type your response" value="At Uber, I built an internal Python/FastAPI gateway that routes requests across OpenAI, Anthropic, Gemini, and Azure Ope" class=card-field-input
+ div[206] "Have you ever been employed by this company?"
+  span[205] "✱"
+ label[209]
+  input[207] type=radio name=cards[1220f241-3c95-4352-bb76-122dd6ac91dd][field7] value=Yes
+  span[208] "Yes"
+ label[213]
+  input[211] type=radio name=cards[1220f241-3c95-4352-bb76-122dd6ac91dd][field7] value=No
+  span[212] "No"
+ div[217] "If so, when, what location, and for what role?"
+ input[218] type=text name=cards[1220f241-3c95-4352-bb76-122dd6ac91dd][field8] placeholder="Type your response" value="At Uber, I built an internal AI gateway that routes requests across OpenAI, Anthropic, Gemini, and Azure OpenAI, with re" class=card-field-input
+ div[221] "Desired Compensation Range"
+  span[220] "✱"
+ textarea[222] name=cards[1220f241-3c95-4352-bb76-122dd6ac91dd][field9] value="At Uber, I built an internal AI gateway that routes requests across OpenAI, Anthropic, Gemini, and Azure OpenAI, with re" class=card-field-input
+ div[225] "Please explain any gaps in your employment history in excess of one month to help us understand your professional transi"
+  span[224] "✱"
+ textarea[226] name=cards[1220f241-3c95-4352-bb76-122dd6ac91dd][field10] value="At Uber, I built an internal AI gateway in Python and FastAPI that routes requests across several model providers, with " class=card-field-input
+ div[229] "Have you ever been terminated or asked to resign from any job?"
+  span[228] "✱"
+ label[232]
+  input[230] type=radio name=cards[1220f241-3c95-4352-bb76-122dd6ac91dd][field11] value=Yes
+  span[231] "Yes"
+ label[236]
+  input[234] type=radio name=cards[1220f241-3c95-4352-bb76-122dd6ac91dd][field11] value=No
+  span[235] "No"
+ div[240] "If you answered "yes" to any of the above questions, please explain the circumstances of each occasion."
+ textarea[241] name=cards[1220f241-3c95-4352-bb76-122dd6ac91dd][field12] value="At Uber, I built an internal Python/FastAPI gateway that routes requests across OpenAI, Anthropic, Gemini, and Azure Ope" class=card-field-input
+ div[244] "I am not bound by any agreements that would limit my ability to work for Brighton Jones."
+  span[243] "✱"
+ label[247]
+  input[245] type=radio name=cards[1220f241-3c95-4352-bb76-122dd6ac91dd][field13] value=True
+  span[246] "True"
+ label[251]
+  input[249] type=radio name=cards[1220f241-3c95-4352-bb76-122dd6ac91dd][field13] value=False
+  span[250] "False"
+ div[256] "I have signed a non-competition, non-disclosure, or non-solicitation agreement that I am bound by now or for a predeterm"
+  span[255] "✱"
+ label[259]
+  input[257] type=radio name=cards[1220f241-3c95-4352-bb76-122dd6ac91dd][field14] value=True
+  span[258] "True"
+ label[263]
+  input[261] type=radio name=cards[1220f241-3c95-4352-bb76-122dd6ac91dd][field14] value=False
+  span[262] "False"
+ div[267] "If true, please provide additional details via document upload."
+ a[270] class=upload-file-overlay
+  span[268] "Upload file"
+  input[269] type=file name=cards[1220f241-3c95-4352-bb76-122dd6ac91dd][field15] class=application-file-input
+ div[273] "Are you currently, or have you ever been licensed or registered in the securities industry?"
+  span[272] "✱"
+ label[276]
+  input[274] type=radio name=cards[1220f241-3c95-4352-bb76-122dd6ac91dd][field16] value=Yes
+  span[275] "Yes"
+ label[280]
+  input[278] type=radio name=cards[1220f241-3c95-4352-bb76-122dd6ac91dd][field16] value=No
+  span[279] "No"
+ div[285] "Have you ever been disciplined by a regulatory authority, or had a license suspended, denied or revoked?"
+  span[284] "✱"
+ label[288]
+  input[286] type=radio name=cards[1220f241-3c95-4352-bb76-122dd6ac91dd][field17] value=Yes
+  span[287] "Yes"
+ label[292]
+  input[290] type=radio name=cards[1220f241-3c95-4352-bb76-122dd6ac91dd][field17] value=No
+  span[291] "No"
+ div[296] "If yes, please explain:"
+ textarea[297] name=cards[1220f241-3c95-4352-bb76-122dd6ac91dd][field18] value="At Uber, I built an internal AI gateway in Python and FastAPI that routes requests across several model providers, with " class=card-field-input
+ div[300] "Do you have any current or pending disclosures on your U4? If yes, please share details of those circumstances."
+  span[299] "✱"
+ label[303]
+  input[301] type=radio name=cards[1220f241-3c95-4352-bb76-122dd6ac91dd][field19] value=Yes
+  span[302] "Yes"
+ label[307]
+  input[305] type=radio name=cards[1220f241-3c95-4352-bb76-122dd6ac91dd][field19] value=No
+  span[306] "No"
+ label[311]
+  input[309] type=radio name=cards[1220f241-3c95-4352-bb76-122dd6ac91dd][field19] value="Not Applicable"
+  span[310] "Not Applicable"
+ div[315] "If yes, please explain:"
+ textarea[316] name=cards[1220f241-3c95-4352-bb76-122dd6ac91dd][field20] value="At Uber, I built an internal Python/FastAPI gateway that routes requests across OpenAI, Anthropic, Gemini, and Azure Ope" class=card-field-input
+ div[319] "Do you currently hold any professional designations or certifications (CFP, CFA, CRPC, ChFC, etc.)?"
+  span[318] "✱"
+ label[322]
+  input[320] type=radio name=cards[1220f241-3c95-4352-bb76-122dd6ac91dd][field21] value=Yes
+  span[321] "Yes"
+ label[326]
+  input[324] type=radio name=cards[1220f241-3c95-4352-bb76-122dd6ac91dd][field21] value=No
+  span[325] "No"
+ div[330] "If yes, please explain:"
+ textarea[331] name=cards[1220f241-3c95-4352-bb76-122dd6ac91dd][field22] value="At Uber, I built an internal AI gateway in Python and FastAPI that routes requests across several model providers, with " class=card-field-input
+ div[334] "Why this opportunity? Why Brighton Jones?"
+  span[333] "✱"
+ textarea[335] name=cards[1220f241-3c95-4352-bb76-122dd6ac91dd][field23] value="I’m a Senior AI Engineer at Uber, where I build production systems around language models. One part of that work is an e" class=card-field-input
+ div[337] "Please provide two professional references. (Include name, company, relationship, dates worked together and phone and em"
+ textarea[338] name=cards[1220f241-3c95-4352-bb76-122dd6ac91dd][field24] value="At Uber, I built an internal Python/FastAPI gateway that routes requests across OpenAI, Anthropic, Gemini, and Azure Ope" class=card-field-input
+ div[341] "In compliance with federal law, all persons hired will be required to verify identity and eligibility to work in the Uni"
+  span[340] "✱"
+ label[344]
+  input[342] type=radio name=cards[1220f241-3c95-4352-bb76-122dd6ac91dd][field25] value=Yes
+  span[343] "Yes"
+ label[348]
+  input[346] type=radio name=cards[1220f241-3c95-4352-bb76-122dd6ac91dd][field25] value=No
+  span[347] "No"
+ div[352] "2. Do you now, or will you in the future, require immigration sponsorship for work authorization in the United States (e"
+ label[355]
+  input[353] type=radio name=cards[1220f241-3c95-4352-bb76-122dd6ac91dd][field26] value=Yes
+  span[354] "Yes"
+ label[359]
+  input[357] type=radio name=cards[1220f241-3c95-4352-bb76-122dd6ac91dd][field26] value=No
+  span[358] "No"
+ h4[366] "U.S. Equal Employment Opportunity information"
+  span[365] "(Completion is voluntary and will not subject you to adverse treatment)"
+ p[367] "Our company values diversity. To ensure that we comply with reporting requirements and to learn more about how we can in"
+ label[374]
+  div[368] "Gender"
+  select[373] name=eeo[gender]
+   option[369] "Select ..."
+   option[370] value=Male "Male"
+   option[371] value=Female "Female"
+   option[372] value="Decline to self-identify" "Decline to self-identify"
+ label[409]
+  div[376] "Race"
+   a[375] class=eeo-more-info-button
+  select[386] name=eeo[race]
+   option[377] "Select ..."
+   option[378] value="Hispanic or Latino" "Hispanic or Latino"
+   option[379] value="White (Not Hispanic or Latino)" "White (Not Hispanic or Latino)"
+   option[380] value="Black or African American (Not Hispanic or Latino)" "Black or African American (Not Hispanic or Latino)"
+   option[381] value="Native Hawaiian or Other Pacific Islander (Not Hispanic or Latino)" "Native Hawaiian or Other Pacific Islander (Not Hispanic or Latino)"
+   option[382] value="Asian (Not Hispanic or Latino)" "Asian (Not Hispanic or Latino)"
+   option[383] value="American Indian or Alaska Native (Not Hispanic or Latino)" "American Indian or Alaska Native (Not Hispanic or Latino)"
+   option[384] value="Two or More Races (Not Hispanic or Latino)" "Two or More Races (Not Hispanic or Latino)"
+   option[385] value="Decline to self-identify" "Decline to self-identify"
+  div[387] "Hispanic or Latino"
+  div[388] "A person of Cuban, Mexican, Puerto Rican, South or Central American, or other Spanish culture or origin regardless of ra"
+  div[390] "White (Not Hispanic or Latino)"
+  div[391] "A person having origins in any of the original peoples of Europe, the Middle East, or North Africa."
+  div[393] "Black or African American (Not Hispanic or Latino)"
+  div[394] "A person having origins in any of the black racial groups of Africa."
+  div[396] "Native Hawaiian or Other Pacific Islander (Not Hispanic or Latino)"
+  div[397] "A person having origins in any of the peoples of Hawaii, Guam, Samoa, or other Pacific Islands."
+  div[399] "Asian (Not Hispanic or Latino)"
+  div[400] "A person having origins in any of the original peoples of the Far East, Southeast Asia, or the Indian Subcontinent, incl"
+  div[402] "American Indian or Alaska Native (Not Hispanic or Latino)"
+  div[403] "A person having origins in any of the original peoples of North and South America (including Central America), and who m"
+  div[405] "Two or More Races (Not Hispanic or Latino)"
+  div[406] "All persons who identify with more than one of the above five races."
+ label[416]
+  div[410] "Veteran status"
+  select[415] name=eeo[veteran]
+   option[411] "Select ..."
+   option[412] value="I am a veteran" "I am a veteran"
+   option[413] value="I am not a veteran" "I am not a veteran"
+   option[414] value="Decline to self-identify" "Decline to self-identify"
+ input[417] type=hidden name=accountId value=a0a520b4-3973-4878-aab1-832f55a47f0d
+ input[418] type=hidden name=linkedInData
+ input[419] type=hidden name=origin
+ input[420] type=hidden name=referer
+ input[421] domId=applicant-timezone type=hidden name=timezone value=America/Chicago
+ input[422] type=hidden name=socialReferralKey
+ input[423] type=hidden name=socialSource
+ input[424] type=hidden name=resumeStorageId value=ed6a77cd-b758-45b2-b5bc-82cc7b575300
+ input[425] domId=hcaptchaResponseInput type=hidden name=h-captcha-response
+ button[426] domId=hcaptchaSubmitBtn type=submit class=hidden
+ input[427] type=hidden name=source
+ button[430] domId=btn-submit type=button class="postings-btn template-btn-submit hex-color" "Submit application"
+a[432] "Brighton Jones Home Page"
+p[434] "We may use artificial intelligence (AI) tools to support parts of the hiring process, such as reviewing applications, an"
+a[436] class=image-link
+ span[435] "Jobs powered by"

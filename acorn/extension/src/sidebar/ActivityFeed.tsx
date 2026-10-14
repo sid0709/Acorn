@@ -7,10 +7,11 @@ import {
   latestRunItems,
   type ActivityItem,
   type ActivityStatus,
+  type TimeShare,
 } from "../activity-feed";
 import { type TabLogEntry } from "../tab-log-session";
 
-import { prettyText } from "./log-view";
+import { prettyText, sinceLabel } from "./log-view";
 import { useTabLog } from "./use-tab-log";
 
 /** The newest items shown first; the rest wait behind "Show all". */
@@ -35,9 +36,56 @@ function StatusMark({ status }: { status: ActivityStatus }) {
   return <Glyph name="check" />;
 }
 
+/** Where a run's time went: each part with its share, adding up to the whole. */
+function TimeBreakdown({ shares, totalMs }: { shares: TimeShare[]; totalMs: number }) {
+  return (
+    <VStack gap={1} aria-label="Where the time went">
+      {shares.map((share) => (
+        <HStack key={share.label} gap={2} justify="between" align="center">
+          <Text size="sm">{share.label}</Text>
+          <Text size="sm" color="secondary">
+            {formatActivityMs(share.ms)} · {Math.round((share.ms / totalMs) * 100)}%
+          </Text>
+        </HStack>
+      ))}
+      <HStack gap={2} justify="between" align="center">
+        <Text size="sm" weight="semibold">
+          Total
+        </Text>
+        <Text size="sm" weight="semibold">
+          {formatActivityMs(totalMs)}
+        </Text>
+      </HStack>
+    </VStack>
+  );
+}
+
 /** One step: a collapsed row, and what is behind it only once it is opened. */
-function ActivityRow({ item, entries }: { item: ActivityItem; entries: Map<string, TabLogEntry> }) {
+function ActivityRow({
+  item,
+  entries,
+  runStartedAt,
+}: {
+  item: ActivityItem;
+  entries: Map<string, TabLogEntry>;
+  runStartedAt: number;
+}) {
   const [open, setOpen] = useState(false);
+  // Time between steps that nothing accounts for: shown, not hidden, and not expandable.
+  if (item.synthetic === "gap") {
+    return (
+      <div className="activity-item activity-gap">
+        <span className="activity-title">
+          <Text size="sm" color="secondary">
+            {item.title}
+          </Text>
+        </span>
+        <Text size="sm" color="secondary">
+          {sinceLabel(item.startedAt, runStartedAt)} · {formatActivityMs(item.ms)}
+        </Text>
+      </div>
+    );
+  }
   const related = open
     ? item.entryIds.flatMap((id) => {
         const found = entries.get(id);
@@ -46,15 +94,17 @@ function ActivityRow({ item, entries }: { item: ActivityItem; entries: Map<strin
     : [];
   const badge = STATUS_BADGE[item.status];
   return (
-    <details className="activity-item" onToggle={(event) => setOpen(event.currentTarget.open)}>
+    <details
+      className={item.depth ? "activity-item activity-child" : "activity-item"}
+      onToggle={(event) => setOpen(event.currentTarget.open)}
+    >
       <summary className="activity-summary">
         <StatusMark status={item.status} />
         <span className="activity-title">{item.title}</span>
-        {item.ms != null ? (
-          <Text size="sm" color="secondary">
-            {formatActivityMs(item.ms)}
-          </Text>
-        ) : null}
+        <Text size="sm" color="secondary">
+          {sinceLabel(item.startedAt, runStartedAt)}
+          {item.ms != null ? ` · ${formatActivityMs(item.ms)}` : ""}
+        </Text>
       </summary>
       {open ? (
         <VStack gap={2}>
@@ -66,6 +116,9 @@ function ActivityRow({ item, entries }: { item: ActivityItem; entries: Map<strin
             </Text>
           </HStack>
           {item.summary ? <Text type="supporting">{item.summary}</Text> : null}
+          {item.breakdown && item.ms ? (
+            <TimeBreakdown shares={item.breakdown} totalMs={item.ms} />
+          ) : null}
           {related.slice(0, RELATED_SHOWN).map((entry) => (
             <details key={entry.id} className="log-entry">
               <summary className="log-entry-summary">
@@ -107,6 +160,8 @@ export function ActivityFeed({ tabId, active }: { tabId: number | null; active: 
   const items = useMemo(() => latestRunItems(buildActivityFeed(entries, now)), [entries, now]);
   const byId = useMemo(() => new Map(entries.map((entry) => [entry.id, entry])), [entries]);
   const shown = showAll ? items : items.slice(-FEED_SHOWN);
+  // Every row's time is counted from the run's first step, so the rows add up to the run.
+  const runStartedAt = items[0]?.startedAt ?? now;
 
   if (items.length === 0) {
     return (
@@ -135,7 +190,7 @@ export function ActivityFeed({ tabId, active }: { tabId: number | null; active: 
       </HStack>
       <VStack gap={1}>
         {shown.map((item) => (
-          <ActivityRow key={item.id} item={item} entries={byId} />
+          <ActivityRow key={item.id} item={item} entries={byId} runStartedAt={runStartedAt} />
         ))}
       </VStack>
     </VStack>

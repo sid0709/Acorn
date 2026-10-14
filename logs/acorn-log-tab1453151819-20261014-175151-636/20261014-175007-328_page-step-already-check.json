@@ -1,0 +1,6 @@
+{
+  "element_index": 186,
+  "intended": "At Uber, I built an internal Python/FastAPI gateway that routes requests across OpenAI, Anthropic, Gemini, and Azure OpenAI, with retries, caching, and structured output parsing. I also built evaluation workflows so model changes could be checked against curated test sets before they reached production. My earlier backend work at Meta and UnitedHealth Group gave me experience with distributed services and careful handling of sensitive data.",
+  "matched": false,
+  "current": ""
+}

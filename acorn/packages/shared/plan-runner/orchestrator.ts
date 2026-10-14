@@ -67,6 +67,7 @@ function toStepPayload(action: PlanAction, files: PlanStepFiles, force: boolean)
     file: resolveStepFile(action, files),
     ms: action.ms,
     ...(force ? { force } : {}),
+    ...(action.expected_group ? { expected_group: action.expected_group } : {}),
   };
 }
 

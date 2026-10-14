@@ -1,0 +1,7 @@
+{
+  "element_index": 216,
+  "label": "Type your response",
+  "ok": true,
+  "valueAfter": "At Uber, I built an internal AI gateway that routes requests across OpenAI, Anthropic, Gemini, and Azure OpenAI, with retries, caching, and structured output parsing. I also put evaluation pipelines around model changes so regressions could be checked against curated examples before release. That combination of production engineering and careful evaluation is the work I’d like to continue doing.",
+  "ms": 64
+}

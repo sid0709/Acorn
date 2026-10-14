@@ -1,0 +1,33 @@
+{
+  "action": "select_radio",
+  "element_index": 340,
+  "expected_label": "In compliance with federal law, all persons hired will be required to verify identity and eligibility to work in the Uni",
+  "planValue": "Yes",
+  "intended": "Yes",
+  "el": {
+    "tag": "input",
+    "name": "cards[1220f241-3c95-4352-bb76-122dd6ac91dd][field25]",
+    "type": "radio",
+    "inputValue": "Yes",
+    "rendered": true
+  },
+  "widget": {
+    "root": {
+      "tag": "label",
+      "rendered": true
+    },
+    "parts": [],
+    "read": "false"
+  },
+  "combos": [
+    {
+      "read": ""
+    },
+    {
+      "read": ""
+    },
+    {
+      "read": ""
+    }
+  ]
+}

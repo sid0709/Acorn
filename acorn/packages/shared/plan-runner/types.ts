@@ -31,6 +31,8 @@ export interface PlanAction {
   file: string | null;
   reason: string | null;
   ms: number | null;
+  /** The choice group the action answers (FormField.group), set by the run from its field list. */
+  expected_group?: string | null;
 }
 
 export interface ActionPlan {
@@ -77,6 +79,8 @@ export interface PlanStepPayload {
   ms: number | null;
   /** Refill: act even when the control already shows the value, since the page rejected it. */
   force?: boolean;
+  /** The choice group the plan named: the step never answers another group's question. */
+  expected_group?: string | null;
 }
 
 export interface PlanStepResult {

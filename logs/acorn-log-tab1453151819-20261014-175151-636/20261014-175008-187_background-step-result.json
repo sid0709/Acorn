@@ -1,0 +1,7 @@
+{
+  "element_index": 336,
+  "label": "cards[1220f241-3c95-4352-bb76-122dd6ac91dd][field24]",
+  "ok": true,
+  "valueAfter": "At Uber, I built an internal Python/FastAPI gateway that routes requests across OpenAI, Anthropic, Gemini, and Azure OpenAI. Keeping those integrations behind one service made retries, caching, and structured responses easier to handle consistently, while the evaluation pipelines helped us catch regressions as models and prompts changed.",
+  "ms": 81
+}

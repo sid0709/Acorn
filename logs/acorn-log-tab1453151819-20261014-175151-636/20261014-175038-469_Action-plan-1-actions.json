@@ -1,0 +1,36 @@
+{
+  "actions": [
+    {
+      "action": "forbidden",
+      "element_index": 430,
+      "element_indexes": null,
+      "expected_label": "Submit application",
+      "expected_role": "button",
+      "file": null,
+      "ms": null,
+      "reason": "Do not submit the application.",
+      "value": null
+    }
+  ],
+  "forbidden_actions": [
+    {
+      "action": "forbidden",
+      "element_index": 430,
+      "element_indexes": null,
+      "expected_label": "Submit application",
+      "expected_role": "button",
+      "file": null,
+      "ms": null,
+      "reason": "Submission is prohibited.",
+      "value": null
+    }
+  ],
+  "goal": "Fix the fields the page rejected and stop before submission",
+  "unresolved_items": [
+    "Required Values in Action Self-Assessment file upload (element 126) is rejected because no file was selected. No appropriate self-assessment file is identified as available; the recommended résumé is not a substitute for this document."
+  ],
+  "validation": {
+    "required_element_indexes": [],
+    "stop_before_submit": true
+  }
+}

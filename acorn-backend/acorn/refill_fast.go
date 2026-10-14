@@ -19,6 +19,35 @@ type FieldIssueNote struct {
 	Invalid        bool     `json:"invalid"`
 	LinkedMessages []string `json:"linkedMessages,omitempty"`
 	NearbyMessages []string `json:"nearbyMessages,omitempty"`
+	// Attempts are the answers an earlier round gave this field that the page still
+	// flags, with how each step went: the field was answered before and did not take.
+	Attempts []FieldAttempt `json:"attempts,omitempty"`
+}
+
+// FieldAttempt is one earlier answer to a flagged field and how its step went.
+type FieldAttempt struct {
+	Value  string `json:"value"`
+	Result string `json:"result"`
+}
+
+// TriedField is a flagged field an earlier round already answered, as the
+// conversation is told: its question and every answer that did not take.
+type TriedField struct {
+	Field    string         `json:"field"`
+	Attempts []FieldAttempt `json:"attempts"`
+}
+
+// triedFields lists the flagged fields that were answered before and are flagged
+// still. Planning them again the way the first round did would give the same answer
+// to the same step, so they are planned by the conversation, which sees what failed.
+func triedFields(fields []FormField) []TriedField {
+	var tried []TriedField
+	for _, field := range fields {
+		if field.Issue != nil && len(field.Issue.Attempts) > 0 {
+			tried = append(tried, TriedField{Field: field.Label, Attempts: field.Issue.Attempts})
+		}
+	}
+	return tried
 }
 
 // Refill planners, echoed with a Refill plan so a run's log says which one planned it.
@@ -58,6 +87,12 @@ var textKinds = map[string]string{
 // view. When that leaves an issue that needs an answer without a step, the
 // conversational Refill plans the fixes instead, from the tree and the page's plans.
 func (s *Service) RefillFlagged(ctx context.Context, applicant, pureTree string, scan FieldIssueScan, fields []FormField, page map[string]any, history []PlanTurn) (AnalyzeResult, error) {
+	// A field answered before that the page still flags is never replanned the way the
+	// last round planned it: the conversation sees what was tried and how it went.
+	if tried := triedFields(fields); len(tried) > 0 {
+		slog.Info("acorn refill: a flagged field was answered before, planning the conversation", "fields", len(tried))
+		return s.refillConversation(ctx, applicant, pureTree, scan, page, history, tried)
+	}
 	result, open, err := s.fastRefill(ctx, applicant, scan, fields, page)
 	if err == nil && len(open) == 0 {
 		return result, nil

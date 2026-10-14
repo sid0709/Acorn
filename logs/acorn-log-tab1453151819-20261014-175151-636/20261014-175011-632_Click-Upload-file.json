@@ -1,0 +1,14 @@
+{
+  "what": "Click \"Upload file\"",
+  "why": "The decision model read this page as application_form and chose this control as the resolve (confidence 0.86).",
+  "evidence": {
+    "role": "resolve",
+    "confidence": 0.86,
+    "controlId": 127,
+    "url": "jobs.lever.co/brightonjones/1de22ecc-67bc-4c0f-855d-99fe68a2ba7b/apply",
+    "pageKind": "application_form",
+    "fields": 0,
+    "flagged": 0,
+    "lastClick": "apply for this job"
+  }
+}

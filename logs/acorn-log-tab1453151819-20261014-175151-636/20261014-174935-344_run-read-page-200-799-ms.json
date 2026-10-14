@@ -1,0 +1,45 @@
+{
+  "status": 200,
+  "body": {
+    "accountMode": "none",
+    "alreadyApplied": false,
+    "control": {
+      "confidence": 0.96,
+      "id": 7,
+      "role": "apply"
+    },
+    "guest": false,
+    "kind": "job_posting",
+    "kindConfidence": 1,
+    "kindProbabilities": {
+      "account_step": 0,
+      "application_form": 0,
+      "blocked": 0,
+      "confirmation": 0,
+      "job_posting": 1,
+      "other": 0
+    },
+    "model": "typesafe/jev-1.13",
+    "ms": 793,
+    "needsPerson": false,
+    "ok": true,
+    "usage": {
+      "cachedInputTokens": 0,
+      "calls": 1,
+      "costUsd": 0.00020958,
+      "inputTokens": 4990,
+      "model": "typesafe/jev-1.13",
+      "outputTokens": 442,
+      "priced": true,
+      "totalTokens": 5432
+    },
+    "verification": "none",
+    "verificationProbabilities": {
+      "choose_email": 0,
+      "email_code": 0,
+      "email_link": 0,
+      "none": 0.97,
+      "other": 0.03
+    }
+  }
+}

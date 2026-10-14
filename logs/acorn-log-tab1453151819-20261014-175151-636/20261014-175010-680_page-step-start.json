@@ -1,0 +1,34 @@
+{
+  "action": "select_radio",
+  "element_index": 37,
+  "expected_label": "He/him",
+  "planValue": "He/him",
+  "intended": "He/him",
+  "el": {
+    "tag": "input",
+    "name": "pronouns",
+    "type": "checkbox",
+    "cls": "standardPronounsOption",
+    "inputValue": "He/him",
+    "rendered": true
+  },
+  "widget": {
+    "root": {
+      "tag": "label",
+      "rendered": true
+    },
+    "parts": [],
+    "read": "false"
+  },
+  "combos": [
+    {
+      "read": "Male"
+    },
+    {
+      "read": "Asian (Not Hispanic or Latino)"
+    },
+    {
+      "read": "I am not a veteran"
+    }
+  ]
+}

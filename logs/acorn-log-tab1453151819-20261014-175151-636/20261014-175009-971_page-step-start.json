@@ -1,0 +1,40 @@
+{
+  "action": "fill",
+  "element_index": 83,
+  "expected_label": "Write here...",
+  "planValue": "he/him",
+  "intended": "he/him",
+  "el": {
+    "tag": "input",
+    "id": "customPronounsTextField",
+    "name": "pronouns",
+    "type": "text",
+    "cls": "card-field-input",
+    "inputValue": "",
+    "rendered": true
+  },
+  "widget": {
+    "root": {
+      "tag": "input",
+      "id": "customPronounsTextField",
+      "name": "pronouns",
+      "type": "text",
+      "cls": "card-field-input",
+      "inputValue": "",
+      "rendered": true
+    },
+    "parts": [],
+    "read": ""
+  },
+  "combos": [
+    {
+      "read": "Male"
+    },
+    {
+      "read": "Asian (Not Hispanic or Latino)"
+    },
+    {
+      "read": "I am not a veteran"
+    }
+  ]
+}

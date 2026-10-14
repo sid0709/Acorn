@@ -1,0 +1,50 @@
+{
+  "status": 200,
+  "body": {
+    "accountMode": "none",
+    "alreadyApplied": false,
+    "control": {
+      "confidence": 0.98,
+      "id": 430,
+      "role": "submit"
+    },
+    "guest": true,
+    "kind": "application_form",
+    "kindConfidence": 1,
+    "kindProbabilities": {
+      "account_step": 0,
+      "application_form": 1,
+      "blocked": 0,
+      "confirmation": 0,
+      "job_posting": 0,
+      "other": 0
+    },
+    "model": "typesafe/jev-1.13",
+    "ms": 769,
+    "needsPerson": false,
+    "ok": true,
+    "requirement": {
+      "confidence": 0.91,
+      "id": 127,
+      "role": "resolve"
+    },
+    "usage": {
+      "cachedInputTokens": 0,
+      "calls": 1,
+      "costUsd": 0.000298284,
+      "inputTokens": 7102,
+      "model": "typesafe/jev-1.13",
+      "outputTokens": 663,
+      "priced": true,
+      "totalTokens": 7765
+    },
+    "verification": "none",
+    "verificationProbabilities": {
+      "choose_email": 0,
+      "email_code": 0,
+      "email_link": 0,
+      "none": 0.98,
+      "other": 0.02
+    }
+  }
+}

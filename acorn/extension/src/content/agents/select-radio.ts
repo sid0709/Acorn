@@ -144,10 +144,17 @@ function findChoiceInGroup(
   root: ParentNode,
   value: string,
   kind: "checkbox" | "radio",
+  /** The control the step named: its own named group is the only pool its option comes from. */
+  owner?: HTMLElement,
 ): HTMLInputElement | null {
-  const nodes = Array.from(root.querySelectorAll(`input[type="${kind}"]`)).filter(
+  const inRoot = Array.from(root.querySelectorAll(`input[type="${kind}"]`)).filter(
     (node): node is HTMLInputElement => node instanceof HTMLInputElement,
   );
+  // Where a group's options meet can hold another question's options too (two questions
+  // whose options are siblings in one section): the browser's own group, by name, is
+  // what the answer is chosen from, so another question's "No" never answers this one.
+  const own = owner ? sameNameGroup(owner) : null;
+  const nodes = own ? inRoot.filter((node) => own.includes(node)) : inRoot;
   // An exact label wins: "Hispanic or Latino" is inside "White (Not Hispanic or Latino)".
   return pickByLabel(nodes, value);
 }
@@ -273,7 +280,7 @@ async function confirmProxyChoice(
 ): Promise<void> {
   await waitMs(ARIA_STATE_SETTLE_MS);
   const kind = proxy.type === "radio" ? "radio" : "checkbox";
-  const named = findChoiceInGroup(groupRoot(proxy), intended, kind);
+  const named = findChoiceInGroup(groupRoot(proxy), intended, kind, proxy);
   if (named) {
     if (named.checked) return;
     named.click();
@@ -335,7 +342,8 @@ function selectNativeChoice(el: HTMLInputElement, intended: string): string {
     // The option named by the answer, even "Yes" / "No": checking the planned
     // radio would answer with whatever option happens to come first.
     const named =
-      findChoiceInGroup(groupRoot(el), intended, kind) ?? (labelsMatch(el, intended) ? el : null);
+      findChoiceInGroup(groupRoot(el), intended, kind, el) ??
+      (labelsMatch(el, intended) ? el : null);
     if (named) return ensureChecked(named, intended);
     // No option carries the answer: only a bare "check it" means this radio.
     if (kind === "checkbox" || !isBooleanIntent(intended) || !wantChecked(intended)) {
@@ -469,9 +477,9 @@ async function selectChoiceLocally(el: Element, value: string | null): Promise<s
 
   if (intended) {
     const root = groupRoot(html);
-    const checkbox = findChoiceInGroup(root, intended, "checkbox");
+    const checkbox = findChoiceInGroup(root, intended, "checkbox", html);
     if (checkbox) return ensureChecked(checkbox, intended);
-    const radio = findChoiceInGroup(root, intended, "radio");
+    const radio = findChoiceInGroup(root, intended, "radio", html);
     if (radio) return ensureChecked(radio, intended);
     const aria = findAriaChoice(root, intended);
     if (aria) {
@@ -488,7 +496,7 @@ async function selectChoiceLocally(el: Element, value: string | null): Promise<s
   const root = groupRoot(html);
   const radios = Array.from(root.querySelectorAll('input[type="radio"]'));
   if (radios.length && intended) {
-    const target = findChoiceInGroup(root, intended, "radio");
+    const target = findChoiceInGroup(root, intended, "radio", html);
     if (!target) throw new NoChoiceMatch(`No radio option matching "${intended}"`);
     return ensureChecked(target, intended);
   }

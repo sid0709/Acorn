@@ -1,0 +1,9 @@
+{
+  "status": 200,
+  "body": {
+    "reason": "Your only cover letter.",
+    "resumeId": "706b71953af3fd8a2cd527d25c91cc9b",
+    "stack": "Cover Letter",
+    "success": true
+  }
+}

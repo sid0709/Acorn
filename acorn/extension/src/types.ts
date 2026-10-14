@@ -233,6 +233,11 @@ export interface PlanStepPayload {
   ms: number | null;
   /** Refill: act even when the control already shows the value, since the page rejected it. */
   force?: boolean;
+  /**
+   * The choice group the plan named (FormField.group). The control a step resolves to,
+   * and the control it acts on, must belong to it; a step never answers another question.
+   */
+  expected_group?: string | null;
 }
 
 export interface PlanStepSocketPayload {

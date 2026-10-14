@@ -1,0 +1,33 @@
+{
+  "action": "select_radio",
+  "element_index": 243,
+  "expected_label": "I am not bound by any agreements that would limit my ability to work for Brighton Jones.",
+  "planValue": "True",
+  "intended": "True",
+  "el": {
+    "tag": "input",
+    "name": "cards[1220f241-3c95-4352-bb76-122dd6ac91dd][field13]",
+    "type": "radio",
+    "inputValue": "True",
+    "rendered": true
+  },
+  "widget": {
+    "root": {
+      "tag": "label",
+      "rendered": true
+    },
+    "parts": [],
+    "read": "false"
+  },
+  "combos": [
+    {
+      "read": ""
+    },
+    {
+      "read": ""
+    },
+    {
+      "read": ""
+    }
+  ]
+}

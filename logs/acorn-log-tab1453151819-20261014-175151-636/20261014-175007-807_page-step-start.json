@@ -1,0 +1,33 @@
+{
+  "action": "fill",
+  "element_index": 295,
+  "expected_label": "cards[1220f241-3c95-4352-bb76-122dd6ac91dd][field18]",
+  "planValue": "At Uber, I built an internal AI gateway in Python and FastAPI that routes requests across several model providers, with retries, caching, and structured-output parsing. I also built evaluation pipelines so changes could be checked against curated examples before they reached production. That combination of practical infrastructure and careful evaluation is central to how I approach AI engineering.",
+  "intended": "At Uber, I built an internal AI gateway in Python and FastAPI that routes requests across several model providers, with retries, caching, and structured-output parsing. I also built evaluation pipelines so changes could be checked against curated examples before they reached production. That combination of practical infrastructure and careful evaluation is central to how I approach AI engineering.",
+  "el": {
+    "tag": "textarea",
+    "name": "cards[1220f241-3c95-4352-bb76-122dd6ac91dd][field18]",
+    "cls": "card-field-input",
+    "rendered": true
+  },
+  "widget": {
+    "root": {
+      "tag": "li",
+      "cls": "application-question custom-question",
+      "rendered": true
+    },
+    "parts": [],
+    "read": ""
+  },
+  "combos": [
+    {
+      "read": ""
+    },
+    {
+      "read": ""
+    },
+    {
+      "read": ""
+    }
+  ]
+}

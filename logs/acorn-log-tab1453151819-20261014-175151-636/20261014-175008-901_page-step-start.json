@@ -1,0 +1,31 @@
+{
+  "action": "select_radio",
+  "element_index": 371,
+  "expected_label": "Gender Select ... Male Female Decline to self-identify",
+  "planValue": "Male",
+  "intended": "Male",
+  "el": {
+    "tag": "select",
+    "name": "eeo[gender]",
+    "rendered": true
+  },
+  "widget": {
+    "root": {
+      "tag": "label",
+      "rendered": true
+    },
+    "parts": [],
+    "read": ""
+  },
+  "combos": [
+    {
+      "read": ""
+    },
+    {
+      "read": ""
+    },
+    {
+      "read": ""
+    }
+  ]
+}

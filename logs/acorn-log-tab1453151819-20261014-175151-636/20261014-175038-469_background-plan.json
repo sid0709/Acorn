@@ -1,0 +1,13 @@
+{
+  "frameId": 0,
+  "actions": [
+    {
+      "i": 0,
+      "action": "forbidden",
+      "element_index": 430,
+      "label": "Submit application",
+      "role": "button",
+      "value": null
+    }
+  ]
+}

@@ -72,11 +72,13 @@ var verifications = map[string]string{
 	VerifyChooseEmail: "The page asks where or how to send a verification code (a choice of the applicant's email address, " +
 		"phone number, text message, or call) and email is one of the choices. No code has been sent yet. " + emailOnly +
 		"The run chooses the email and sends it, so this is never a wait for the applicant.",
-	VerifyOther: "The page is stopped on a prompt that asks right now for something only the applicant can give in the moment: " +
-		"a box for a code already sent to their phone with no way to send it to email instead, an authenticator app code, or a " +
-		"challenge they must solve themselves. A choice of where to send a code that offers email is choose_email, not this. " +
-		"A form that asks for the applicant's details (a phone number or address to fill in) is not this, and neither is a note " +
-		"about how to sign in or change contact details later.",
+	VerifyOther: "The page is stopped on a prompt that only a person at the keyboard can complete: a CAPTCHA or bot-check " +
+		"widget (pictures to pick, a \"not a robot\" box, a slider or puzzle), a box for a code already sent to their phone " +
+		"with no way to send it to email instead, or an authenticator app code. A choice of where to send a code that offers " +
+		"email is choose_email, not this. Every question or field of the application form, however it is worded (a trivia " +
+		"question, \"type this word\", a short answer), is a field the run fills in words, so it is never this; neither is a " +
+		"form that asks for the applicant's details (a phone number or address to fill in) or a note about how to sign in " +
+		"or change contact details later. Fields the page lists as fields to fill are not a challenge.",
 }
 
 // Account modes say what an account step asks for. The run fills the applicant's
@@ -215,6 +217,9 @@ type PageQuery struct {
 	Text     string
 	Intent   string
 	Controls []Control
+	// Fields are the fields the page asks for (what the run fills in words), so a
+	// question worded like a challenge is seen to be a field with a box under it.
+	Fields []PageField
 	// Flagged is how many fields the page marks invalid right now.
 	Flagged int
 	// PageMessages are page-level alerts, such as "Please fix the errors below".
@@ -701,6 +706,39 @@ func controlInstructions(intent string) string {
 		"or is disabled. Choose none when the page has no way to apply or continue."
 }
 
+// PageField is one field the page asks for, as the run lists it.
+type PageField struct {
+	Label    string
+	Kind     string
+	Required bool
+	// Options is how many choices a choice field offers; 0 for a typed field.
+	Options int
+}
+
+// maxPageFields bounds how many fields one page read lists.
+const maxPageFields = 60
+
+func writeFields(b *strings.Builder, fields []PageField) {
+	if len(fields) == 0 {
+		return
+	}
+	fmt.Fprintf(b, "\n\nFields on the page, which the run fills in from the applicant's profile and its own answers (%d):\n", len(fields))
+	for i, field := range fields {
+		if i == maxPageFields {
+			fmt.Fprintf(b, "- (%d more)\n", len(fields)-maxPageFields)
+			break
+		}
+		line := fmt.Sprintf("- %s (%s", clip(field.Label, maxControlLine), firstNonEmpty(field.Kind, "field"))
+		if field.Options > 0 {
+			line += fmt.Sprintf(", %d choices", field.Options)
+		}
+		if field.Required {
+			line += ", required"
+		}
+		b.WriteString(line + ")\n")
+	}
+}
+
 func pageState(q PageQuery, controls []Control) string {
 	var b strings.Builder
 	fmt.Fprintf(&b, "Page URL: %s\nPage title: %s\n", firstNonEmpty(q.URL, "(unknown)"), firstNonEmpty(q.Title, "(untitled)"))
@@ -733,6 +771,7 @@ func pageState(q PageQuery, controls []Control) string {
 	}
 	b.WriteString("\nPage text:\n")
 	b.WriteString(clipEnds(q.Text, maxPageText))
+	writeFields(&b, q.Fields)
 	b.WriteString("\n\nControls on the page:\n")
 	if len(controls) == 0 {
 		b.WriteString("(none)\n")

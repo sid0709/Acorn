@@ -171,3 +171,87 @@ describe("latestRunItems", () => {
     );
   });
 });
+
+describe("the run on the clock", () => {
+  const at = (
+    t: number,
+    patch: Partial<TabLogEntry> & Pick<TabLogEntry, "kind" | "title">,
+    data: unknown = {},
+  ) => entry({ t, ...patch }, data);
+
+  it("lists the steps in the order they happened, whatever order the log holds them", () => {
+    const later = at(5_000, { kind: "event", title: "background · run:click" }, { text: "B" });
+    const earlier = at(1_000, { kind: "event", title: "background · run:click" }, { text: "A" });
+    const items = buildActivityFeed([later, earlier], 6_000);
+    assert.deepEqual(
+      items.filter((item) => !item.synthetic).map((item) => item.title),
+      ['Clicked "A"', 'Clicked "B"'],
+    );
+  });
+
+  it("shows time that no step accounts for as a Waiting row", () => {
+    const first = at(1_000, { kind: "event", title: "background · run:click" }, { text: "A" });
+    const settled = at(
+      1_500,
+      { kind: "event", title: "background · run:settled" },
+      { how: "navigated" },
+    );
+    const second = at(9_500, { kind: "event", title: "background · run:click" }, { text: "B" });
+    const items = buildActivityFeed([first, settled, second], 10_000);
+    const gap = items.find((item) => item.synthetic === "gap");
+    assert.ok(gap, "a gap row");
+    assert.equal(gap.ms, 8_000);
+    assert.equal(gap.title, "Waiting");
+  });
+
+  it("nests what happened during the fill under it, so durations are not counted twice", () => {
+    const plan = at(2_000, {
+      kind: "api",
+      title: "→ POST ai-analyze · fast",
+      group: "ai-analyze · fast#1",
+    });
+    const planned = at(
+      8_000,
+      { kind: "api", title: "← ai-analyze · fast · 200", group: "ai-analyze · fast#1", ms: 6_000 },
+      { status: 200, body: { plan: "(14 actions)" } },
+    );
+    const step = at(9_000, { kind: "event", title: "background · step:result" }, { ok: true });
+    const done = at(
+      20_000,
+      { kind: "event", title: "background · run:fill:done" },
+      { ok: true, durationMs: 19_000 },
+    );
+    const items = buildActivityFeed([plan, planned, step, done], 21_000);
+    const fill = items.find((item) => item.title === "Filled the form");
+    const call = items.find((item) => item.title.startsWith("Planned"));
+    assert.equal(fill?.startedAt, 1_000);
+    assert.equal(fill?.depth ?? 0, 0);
+    assert.equal(call?.depth, 1);
+    assert.equal(items.filter((item) => item.synthetic).length, 0);
+  });
+
+  it("lets the click own the wait for the page, and the run end own the whole list of times", () => {
+    const click = at(1_000, { kind: "event", title: "background · run:click" }, { text: "Submit" });
+    const settled = at(
+      4_000,
+      { kind: "event", title: "background · run:settled" },
+      { how: "navigated" },
+    );
+    const end = at(
+      10_000,
+      { kind: "event", title: "background · run:run:end" },
+      { outcome: "completed", seconds: 10, phases: { fill: 4_000, decide: 3_000, click: 2_000 } },
+    );
+    const items = buildActivityFeed([click, settled, end], 11_000);
+    assert.equal(items.find((item) => item.title.startsWith("Clicked"))?.ms, 3_000);
+    const last = items.at(-1);
+    assert.equal(last?.title, "Application sent");
+    const shares = last?.breakdown ?? [];
+    assert.equal(
+      shares.reduce((sum, share) => sum + share.ms, 0),
+      10_000,
+    );
+    assert.match(shares.at(-1)?.label ?? "", /Not measured/);
+    assert.equal(shares[0].label, "Filling the form");
+  });
+});

@@ -1,0 +1,20 @@
+{
+  "runId": "6cb9533c",
+  "step": 2,
+  "intent": "start",
+  "kind": "application_form",
+  "kindConfidence": 1,
+  "verification": "none",
+  "accountMode": "none",
+  "newText": 0,
+  "controls": 11,
+  "flagged": 0,
+  "pick": {
+    "role": "submit",
+    "confidence": 0.93,
+    "text": "Submit application"
+  },
+  "fallback": null,
+  "guest": null,
+  "requirement": null
+}

@@ -1,0 +1,33 @@
+{
+  "action": "select_radio",
+  "element_index": 79,
+  "expected_label": "Custom",
+  "planValue": "true",
+  "intended": "true",
+  "el": {
+    "tag": "input",
+    "id": "customPronounsOption",
+    "type": "checkbox",
+    "inputValue": "Custom",
+    "rendered": true
+  },
+  "widget": {
+    "root": {
+      "tag": "label",
+      "rendered": true
+    },
+    "parts": [],
+    "read": "false"
+  },
+  "combos": [
+    {
+      "read": ""
+    },
+    {
+      "read": ""
+    },
+    {
+      "read": ""
+    }
+  ]
+}

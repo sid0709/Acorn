@@ -13,11 +13,24 @@ export type ActivityStatus = "running" | "ok" | "info" | "warn" | "error";
 export type ActivityIcon =
   "read" | "ai" | "click" | "fill" | "wait" | "mail" | "tab" | "file" | "done";
 
+/** One slice of the time a run took, for the "where the time went" list. */
+export type TimeShare = { label: string; ms: number };
+
 export type ActivityItem = {
   id: string;
+  /** When the thing began (the log entry that started it). */
   t: number;
+  /** When it began, and when it ended, in epoch ms; the timeline is laid out from these. */
+  startedAt: number;
+  endedAt?: number;
   /** How long the thing took, when the log says. */
   ms?: number;
+  /** 1 when the item happened inside another (a call made while the form was being filled). */
+  depth?: number;
+  /** A row the log does not hold an entry for: time between steps that no step accounts for. */
+  synthetic?: "gap";
+  /** Where a finished run's time went, adding up to its total. */
+  breakdown?: TimeShare[];
   title: string;
   summary?: string;
   status: ActivityStatus;
@@ -201,7 +214,7 @@ function fillSummary(ok: number, failed: number): string {
   return failed > 0 ? `${ok} done, ${failed} did not work` : `${ok} done`;
 }
 
-type NewItem = Omit<ActivityItem, "id" | "t" | "entryIds" | "runId" | "page">;
+type NewItem = Omit<ActivityItem, "id" | "t" | "startedAt" | "entryIds" | "runId" | "page">;
 
 /** Builds the items entry by entry; each kind of entry has its own small method. */
 class FeedBuilder {
@@ -218,6 +231,7 @@ class FeedBuilder {
       ...item,
       id: entry.id,
       t: entry.t,
+      startedAt: entry.t,
       runId: entry.runId,
       page: entry.page,
       entryIds: [entry.id],
@@ -267,6 +281,8 @@ class FeedBuilder {
     const item = this.open.get(group);
     if (item) {
       Object.assign(item, finished);
+      item.endedAt = entry.t;
+      item.ms ??= entry.t - item.startedAt;
       item.entryIds.push(entry.id);
     } else {
       this.add(entry, finished);
@@ -304,7 +320,8 @@ class FeedBuilder {
       title: `${item.title.replace(/…$/, "")} — no answer`,
       summary: str(data.cause),
       status: "error",
-      ms: entry.ms,
+      ms: entry.ms ?? entry.t - item.startedAt,
+      endedAt: entry.t,
     });
     item.entryIds.push(entry.id);
     this.open.delete(entry.group ?? "");
@@ -430,6 +447,7 @@ class FeedBuilder {
       return;
     }
     Object.assign(this.recommend, done);
+    this.recommend.endedAt = entry.t;
     this.recommend.ms = entry.t - this.recommend.t;
     this.recommend.entryIds.push(entry.id);
     this.recommend = null;
@@ -449,6 +467,9 @@ class FeedBuilder {
     const how = str(data.how);
     if (!this.lastClick || !how) return;
     this.lastClick.summary = SETTLED_TEXT[how] ?? how;
+    // The click is over when the page answered it: the wait is part of the click.
+    this.lastClick.endedAt = entry.t;
+    this.lastClick.ms = entry.t - this.lastClick.startedAt;
     this.lastClick.entryIds.push(entry.id);
   }
 
@@ -462,12 +483,16 @@ class FeedBuilder {
       ms: num(data.durationMs),
       icon: "fill",
     };
+    const duration = finished.ms;
+    const target = this.fill ? this.fill.item : this.add(entry, finished);
     if (this.fill) {
-      Object.assign(this.fill.item, finished);
-      this.fill.item.entryIds.push(entry.id);
-    } else {
-      this.add(entry, finished);
+      Object.assign(target, finished);
+      target.entryIds.push(entry.id);
     }
+    // The fill began before its first step (it reads the page and plans first): lay it
+    // out over its whole length, so what happened inside it nests under it.
+    target.endedAt = entry.t;
+    if (duration != null) target.startedAt = entry.t - duration;
     this.fill = null;
     this.dropdowns = null;
   }
@@ -500,11 +525,17 @@ class FeedBuilder {
   private runEnd(entry: TabLogEntry, data: Data): void {
     const outcome = str(data.outcome) ?? "ended";
     const seconds = num(data.seconds);
+    const totalMs = seconds != null ? Math.round(seconds * 1000) : undefined;
+    const phases =
+      data.phases && typeof data.phases === "object"
+        ? (data.phases as Record<string, number>)
+        : null;
     this.add(entry, {
       title: RUN_END_TITLE[outcome] ?? `Run ${outcome}`,
       summary: str(data.detail) ?? str(data.reason),
       status: outcome === "failed" ? "error" : outcome === "completed" ? "ok" : "info",
-      ms: seconds != null ? Math.round(seconds * 1000) : undefined,
+      ms: totalMs,
+      breakdown: totalMs != null && phases ? timeBreakdown(phases, totalMs) : undefined,
       icon: "done",
     });
   }
@@ -564,14 +595,106 @@ const SETTLED_TEXT: Record<string, string> = {
   unchanged: "The page did not change",
 };
 
+/** What each phase the run times is called for a person. */
+const PHASE_LABEL: Record<string, string> = {
+  snapshot: "Reading the page",
+  decide: "The AI deciding what to do next",
+  recommend: "Choosing a résumé",
+  click: "Clicking, then waiting for the page to answer",
+  fill: "Filling the form",
+  mail: "Waiting for the site's email",
+  wait: "Waiting for you",
+  diagnose: "Working out why the run stopped",
+  account: "Account steps",
+};
+
+/**
+ * Where a run's time went: every phase the run timed, and the rest named as what it
+ * is — time no phase accounts for — so the list always adds up to the total.
+ */
+export function timeBreakdown(phases: Record<string, number>, totalMs: number): TimeShare[] {
+  const shares = Object.entries(phases)
+    .filter(([, ms]) => typeof ms === "number" && ms > 0)
+    .map(([key, ms]) => ({ label: PHASE_LABEL[key] ?? key, ms }))
+    .sort((a, b) => b.ms - a.ms);
+  const measured = shares.reduce((sum, share) => sum + share.ms, 0);
+  const rest = totalMs - measured;
+  if (rest > 0) {
+    shares.push({ label: "Not measured (the run moving between steps, tabs loading)", ms: rest });
+  }
+  return shares;
+}
+
+/** Time between two steps that is shown as its own row; shorter gaps are not worth a row. */
+const GAP_MIN_MS = 1500;
+
+function isFillSpan(item: ActivityItem): boolean {
+  return item.icon === "fill" && item.endedAt != null && item.endedAt > item.startedAt;
+}
+
+/**
+ * Lay the items out on the clock: in the order they began, what happened inside the
+ * form fill nested under it, and the time between steps that nothing accounts for as
+ * "Waiting" rows. The rows then account for the run's whole length.
+ */
+export function arrangeTimeline(items: readonly ActivityItem[]): ActivityItem[] {
+  const sorted = [...items].sort((a, b) => a.startedAt - b.startedAt);
+  const out: ActivityItem[] = [];
+  let reachedRun: string | undefined;
+  let reachedAt: number | null = null;
+  for (const item of sorted) {
+    const inside = sorted.find(
+      (parent) =>
+        parent !== item &&
+        isFillSpan(parent) &&
+        parent.runId === item.runId &&
+        item.startedAt >= parent.startedAt &&
+        (item.endedAt ?? item.startedAt) <= (parent.endedAt ?? 0) + 200,
+    );
+    if (inside) {
+      out.push({ ...item, depth: 1 });
+      continue;
+    }
+    if (
+      reachedAt != null &&
+      reachedRun === item.runId &&
+      item.startedAt - reachedAt >= GAP_MIN_MS
+    ) {
+      out.push({
+        id: `gap-${item.id}`,
+        t: reachedAt,
+        startedAt: reachedAt,
+        endedAt: item.startedAt,
+        ms: item.startedAt - reachedAt,
+        title: "Waiting",
+        summary:
+          "Time between steps that no step accounts for: the page loading or settling, the browser opening a tab, the run reading what changed.",
+        status: "info",
+        icon: "wait",
+        runId: item.runId,
+        page: item.page,
+        entryIds: [],
+        synthetic: "gap",
+      });
+    }
+    out.push(item);
+    const end = item.endedAt ?? item.startedAt;
+    reachedAt = Math.max(reachedRun === item.runId ? (reachedAt ?? 0) : 0, end);
+    reachedRun = item.runId;
+  }
+  return out;
+}
+
 export function buildActivityFeed(
   entries: readonly TabLogEntry[],
   now = Date.now(),
 ): ActivityItem[] {
   const builder = new FeedBuilder();
-  for (const entry of entries) builder.handle(entry);
-  builder.settleRunning(entries, now);
-  return builder.items;
+  // The log is read in the order things happened, whatever order it was written in.
+  const inOrder = [...entries].sort((a, b) => a.t - b.t);
+  for (const entry of inOrder) builder.handle(entry);
+  builder.settleRunning(inOrder, now);
+  return arrangeTimeline(builder.items);
 }
 
 /** The latest run's items, or every item when the log holds no run. */

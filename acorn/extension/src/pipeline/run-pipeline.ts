@@ -2,8 +2,10 @@ import { formatDuration, formatUsd } from "@acorn/shared/ai-usage";
 import { FILL_MODE, type FillMode } from "@acorn/shared/field-issues";
 import { FAST_PLAN_MODE } from "@acorn/shared/form-fields";
 import { PhaseClock } from "@acorn/shared/phase-clock";
+import { withAttempts } from "@acorn/shared/plan-history";
 import { applyApplicantIdentityToActions } from "@acorn/shared/plan-runner/applicant-identity";
 import { planCodeFill, spreadCodeAcrossBoxes } from "@acorn/shared/plan-runner/code-fill";
+import { annotateGroups } from "@acorn/shared/plan-runner/groups";
 import { runActionPlan } from "@acorn/shared/plan-runner/orchestrator";
 import { isFileUploadAction, planWantsCoverLetter } from "@acorn/shared/plan-runner/step-file";
 import { formatPlannerTree } from "@acorn/shared/planner-tree";
@@ -428,7 +430,9 @@ export async function runFabPipeline(args: RunPipelineArgs): Promise<void> {
         fieldIssues: refill ? fieldIssues : undefined,
         // A refill's flagged fields are planned on their own first; the conversation
         // (tree and history) plans the fixes only when they leave one open.
-        formFields: refill ? formFields : undefined,
+        // Each flagged field carries what earlier rounds answered it: a field answered
+        // before and flagged still is not planned the way the last round planned it.
+        formFields: refill ? withAttempts(formFields, history) : undefined,
         history: refill && history?.length ? history : undefined,
         page,
         verificationCode,
@@ -467,6 +471,7 @@ export async function runFabPipeline(args: RunPipelineArgs): Promise<void> {
 
       const plan = analyze.plan as ActionPlan;
       applyApplicantIdentityToActions(plan.actions);
+      annotateGroups(plan.actions, formFields);
       spreadCodeAcrossBoxes(plan.actions, verificationCode);
       planSnapshot = redactPlan(plan);
       // What the planner sent, for logs written later: the steps' values are rewritten next.

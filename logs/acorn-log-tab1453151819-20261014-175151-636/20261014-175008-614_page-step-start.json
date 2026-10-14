@@ -1,0 +1,33 @@
+{
+  "action": "select_radio",
+  "element_index": 272,
+  "expected_label": "Are you currently, or have you ever been licensed or registered in the securities industry?",
+  "planValue": "No",
+  "intended": "No",
+  "el": {
+    "tag": "input",
+    "name": "cards[1220f241-3c95-4352-bb76-122dd6ac91dd][field16]",
+    "type": "radio",
+    "inputValue": "Yes",
+    "rendered": true
+  },
+  "widget": {
+    "root": {
+      "tag": "label",
+      "rendered": true
+    },
+    "parts": [],
+    "read": "false"
+  },
+  "combos": [
+    {
+      "read": ""
+    },
+    {
+      "read": ""
+    },
+    {
+      "read": ""
+    }
+  ]
+}

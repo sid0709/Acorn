@@ -1,0 +1,14 @@
+{
+  "what": "Click \"apply for this job\"",
+  "why": "The decision model read this page as job_posting and chose this control as the apply (confidence 0.96).",
+  "evidence": {
+    "role": "apply",
+    "confidence": 0.96,
+    "controlId": 7,
+    "url": "jobs.lever.co/brightonjones/1de22ecc-67bc-4c0f-855d-99fe68a2ba7b",
+    "pageKind": "job_posting",
+    "fields": 0,
+    "flagged": 0,
+    "lastClick": null
+  }
+}

@@ -57,6 +57,12 @@ export const RUN_PERSON_WAIT_MAX_MS = 10 * 60_000;
 /** How often the run looks whether the applicant has moved the page on. */
 export const RUN_PERSON_POLL_MS = 1_500;
 /**
+ * While the run waits for the applicant it reads the page again this often: a page
+ * that no longer asks for anything (the first read was wrong, or it moved on) is
+ * carried on, not waited out.
+ */
+export const RUN_PERSON_REREAD_MS = 20_000;
+/**
  * How often the run looks at the applicant's newest emails for a code or link a
  * site sent. A look whose emails did not change costs no model call.
  */

@@ -1,0 +1,10 @@
+{
+  "status": 200,
+  "body": {
+    "ok": true,
+    "plan": "(38 actions, see the Action plan entry)",
+    "model": "openai/gpt-6-luna",
+    "responseId": null,
+    "mode": "fast"
+  }
+}

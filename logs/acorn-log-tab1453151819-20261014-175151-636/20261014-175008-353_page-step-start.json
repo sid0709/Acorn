@@ -1,0 +1,33 @@
+{
+  "action": "select_radio",
+  "element_index": 136,
+  "expected_label": "How did you hear about this job? (click all that apply)",
+  "planValue": "LinkedIn",
+  "intended": "LinkedIn",
+  "el": {
+    "tag": "input",
+    "name": "cards[1220f241-3c95-4352-bb76-122dd6ac91dd][field2]",
+    "type": "checkbox",
+    "inputValue": "Brighton Jones Website",
+    "rendered": true
+  },
+  "widget": {
+    "root": {
+      "tag": "label",
+      "rendered": true
+    },
+    "parts": [],
+    "read": "false"
+  },
+  "combos": [
+    {
+      "read": ""
+    },
+    {
+      "read": ""
+    },
+    {
+      "read": ""
+    }
+  ]
+}

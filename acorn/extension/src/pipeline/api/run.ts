@@ -30,6 +30,8 @@ export interface ReadPageRequest {
   title: string;
   text: string;
   controls: PageControl[];
+  /** The fields the page asks for, so a question worded like a challenge is seen to be a field with a box. */
+  fields?: { label: string; kind: string; required: boolean; options: number }[];
   flagged: number;
   pageMessages: string[];
   /** Account steps the run already sent on this site, oldest first. */

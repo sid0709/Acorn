@@ -233,3 +233,18 @@
   white-space: nowrap;
   font-size: var(--font-size-sm);
 }
+
+/* What happened inside another step (a call made while the form was filled). */
+.activity-child {
+  margin-left: var(--spacing-4);
+  border-left: var(--border-width) solid var(--color-border);
+  padding-left: var(--spacing-2);
+}
+
+/* Time between steps that no step accounts for. */
+.activity-gap {
+  display: flex;
+  align-items: center;
+  gap: var(--spacing-2);
+  font-style: italic;
+}

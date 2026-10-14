@@ -30,6 +30,7 @@ import { comboSnapshot, describeEl, describeWidget } from "./debug-snapshot";
 import { NAMED_GROUP_SELECTOR, choiceGroupKey } from "./form-dom";
 import { FILLABLE_SELECTOR } from "./form-frame";
 import { highlightElement } from "./highlighter";
+import { groupHasAnswer, groupOf, inWrongGroup, optionOfGroup } from "./step-group";
 import { relocateElementByPlan } from "./verify/relocate";
 import { verifyElementByPlan, type VerifyResult } from "./verify-element";
 
@@ -81,6 +82,50 @@ function nearbyQuestionText(el: Element, expectedLabel: string | null): string {
     node = parent;
   }
   return bits.join(" ");
+}
+
+/** Why a resolved control is not in the group the step named; null when it is, or none was named. */
+function describeGroupMismatch(step: PlanStepPayload, el: Element): string | null {
+  if (!inWrongGroup(el, step.expected_group)) return null;
+  const message = `Resolved to a control of another question (${groupOf(el)}), not the one the plan named (${step.expected_group})`;
+  traceFromPage("step:group", () => ({
+    element_index: step.element_index,
+    expected_group: step.expected_group,
+    resolved_group: groupOf(el),
+    outcome: "refused",
+  }));
+  return message;
+}
+
+/**
+ * Hold what a step resolved to the group it named. In the group already, a label that
+ * reads differently (the group's question is worded in the plan, an option in the page)
+ * does not stop it: the group is the stronger identity. In another group, or nowhere,
+ * the step moves to its own group's option for the intended value, or fails.
+ */
+function pinToGroup(step: PlanStepPayload, verified: VerifyResult): VerifyResult {
+  const expected = step.expected_group;
+  if (!expected) return verified;
+  if (verified.element && !inWrongGroup(verified.element, expected)) {
+    return groupOf(verified.element) === expected ? { ...verified, ok: true } : verified;
+  }
+  const own = optionOfGroup(expected, step.value);
+  traceFromPage("step:group", () => ({
+    element_index: step.element_index,
+    expected_group: expected,
+    resolved_group: groupOf(verified.element),
+    outcome: own ? "moved-to-own-group" : "refused",
+  }));
+  if (own) {
+    return { ok: true, element: own, matchedLabel: verified.matchedLabel, matchedRole: "radio" };
+  }
+  return {
+    ok: false,
+    element: verified.element,
+    matchedLabel: verified.matchedLabel,
+    matchedRole: verified.matchedRole,
+    error: verified.error || "The question the plan named is not on the page",
+  };
 }
 
 export async function runPlanStep(step: PlanStepPayload): Promise<PlanStepResult> {
@@ -151,10 +196,27 @@ export async function runPlanStep(step: PlanStepPayload): Promise<PlanStepResult
   }
 
   let verified = verifyElementByPlan(step.element_index, step.expected_label, step.expected_role);
+  // A step that names a choice group answers that group: what it resolved to is held
+  // to it, so an id that now points into another question's options is never acted on.
+  if (step.expected_group) verified = pinToGroup(step, verified);
 
   if (!verified.ok || !verified.element) {
-    const fallback = relocateElementByPlan(step.expected_label, step.expected_role, step.value);
+    // A step that named a group was already moved within it; relocating by label alone
+    // could land in a different question's options.
+    const fallback = step.expected_group
+      ? verified
+      : relocateElementByPlan(step.expected_label, step.expected_role, step.value);
     if (fallback.ok && fallback.element) {
+      // The step moved to a control found by its words: said, so a step that landed
+      // somewhere other than its index is never a silent one.
+      const moved = fallback;
+      traceFromPage("step:relocated", () => ({
+        element_index: step.element_index,
+        expected_label: step.expected_label,
+        why: verified.error,
+        now: moved.matchedLabel,
+        group: groupOf(moved.element),
+      }));
       verified = fallback;
     } else {
       return {
@@ -193,6 +255,11 @@ export async function actOnVerified(
       acted: false,
       error: verified.error || "Verification failed",
     };
+  }
+
+  const wrongGroup = describeGroupMismatch(step, el);
+  if (wrongGroup) {
+    return { ok: false, verified: false, acted: false, error: wrongGroup };
   }
 
   highlightElement(el);
@@ -352,6 +419,11 @@ export async function actOnVerified(
     }
 
     const after = valueAfter ?? readControlValue(el);
+    // A choice step ends with its group holding an answer; "ok" on a group that still
+    // has none would send the run round again with nothing changed.
+    if (step.action === "select_radio" && intended?.trim() && !groupHasAnswer(el)) {
+      throw new Error("The step ran, but the question still has no answer");
+    }
     // A typed answer the page does not hold (the widget cleared or refused it) is a
     // failed step: passing it as done would leave the field empty without a word.
     if (step.action === "fill" && !readControlValue(el).trim() && !after.trim()) {
