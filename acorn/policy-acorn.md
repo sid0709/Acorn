@@ -11,6 +11,7 @@ Chrome tab id is the session key. Persist per-tab maps in `chrome.storage.sessio
 - Worker Pool attachments, Custom remembered tabs, fill pipelines, and Custom generate status are all keyed by `tabId`.
 - Switching the focused tab must show that tab’s state. Background work on tab A must not disable Generate/Fill on tab B.
 - Same tab: fill and generate stay mutually exclusive (both touch that tab’s DOM). Across tabs they may run together.
+- A Run that a click moves into a new tab (an Apply that opens the application there) goes on in that tab and closes the one it left, its log moved along; a requirement's detour keeps its tab, since the run comes back to it. A tab Chrome swaps, or the site closes, is followed to the tab that replaced it or that it opened.
 - Keep the MV3 service worker alive while **any** tab has generate or fill in flight.
 - A same-origin embedded frame that runs Acorn's own content script (an embedded job board) is read, numbered, and clicked only from inside that frame (`content/frame-reach.ts`). A parent frame reads a child only when the child has no script of its own; content code assumes one realm per frame.
 

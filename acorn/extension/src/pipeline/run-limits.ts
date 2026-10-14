@@ -106,6 +106,16 @@ export const RUN_PROBE_TIMEOUT_MS = 2_000;
 export const RUN_PAGE_QUIET_MS = 1_500;
 /** The most the run waits for a loaded page to settle before reading it anyway. */
 export const RUN_PAGE_SETTLE_MAX_MS = 15_000;
+/**
+ * A settled page has also had no request of its own in flight, and started none,
+ * this long: an app that drew its shell is still fetching what goes in it.
+ */
+export const RUN_NETWORK_QUIET_MS = 700;
+/**
+ * A request open longer than this is a long-lived connection (polling, a stream),
+ * not the page loading: it no longer holds the page from counting as settled.
+ */
+export const RUN_NETWORK_LONG_REQUEST_MS = 10_000;
 /** Fresh looks at a page that read as not an application or blocked, before the run stops. */
 export const RUN_UNCLEAR_REREADS = 3;
 /** The wait before each of those looks. */

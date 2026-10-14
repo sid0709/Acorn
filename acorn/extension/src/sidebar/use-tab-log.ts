@@ -2,6 +2,13 @@ import { useCallback, useEffect, useState } from "react";
 
 import { clearTabLog, getTabLog, onTabLogChange, type TabLogEntry } from "../tab-log-session";
 
+/** Shown entries plus new ones, each once, oldest first. */
+function inTimeOrder(shown: TabLogEntry[], added: TabLogEntry[]): TabLogEntry[] {
+  const known = new Set(shown.map((entry) => entry.id));
+  const fresh = added.filter((entry) => !known.has(entry.id));
+  return [...shown, ...fresh].sort((a, b) => a.t - b.t);
+}
+
 /** The active tab's pipeline log, live: the service worker appends, this follows. */
 export function useTabLog(tabId: number | null) {
   const [entries, setEntries] = useState<TabLogEntry[]>([]);
@@ -23,7 +30,8 @@ export function useTabLog(tabId: number | null) {
         return;
       }
       if (!loaded) early.push(...change.added);
-      else setEntries((shown) => [...shown, ...change.added]);
+      // A log moved over from another tab holds earlier entries: keep time order.
+      else setEntries((shown) => inTimeOrder(shown, change.added));
     });
     void getTabLog(tabId)
       .then((stored) => {

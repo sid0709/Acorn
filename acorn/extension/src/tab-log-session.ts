@@ -171,6 +171,36 @@ export async function clearTabLog(tabId: number): Promise<void> {
 }
 
 /**
+ * A run that moved to another tab (an Apply that opened one, a tab Chrome swapped)
+ * takes its log along: the tab it left can close without losing what came before.
+ * Entries keep their order; the moved ones come first.
+ */
+export async function moveTabLog(from: number, to: number): Promise<void> {
+  if (from === to) return;
+  const queued = pending.get(from);
+  if (queued) {
+    pending.delete(from);
+    pending.set(to, [...queued, ...(pending.get(to) ?? [])]);
+  }
+  const db = await openDatabase();
+  const write = db.transaction(ENTRY_STORE, "readwrite");
+  const moved: TabLogEntry[] = [];
+  const cursor = write.objectStore(ENTRY_STORE).index(BY_TAB).openCursor(IDBKeyRange.only(from));
+  cursor.onsuccess = () => {
+    const at = cursor.result;
+    if (!at) return;
+    const stored = at.value as StoredEntry;
+    const { tabId: _from, ...entry } = stored;
+    moved.push(entry);
+    at.update({ ...stored, tabId: to } satisfies StoredEntry);
+    at.continue();
+  };
+  await done(write);
+  announce({ tabId: from, cleared: true });
+  if (moved.length) announce({ tabId: to, added: moved });
+}
+
+/**
  * Logs of tabs that no longer exist (the browser closed with them open): a new
  * session starts without them, as the session-storage log did.
  */

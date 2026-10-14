@@ -28,8 +28,13 @@ export class RunLog {
 
   constructor(
     readonly runId: string,
-    private readonly tabId: number,
+    private tabId: number,
   ) {}
+
+  /** The run went on in another tab: its events are that tab's from now on. */
+  moveTo(tabId: number): void {
+    this.tabId = tabId;
+  }
 
   event(event: string, data?: Record<string, unknown>): void {
     console.info("[acorn:run]", this.runId, `#${this.step}`, event, data ?? "");
