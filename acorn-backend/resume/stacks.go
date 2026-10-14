@@ -5,6 +5,7 @@ import (
 	"path/filepath"
 	"sort"
 	"strings"
+	"sync"
 )
 
 // Library kinds. A row with no kind is a résumé: every row saved before kinds existed is one.
@@ -127,24 +128,54 @@ func stacksOf(rows []LibraryRow, kind string) []LibraryStack {
 
 // stackOf is the stack the row belongs to, with every version's bytes loaded.
 func (s *Service) stackOf(accountID string, row LibraryRow) []LibraryRow {
+	rows, _ := s.stackWithVersion(accountID, row)
+	return rows
+}
+
+// stackWithVersion is stackOf and a tag naming exactly the versions it holds: a
+// client keeping a file under that tag can ask whether it is still current. The
+// files load side by side, so a stack costs one read of Mongo's time, not one per
+// format.
+func (s *Service) stackWithVersion(accountID string, row LibraryRow) ([]LibraryRow, string) {
 	if !isUploaded(row) {
-		return []LibraryRow{row}
+		return []LibraryRow{row}, rowVersion(row)
 	}
 	key := stackKey(row)
-	var out []LibraryRow
+	var siblings []LibraryRow
 	for _, sibling := range s.store.listLibrary(accountID) {
-		if !isUploaded(sibling) || stackKey(sibling) != key {
-			continue
+		if isUploaded(sibling) && stackKey(sibling) == key {
+			siblings = append(siblings, sibling)
 		}
-		if full, ok := s.store.libraryItem(accountID, sibling.ID); ok && len(full.Bytes) > 0 {
-			out = append(out, full)
+	}
+	type loaded struct {
+		row     LibraryRow
+		version string
+		ok      bool
+	}
+	results := make([]loaded, len(siblings))
+	var wg sync.WaitGroup
+	for i, sibling := range siblings {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			full, version, ok := s.store.libraryFileRow(accountID, sibling.ID)
+			results[i] = loaded{full, version, ok && len(full.Bytes) > 0}
+		}()
+	}
+	wg.Wait()
+	var out []LibraryRow
+	versions := map[string]string{}
+	for _, result := range results {
+		if result.ok {
+			out = append(out, result.row)
+			versions[result.row.ID] = result.version
 		}
 	}
 	if len(out) == 0 {
-		return []LibraryRow{row}
+		return []LibraryRow{row}, rowVersion(row)
 	}
 	sort.SliceStable(out, func(a, b int) bool { return formatRank(out[a].FileName) < formatRank(out[b].FileName) })
-	return out
+	return out, joinVersions(out, versions)
 }
 
 // filePayload is one Library file as the extension attaches it.

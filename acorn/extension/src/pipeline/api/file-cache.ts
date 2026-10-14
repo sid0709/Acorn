@@ -14,6 +14,10 @@ const DB_VERSION = 1;
 const FILE_STORE = "files";
 /** The most the stored files may take, as stored text; the oldest-used go first. */
 const FILE_CACHE_MAX_CHARS = 200 * 1024 * 1024;
+/** The most a read of the stored copy may take: a stuck database is skipped, not waited on. */
+const FILE_CACHE_READ_TIMEOUT_MS = 3_000;
+/** The most one file request may take, so a stalled link ends the step with a reason. */
+const FILE_FETCH_TIMEOUT_MS = 90_000;
 
 interface StoredFile {
   key: string;
@@ -107,9 +111,13 @@ export async function cachedFileGet<T>(
 ): Promise<CachedResponse<T>> {
   const account = (await getAcornSession().catch(() => null))?.username ?? "";
   const key = `${account}|${url}`;
-  const stored = await readStored(key).catch(() => null);
+  const stored = await Promise.race([
+    readStored(key).catch(() => null),
+    new Promise<null>((resolve) => setTimeout(() => resolve(null), FILE_CACHE_READ_TIMEOUT_MS)),
+  ]);
   const res = await fetch(url, {
     headers: stored ? { ...headers, "If-None-Match": stored.etag } : headers,
+    signal: AbortSignal.timeout(FILE_FETCH_TIMEOUT_MS),
   });
   if (res.status === 304 && stored) {
     void touch(stored).catch(() => undefined);

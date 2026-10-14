@@ -143,6 +143,35 @@ async function loadCustomFillResume(input: {
 }
 
 /**
+ * Whether a résumé is already assigned to this fill, from what the tab holds alone
+ * (no file is read). The plan does not need the file until its upload step, so a
+ * fill with a résumé assigned plans while the file loads.
+ */
+export async function resumeIsAssigned(input: {
+  source?: PipelineSource;
+  tabJob: AcornTabJobBinding | null;
+  customTab?: AcornCustomTabBinding | null;
+  customGenerationId?: string | null;
+}): Promise<boolean> {
+  if (input.source === "custom" || (input.customTab && customTabHasResume(input.customTab))) {
+    const tab = input.customTab;
+    if (tab?.resumeMode === "recommend")
+      return Boolean(String(tab.recommendedResumeId || "").trim());
+    return Boolean(String(tab?.generationId || input.customGenerationId || "").trim());
+  }
+  const tabJob = input.tabJob;
+  if (!tabJob?.jobId) return false;
+  const jobGen = await getJobGenerate(tabJob.jobId);
+  if (jobGen?.generateStatus === "completed") {
+    if (jobGen.workKind === "recommend" && String(jobGen.recommendedResumeId || "").trim()) {
+      return true;
+    }
+    if (String(jobGen.generationId || "").trim()) return true;
+  }
+  return Boolean(tabJob.resumeStack);
+}
+
+/**
  * Start loading the résumé a Run's fill will attach, the moment recommend picks it:
  * it loads while Apply is clicked and the form draws, and the fill finds it ready
  * (or joins the load still in flight). Chosen exactly as the fill chooses it.

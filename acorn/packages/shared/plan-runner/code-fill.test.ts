@@ -14,6 +14,36 @@ const box = (elementIndex: number, extra: Partial<FormField> = {}): FormField =>
 });
 
 describe("planCodeFill", () => {
+  it("types the code into the boxes the page waits on when the whole form is on screen", () => {
+    const form = [
+      box(1, { label: "First name" }),
+      box(2, { label: "Last name" }),
+      ...[10, 11, 12, 13, 14, 15, 16, 17].map((i) => box(i, { blocking: true })),
+    ];
+    const plan = planCodeFill(form, "ABCD1234");
+    assert.deepEqual(
+      plan?.map((a) => [a.element_index, a.value]),
+      [
+        [10, "A"],
+        [11, "B"],
+        [12, "C"],
+        [13, "D"],
+        [14, "1"],
+        [15, "2"],
+        [16, "3"],
+        [17, "4"],
+      ],
+    );
+  });
+
+  it("types a whole code into the single box the page waits on", () => {
+    const plan = planCodeFill([box(1), box(2), box(3, { blocking: true })], "123456");
+    assert.deepEqual(
+      plan?.map((a) => [a.element_index, a.value]),
+      [[3, "123456"]],
+    );
+  });
+
   it("gives one box the whole code", () => {
     const plan = planCodeFill([box(1)], "123456");
     assert.deepEqual(

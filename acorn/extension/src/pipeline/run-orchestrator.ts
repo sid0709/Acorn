@@ -89,6 +89,7 @@ import {
   RUN_ACCOUNT_MESSAGES_MAX,
   RUN_MAIL_MAX_FAILED_LOOKS,
   RUN_MAIL_POLL_MS,
+  RUN_MAIL_REREAD_MS,
   RUN_MAIL_WAIT_MAX_MS,
   RUN_MAX_ACCOUNT_ATTEMPTS,
   RUN_MAX_AI_CALLS,
@@ -1274,12 +1275,16 @@ export async function runOrchestrator(args: RunOrchestratorArgs): Promise<RunRep
    * fails to reach Gmail is tried again, up to RUN_MAIL_MAX_FAILED_LOOKS in a row.
    * Null when no Gmail is connected (the applicant does the step themselves).
    */
-  const findInMail = async (kind: Verification, page: PageSnapshot): Promise<string | null> => {
+  const findInMail = async (
+    kind: Verification,
+    page: PageSnapshot,
+  ): Promise<string | null | { moved: PageSnapshot }> => {
     const wanted = kind === VERIFICATION.emailCode ? "code" : "link";
     let seen = "";
     let judgedNone = false;
     let failedLooks = 0;
     const started = Date.now();
+    let lastPageLook = started;
     const say = () => {
       const waited = Math.round((Date.now() - started) / 1000);
       enter(
@@ -1347,6 +1352,17 @@ export async function runOrchestrator(args: RunOrchestratorArgs): Promise<RunRep
         );
       }
       await until(sleep(RUN_MAIL_POLL_MS));
+      // The email has not come: is the page still asking for it? A page that went on
+      // (or whose read of "asking" was wrong) is read again, never waited on.
+      if (Date.now() - lastPageLook >= RUN_MAIL_REREAD_MS) {
+        lastPageLook = Date.now();
+        const fresh = await snap({ form: true, frameId: page.frameId });
+        const again = await read(READ_INTENT.advance, fresh);
+        if (again.verification !== kind) {
+          log.event("mail:not-asked", { kind, now: again.verification });
+          return { moved: fresh };
+        }
+      }
     }
   };
 
@@ -1382,6 +1398,7 @@ export async function runOrchestrator(args: RunOrchestratorArgs): Promise<RunRep
     }
     const value = await findInMail(kind, page);
     if (value == null) return "wait";
+    if (typeof value === "object") return { pending: { snapshot: value.moved, how: "changed" } };
     mailVerifications += 1;
 
     if (kind === VERIFICATION.emailLink) {
@@ -2268,6 +2285,24 @@ export async function runOrchestrator(args: RunOrchestratorArgs): Promise<RunRep
         const accountWorked = accountHistory.length > 0 || mailVerifications > 0;
         if (!target && accountWorked && canReturnToStart(page)) {
           pending = await returnToStart(page, "account-done");
+          continue;
+        }
+        if (
+          !target &&
+          state.clicks > 0 &&
+          state.landedAt > 0 &&
+          Date.now() - state.landedAt < RUN_BUSY_AFTER_CLICK_MS &&
+          state.busyWaits < RUN_MAX_BUSY_WAITS
+        ) {
+          // The click just landed and the page is between steps (drawing the next one):
+          // a page read now has no controls. Let it finish, then look again.
+          state.busyWaits += 1;
+          state.retryClick = true;
+          pending = null;
+          log.event("busy:no-control", { control, wait: state.busyWaits });
+          enter(RUN_STAGE.advancing, `Waiting for the page to finish "${control}"…`);
+          await until(sleep(RUN_BUSY_WAIT_MS));
+          await until(waitForPageSettled(tabId));
           continue;
         }
         if (!target) {

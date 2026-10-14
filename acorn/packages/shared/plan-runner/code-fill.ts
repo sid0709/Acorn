@@ -44,7 +44,11 @@ function requiredTextBoxes(fields: readonly FormField[]): FormField[] {
  */
 export function planCodeFill(fields: readonly FormField[], code: string): PlanAction[] | null {
   if (!code) return null;
-  const boxes = requiredTextBoxes(fields);
+  // A page whose whole form is on screen holds its forward control disabled until the
+  // code is in: the boxes it is waiting on are the code's, whatever else it requires.
+  const waitedOn = requiredTextBoxes(fields).filter((field) => field.blocking);
+  const boxes =
+    waitedOn.length === 1 || waitedOn.length === code.length ? waitedOn : requiredTextBoxes(fields);
   if (boxes.length === 1) {
     const [box] = boxes;
     if (box.maxLength != null && box.maxLength < code.length) return null;

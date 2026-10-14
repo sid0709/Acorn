@@ -24,7 +24,7 @@ import { decideChoicesInBatch } from "./choice-batch";
 import { loadCoverLetter } from "./cover-letter";
 import { repairDriftInTab } from "./drift";
 import { fetchDomFromTab } from "./fetch-dom";
-import { keepResumeIfSameSite, loadFillResume } from "./fill-resume";
+import { keepResumeIfSameSite, loadFillResume, resumeIsAssigned } from "./fill-resume";
 import { watchFrameDocument } from "./frame-navigation";
 import { lateFieldKey, planLateFields } from "./late-fields";
 import { localIsoDate } from "./local-date";
@@ -53,6 +53,13 @@ import type {
 
 /** Run requires a résumé file; a fill that has none stops here, before any model call or step. */
 export const NO_RESUME_FILE = "No résumé file to attach";
+
+/** The résumé a fill planned around could not be loaded: nothing is written to the page. */
+class NoResumeFileError extends Error {
+  constructor(readonly skipReason: string | null) {
+    super(skipReason ? `${NO_RESUME_FILE}: ${skipReason}` : NO_RESUME_FILE);
+  }
+}
 
 /** The leftover dropdown pass, all of its rounds, answers within this. */
 const LEFTOVER_PASS_TIMEOUT_MS = 120_000;
@@ -208,12 +215,29 @@ export async function runFabPipeline(args: RunPipelineArgs): Promise<void> {
     let filesLoad = refill ? null : loadFiles();
     // Awaited right after the read; a read that fails first must not leave it unhandled.
     filesLoad?.catch(() => undefined);
+    // A résumé already assigned is planned around while its file loads: the plan
+    // needs the file only for its upload step, so the two no longer run one after
+    // the other. The file is settled before any step touches the page.
+    const assignedLoad = filesLoad
+      ? resumeIsAssigned({
+          source: resumeSource,
+          tabJob,
+          customTab,
+          customGenerationId: customTab?.generationId ?? null,
+        }).catch(() => false)
+      : null;
     const fetchedDom = await clock.time("dom", () =>
       fetchDomFromTab(tabId, preferredFrameId, readOptions),
     );
-    let [resumeLoad, runtimeFile]: Awaited<ReturnType<typeof loadFiles>> = filesLoad
-      ? await filesLoad
-      : [{ file: null, skipReason: null }, null];
+    let resumePending = false;
+    let [resumeLoad, runtimeFile]: Awaited<ReturnType<typeof loadFiles>> = [
+      { file: null, skipReason: null },
+      null,
+    ];
+    if (filesLoad) {
+      if (await assignedLoad) resumePending = true;
+      else [resumeLoad, runtimeFile] = await filesLoad;
+    }
     let { fieldIssues, formFields, timings, ...treePayload } = fetchedDom;
     const usingLibrary = resumeSource === "custom" && customTab?.resumeMode === "recommend";
     const resumeFileKind = resumeSource === "custom" && !usingLibrary ? "custom" : "library";
@@ -266,7 +290,16 @@ export async function runFabPipeline(args: RunPipelineArgs): Promise<void> {
         steps,
       });
 
-    if (requireResume && !refill && !resume.file) {
+    /** Wait for the file a plan was made around; no file, no action on the page. */
+    const settleResume = async () => {
+      if (!resumePending || !filesLoad) return;
+      [resumeLoad, runtimeFile] = await filesLoad;
+      resume = bindResume(resumeLoad);
+      resumePending = false;
+      if (requireResume && !resume.file) throw new NoResumeFileError(resume.skipReason);
+    };
+
+    if (requireResume && !refill && !resumePending && !resume.file) {
       const { durationMs, usage, phases } = await finishMeta();
       emit({
         phase: "error",
@@ -369,7 +402,7 @@ export async function runFabPipeline(args: RunPipelineArgs): Promise<void> {
         customLibraryResumeId:
           source === "custom" && usingLibrary ? (customTab?.recommendedResumeId ?? null) : null,
         customRemembered: source === "custom",
-        recommendedResumeAvailable: Boolean(resume.file),
+        recommendedResumeAvailable: Boolean(resume.file) || resumePending,
         recommendedResumeStack:
           resume.file?.label ||
           (source === "custom"
@@ -490,6 +523,7 @@ export async function runFabPipeline(args: RunPipelineArgs): Promise<void> {
       const watch = await watchFrameDocument(tabId, frameId);
       try {
         const runPlan = async (target: ActionPlan, total: number) => {
+          await settleResume();
           const coverLetter = await coverLetterFor(target);
           // A refill that uploads (a résumé the page refused) loads its files only now.
           if (!filesLoad && (target.actions ?? []).some(isFileUploadAction)) {
@@ -728,6 +762,18 @@ export async function runFabPipeline(args: RunPipelineArgs): Promise<void> {
   } catch (err) {
     const { durationMs, usage } = await finishMeta();
     const error = err instanceof Error ? err.message : String(err);
+    if (err instanceof NoResumeFileError) {
+      emit({
+        phase: "error",
+        message: NO_RESUME_FILE,
+        error,
+        durationMs,
+        phases: clock.summary(),
+        usage,
+        tree: treeSnapshot,
+      });
+      return;
+    }
     emit({
       phase: "error",
       message: `Failed · ${formatDuration(durationMs)} · ${formatUsd(usage?.costUsd)}`,

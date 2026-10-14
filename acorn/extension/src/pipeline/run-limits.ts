@@ -61,6 +61,11 @@ export const RUN_PERSON_POLL_MS = 1_500;
  * site sent. A look whose emails did not change costs no model call.
  */
 export const RUN_MAIL_POLL_MS = 5_000;
+/**
+ * While the run waits for that email it looks at the page again this often: a page
+ * that no longer asks for the code (it moved on, or never asked) ends the wait.
+ */
+export const RUN_MAIL_REREAD_MS = 20_000;
 /** How long the run waits for that email to arrive before it stops; mail can be slow. */
 export const RUN_MAIL_WAIT_MAX_MS = 5 * 60_000;
 /**

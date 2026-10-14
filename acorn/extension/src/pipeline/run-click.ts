@@ -245,7 +245,10 @@ export async function settleAfterClick(args: {
     const moved =
       !probe || !baseline || probe.fields !== baseline.fields || probe.url !== baseline.url;
     const refused = Boolean(probe && baseline && probe.refusals > baseline.refusals);
-    const timedOut = elapsed >= RUN_SETTLE_UNCHANGED_MS;
+    // A page that has not changed yet but is still talking to its server is working
+    // on the click (saving, sending the step): it is not "unchanged" until it is quiet.
+    const timedOut =
+      elapsed >= RUN_SETTLE_UNCHANGED_MS && networkQuietFor(tabId) >= RUN_NETWORK_QUIET_MS;
     if (!moved && !refused && !timedOut) continue;
     const snapshot = await snapshotPage(tabId, { form: true, frameId: args.frameId });
     if (snapshot.signature !== before.signature) {

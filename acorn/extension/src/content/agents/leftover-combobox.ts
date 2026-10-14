@@ -142,14 +142,20 @@ export async function fillLeftoverComboboxes(
       tried.add(el);
       const label = fieldLabel(el);
       const listed = await readListedOptions(el);
-      planned.push({ el, label, answer: decideLeftover(label, listed) });
+      planned.push({
+        el,
+        label,
+        // A decision that fails is the one-by-one path, never a failed pass.
+        answer: decideLeftover(label, listed).catch((): LeftoverAnswer => ({ kind: "live" })),
+      });
     }
-    const answers = await Promise.all(planned.map((row) => row.answer));
     const unanswered: HTMLElement[] = [];
     let answeredNow = 0;
-    for (const [i, { el, label }] of planned.entries()) {
+    // Each dropdown is applied the moment its own answer is in: the first click does
+    // not wait for the slowest decision of the others.
+    for (const { el, label, answer } of planned) {
       if (late()) return stopAtDeadline(found, filled);
-      if (await fillLeftover(el, label, answers[i])) {
+      if (await fillLeftover(el, label, await answer)) {
         filled += 1;
         answeredNow += 1;
       } else unanswered.push(el);

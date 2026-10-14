@@ -10,7 +10,7 @@ import {
   type PageControl,
 } from "@acorn/shared/page-controls";
 import { clipEnds, extractVisiblePageText } from "@acorn/shared/page-text";
-import { formatAnalyzeTrees } from "@acorn/shared/tree-export";
+import { formatAnalyzeTrees, withoutHidden } from "@acorn/shared/tree-export";
 
 import { traceFromBackground } from "../background/debug-trace-sink";
 import { canInjectIntoUrl, injectContentScripts } from "../inject-content";
@@ -100,7 +100,10 @@ async function readPage(
   const tree = payload.tree as DomTreeNode;
   const title = payload.title || "Untitled";
   const url = payload.url || "";
-  const fullText = extractVisiblePageText(formatAnalyzeTrees(tree).pure, { title, url });
+  const fullText = extractVisiblePageText(formatAnalyzeTrees(withoutHidden(tree)).pure, {
+    title,
+    url,
+  });
   const text = clipEnds(fullText, RUN_PAGE_TEXT_MAX_CHARS);
   const scan = payload.fieldIssues ?? EMPTY_FIELD_ISSUE_SCAN;
   const frameId = payload.frameId ?? null;

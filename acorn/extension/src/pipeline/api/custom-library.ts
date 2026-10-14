@@ -18,6 +18,8 @@ export type CustomLibraryRecommendResult = {
   /** Best-ranked Library résumés, most probable first. */
   recommendedTop: RecommendedResumeRank[];
   warning: string | null;
+  /** Milliseconds the server spent on each stage of this recommend, for the run log. */
+  serverTimings: Record<string, number>;
 };
 
 export async function recommendCustomLibrary(
@@ -43,6 +45,7 @@ export async function recommendCustomLibrary(
     recommendedResumeReason?: unknown;
     recommendedTop?: unknown;
     warning?: unknown;
+    timings?: unknown;
     error?: string;
     message?: string;
   };
@@ -63,7 +66,17 @@ export async function recommendCustomLibrary(
     recommendedResumeReason: String(data.recommendedResumeReason || "").trim() || null,
     recommendedTop: readRecommendedTop(data.recommendedTop),
     warning: String(data.warning || "").trim() || null,
+    serverTimings: readTimings(data.timings),
   };
+}
+
+function readTimings(value: unknown): Record<string, number> {
+  if (!value || typeof value !== "object") return {};
+  return Object.fromEntries(
+    Object.entries(value).filter(
+      (entry): entry is [string, number] => typeof entry[1] === "number",
+    ),
+  );
 }
 
 export async function fetchCustomLibraryResume(

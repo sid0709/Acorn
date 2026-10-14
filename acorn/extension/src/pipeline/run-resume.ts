@@ -61,10 +61,12 @@ export async function ensureRecommendedResume(args: {
   }
   const tabJob = await getTabJob(tabId);
   let error: string | null = null;
+  // Where the recommend's time went: this side's stages and the server's own.
+  const onStages = (stages: Record<string, number>) => log.event("recommend:stages", stages);
   try {
     if (tabJob) {
       log.event("recommend:start", { source: "job", jobId: tabJob.jobId });
-      await runJobRecommend({ jobId: tabJob.jobId, tabId, apiUrl });
+      await runJobRecommend({ jobId: tabJob.jobId, tabId, apiUrl, onStages });
     } else {
       log.event("recommend:start", { source: "page" });
       await rememberCustomTab({
@@ -73,7 +75,7 @@ export async function ensureRecommendedResume(args: {
         title: args.title,
         resumeMode: "recommend",
       });
-      await runCustomRecommend({ tabId, apiUrl });
+      await runCustomRecommend({ tabId, apiUrl, onStages });
     }
   } catch (err) {
     error = err instanceof Error ? err.message : String(err);

@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"sort"
 	"strings"
+	"time"
 
 	"github.com/sid0709/OpenSeat/acorn-backend/selector"
 )
@@ -33,6 +34,9 @@ type Recommendation struct {
 	Reason   string
 	// Top is the best-ranked résumés, most probable first; Top[0] is the pick.
 	Top []RankedResume
+	// Timings is how long each stage took, in milliseconds, so a slow recommend
+	// can be told apart: loading the Library rows, or the match.
+	Timings map[string]int64
 }
 
 // RankedResume is one Library résumé and the selector's probability that it fits.
@@ -49,8 +53,12 @@ func (s *Service) Recommend(ctx context.Context, accountID, posting, jobID strin
 	if strings.TrimSpace(posting) == "" {
 		return Recommendation{}, fmt.Errorf("%w: job description is required", ErrInvalid)
 	}
+	timings := map[string]int64{}
+	stage := time.Now()
 	// One candidate per stack: its PDF and Word files are the same résumé.
-	stacks := stacksOf(s.store.libraryCandidates(accountID), KindResume)
+	candidateRows := s.store.libraryCandidates(accountID)
+	timings["candidates"] = time.Since(stage).Milliseconds()
+	stacks := stacksOf(candidateRows, KindResume)
 	if len(stacks) == 0 {
 		return Recommendation{}, ErrNoLibrary
 	}
@@ -65,7 +73,9 @@ func (s *Service) Recommend(ctx context.Context, accountID, posting, jobID strin
 		byID[row.ID] = row
 		candidates[i] = selector.Candidate{ID: row.ID, Description: describeLibraryRow(row)}
 	}
+	stage = time.Now()
 	match, err := matcher.MatchPosting(ctx, posting, candidates)
+	timings["match"] = time.Since(stage).Milliseconds()
 	if err != nil {
 		return Recommendation{}, fmt.Errorf("recommend: %w", err)
 	}
@@ -88,11 +98,13 @@ func (s *Service) Recommend(ctx context.Context, accountID, posting, jobID strin
 	if jobID != "" {
 		s.store.rememberJob(accountID, jobID, best.ResumeID)
 	}
+	s.warmFiles(accountID, byID[best.ResumeID])
 	return Recommendation{
 		ResumeID: best.ResumeID,
 		Stack:    best.Stack,
 		Reason:   fmt.Sprintf("Best match of %d Library résumés: %s (%.0f%%).", len(rows), best.Stack, best.Probability*100),
 		Top:      top,
+		Timings:  timings,
 	}, nil
 }
 
@@ -150,14 +162,35 @@ type CoverLetterPick struct {
 	Reason string
 }
 
+// CoverLetterChoice is the cover letter picked, before its file is read: a client
+// that keeps files itself asks for the file by this id.
+type CoverLetterChoice struct {
+	ResumeID string
+	Stack    string
+	Reason   string
+}
+
 // CoverLetter picks the Library cover letter for a posting. One stack is used as
 // it is, with no model call; several are ranked against the posting by their
 // stack title and analyzed skills, as résumés are. With no posting to read, the
 // primary (else the first) stack is used.
 func (s *Service) CoverLetter(ctx context.Context, accountID, posting string, matcher PostingMatcher) (CoverLetterPick, error) {
+	choice, err := s.CoverLetterID(ctx, accountID, posting, matcher)
+	if err != nil {
+		return CoverLetterPick{}, err
+	}
+	file, err := s.LibraryFile(accountID, choice.ResumeID)
+	if err != nil {
+		return CoverLetterPick{}, err
+	}
+	return CoverLetterPick{File: file, Stack: choice.Stack, Reason: choice.Reason}, nil
+}
+
+// CoverLetterID is CoverLetter without reading the file.
+func (s *Service) CoverLetterID(ctx context.Context, accountID, posting string, matcher PostingMatcher) (CoverLetterChoice, error) {
 	stacks := stacksOf(s.store.libraryCandidates(accountID), KindCoverLetter)
 	if len(stacks) == 0 {
-		return CoverLetterPick{}, ErrNoCoverLetter
+		return CoverLetterChoice{}, ErrNoCoverLetter
 	}
 	chosen := fallbackStack(stacks)
 	reason := "Your only cover letter."
@@ -167,11 +200,7 @@ func (s *Service) CoverLetter(ctx context.Context, accountID, posting string, ma
 			chosen, reason = ranked.stack, ranked.reason
 		}
 	}
-	file, err := s.LibraryFile(accountID, chosen.Lead().ID)
-	if err != nil {
-		return CoverLetterPick{}, err
-	}
-	return CoverLetterPick{File: file, Stack: chosen.Title, Reason: reason}, nil
+	return CoverLetterChoice{ResumeID: chosen.Lead().ID, Stack: chosen.Title, Reason: reason}, nil
 }
 
 // fallbackStack is the primary stack, else the first.
@@ -216,4 +245,20 @@ func (s *Service) rankCoverLetters(ctx context.Context, posting string, stacks [
 		stack:  stack,
 		reason: fmt.Sprintf("Best match of %d cover letters: %s (%.0f%%).", len(stacks), stack.Title, best.Probability*100),
 	}, true
+}
+
+// warmCoverLetterStacks is how many cover-letter stacks are read ahead.
+const warmCoverLetterStacks = 3
+
+// warmFiles reads the files a run is about to attach into memory: the recommended
+// résumé's stack and the account's cover letters. It runs beside the request, so
+// the request that asks for a file finds it loaded or joins the read in flight.
+func (s *Service) warmFiles(accountID string, lead LibraryRow) {
+	go s.stackWithVersion(accountID, lead)
+	for i, stack := range stacksOf(s.store.libraryCandidates(accountID), KindCoverLetter) {
+		if i == warmCoverLetterStacks {
+			break
+		}
+		go s.stackWithVersion(accountID, stack.Lead())
+	}
 }

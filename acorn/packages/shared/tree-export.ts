@@ -1,5 +1,7 @@
 /** Split / format DOM trees for AI Analyze prompts. */
 
+import { LAYER_ATTR } from "./page-controls";
+
 export interface DomTreeNode {
   nodeId: number;
   tag: string;
@@ -60,6 +62,19 @@ const DETAIL_ATTR_KEYS = [
   "selected",
   "checked",
 ] as const;
+
+/**
+ * The tree as a person sees it: every subtree the serializer marked as not
+ * rendered is left out. Used for the page's readable text, never for planning.
+ */
+export function withoutHidden(root: DomTreeNode): DomTreeNode {
+  return {
+    ...root,
+    children: root.children
+      .filter((child) => child.attrs?.[LAYER_ATTR.hidden] !== "true")
+      .map(withoutHidden),
+  };
+}
 
 export function splitDomTree(root: DomTreeNode): { pure: PureNode; meta: MetaNode } {
   return {

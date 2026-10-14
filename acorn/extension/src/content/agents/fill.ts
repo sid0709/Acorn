@@ -124,6 +124,16 @@ export async function fillElement(
   }
 
   const role = (html.getAttribute("role") || "").toLowerCase();
+  // A control that says it opens a list of options is a dropdown whatever its tag: a
+  // button that opens a listbox is never one choice of a group. It keeps the field's
+  // label and the caller's options (an instruction to answer, not text to search).
+  if (
+    (role === "combobox" || html.getAttribute("aria-haspopup") === "listbox") &&
+    looksLikeCombobox(html)
+  ) {
+    const target = resolveDropdownInteractionTarget(html);
+    return selectComboboxOption(target, value, fieldHint, comboboxOptions);
+  }
   if (
     el instanceof HTMLButtonElement ||
     el instanceof HTMLFieldSetElement ||

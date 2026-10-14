@@ -45,3 +45,21 @@ func etagMatches(header, tag string) bool {
 	}
 	return false
 }
+
+// writeFileTagged answers a file's JSON under a tag the caller already holds for
+// its content (the versions it was built from), with 304 Not Modified when the
+// client has that tag. The body is not encoded at all for a 304.
+func writeFileTagged(w http.ResponseWriter, r *http.Request, tag string, value any) {
+	if tag == "" {
+		writeJSONVersioned(w, r, value)
+		return
+	}
+	quoted := `"` + tag + `"`
+	w.Header().Set("ETag", quoted)
+	w.Header().Set("Cache-Control", "private, no-cache")
+	if etagMatches(r.Header.Get("If-None-Match"), quoted) {
+		w.WriteHeader(http.StatusNotModified)
+		return
+	}
+	writeJSON(w, http.StatusOK, value)
+}
