@@ -41,15 +41,16 @@ import {
 } from "@acorn/shared/resume-library";
 import {
   RESUME_ANALYZE_CONCURRENCY,
+  BULK_ALIAS_PREVIEW,
   RESUME_BULK_UPLOAD_CONCURRENCY,
   failureSummary,
   libraryUploadInput,
   resumesFromFolder,
   runPool,
-  stackCounts,
   storedPdfText,
   type FolderResume,
 } from "./library-batch";
+import { AliasDialog } from "./alias-dialog";
 import { LibraryCards, groupByStack } from "./library-cards";
 
 const VIEWS: { value: ResumeLibrarySource; label: string }[] = [
@@ -97,8 +98,11 @@ export function ResumeLibrary({ initial }: { initial: LibraryStart }) {
   );
   const [view, setView] = useState<ResumeLibrarySource>("uploaded");
   const [kind, setKind] = useState<LibraryKind>(LIBRARY_KIND.resume);
-  /** The stack single uploads go under; empty uses each file's own name. */
-  const [stackName, setStackName] = useState("");
+  /** The single file waiting for its alias, and the promise its uploader is awaiting. */
+  const [aliasAsk, setAliasAsk] = useState<{
+    file: File;
+    decide: (alias: string | null) => void;
+  } | null>(null);
   const [search, setSearch] = useState("");
   const [stack, setStack] = useState("all");
   const [selected, setSelected] = useState<string[]>([]);
@@ -177,7 +181,7 @@ export function ResumeLibrary({ initial }: { initial: LibraryStart }) {
         RESUME_BULK_UPLOAD_CONCURRENCY,
         async (item) => {
           const result = await uploadLibraryFile({
-            ...(await libraryUploadInput(item.file, item.techStack)),
+            ...(await libraryUploadInput(item.file, item.alias)),
             kind,
           });
           return result.ok ? null : { fileName: item.file.name, error: result.message };
@@ -195,6 +199,21 @@ export function ResumeLibrary({ initial }: { initial: LibraryStart }) {
     } finally {
       setUploadProgress(null);
     }
+  };
+
+  /** One file: ask for its alias, then upload it. Throws so the uploader shows what went wrong. */
+  const uploadOne = async (file: File) => {
+    const alias = await new Promise<string | null>((decide) => setAliasAsk({ file, decide }));
+    setAliasAsk(null);
+    if (alias === null) throw new Error("Not uploaded.");
+    setError("");
+    const result = await uploadLibraryFile({
+      ...(await libraryUploadInput(file, alias)),
+      kind,
+    });
+    if (!result.ok) throw new Error(result.message);
+    notify(`Uploaded ${alias}`);
+    await reload();
   };
 
   const pickFolder = (files: FileList | null) => {
@@ -330,7 +349,8 @@ export function ResumeLibrary({ initial }: { initial: LibraryStart }) {
       .toLowerCase()
       .includes(query);
   });
-  const bulkSummary = bulkPending ? stackCounts(bulkPending) : [];
+  const bulkShown = bulkPending?.slice(0, BULK_ALIAS_PREVIEW) ?? [];
+  const bulkMore = (bulkPending?.length ?? 0) - bulkShown.length;
   const alreadyAnalyzed = reanalyzeIds
     ? rows.filter((row) => reanalyzeIds.includes(row.id) && row.analyzed).length
     : 0;
@@ -340,7 +360,7 @@ export function ResumeLibrary({ initial }: { initial: LibraryStart }) {
       {error ? <Banner status="error" title="Library" description={error} /> : null}
       <SectionCard
         title="Upload"
-        description={`Upload a ${KIND_NOUN[kind].one} for each type of role you apply to. Acorn picks the closest match automatically. A PDF and a Word version of the same role are kept together.`}
+        description={`Upload a ${KIND_NOUN[kind].one} for each type of role you apply to and give it an alias. Acorn picks the closest match automatically. Files saved under the same alias are kept together.`}
       >
         <Stack gap={3}>
           <HStack gap={3} wrap="wrap" vAlign="end">
@@ -355,27 +375,15 @@ export function ResumeLibrary({ initial }: { initial: LibraryStart }) {
                 setStack("all");
               }}
             />
-            <TextInput
-              label="Role"
-              description="Name the role for files dropped below. Leave empty to use each file's name."
-              value={stackName}
-              onChange={setStackName}
-            />
           </HStack>
           <FileUploader
             label={kind === LIBRARY_KIND.resume ? "Résumé files" : "Cover letter files"}
             accept={RESUME_LIBRARY_ACCEPT}
             maxSize={RESUME_LIBRARY_MAX_BYTES}
-            maxFiles={8}
+            description="One file at a time. You name it after you pick it. To add many, use bulk upload."
+            isMultiple={false}
             isDisabled={busy}
-            onChange={(files) =>
-              void uploadItems(
-                files.map((file) => ({
-                  file,
-                  techStack: stackName.trim() || file.name.replace(/\.[^.]+$/, "") || file.name,
-                })),
-              )
-            }
+            upload={uploadOne}
           />
           {uploadProgress ? (
             <ProgressBar
@@ -396,8 +404,9 @@ export function ResumeLibrary({ initial }: { initial: LibraryStart }) {
           >
             <Stack gap={2}>
               <Text type="supporting" color="secondary">
-                Upload a whole folder at once. Name each subfolder for the role; every file inside
-                is stored under it.
+                Upload a whole folder at once. Each file&apos;s alias is its folders below the one
+                you pick, then its name, in lowercase joined by dashes:
+                Resume/FullStack/Java/David.docx becomes fullstack-java-david.docx.
               </Text>
               <HStack>
                 <Button
@@ -414,7 +423,7 @@ export function ResumeLibrary({ initial }: { initial: LibraryStart }) {
       </SectionCard>
       <SectionCard
         title="Files"
-        description={`Tick a role to analyze its skills or remove it. Skills decide which ${KIND_NOUN[kind].one} each job gets.`}
+        description={`Tick an alias to analyze its skills or remove it. Skills decide which ${KIND_NOUN[kind].one} each job gets.`}
       >
         <Stack gap={3}>
           <HStack gap={3} wrap="wrap" vAlign="end">
@@ -431,11 +440,11 @@ export function ResumeLibrary({ initial }: { initial: LibraryStart }) {
             ) : null}
             <TextInput label="Search" value={search} onChange={setSearch} />
             <Selector
-              label="Role"
+              label="Alias"
               value={stack}
               options={stacks.map((item) => ({
                 value: item,
-                label: item === "all" ? "All roles" : item,
+                label: item === "all" ? "All aliases" : item,
               }))}
               onChange={setStack}
             />
@@ -530,7 +539,7 @@ export function ResumeLibrary({ initial }: { initial: LibraryStart }) {
           header={
             <DialogHeader
               title="Confirm bulk upload"
-              subtitle={`${bulkPending?.length ?? 0} files across ${bulkSummary.length} tech stacks. The parent folder name is the stack.`}
+              subtitle={`${countOf(bulkPending?.length ?? 0, kind)} found. Each is saved under its path inside the folder as the alias.`}
               onOpenChange={() => setBulkPending(null)}
               hasDivider
             />
@@ -538,12 +547,10 @@ export function ResumeLibrary({ initial }: { initial: LibraryStart }) {
           content={
             <LayoutContent>
               <HStack gap={2} wrap="wrap">
-                {bulkSummary.map((item) => (
-                  <Badge
-                    key={item.stack}
-                    label={item.count === 1 ? item.stack : `${item.stack} · ${item.count}`}
-                  />
+                {bulkShown.map((item) => (
+                  <Badge key={item.alias} label={item.alias} />
                 ))}
+                {bulkMore > 0 ? <Badge label={`+${bulkMore} more`} /> : null}
               </HStack>
             </LayoutContent>
           }
@@ -565,6 +572,7 @@ export function ResumeLibrary({ initial }: { initial: LibraryStart }) {
           }
         />
       </Dialog>
+      <AliasDialog file={aliasAsk?.file ?? null} onDecide={(alias) => aliasAsk?.decide(alias)} />
       <Dialog
         isOpen={reanalyzeIds !== null}
         onOpenChange={(open) => {
