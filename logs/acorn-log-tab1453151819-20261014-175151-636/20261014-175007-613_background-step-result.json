@@ -1,7 +1,0 @@
-{
-  "element_index": 220,
-  "label": "cards[1220f241-3c95-4352-bb76-122dd6ac91dd][field9]",
-  "ok": true,
-  "valueAfter": "At Uber, I built an internal AI gateway that routes requests across OpenAI, Anthropic, Gemini, and Azure OpenAI, with retries, caching, and structured output handling. I also built evaluation pipelines so changes could be checked against curated examples rather than judged only by feel. That combination of production infrastructure and careful evaluation has shaped how I approach AI engineering.",
-  "ms": 77
-}

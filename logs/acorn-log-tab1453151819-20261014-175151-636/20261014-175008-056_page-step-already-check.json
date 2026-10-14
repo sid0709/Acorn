@@ -1,6 +1,0 @@
-{
-  "element_index": 333,
-  "intended": "I’m a Senior AI Engineer at Uber, where I build production systems around language models. One part of that work is an evaluation pipeline: curated test sets and regression checks catch changes in model behavior, while a dashboard lets engineers compare outputs and flag issues for review. Before that, I spent nearly seven years building backend services at Meta, including gradual migrations of legacy systems. I bring that practical systems background to AI work, where reliability matters as much as the model itself.",
-  "matched": false,
-  "current": ""
-}

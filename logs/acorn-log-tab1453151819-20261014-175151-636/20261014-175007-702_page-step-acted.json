@@ -1,7 +1,0 @@
-{
-  "element_index": 224,
-  "intended": "At Uber, I built an internal AI gateway in Python and FastAPI that routes requests across several model providers, with retries, caching, and structured-output parsing. I also built evaluation pipelines so model changes could be checked against curated examples before reaching production. I’d be glad to discuss how that experience could apply here.",
-  "valueAfter": "At Uber, I built an internal AI gateway in Python and FastAPI that routes requests across several model providers, with retries, caching, and structured-output parsing. I also built evaluation pipelines so model changes could be checked against curated examples before reaching production. I’d be glad to discuss how that experience could apply here.",
-  "readAfter": "At Uber, I built an internal AI gateway in Python and FastAPI that routes requests across several model providers, with retries, caching, and structured-output parsing. I also built evaluation pipelines so model changes could be checked against curated examples before reaching production. I’d be glad to discuss how that experience could apply here.",
-  "ms": 53
-}

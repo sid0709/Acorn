@@ -1,9 +1,0 @@
-{
-  "refill": true,
-  "timings": {
-    "formWaitMs": 1,
-    "serializeMs": 5,
-    "issuesMs": 7,
-    "fieldsMs": 17
-  }
-}

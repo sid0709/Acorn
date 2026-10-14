@@ -1,7 +1,0 @@
-{
-  "element_index": 183,
-  "label": "Type your response",
-  "ok": true,
-  "valueAfter": "At Uber, I built an internal AI gateway in Python and FastAPI that routes requests across OpenAI, Anthropic, Gemini, and Azure OpenAI. The part I pay closest attention to is how a model behaves when it fails or gives an unreliable answer, so I also built evaluation pipelines with regression tests and manual review. That work has made me attentive to the unglamorous details—retries, validation, and a clear path for human review—when putting AI into production.",
-  "ms": 72
-}

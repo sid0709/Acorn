@@ -1,6 +1,0 @@
-{
-  "element_index": 329,
-  "intended": "At Uber, I built an internal AI gateway in Python and FastAPI that routes requests across several model providers, with retries, caching, and structured-output parsing. I also added evaluation pipelines and human review loops so model changes could be checked against curated examples before they reached production.",
-  "matched": false,
-  "current": ""
-}
