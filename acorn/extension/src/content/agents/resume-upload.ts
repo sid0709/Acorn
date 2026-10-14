@@ -150,6 +150,12 @@ export async function resumeUpload(
   expectedLabel?: string | null,
   wanted?: string | null,
 ): Promise<string> {
+  // The plan named this very file field: which document goes in it was decided (the
+  // résumé is what a required field gets when nothing else fits), so no reading of
+  // its words second-guesses it.
+  if (isFileInput(el)) return uploadFileToElement(el, file, wanted);
+  // A control that only opens the picker (a button beside a hidden input) is matched to
+  // its input by the words around it, and never to a cover letter's or another document's.
   if (labelLooksLikeOtherDocument(expectedLabel)) {
     throw new Error(otherDocumentError(file));
   }

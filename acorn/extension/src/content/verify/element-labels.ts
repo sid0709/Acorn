@@ -140,5 +140,15 @@ export function labelCandidates(el: Element): string[] {
   if (ownText && ownText.length < 200) own.push(ownText);
 
   // Keep control chrome text ("Attach", "Select...") last so field titles win.
-  return [...new Set([...primary, ...own].filter(Boolean))];
+  const all = [...new Set([...primary, ...own].filter(Boolean))];
+  // The control's own name or id is how the page refers to it, not what it asks: it
+  // comes after every text a person reads, so a question drawn beside the control wins.
+  const identifiers = new Set(
+    [html.getAttribute?.("name"), html.id].filter(Boolean).map((id) => normalize(String(id))),
+  );
+  if (!identifiers.size) return all;
+  return [
+    ...all.filter((label) => !identifiers.has(normalize(label))),
+    ...all.filter((label) => identifiers.has(normalize(label))),
+  ];
 }

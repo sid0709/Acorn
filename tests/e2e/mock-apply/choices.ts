@@ -181,6 +181,33 @@ try {
     check(!gone.ok, "a step naming a group that is not on the page fails", gone);
     check((await chosen()).field1 === "No", "and the page is left as it was", await chosen());
   }
+
+  // Text areas and a file field drawn the same way: the question in a plain <div> before a
+  // control that has only a name. The name is how the page refers to it, never what it asks.
+  console.log("\n— questions beside controls that have only a name");
+  await draw(`
+    <form id="extra"><h4>Additional Information</h4>
+      <div>Desired Compensation Range<span>✱</span></div>
+      <textarea name="cards[x][field9]"></textarea>
+      <div>Please explain any gaps in your employment history<span>✱</span></div>
+      <textarea name="cards[x][field10]"></textarea>
+      <div>Please upload your completed Self-Assessment here.<span>✱</span></div>
+      <a class="overlay"><span>Upload file</span></a>
+      <input type="file" name="cards[x][field0]">
+    </form>`);
+  const extra = await read();
+  const labels = (extra.formFields ?? []).map((field) => field.label);
+  check(
+    labels.length === 3 && !labels.some((label) => label.startsWith("cards[")),
+    "no field is labelled by its internal name",
+    labels,
+  );
+  check(
+    labels[0]?.includes("Desired Compensation") && labels[1]?.includes("gaps in your employment"),
+    "each text area is named by its question",
+    labels,
+  );
+  check(labels[2]?.includes("Self-Assessment"), "the file field is named by its question", labels);
 } finally {
   await browser.close();
   await site.stop(true);

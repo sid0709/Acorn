@@ -104,3 +104,17 @@ export function describeNeeds(needs: readonly string[], turns: readonly PlanTurn
       : need;
   });
 }
+
+/**
+ * The required fields the page's fill could not answer because their question was never
+ * on the page: sending the form would leave them empty or invented, so the run stops.
+ * Read from the fill rounds' plans; a refill does not make a field answerable.
+ */
+export function requiredUnanswerable(turns: readonly PlanTurn[]): string[] {
+  const labels = new Set<string>();
+  for (const turn of turns) {
+    if (turn.mode !== "fill") continue;
+    for (const field of turn.plan.unanswerable ?? []) labels.add(field.label);
+  }
+  return [...labels];
+}

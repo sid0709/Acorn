@@ -8,7 +8,12 @@ import {
   type FillMode,
 } from "@acorn/shared/field-issues";
 import { PhaseClock } from "@acorn/shared/phase-clock";
-import { appendPlanTurn, describeNeeds, type PlanTurn } from "@acorn/shared/plan-history";
+import {
+  appendPlanTurn,
+  describeNeeds,
+  requiredUnanswerable,
+  type PlanTurn,
+} from "@acorn/shared/plan-history";
 import {
   ACCOUNT_MODE,
   CONTROL_ROLE,
@@ -329,6 +334,8 @@ const SCOPE_REFUSED = "The page would not take what Acorn filled in";
 const NEEDS_SHOWN_MAX = 6;
 /** The connected Gmail could not be read, look after look. */
 const MAIL_UNREADABLE = "Acorn could not read your Gmail";
+/** A required field's question was not on the page, so the run left it for the person. */
+const NEEDS_ANSWER = "A required question on this form could not be read";
 /** The site kept refusing the account step. */
 const ACCOUNT_REJECTED = "The site kept rejecting the sign-in or sign-up";
 /** The page itself says this job was applied to already. */
@@ -2464,6 +2471,17 @@ export async function runOrchestrator(args: RunOrchestratorArgs): Promise<RunRep
                 ]
               : ["No control on the page moves the application forward"];
           throw new RunStop(RUN_STAGE.advancing, page, notes);
+        }
+        // A required field whose question the page never gave was left unanswered, not
+        // invented: the form is not sent with it empty.
+        const unanswered = guest || sendsAccount ? [] : requiredUnanswerable(state.turns);
+        if (unanswered.length) {
+          const detail = `Answer ${unanswered.slice(0, NEEDS_SHOWN_MAX).join(", ")} yourself, then press Continue`;
+          throw new RunStop(RUN_STAGE.advancing, page, [NEEDS_ANSWER, detail], undefined, {
+            reason: RUN_FAILURE_REASON.needsAnswer,
+            label: NEEDS_ANSWER,
+            detail,
+          });
         }
         state.clicks += 1;
         state.scanBeforeClick = page.scan;

@@ -5,6 +5,7 @@ import {
   attemptsByField,
   describeNeeds,
   fieldKey,
+  requiredUnanswerable,
   withAttempts,
   type PlanTurn,
 } from "./plan-history.ts";
@@ -116,5 +117,17 @@ describe("describeNeeds", () => {
       'Q2 (tried "Yes", then "No"; the page still flags it)',
       "Q9",
     ]);
+  });
+});
+
+describe("requiredUnanswerable", () => {
+  it("lists the required fields the page's fill could not answer", () => {
+    const fill: PlanTurn = turn([action("Q", "x")], ["ok"]);
+    fill.mode = "fill";
+    fill.plan.unanswerable = [{ element_index: 9, label: "cards[x][field9]", reason: "unread" }];
+    assert.deepEqual(requiredUnanswerable([fill]), ["cards[x][field9]"]);
+    const refill = turn([action("Q", "x")], ["ok"]);
+    refill.plan.unanswerable = [{ element_index: 2, label: "other", reason: "unread" }];
+    assert.deepEqual(requiredUnanswerable([refill]), []);
   });
 });

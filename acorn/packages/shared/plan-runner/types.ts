@@ -33,6 +33,12 @@ export interface PlanAction {
   ms: number | null;
   /** The choice group the action answers (FormField.group), set by the run from its field list. */
   expected_group?: string | null;
+  /**
+   * An upload for a field the form requires: the file to give instead when the one
+   * named in `file` is not available (a required cover-letter field and no letter in
+   * the Library gets the résumé). Absent on an optional field, which is left alone.
+   */
+  fallback_file?: string | null;
 }
 
 export interface ActionPlan {
@@ -44,6 +50,8 @@ export interface ActionPlan {
     stop_before_submit: boolean;
   };
   unresolved_items: string[];
+  /** Required fields the run could not answer (their question was never on the page). */
+  unanswerable?: { element_index: number; label: string; reason: string }[];
 }
 
 export interface RuntimeAttachedFile {

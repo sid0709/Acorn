@@ -1,6 +1,5 @@
 import { applyApplicantIdentityToActions } from "./applicant-identity";
 import { collectForbiddenIndexes, targetsForbiddenIndex } from "./forbidden";
-import { labelLooksLikeOtherDocument } from "./resume-field";
 import {
   executionIndexOrder,
   isExecutableStep,
@@ -8,6 +7,7 @@ import {
   missingUploadReason,
   resolveStepFile,
   wantsCoverLetter,
+  withUploadFallback,
   resumeFileLabel,
   wantsRecommendedResume,
   type PlanStepFiles,
@@ -101,6 +101,9 @@ export async function runActionPlan(options: RunPlanOptions): Promise<RunReport>
     coverLetter,
   };
   applyApplicantIdentityToActions(plan.actions);
+  // A required cover-letter field with no letter in the Library gets what the plan
+  // named to give instead (the résumé), before anything is judged missing.
+  if (plan.actions) plan.actions = plan.actions.map((action) => withUploadFallback(action, files));
   const forbidden = collectForbiddenIndexes(plan);
   const stopBeforeSubmit = plan.validation?.stop_before_submit !== false;
 
@@ -228,16 +231,6 @@ export async function runActionPlan(options: RunPlanOptions): Promise<RunReport>
     if (!isExecutableStep(action.action)) {
       steps[i].status = "failed";
       steps[i].message = `Unsupported action: ${action.action}`;
-      publish();
-      continue;
-    }
-
-    if (action.action === "resume_upload" && labelLooksLikeOtherDocument(action.expected_label)) {
-      steps[i].status = "skipped";
-      steps[i].message =
-        files.resumeFileKind === "custom"
-          ? "Generated résumé is only for Resume/CV controls"
-          : "Recommended resume is only for Resume/CV controls";
       publish();
       continue;
     }

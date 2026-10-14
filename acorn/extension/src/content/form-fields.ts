@@ -31,6 +31,7 @@ import {
   groupMembers,
   groupQuestion,
   isRequired,
+  questionBeforeGroup,
   isPersonFacing,
   normalize,
   queryDeep,
@@ -224,8 +225,13 @@ function describeControl(control: Element, seenGroups: Set<string>): FormField |
       // A file input's own label is usually its button ("Attach"); the field's
       // question ("Resume/CV") is the title before it.
       const wrapper = fieldWrapper(control);
+      // The nearest words that ask for the document win over a heading further up the
+      // section, which names the section and not this upload.
       const question =
-        groupAccessibleName(control) || groupQuestion(wrapper, control, [control]) || label();
+        groupAccessibleName(control) ||
+        questionBeforeGroup([control]) ||
+        groupQuestion(wrapper, control, [control]) ||
+        label();
       // The drop zone's own words ("Import Resume", "Drop your resume here") tell a
       // parse-to-autofill zone from the résumé field.
       // The words around the input say which document it takes ("Type or paste
@@ -300,10 +306,18 @@ function fileContextTexts(control: Element, question: string): string[] {
     scope && depth < FILE_CONTEXT_DEPTH && texts.length < FILE_HINT_TEXTS;
     depth += 1
   ) {
-    for (const el of Array.from(scope.querySelectorAll("*"))) {
+    // Nearest first: what sits just before the input names it, not what opens the section.
+    const around = Array.from(scope.querySelectorAll("*"));
+    const before = around.filter(
+      (el) => control.compareDocumentPosition(el) & Node.DOCUMENT_POSITION_PRECEDING,
+    );
+    const after = around.filter(
+      (el) => control.compareDocumentPosition(el) & Node.DOCUMENT_POSITION_FOLLOWING,
+    );
+    for (const el of [...before.reverse(), ...after]) {
       if (el === control || el.contains(control)) continue;
       const text = getDirectText(el);
-      if (!text || seen.has(normalize(text))) continue;
+      if (!text || !carriesWords(text) || seen.has(normalize(text))) continue;
       seen.add(normalize(text));
       texts.push(clip(text, MAX_TEXT_CHARS));
       if (texts.length >= FILE_HINT_TEXTS) break;

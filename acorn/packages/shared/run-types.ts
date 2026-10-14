@@ -151,6 +151,8 @@ export const RUN_FAILURE_REASON = {
   scopeRefused: "scope_refused",
   /** The tab the application was in closed, and it opened no other to go on in. */
   tabClosed: "tab_closed",
+  /** A required field's question is not on the page, so the run cannot answer it and does not send the form. */
+  needsAnswer: "needs_answer",
   /** The AI could not answer (no key, no credits, rate limit, provider down): see RunFailure.code. */
   aiUnavailable: "ai_unavailable",
 } as const;

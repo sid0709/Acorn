@@ -17,4 +17,4 @@ client_secret*.json
 # Local e2e test account (generated test credentials)
 tests/e2e/mock-apply/.e2e-account.json
 
-# logs/
+logs/

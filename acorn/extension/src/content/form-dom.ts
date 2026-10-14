@@ -204,7 +204,7 @@ const CONTROL_HOLDER_SELECTOR = "input, select, textarea, button";
  * other questions' options all do), looked for from the group's first option outward.
  * Its own text is the question; a required mark inside it is not part of it.
  */
-function questionBeforeGroup(members: Element[]): string {
+export function questionBeforeGroup(members: Element[]): string {
   const first = members[0];
   let node: Element | null = first;
   for (let level = 0; node && level < QUESTION_CLIMB_LEVELS; level += 1) {

@@ -373,6 +373,7 @@ A **posting read** ([`fetch-posting.ts`](../../extension/src/pipeline/fetch-post
 - `kind`: `text`, `textarea`, `select`, `radio`, `checkbox` (group), `toggle` (single box/switch), `buttons` (2–6 short option buttons), `file`.
 - `label` (the question, read structurally: `aria-labelledby`, `for` labels with reused-id protection, wrapping labels, legends, the title inside the field's own wrapper), `section` (the form section heading, e.g. "References"), `inputType`, `autocomplete`, `placeholder`, `name`, `maxLength`, `notes` (text after the field such as "0/300"), `required`, `options`, `accept` (file inputs).
 - Hidden proxy inputs next to visible Yes/No buttons become one `buttons` field. Plain buttons with no state of their own count as one question's answers only when each has words of its own, no two say the same thing, and all are drawn alike (same tag, type, role, and classes) — [`button-roles.ts`](../../extension/src/content/agents/button-roles.ts). Icon buttons, a label repeated per entry (each entry's Remove), and buttons drawn apart (Cancel beside Save) act on the form and are never offered as answers. A button that, pressed as an answer, removed what it belonged to marks its look as a command for the rest of the page.
+- A single control's label never starts from its own `name` or `id` (how the page refers to it, not what it asks): every real text a person reads comes first, so a question drawn in a `div` beside a textarea names it. A file field is named by the nearest words before it (not a heading further up its section), and its surrounding words are read nearest first.
 - A choice group's `label` is its question's words. Text that says nothing (a lone required mark `✱` or `*`, a colon) is never taken for the question; when the options are not wrapped with it, the nearest element before the group that holds no control is (its own text, without a mark inside it). Each radio/checkbox/toggle field also carries `group`, its identity on the page (the group's name scoped to its form), so two questions worded alike ("Yes / No" under two questions of one section) are never confused.
 - Text fields that end up with the same label are relabelled from their own wrappers so the planner does not give them all one answer.
 - `aria-hidden` mirror inputs and invisible "robot trap" fields are never listed.
@@ -860,7 +861,8 @@ fields ──┬─ textareas ────────────────�
          │               Jev: whose detail? ─┴▶ fact value from profile (code)
          │                                      or "write" ─▶ writer
          │                                      or blank (skip / other person / person only)
-         ├─ file fields ─ Jev: kind ─▶ settle one résumé field ─▶ Jev: format
+         ├─ file fields ─ Jev: kind ─▶ settle one résumé field ─▶ Jev: which document
+         │               (any other upload)      ─▶ Jev: format
          └─ choice fields ─ Jev PickBatch (profile = state, one question per field)
                        ─▶ plan: résumé/cover-letter uploads, text fills, choice steps
 ```
@@ -871,6 +873,8 @@ fields ──┬─ textareas ────────────────�
 - A value typed as a row of short boxes (a code, a split phone number) is cut across them by `maxLength`.
 - A **required or blocking single checkbox** is asked with the intent "check it, unless it states something the profile says is untrue or consents to AI/automated screening"; otherwise boxes are answered from the profile.
 - The choice batch's shared state is the applicant profile plus fixed rules: the applicant is a human; they give every ordinary consent or acknowledgement; work authorization from immigration status, sponsorship from the sponsorship answer; a profile silent on a history question means "no".
+- **Uploads that are neither the résumé nor a cover letter** (an assessment to complete, a transcript, work samples, "additional details") are decided too: Jev picks which of the applicant's own documents goes in the field — the résumé, the cover letter, or none. A **required** field always gets one: the résumé is the document to give when the decision is none or cannot be made ([`settleOtherUploads`](../../../acorn-backend/acorn/fastplan.go)); an optional field nothing fits is left alone. The résumé goes in as a `resume_upload` on that very field, and the page side trusts the plan's choice of field (no reading of its words second-guesses it). A required cover-letter field the Library has no letter for carries `fallback_file` (the résumé) and gets it ([`withUploadFallback`](../../packages/shared/plan-runner/step-file.ts)); an optional one is left to the page.
+- A **text field whose question the page never gave** (its label is only its own `name`, or has no words) is not answered: the writer would invent the answer. A required one is listed in the plan's `unanswerable`, and the run stops before sending the form (`needs_answer`: "A required question on this form could not be read … Answer it yourself, then press Continue").
 - Custom dropdowns are left to the leftover pass; any fast-plan failure falls back to the full planner on the extension side.
 
 **Fast refill** ([`RefillFlagged`](../../../acorn-backend/acorn/refill_fast.go)) plans a Refill from the flagged fields alone, the way a first fill plans a page:
