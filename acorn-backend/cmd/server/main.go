@@ -33,6 +33,9 @@ const (
 	defaultRuntimeKey = "runtime_file"
 	// defaultDatabase is Acorn's own database.
 	defaultDatabase = "AcornDB"
+	// defaultWebURL is acorn-frontend in production, where support sign-in links land.
+	// ACORN_WEB_URL overrides it (local development sets http://localhost:6005).
+	defaultWebURL = "https://acorn.remotepairnet.net"
 )
 
 // acorn-frontend, plus the older UI board. The extension is not a browser origin.
@@ -101,7 +104,7 @@ func main() {
 	usage := aiusage.NewStore(p.Mongo(), db.DestDB)
 	claims := support.NewStore(p.Mongo(), db.DestDB)
 	supportAccess := supportaccess.NewStore(p.Mongo(), db.DestDB)
-	webURL := config.Env("ACORN_WEB_URL", "")
+	webURL := config.Env("ACORN_WEB_URL", defaultWebURL)
 	if webURL == "" {
 		slog.Warn("Support sign-in (admin \"Sign in as user\") is off until ACORN_WEB_URL is set")
 	}

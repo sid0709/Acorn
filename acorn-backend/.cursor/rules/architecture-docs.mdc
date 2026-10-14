@@ -1,0 +1,38 @@
+---
+description: Behavior changes must be reflected in acorn/docs/architecture
+globs: **
+alwaysApply: false
+---
+
+# Architecture docs stay in sync with the code
+
+How the extension and its backend work is documented in [`../../../acorn/docs/architecture/extension.md`](../../../acorn/docs/architecture/extension.md). A logic change is not done until that document says the same thing as the code.
+
+## When this applies
+
+Any change to behavior in `acorn/extension`, `acorn/packages/*`, `acorn-backend`, or the `backend-core` parts Acorn uses: flows, limits and timeouts, routes, message or socket names, prompts or model questions, stored data, who sees what, or user-visible behavior. Pure refactors, renames with no behavior change, and styling do not need an update.
+
+## What to do
+
+1. Find the section the change touches:
+
+| You change | Update section |
+| --- | --- |
+| Manifest, build, env vars, service worker, content script, side panel | §4 |
+| Sign-in, sessions, support handoff, socket events | §5 |
+| Per-tab storage keys or lifecycle | §6 |
+| DOM serializer, frame choice, field list, field issues, page snapshot, probe | §7 |
+| Fill pipeline, plan request, choice batch, late fields, frame-navigation | §8 |
+| Plan-step execution, control agents, dropdown logic, uploads, drift repair | §9 |
+| Run orchestrator, account order, mail verification, limits, outcomes | §10 |
+| Résumé gate, recommend, cover letters, file formats, generate | §11 |
+| acorn-backend routes, config, usage, capture, collections | §12 |
+| Prompts, Jev questions, fast planner, writer, facts | §13 |
+| What data reaches which party, secrets, retention | §14 |
+
+2. Edit that section in the same commit as the code. Change the numbers, names, and file links it quotes (limits, routes, env vars, collections).
+3. If the change makes a statement in §14.4 or §15 untrue, fix or remove it. Add an entry there when you introduce a known gap.
+4. Update the "Written from the code at commit ... (extension vX)" line at the top when you re-verify the whole document.
+5. Keep links relative and valid, and run `bunx prettier --write` on the file.
+
+Do not describe code you did not read. If you are unsure whether a section is still right, read the code and fix the section.
