@@ -2,7 +2,12 @@ import { traceFromPage } from "../../debug-trace";
 
 import { chooseOption } from "./combobox/choose-option";
 import { decideAmongOptions, findExactOption } from "./combobox/match";
-import { optionSignature, optionText, pickScopedOptions } from "./combobox/options-dom";
+import {
+  optionSignature,
+  optionText,
+  ownedPopupOpen,
+  pickScopedOptions,
+} from "./combobox/options-dom";
 import { findLiveOption } from "./combobox/options-wait";
 import { dismissOpenOverlays, settlePopupClosed } from "./combobox/typing";
 import { comboboxWidgetRoot } from "./combobox/widget-value";
@@ -16,6 +21,10 @@ import { waitMs } from "./wait";
 const MAX_MENU_DEPTH = 3;
 /** A deeper level of a menu draws a moment after its parent option is clicked. */
 const SUBMENU_WAIT_MS = 700;
+/** How often a click's outcome is looked at while waiting for it. */
+const SUBMENU_POLL_MS = 40;
+/** Looks in a row that must find the popup closed before the pick counts as final. */
+const SUBMENU_CLOSED_POLLS = 3;
 
 /**
  * The options a menu shows now that it did not show before the click: a deeper
@@ -44,7 +53,17 @@ async function followSubmenus(
   let before = optionSignature(shown);
   let deepest: HTMLElement | null = null;
   for (let depth = 1; depth <= MAX_MENU_DEPTH; depth += 1) {
-    await waitMs(SUBMENU_WAIT_MS);
+    // A click either closes the popup (the answer is chosen) or opens a deeper level:
+    // look at which it did as soon as it shows, instead of waiting out the longest case.
+    const waited = Date.now();
+    let closedPolls = 0;
+    while (Date.now() - waited < SUBMENU_WAIT_MS) {
+      await waitMs(SUBMENU_POLL_MS);
+      if (deeperOptions(control, doc, before).length) break;
+      // Closed for a few looks in a row: a menu mid-redraw is not closed.
+      closedPolls = ownedPopupOpen(control) ? 0 : closedPolls + 1;
+      if (closedPolls >= SUBMENU_CLOSED_POLLS) break;
+    }
     const deeper = deeperOptions(control, doc, before);
     if (!deeper.length) return deepest;
     const exact = findExactOption(deeper, value);

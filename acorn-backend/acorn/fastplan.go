@@ -70,6 +70,8 @@ type FormField struct {
 	// Blocking is true when the page holds its forward control disabled while this
 	// field is blank or off: it may be what the page is waiting for.
 	Blocking bool `json:"blocking,omitempty"`
+	// Issue is what the page shows about the field when it flags it (Refill only).
+	Issue *FieldIssueNote `json:"issue,omitempty"`
 }
 
 // ChoiceQuestion is one choice field the decision model answers from the profile.

@@ -149,6 +149,8 @@ export const RUN_FAILURE_REASON = {
   noProgress: "no_progress",
   /** What a requirement's click opened (an entry form) was refused each time it was saved. */
   scopeRefused: "scope_refused",
+  /** The tab the application was in closed, and it opened no other to go on in. */
+  tabClosed: "tab_closed",
 } as const;
 
 /** Why a run could not finish, in the decision model's words (mirrors the backend's reasons). */

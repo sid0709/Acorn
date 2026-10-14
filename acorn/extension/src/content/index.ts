@@ -1,4 +1,4 @@
-import { ACORN_CAPTURE, DEBUG_HTML_MAX_CHARS, traceFromPage } from "../debug-trace";
+import { traceFromPage } from "../debug-trace";
 import { MSG, PLAN_STEP_PAGE_TIMEOUT_MS, type PlanStepPayload } from "../types";
 
 import { holdsAcornIds } from "./acorn-id";
@@ -7,11 +7,11 @@ import { fillLeftoverComboboxes } from "./agents/leftover-combobox";
 import { waitForDomQuiet } from "./agents/wait";
 import { collectChoiceItems, type ChoiceBatchStep } from "./choice-batch";
 import { CLICK_AFTER_REPLY_MS, prepareControlClick } from "./click-control";
-import { capturedPageHtml, comboSnapshot } from "./debug-snapshot";
+import { comboSnapshot } from "./debug-snapshot";
 import { serializeDom } from "./dom-serializer";
 import { repairDrift } from "./drift-repair";
 import { resolveElementByNodeId } from "./element-resolver";
-import { scanFieldIssues } from "./field-errors";
+import { pageWantsAnswer, scanFieldIssues } from "./field-errors";
 import {
   MIN_CHILD_FORM_CONTROLS,
   MIN_PAGE_FIELDS,
@@ -77,7 +77,9 @@ if (!contentWindow[CONTENT_BOOT]) {
         const posting = message.posting === true;
         const ownFields = pageFieldScore();
         const minScore = isTop || ownFields >= MIN_PAGE_FIELDS ? 1 : MIN_CHILD_FORM_CONTROLS;
+        const waitStarted = Date.now();
         const score = posting ? formControlScore() : await waitForFormSurface(minScore);
+        const formWaitMs = Date.now() - waitStarted;
         // Fields of the page itself, not of a layer laid over it, read once the form drew.
         const pageScore = posting ? ownFields : pageFieldScore();
         const acornFrame =
@@ -96,48 +98,46 @@ if (!contentWindow[CONTENT_BOOT]) {
         }
 
         try {
+          let started = Date.now();
           const tree = serializeDom(undefined, { posting });
+          const serializeMs = Date.now() - started;
           // What an opening click drew is read first: its fields are then the scope's.
           const scope = message.scope === true ? readScope() : undefined;
+          // A refill reads the issues once: they are sent, and they name the fields it plans.
+          const flagged = message.flaggedFields === true;
+          started = Date.now();
+          const fieldIssues =
+            message.fieldIssues === true || flagged ? scanFieldIssues() : undefined;
+          const issuesMs = Date.now() - started;
+          started = Date.now();
+          const formFields =
+            message.formFields !== true
+              ? undefined
+              : readFormFields({
+                  pending: message.pendingFields === true,
+                  blocked: message.blockedFields === true,
+                  scoped: message.scopeFields === true,
+                  flagged: flagged ? fieldIssues : null,
+                });
+          const fieldsMs = Date.now() - started;
           sendResponse({
             url: window.location.href,
             title: document.title,
             tree,
-            fieldIssues: message.fieldIssues === true ? scanFieldIssues() : undefined,
-            formFields:
-              message.formFields !== true
-                ? undefined
-                : readFormFields({
-                    pending: message.pendingFields === true,
-                    blocked: message.blockedFields === true,
-                    scoped: message.scopeFields === true,
-                  }),
+            fieldIssues: message.fieldIssues === true ? fieldIssues : undefined,
+            formFields,
             scope,
             formScore: score,
             pageScore,
             fetchedAt: new Date().toISOString(),
             frameId: sender.frameId ?? null,
-            // Only the fill's read carries the page HTML: it rides to the backend's capture.
-            html:
-              ACORN_CAPTURE && message.html === true
-                ? capturedPageHtml(DEBUG_HTML_MAX_CHARS)
-                : undefined,
+            timings: { formWaitMs, serializeMs, issuesMs, fieldsMs },
           });
         } catch (err) {
           sendResponse({ error: String(err), formScore: score });
         }
       })();
       return true;
-    }
-
-    if (message.type === MSG.CAPTURE_HTML) {
-      if (!ACORN_CAPTURE) return false;
-      sendResponse({
-        ok: true,
-        url: window.location.href,
-        html: capturedPageHtml(DEBUG_HTML_MAX_CHARS),
-      });
-      return false;
     }
 
     if (message.type === MSG.HIGHLIGHT) {
@@ -240,9 +240,15 @@ if (!contentWindow[CONTENT_BOOT]) {
       }
       traceFromPage("leftover:before", () => ({ combos: comboSnapshot() }));
       const deadline = Number(message.deadline) || Number.POSITIVE_INFINITY;
-      // A scoped fill answers only the dropdowns of what the click opened.
-      const within = message.scoped === true ? (scopeTest() ?? (() => false)) : null;
-      void runExclusive(() => fillLeftoverComboboxes(deadline, within))
+      // A scoped fill answers only the dropdowns of what the click opened; a refill
+      // only those the page asks for (required, or marked invalid), never the
+      // values the site put in itself.
+      const scope = message.scoped === true ? (scopeTest() ?? (() => false)) : null;
+      const flagged = message.flagged === true;
+      const within = flagged
+        ? (el: Element) => (!scope || scope(el)) && pageWantsAnswer(el)
+        : scope;
+      void runExclusive(() => fillLeftoverComboboxes(deadline, within, !flagged))
         .then((result) => sendResponse({ ok: true, ...result }))
         .catch((err) =>
           sendResponse({

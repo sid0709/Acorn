@@ -33,10 +33,9 @@ export interface AiAnalyzeRequest {
   fieldIssues?: FieldIssueScan;
   /** Refill only: the plans already run on this page, so the planner continues its own conversation. */
   history?: PlanTurn[];
+  /** Fast plans read these; a Refill sends the flagged fields, planned on their own first. */
   formFields?: FormField[];
   page?: AiAnalyzePage | null;
-  /** Debug builds only: saved by a backend running with ACORN_DEBUG_DIR, never sent to the model. */
-  debug?: { html?: string; domTree?: unknown; metaTree?: string };
   /** A code the run found in the applicant's mail; the planner fills it, no model reads it. */
   verificationCode?: string;
 }
@@ -50,6 +49,8 @@ export interface AiAnalyzeResponse {
   usage?: AiUsageSummary;
   /** Echoed by a backend that planned a Refill or a fast plan; absent on a full Fill plan. */
   mode?: FillMode | typeof FAST_PLAN_MODE;
+  /** Which planner planned a Refill: the per-field fast planner, or the conversation. */
+  refillPlanner?: string;
 }
 
 export async function requestAiAnalyze(
@@ -60,11 +61,10 @@ export async function requestAiAnalyze(
   const base = (_apiUrl || (await getAcornApiUrl())).replace(/\/$/, "");
   const startedAt = Date.now();
   const tabKey = tabId ?? undefined;
-  // The trees ride in their own entries; the page's HTML and the one-time code stay out.
+  // The tree rides in its own entry; the one-time code stays out.
   logTab(tabKey, LOG_KIND.aiRequest, `POST /acorn/ai-analyze · ${payload.mode ?? "fill"}`, () => ({
     ...payload,
     pureTree: `(${payload.pureTree.length} characters, see the Pure tree entry)`,
-    debug: payload.debug ? "(page capture, not sent to the model)" : undefined,
     verificationCode: payload.verificationCode ? "(hidden)" : undefined,
   }));
   const res = await fetch(`${base}/acorn/ai-analyze`, {

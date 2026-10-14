@@ -5,6 +5,8 @@
  * an answer reveals), so the first scan cannot have planned them.
  */
 
+import { flaggedFields, type FieldIssueScan } from "@acorn/shared/field-issues";
+
 import { isChoiceSelected } from "./agents/choice-state";
 import { wasGroupAnswered, wasPlanFilled } from "./agents/plan-fill-registry";
 import { readControlValue } from "./agents/read-control-value";
@@ -72,17 +74,55 @@ export function scanPendingFormFields(
 }
 
 /**
- * The fields a fill plans: all of them, or only those still unanswered
- * (`pending`). `scoped` keeps only what the run's last opening click drew; with
- * no scope open it is none, so a scoped fill never spills onto the rest of the page.
+ * The fields the page flags, each with what the page shows about it (Refill). A
+ * field answers an issue when the page flags its own control, another box of its
+ * group, or the hidden box behind its Yes/No buttons. An issue no field answers (a
+ * custom dropdown) is left to the runtime's dropdown pass.
+ */
+function scanFlaggedFormFields(
+  scan: FieldIssueScan,
+  scope: ((el: Element) => boolean) | null,
+): FormField[] {
+  const controls = new Map<number, Element | null>();
+  const control = (id: number) => {
+    if (!controls.has(id)) controls.set(id, resolveElementByNodeId(id));
+    return controls.get(id) ?? null;
+  };
+  const groups = new Map<number, Element[]>();
+  const group = (id: number, flagged: Element) => {
+    if (!groups.has(id)) groups.set(id, groupMembers(flagged));
+    return groups.get(id) ?? [];
+  };
+  const fields = scanFormFields().filter((field) => {
+    const own = control(field.elementIndex);
+    return own != null && (!scope || scope(own));
+  });
+  return flaggedFields(fields, scan, (field, issue) => {
+    const own = control(field.elementIndex);
+    const flagged = control(issue.elementIndex);
+    if (!own || !flagged) return field.elementIndex === issue.elementIndex;
+    if (own === flagged || group(issue.elementIndex, flagged).includes(own)) return true;
+    // A Yes/No field of buttons is listed by its first button; the page flags the box behind them.
+    return field.kind === "buttons" && fieldWrapper(flagged).contains(own);
+  });
+}
+
+/**
+ * The fields a fill plans: all of them, only those still unanswered (`pending`),
+ * or only those the page flags (`flagged`, a Refill). `scoped` keeps only what the
+ * run's last opening click drew; with no scope open it is none, so a scoped fill
+ * never spills onto the rest of the page.
  */
 export function readFormFields(opts: {
   pending: boolean;
   blocked: boolean;
   scoped: boolean;
+  /** Refill: the page's issues, read in the same pass; only the fields they name are listed. */
+  flagged?: FieldIssueScan | null;
 }): FormField[] {
   const scope = opts.scoped ? scopeTest() : null;
   if (opts.scoped && !scope) return [];
+  if (opts.flagged) return scanFlaggedFormFields(opts.flagged, scope);
   if (opts.pending) return scanPendingFormFields({ blocked: opts.blocked, scope });
   const fields = scanFormFields();
   if (!scope) return fields;

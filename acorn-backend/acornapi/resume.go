@@ -414,12 +414,12 @@ func (s *Server) libraryFile(w http.ResponseWriter, r *http.Request) {
 	if !ok {
 		return
 	}
-	file, err := s.resumes.LibraryFile(session.User.ID, r.PathValue("resumeId"))
+	file, tag, err := s.resumes.LibraryFileVersioned(session.User.ID, r.PathValue("resumeId"))
 	if err != nil {
 		s.writeResumeErr(w, err)
 		return
 	}
-	writeJSON(w, http.StatusOK, map[string]any{"success": true, "file": file, "resumeId": file.ResumeID, "stack": file.Label})
+	writeFileTagged(w, r, tag, map[string]any{"success": true, "file": file, "resumeId": file.ResumeID, "stack": file.Label})
 }
 
 func (s *Server) libraryPreview(w http.ResponseWriter, r *http.Request) {
@@ -453,7 +453,7 @@ func (s *Server) customGeneratedResume(w http.ResponseWriter, r *http.Request) {
 		s.writeResumeErr(w, err)
 		return
 	}
-	writeJSON(w, http.StatusOK, map[string]any{
+	writeJSONVersioned(w, r, map[string]any{
 		"success": true, "file": file, "generationId": r.PathValue("generationId"), "resumeId": file.ResumeID, "stack": file.Label,
 	})
 }
@@ -463,6 +463,7 @@ func (s *Server) customGeneratedPreview(w http.ResponseWriter, r *http.Request) 
 }
 
 func (s *Server) recommendLibrary(w http.ResponseWriter, r *http.Request) {
+	started := time.Now()
 	session, ok := s.session(w, r)
 	if !ok {
 		return
@@ -474,18 +475,24 @@ func (s *Server) recommendLibrary(w http.ResponseWriter, r *http.Request) {
 	if !decode(w, r, &body) {
 		return
 	}
+	sessionMs := time.Since(started).Milliseconds()
 	gateway, ok := s.selectorFor(w, r, session.User.ID)
 	if !ok {
 		return
 	}
+	setupMs := time.Since(started).Milliseconds() - sessionMs
 	rec, err := s.resumes.Recommend(s.withUsage(r, session.User.ID), session.User.ID, body.JobDescription, body.JobID, gateway)
 	if err != nil {
 		s.writeResumeErr(w, err)
 		return
 	}
+	timings := map[string]int64{"session": sessionMs, "setup": setupMs, "total": time.Since(started).Milliseconds()}
+	for stage, ms := range rec.Timings {
+		timings[stage] = ms
+	}
 	writeJSON(w, http.StatusOK, map[string]any{
 		"recommendedResumeId": rec.ResumeID, "recommendedResumeStack": rec.Stack, "recommendedResumeReason": rec.Reason,
-		"recommendedTop": rec.Top, "warning": nil,
+		"recommendedTop": rec.Top, "warning": nil, "timings": timings,
 	})
 }
 
@@ -499,6 +506,9 @@ func (s *Server) coverLetter(w http.ResponseWriter, r *http.Request) {
 	}
 	var body struct {
 		JobDescription string `json:"jobDescription"`
+		// IDOnly answers with the chosen letter's id alone: the extension fetches the
+		// file through the versioned Library route, which it keeps cached.
+		IDOnly bool `json:"idOnly"`
 	}
 	if !decode(w, r, &body) {
 		return
@@ -507,7 +517,21 @@ func (s *Server) coverLetter(w http.ResponseWriter, r *http.Request) {
 	if !ok {
 		return
 	}
-	pick, err := s.resumes.CoverLetter(s.withUsage(r, session.User.ID), session.User.ID, body.JobDescription, gateway)
+	ctx := s.withUsage(r, session.User.ID)
+	if body.IDOnly {
+		choice, err := s.resumes.CoverLetterID(ctx, session.User.ID, body.JobDescription, gateway)
+		if errors.Is(err, resume.ErrNoCoverLetter) {
+			writeJSON(w, http.StatusOK, map[string]any{"success": true, "file": nil, "stack": nil, "reason": err.Error()})
+			return
+		}
+		if err != nil {
+			s.writeResumeErr(w, err)
+			return
+		}
+		writeJSON(w, http.StatusOK, map[string]any{"success": true, "resumeId": choice.ResumeID, "stack": choice.Stack, "reason": choice.Reason})
+		return
+	}
+	pick, err := s.resumes.CoverLetter(ctx, session.User.ID, body.JobDescription, gateway)
 	if errors.Is(err, resume.ErrNoCoverLetter) {
 		writeJSON(w, http.StatusOK, map[string]any{"success": true, "file": nil, "stack": nil, "reason": err.Error()})
 		return
@@ -524,7 +548,7 @@ func (s *Server) jobRecommendedResume(w http.ResponseWriter, r *http.Request) {
 	if !ok {
 		return
 	}
-	file, resumeID, stack, err := s.resumes.JobResume(session.User.ID, r.PathValue("jobId"))
+	file, resumeID, stack, tag, err := s.resumes.JobResumeVersioned(session.User.ID, r.PathValue("jobId"))
 	if errors.Is(err, resume.ErrNotFound) {
 		writeJSON(w, http.StatusOK, map[string]any{"success": true, "jobId": r.PathValue("jobId"), "resumeId": nil, "stack": nil})
 		return
@@ -533,7 +557,7 @@ func (s *Server) jobRecommendedResume(w http.ResponseWriter, r *http.Request) {
 		s.writeResumeErr(w, err)
 		return
 	}
-	writeJSON(w, http.StatusOK, map[string]any{"success": true, "file": file, "jobId": r.PathValue("jobId"), "resumeId": resumeID, "stack": stack})
+	writeFileTagged(w, r, tag, map[string]any{"success": true, "file": file, "jobId": r.PathValue("jobId"), "resumeId": resumeID, "stack": stack})
 }
 
 func (s *Server) jobResumePreview(w http.ResponseWriter, r *http.Request) {

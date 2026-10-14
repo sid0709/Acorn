@@ -101,10 +101,13 @@ const agreedValues = new WeakMap<Element, string>();
  * Fill the dropdowns no plan step answered. Nothing new is started after
  * `deadline` (ms since epoch): the run has moved on and needs the page. `within`
  * keeps the pass to some dropdowns (what a click opened); null answers them all.
+ * `checkPrefilled` also answers again the values the site put in itself that the
+ * profile contradicts; a refill, which answers only what the page asks for, leaves them.
  */
 export async function fillLeftoverComboboxes(
   deadline = Number.POSITIVE_INFINITY,
   within: ((el: Element) => boolean) | null = null,
+  checkPrefilled = true,
 ): Promise<{
   found: number;
   filled: number;
@@ -118,7 +121,7 @@ export async function fillLeftoverComboboxes(
   let filled = 0;
   // A value the site put in itself (a country taken from the job's location) is
   // the applicant's only when the profile agrees: one that contradicts it is answered again.
-  const contradicted = await prefilledAgainstProfile(within);
+  const contradicted = checkPrefilled ? await prefilledAgainstProfile(within) : [];
   for (let round = 0; round < MAX_LEFTOVER_ROUNDS && found < MAX_LEFTOVER; round += 1) {
     if (late()) return stopAtDeadline(found, filled);
     const { all, leftovers } = leftoverCandidates(tried, within);
@@ -139,14 +142,20 @@ export async function fillLeftoverComboboxes(
       tried.add(el);
       const label = fieldLabel(el);
       const listed = await readListedOptions(el);
-      planned.push({ el, label, answer: decideLeftover(label, listed) });
+      planned.push({
+        el,
+        label,
+        // A decision that fails is the one-by-one path, never a failed pass.
+        answer: decideLeftover(label, listed).catch((): LeftoverAnswer => ({ kind: "live" })),
+      });
     }
-    const answers = await Promise.all(planned.map((row) => row.answer));
     const unanswered: HTMLElement[] = [];
     let answeredNow = 0;
-    for (const [i, { el, label }] of planned.entries()) {
+    // Each dropdown is applied the moment its own answer is in: the first click does
+    // not wait for the slowest decision of the others.
+    for (const { el, label, answer } of planned) {
       if (late()) return stopAtDeadline(found, filled);
-      if (await fillLeftover(el, label, answers[i])) {
+      if (await fillLeftover(el, label, await answer)) {
         filled += 1;
         answeredNow += 1;
       } else unanswered.push(el);

@@ -60,14 +60,12 @@ func (s *Server) aiAnalyze(w http.ResponseWriter, r *http.Request) {
 	}
 	var body struct {
 		PureTree    string               `json:"pureTree"`
-		MetaTree    string               `json:"metaTree"` // accepted from older extensions, never sent to the model
 		Mode        string               `json:"mode"`
 		FieldIssues acorn.FieldIssueScan `json:"fieldIssues"`
 		// History is the plans already run on this page; a Refill continues from them.
 		History    []acorn.PlanTurn  `json:"history"`
 		FormFields []acorn.FormField `json:"formFields"`
 		Page       map[string]any    `json:"page"`
-		Debug      *analyzeDebug     `json:"debug"`
 		// VerificationCode is a code the run found in the applicant's mail for this page.
 		VerificationCode string `json:"verificationCode"`
 	}
@@ -92,12 +90,18 @@ func (s *Server) aiAnalyze(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	brain = brain.WithCredentials(acorn.Credentials{Password: password, VerificationCode: body.VerificationCode})
-	ctx := s.startAnalyzeRun(r, session.User.ID, applicant, body.PureTree, body.Page, body.Debug)
+	ctx := s.startAnalyzeRun(r, session.User.ID, applicant, body.PureTree, body.Page)
 	var result acorn.AnalyzeResult
 	switch body.Mode {
 	case acorn.ModeRefill:
 		recordFieldIssues(ctx, body.FieldIssues)
-		result, err = brain.Refill(ctx, applicant, body.PureTree, body.FieldIssues, body.Page, body.History)
+		if body.FormFields != nil {
+			// The extension listed the flagged fields: they are planned on their own first.
+			recordFormFields(ctx, body.FormFields)
+			result, err = brain.RefillFlagged(ctx, applicant, body.PureTree, body.FieldIssues, body.FormFields, body.Page, body.History)
+		} else {
+			result, err = brain.Refill(ctx, applicant, body.PureTree, body.FieldIssues, body.Page, body.History)
+		}
 	case acorn.ModeFast:
 		if len(body.FormFields) > 0 {
 			recordFormFields(ctx, body.FormFields)

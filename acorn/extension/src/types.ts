@@ -24,14 +24,23 @@ export interface DomTreePayload {
   formScore?: number;
   /** Fields of the frame's page itself, outside any layer laid over it (a consent panel, a dialog). */
   pageScore?: number;
-  /** Debug builds only: the form frame's HTML, for the backend debug run. */
-  html?: string;
   /** Refill only: fields the page flags, keyed by this tree's node ids. */
   fieldIssues?: FieldIssueScan;
   /** Fast fill only: the page's fields, keyed by this tree's node ids. */
   formFields?: FormField[];
   /** Asked for after an opening click: what it drew, keyed by this tree's node ids. */
   scope?: OpenScope | null;
+  /** Where the page's own time went while it answered this read. */
+  timings?: DomReadTimings;
+}
+
+/** Milliseconds a frame spent on each part of one read, logged with the read. */
+export interface DomReadTimings {
+  /** Waiting for the form to draw (an app still hydrating). */
+  formWaitMs: number;
+  serializeMs: number;
+  issuesMs: number;
+  fieldsMs: number;
 }
 
 /** What a click drew inside the page (an entry form, a dialog), as one read sees it. */
@@ -133,8 +142,6 @@ export const MSG = {
   SELECTION_QA: "acorn:selection-qa",
   /** Debug builds only: a page trace event relayed to the backend debug run. */
   DEBUG_TRACE: "acorn:debug-trace",
-  /** Capture: this frame's page HTML, passwords removed. */
-  CAPTURE_HTML: "acorn:capture-html",
 } as const;
 
 export type AcornNoticeKind = "error" | "success" | "info";

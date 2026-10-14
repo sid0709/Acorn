@@ -56,18 +56,18 @@ export async function fetchDomFromTab(
   /**
    * `pendingFields` narrows `formFields` to fields still unanswered after a plan ran;
    * `blockedFields` adds boxes left off, for a page that holds its forward control.
-   * `scopeFields` narrows them to what the run's last opening click drew; `scope`
-   * reads what that click drew (see content/scope.ts).
+   * `flaggedFields` narrows them to the fields the page flags, each with what the
+   * page shows about it (Refill). `scopeFields` narrows them to what the run's last
+   * opening click drew; `scope` reads what that click drew (see content/scope.ts).
    */
   opts: {
     fieldIssues?: boolean;
     formFields?: boolean;
     pendingFields?: boolean;
     blockedFields?: boolean;
+    flaggedFields?: boolean;
     scopeFields?: boolean;
     scope?: boolean;
-    /** Capture: the page HTML (passwords removed) for the backend's capture. */
-    html?: boolean;
   } = {},
 ): Promise<DomTreePayload> {
   const tried = new Set<number>();
@@ -87,9 +87,9 @@ export async function fetchDomFromTab(
         formFields: Boolean(opts.formFields),
         pendingFields: Boolean(opts.pendingFields),
         blockedFields: Boolean(opts.blockedFields),
+        flaggedFields: Boolean(opts.flaggedFields),
         scopeFields: Boolean(opts.scopeFields),
         scope: Boolean(opts.scope),
-        html: Boolean(opts.html),
       },
       frameId,
     );

@@ -1,7 +1,10 @@
+import { traceFromBackground } from "../background/debug-trace-sink";
 import { sendTabMessage } from "../tab-messaging";
 import { MSG, type PageProbe } from "../types";
 
+import { networkQuietFor } from "./network-activity";
 import {
+  RUN_NETWORK_QUIET_MS,
   RUN_SETTLE_MAX_MS,
   RUN_SETTLE_MIN_MS,
   RUN_SETTLE_POLL_MS,
@@ -125,9 +128,10 @@ const sameProbe = (a: PageProbe, b: PageProbe) =>
 
 /**
  * Wait until a page that just loaded is done rendering: its document (the main one
- * unless a frame is named) answers
- * and its address, fields, controls, and text stay the same for a quiet spell. An
- * app that draws itself after the load (most job sites) is read only once drawn.
+ * unless a frame is named) answers, its address, fields, controls, and text stay
+ * the same for a quiet spell, and it has no request of its own in flight. An app
+ * that draws its shell and then fetches its form (a route change) is still while
+ * it fetches; it is read only once the data came and was drawn.
  */
 export async function waitForPageSettled(
   tabId: number,
@@ -136,6 +140,13 @@ export async function waitForPageSettled(
   const started = Date.now();
   let last: PageProbe | null = null;
   let quietSince = Date.now();
+  let heldByNetwork = false;
+  const done = (settled: boolean) =>
+    traceFromBackground(
+      "page:settled",
+      () => ({ settled, ms: Date.now() - started, heldByNetwork }),
+      tabId,
+    );
   while (Date.now() - started < RUN_PAGE_SETTLE_MAX_MS) {
     await sleep(RUN_SETTLE_POLL_MS);
     const probe = await probePage(tabId, frameId);
@@ -145,8 +156,16 @@ export async function waitForPageSettled(
       quietSince = Date.now();
       continue;
     }
-    if (Date.now() - quietSince >= RUN_PAGE_QUIET_MS) return;
+    if (Date.now() - quietSince < RUN_PAGE_QUIET_MS) continue;
+    // Still on screen, still fetching: what it fetches is drawn next.
+    if (networkQuietFor(tabId) < RUN_NETWORK_QUIET_MS) {
+      heldByNetwork = true;
+      continue;
+    }
+    done(true);
+    return;
   }
+  done(false);
 }
 
 export type SettleHow = "new-tab" | "navigated" | "changed" | "unchanged";
@@ -226,7 +245,10 @@ export async function settleAfterClick(args: {
     const moved =
       !probe || !baseline || probe.fields !== baseline.fields || probe.url !== baseline.url;
     const refused = Boolean(probe && baseline && probe.refusals > baseline.refusals);
-    const timedOut = elapsed >= RUN_SETTLE_UNCHANGED_MS;
+    // A page that has not changed yet but is still talking to its server is working
+    // on the click (saving, sending the step): it is not "unchanged" until it is quiet.
+    const timedOut =
+      elapsed >= RUN_SETTLE_UNCHANGED_MS && networkQuietFor(tabId) >= RUN_NETWORK_QUIET_MS;
     if (!moved && !refused && !timedOut) continue;
     const snapshot = await snapshotPage(tabId, { form: true, frameId: args.frameId });
     if (snapshot.signature !== before.signature) {

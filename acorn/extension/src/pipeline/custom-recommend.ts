@@ -7,6 +7,7 @@ export async function runCustomRecommend(args: {
   tabId: number;
   apiUrl: string;
   continue?: boolean;
+  onStages?: (stages: Record<string, number>) => void;
 }): Promise<void> {
   const { tabId, apiUrl } = args;
   await runResumeRecommend({
@@ -14,6 +15,7 @@ export async function runCustomRecommend(args: {
     apiUrl,
     tabId,
     continue: Boolean(args.continue),
+    onStages: args.onStages,
     loadJd: () => readRememberedTabPosting(tabId),
     store: {
       patch: async (partial) => {

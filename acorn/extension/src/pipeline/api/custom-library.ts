@@ -2,6 +2,7 @@ import { readRecommendedTop, type RecommendedResumeRank } from "@acorn/shared/re
 
 import { authHeaders, getAcornApiUrl } from "../../auth/acorn-auth";
 
+import { cachedFileGet } from "./file-cache";
 import { extractError, isNestMissingRoute, readId } from "./http";
 
 import type { RuntimeAttachedFile } from "@acorn/shared/plan-runner/types";
@@ -17,6 +18,8 @@ export type CustomLibraryRecommendResult = {
   /** Best-ranked Library résumés, most probable first. */
   recommendedTop: RecommendedResumeRank[];
   warning: string | null;
+  /** Milliseconds the server spent on each stage of this recommend, for the run log. */
+  serverTimings: Record<string, number>;
 };
 
 export async function recommendCustomLibrary(
@@ -42,6 +45,7 @@ export async function recommendCustomLibrary(
     recommendedResumeReason?: unknown;
     recommendedTop?: unknown;
     warning?: unknown;
+    timings?: unknown;
     error?: string;
     message?: string;
   };
@@ -62,7 +66,17 @@ export async function recommendCustomLibrary(
     recommendedResumeReason: String(data.recommendedResumeReason || "").trim() || null,
     recommendedTop: readRecommendedTop(data.recommendedTop),
     warning: String(data.warning || "").trim() || null,
+    serverTimings: readTimings(data.timings),
   };
+}
+
+function readTimings(value: unknown): Record<string, number> {
+  if (!value || typeof value !== "object") return {};
+  return Object.fromEntries(
+    Object.entries(value).filter(
+      (entry): entry is [string, number] => typeof entry[1] === "number",
+    ),
+  );
 }
 
 export async function fetchCustomLibraryResume(
@@ -72,16 +86,15 @@ export async function fetchCustomLibraryResume(
   const id = String(resumeId || "").trim();
   if (!id) return null;
   const base = (_apiUrl || (await getAcornApiUrl())).replace(/\/$/, "");
-  const res = await fetch(`${base}/acorn/custom/library-resumes/${encodeURIComponent(id)}`, {
-    headers: await authHeaders(),
-  });
-  const data = (await res.json().catch(() => ({}))) as {
+  // Through the file cache: an unchanged file costs a bodiless 304, not a download.
+  const res = await cachedFileGet<{
     file?: RuntimeAttachedFile;
     resumeId?: string | null;
     stack?: string | null;
     error?: string;
     message?: string;
-  };
+  }>(`${base}/acorn/custom/library-resumes/${encodeURIComponent(id)}`, await authHeaders());
+  const data = res.data;
   if (isNestMissingRoute(res.status, data)) {
     throw new Error(CUSTOM_LIBRARY_FILE_UNAVAILABLE);
   }

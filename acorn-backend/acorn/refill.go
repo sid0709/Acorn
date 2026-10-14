@@ -58,7 +58,7 @@ func (s *Service) Refill(ctx context.Context, applicant, pureTree string, scan F
 	}
 
 	plan = s.fillPasswords(s.finishPlan(ctx, plan, applicant, page, issueNotes(scan)), passwordIssues(scan))
-	return AnalyzeResult{OK: true, Plan: plan, Model: s.model.Model(), Mode: ModeRefill}, nil
+	return AnalyzeResult{OK: true, Plan: plan, Model: s.model.Model(), Mode: ModeRefill, RefillPlanner: RefillPlannerConversation}, nil
 }
 
 // passwordIssues are the flagged fields the page reports as password boxes.

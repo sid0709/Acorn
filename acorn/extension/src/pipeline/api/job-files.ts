@@ -2,6 +2,7 @@ import { readStoredJobDescription } from "@acorn/shared/job-description";
 
 import { authHeaders, getAcornApiUrl } from "../../auth/acorn-auth";
 
+import { cachedFileGet } from "./file-cache";
 import { extractError, isNestMissingRoute } from "./http";
 
 import type { RuntimeAttachedFile } from "@acorn/shared/plan-runner/types";
@@ -31,17 +32,16 @@ export async function fetchRecommendedResume(
   const id = String(jobId || "").trim();
   if (!id) return null;
   const base = (_apiUrl || (await getAcornApiUrl())).replace(/\/$/, "");
-  const res = await fetch(`${base}/acorn/jobs/${encodeURIComponent(id)}/recommended-resume`, {
-    headers: await authHeaders(),
-  });
-  const data = (await res.json().catch(() => ({}))) as {
+  // Through the file cache: an unchanged file costs a bodiless 304, not a download.
+  const res = await cachedFileGet<{
     file?: RuntimeAttachedFile;
     jobId?: string | null;
     resumeId?: string | null;
     stack?: string | null;
     error?: string;
     message?: string;
-  };
+  }>(`${base}/acorn/jobs/${encodeURIComponent(id)}/recommended-resume`, await authHeaders());
+  const data = res.data;
   if (!res.ok) {
     throw new Error(extractError(data, `Resume file failed: ${res.status}`));
   }

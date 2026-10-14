@@ -293,11 +293,18 @@ func (s *Service) SetPrimary(accountID, id string) (LibraryRow, error) {
 // LibraryFile is the file of the row's stack in its preferred format, with the
 // stack's other formats alongside.
 func (s *Service) LibraryFile(accountID, id string) (FilePayload, error) {
-	row, ok := s.store.libraryItem(accountID, id)
+	file, _, err := s.LibraryFileVersioned(accountID, id)
+	return file, err
+}
+
+// LibraryFileVersioned is LibraryFile and the tag of the versions it holds.
+func (s *Service) LibraryFileVersioned(accountID, id string) (FilePayload, string, error) {
+	row, _, ok := s.store.libraryFileRow(accountID, id)
 	if !ok || len(row.Bytes) == 0 {
-		return FilePayload{}, ErrNotFound
+		return FilePayload{}, "", ErrNotFound
 	}
-	return stackPayload(fileKeyFor(rowKind(row)), s.stackOf(accountID, row)), nil
+	rows, tag := s.stackWithVersion(accountID, row)
+	return stackPayload(fileKeyFor(rowKind(row)), rows), tag, nil
 }
 
 // File keys the extension's plan steps name; each kind attaches through its own.
@@ -350,22 +357,29 @@ func (s *Service) DeleteAccount(ctx context.Context, accountID string) error {
 }
 
 func (s *Service) JobResume(accountID, jobID string) (FilePayload, string, string, error) {
+	file, resumeID, stack, _, err := s.JobResumeVersioned(accountID, jobID)
+	return file, resumeID, stack, err
+}
+
+// JobResumeVersioned is JobResume and the tag of the library versions it holds;
+// the tag is empty for a generated résumé, which has no Library version.
+func (s *Service) JobResumeVersioned(accountID, jobID string) (FilePayload, string, string, string, error) {
 	ref := s.store.jobFile(accountID, jobID)
 	if ref == "" {
-		return FilePayload{}, "", "", ErrNotFound
+		return FilePayload{}, "", "", "", ErrNotFound
 	}
 	if row, ok := s.store.libraryItem(accountID, ref); ok {
-		file, err := s.LibraryFile(accountID, row.ID)
+		file, tag, err := s.LibraryFileVersioned(accountID, row.ID)
 		file.Key = "recommended_resume"
 		file.JobID = jobID
-		return file, row.ID, row.Title, err
+		return file, row.ID, row.Title, tag, err
 	}
 	if gen, ok := s.store.generation(accountID, ref); ok {
 		file, err := s.GeneratedFile(accountID, gen.ID)
 		file.JobID = jobID
-		return file, gen.ResumeID, gen.TechStack, err
+		return file, gen.ResumeID, gen.TechStack, "", err
 	}
-	return FilePayload{}, "", "", ErrNotFound
+	return FilePayload{}, "", "", "", ErrNotFound
 }
 
 func (s *Service) JobPreview(accountID, jobID string) (string, error) {

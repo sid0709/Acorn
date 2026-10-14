@@ -39,6 +39,8 @@ export async function postDebug(path: string, body: unknown, tabId?: number): Pr
       method: "POST",
       headers: await authHeaders(tabId),
       body: JSON.stringify(body),
+      // Capture yields to the run's own requests on a busy connection.
+      priority: "low",
     });
     if (!res.ok) report(`${base}|${res.status}`, refusal(base, res.status));
   } catch (err) {

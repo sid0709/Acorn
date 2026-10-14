@@ -8,6 +8,7 @@ export async function runJobRecommend(args: {
   tabId?: number | null;
   apiUrl: string;
   continue?: boolean;
+  onStages?: (stages: Record<string, number>) => void;
   storedJd?: string | null;
 }): Promise<void> {
   const { jobId, apiUrl } = args;
@@ -19,6 +20,7 @@ export async function runJobRecommend(args: {
     apiUrl,
     tabId: args.tabId,
     continue: Boolean(args.continue),
+    onStages: args.onStages,
     loadJd: () =>
       loadFillJobJd({
         jobId,

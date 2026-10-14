@@ -22,6 +22,8 @@ type Store struct {
 	jobs        map[string]string // accountID+"\x00"+jobID -> resumeID or generationID
 	db          *mongo.Database
 	candidates  candidateCache
+	// files keeps Library files read from Mongo, so a file is not read again for every request.
+	files fileCache
 	// reads keeps recent per-account list and config reads from Mongo.
 	reads accountReads
 }
@@ -294,6 +296,7 @@ func (s *Store) putLibrary(row LibraryRow) error {
 	s.mu.Lock()
 	s.library[row.ID] = row
 	s.mu.Unlock()
+	s.files.forget(row.AccountID, row.ID)
 	s.forgetCandidates(row.AccountID)
 	if s.db == nil {
 		return nil
@@ -316,14 +319,8 @@ func (s *Store) libraryItem(accountID, id string) (LibraryRow, bool) {
 		}
 		return LibraryRow{}, false
 	}
-	var found LibraryRow
-	if err := s.db.Collection(libraryCollection).FindOne(context.Background(), bson.D{{Key: "id", Value: id}, {Key: "accountId", Value: accountID}}).Decode(&found); err != nil {
-		return LibraryRow{}, false
-	}
-	s.mu.Lock()
-	s.library[found.ID] = found
-	s.mu.Unlock()
-	return found, true
+	row, _, ok := s.libraryFileRow(accountID, id)
+	return row, ok
 }
 
 func (s *Store) hasLibrary(accountID string) bool {
@@ -392,6 +389,7 @@ func loadAccount[T any](s *Store, collection, accountID, omit string) ([]T, bool
 
 func (s *Store) deleteLibrary(accountID, id string) bool {
 	s.forgetCandidates(accountID)
+	s.files.forget(accountID, id)
 	s.mu.Lock()
 	row, ok := s.library[id]
 	if ok && row.AccountID == accountID {
@@ -447,6 +445,7 @@ func (s *Store) jobFile(accountID, jobID string) string {
 // DeleteAccount removes every résumé record this account owns.
 func (s *Store) DeleteAccount(ctx context.Context, accountID string) error {
 	s.forgetCandidates(accountID)
+	s.files.forgetAccount(accountID)
 	defer s.reads.forgetAccount(accountID)
 	s.mu.Lock()
 	delete(s.configs, accountID)

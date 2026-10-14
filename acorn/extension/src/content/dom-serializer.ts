@@ -333,6 +333,10 @@ function serializeNode(el: Element, depth: number): DomNode[] {
   // A password never reaches the tree: the planner only learns the box is filled.
   if (attrs["value"] && isSecretControl(el)) attrs["value"] = HIDDEN_VALUE;
   if (delegate || isClickable(el)) markLayers(el, attrs, delegate);
+  // Whatever a person cannot see is marked, so the page's readable text leaves it out
+  // (a dialog kept in the page until it is needed): the model must not read a panel
+  // that is not on screen as the page's state.
+  else if (!postingPass && !isRendered(el)) attrs[LAYER_ATTR.hidden] = "true";
 
   const text = getDirectText(el, postingPass ? POSTING_MAX_TEXT : MAX_TEXT);
 

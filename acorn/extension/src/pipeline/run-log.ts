@@ -1,5 +1,4 @@
 import { authHeaders, getAcornApiUrl } from "../auth/acorn-auth";
-import { captureDebugHtml } from "../background/debug-html";
 import { traceFromBackground } from "../background/debug-trace-sink";
 
 import { RUN_LOG_BATCH_MAX, RUN_LOG_FLUSH_MS } from "./run-limits";
@@ -29,8 +28,13 @@ export class RunLog {
 
   constructor(
     readonly runId: string,
-    private readonly tabId: number,
+    private tabId: number,
   ) {}
+
+  /** The run went on in another tab: its events are that tab's from now on. */
+  moveTo(tabId: number): void {
+    this.tabId = tabId;
+  }
 
   event(event: string, data?: Record<string, unknown>): void {
     console.info("[acorn:run]", this.runId, `#${this.step}`, event, data ?? "");
@@ -45,12 +49,6 @@ export class RunLog {
       return;
     }
     this.timer ??= setTimeout(() => void this.flush(), RUN_LOG_FLUSH_MS);
-  }
-
-  /** The page's HTML (and that of the frame the run reads) for a moment the run stands still. */
-  screenshot(label: string, frameId?: number | null): Promise<void> {
-    void captureDebugHtml(this.tabId, label, frameId);
-    return Promise.resolve();
   }
 
   /** Send what is queued and wait for it. Called when the run ends. */
@@ -70,6 +68,8 @@ export class RunLog {
         method: "POST",
         headers: await authHeaders(this.tabId),
         body: JSON.stringify({ runId: this.runId, events }),
+        // The log yields to the run's own requests on a busy connection.
+        priority: "low",
       });
     } catch {
       // The log is best effort; a lost batch never stops a run.

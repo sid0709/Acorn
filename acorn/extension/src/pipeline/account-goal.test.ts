@@ -11,6 +11,8 @@ import {
   IDENTIFIED,
   emptyAccountEvidence,
   identifiedBy,
+  isGuestPath,
+  needsAccountPassword,
   nextAccountGoal,
   triedGoals,
   withOffers,
@@ -200,5 +202,33 @@ describe("account evidence", () => {
       triedGoals([sent(signIn, false), sent(createAccount, true), sent(signIn, false)]),
       [signIn, createAccount],
     );
+  });
+});
+
+describe("isGuestPath", () => {
+  it("is no way around the account when it is the page's own forward control", () => {
+    // An email-first step: the read named its Next as both the forward and the guest control.
+    assert.equal(isGuestPath({ guestControl: 75, forwardControl: 75, pageFields: 1 }), false);
+  });
+
+  it("is a way around the account when it is a control of its own", () => {
+    assert.equal(isGuestPath({ guestControl: 12, forwardControl: 75, pageFields: 2 }), true);
+    assert.equal(isGuestPath({ guestControl: 12, forwardControl: null, pageFields: 2 }), true);
+  });
+
+  it("is a way around the account on a page with nothing to fill", () => {
+    assert.equal(isGuestPath({ guestControl: 75, forwardControl: 75, pageFields: 0 }), true);
+  });
+});
+
+describe("needsAccountPassword", () => {
+  it("sends an email-first step without a password", () => {
+    assert.equal(needsAccountPassword(identify), false);
+  });
+
+  it("needs the password for every other account step", () => {
+    for (const mode of [signIn, createAccount, resetPassword, choose]) {
+      assert.equal(needsAccountPassword(mode), true);
+    }
   });
 });

@@ -32,10 +32,10 @@ import {
   type Verification,
 } from "@acorn/shared/run-types";
 
-import { getAcornSocket } from "../acorn-socket";
 import { markTabUsage, usageSince, type UsageMark } from "../background/tab-usage-store";
 import { rekeyCustomTab } from "../tab-custom-session";
 import { getTabJob, rekeyTabJob } from "../tab-job-session";
+import { moveTabLog } from "../tab-log-session";
 import { sendTabMessage } from "../tab-messaging";
 import { MSG, type ScopeState } from "../types";
 
@@ -43,6 +43,8 @@ import {
   emptyAccountEvidence,
   fillsAccountForm,
   identifiedBy,
+  isGuestPath,
+  needsAccountPassword,
   nextAccountGoal,
   triedGoals,
   withOffers,
@@ -59,6 +61,8 @@ import {
 } from "./api/run";
 import { repairDriftInTab } from "./drift";
 import { fetchDomFromTab } from "./fetch-dom";
+import { prefetchFillResume } from "./fill-resume";
+import { watchNetwork } from "./network-activity";
 import { RESUME_NOT_CHOSEN, type ResumeGate } from "./resume-gate";
 import {
   clearRunCheckpoint,
@@ -85,6 +89,7 @@ import {
   RUN_ACCOUNT_MESSAGES_MAX,
   RUN_MAIL_MAX_FAILED_LOOKS,
   RUN_MAIL_POLL_MS,
+  RUN_MAIL_REREAD_MS,
   RUN_MAIL_WAIT_MAX_MS,
   RUN_MAX_ACCOUNT_ATTEMPTS,
   RUN_MAX_AI_CALLS,
@@ -115,6 +120,7 @@ import { NO_RESUME_FILE, runFabPipeline } from "./run-pipeline";
 import { ProgressLedger, pageNeeds } from "./run-progress";
 import { ensureRecommendedResume } from "./run-resume";
 import { addressOf, isNewStep } from "./run-step";
+import { successorTab } from "./run-tabs";
 
 import type { PageControl } from "@acorn/shared/page-controls";
 import type { PipelineProgress } from "@acorn/shared/pipeline-types";
@@ -259,6 +265,12 @@ class RunStop extends Error {
   }
 }
 
+/**
+ * The run's tab was swapped or closed mid-step and the run went on in another one:
+ * whatever was in flight on the old tab is dropped, and the new tab is read afresh.
+ */
+class TabMoved extends Error {}
+
 /** Fields a stuck page still shows blank or off, as evidence lines (labels only, never values). */
 async function unansweredNotes(tabId: number, frameId: number | null): Promise<string[]> {
   const dom = await fetchDomFromTab(tabId, frameId, {
@@ -333,6 +345,13 @@ function accountExhausted(attempts: readonly AccountAttempt[]): string {
     tried.length > 1 ? `${tried.slice(0, -1).join(", ")} and ${tried.at(-1)}` : (tried[0] ?? "");
   return listed ? `Tried ${listed}; the site refused each` : "The site refused every account step";
 }
+/** The run's tab closed under it, and it opened no other the run could go on in. */
+const TAB_CLOSED = "The tab the application was in closed";
+const TAB_CLOSED_FAILURE: Omit<RunFailure, "stage"> = {
+  reason: RUN_FAILURE_REASON.tabClosed,
+  label: TAB_CLOSED,
+  detail: TAB_CLOSED,
+};
 /** The person pressed Stop. */
 const STOPPED_BY_YOU = "You stopped the run";
 const STOPPED_FAILURE: Omit<RunFailure, "stage"> = {
@@ -515,9 +534,22 @@ export async function runOrchestrator(args: RunOrchestratorArgs): Promise<RunRep
     else signal?.addEventListener("abort", fail, { once: true });
   });
   stopped.catch(() => undefined);
-  const until = <T>(work: Promise<T>): Promise<T> => Promise.race([work, stopped]);
+  // The run's tab closing or being swapped under it ends what was in flight there too.
+  let interrupt: (err: Error) => void = () => undefined;
+  let interrupted!: Promise<never>;
+  const armInterrupt = () => {
+    interrupted = new Promise<never>((_, reject) => {
+      interrupt = reject;
+    });
+    interrupted.catch(() => undefined);
+  };
+  armInterrupt();
+  /** The tab closed with nowhere to go on: the run stops on this. */
+  let tabGone: RunStop | null = null;
+  const until = <T>(work: Promise<T>): Promise<T> => Promise.race([work, stopped, interrupted]);
   const checkStop = () => {
     if (signal?.aborted) throw stoppedStop();
+    if (tabGone) throw tabGone;
   };
 
   const snap = (opts: Parameters<typeof snapshotPage>[1]) =>
@@ -527,6 +559,9 @@ export async function runOrchestrator(args: RunOrchestratorArgs): Promise<RunRep
     recommending = clock.time("recommend", () =>
       ensureRecommendedResume({ tabId, url, title, apiUrl, log }),
     );
+    // The chosen file loads while the run clicks Apply and the form draws.
+    const on = tabId;
+    void recommending.then(() => prefetchFillResume(on, apiUrl)).catch(() => undefined);
   };
   /** Wait for the recommend before the run touches the page or moves tabs. */
   const settleRecommend = async () => {
@@ -578,7 +613,13 @@ export async function runOrchestrator(args: RunOrchestratorArgs): Promise<RunRep
     },
     (event, data) => log.event(event, data),
   );
-  await dialogs.add(tabId);
+  // The same debugger session says when a page is still fetching what it will draw.
+  const network = watchNetwork((event, data) => log.event(event, data));
+  const watchTab = async (id: number) => {
+    await dialogs.add(id);
+    await network.add(id);
+  };
+  await watchTab(tabId);
 
   const adoptTab = async (next: number) => {
     if (next === tabId) return;
@@ -586,13 +627,75 @@ export async function runOrchestrator(args: RunOrchestratorArgs): Promise<RunRep
     await rekeyTabJob(tabId, next);
     await rekeyCustomTab(tabId, next);
     tabId = next;
+    log.moveTo(next);
     // A tab the run worked in before (the application, back from a detour) is already watched.
     if (tabs.includes(next)) return;
-    await dialogs.add(next);
+    await watchTab(next);
     tabs.push(next);
     usageMarks.push(markTabUsage(next).catch(() => null));
     args.claimTab(next);
   };
+
+  /** Tabs the run closes itself: their removal is no surprise. */
+  const closing = new Set<number>();
+  const dropTab = (id: number) => {
+    const at = tabs.indexOf(id);
+    if (at >= 0) tabs.splice(at, 1);
+  };
+
+  /**
+   * A click opened the application in a new tab and the run went on there: that tab
+   * comes to the front when the one it left was in front, and the tab it left closes,
+   * its log moved along. A requirement's detour keeps its tab: the run comes back to it.
+   */
+  const leaveTab = async (left: number) => {
+    if (left === tabId) return;
+    const old = await chrome.tabs.get(left).catch(() => null);
+    if (!old) return;
+    if (old.active) await chrome.tabs.update(tabId, { active: true }).catch(() => undefined);
+    await moveTabLog(left, tabId).catch(() => undefined);
+    closing.add(left);
+    dropTab(left);
+    await chrome.tabs.remove(left).catch(() => closing.delete(left));
+    log.event("tab:left", { from: left, to: tabId });
+  };
+
+  /** The run's tab went away under it: go on in `next`, read afresh, or stop with none. */
+  const followTab = async (gone: number, next: number | null) => {
+    if (gone !== tabId) {
+      dropTab(gone);
+      return;
+    }
+    if (next == null) {
+      log.event("tab:lost", { tabId: gone });
+      tabGone = new RunStop(stage, snapshot, [TAB_CLOSED], undefined, TAB_CLOSED_FAILURE);
+      interrupt(tabGone);
+      return;
+    }
+    await adoptTab(next);
+    dropTab(gone);
+    log.event("tab:followed", { from: gone, to: next });
+    interrupt(new TabMoved());
+  };
+  // Chrome swapped the tab for another (a page it had ready took its place).
+  const onTabReplaced = (added: number, removed: number) => {
+    if (removed !== tabId) {
+      const at = tabs.indexOf(removed);
+      if (at >= 0) tabs[at] = added;
+      return;
+    }
+    void followTab(removed, added);
+  };
+  // The site closed the tab (it sent the application on in another one, or gave up).
+  const onTabRemoved = (removed: number) => {
+    if (closing.delete(removed)) return;
+    void chrome.tabs
+      .query({})
+      .catch(() => [])
+      .then((open) => followTab(removed, successorTab(removed, open, tabs)));
+  };
+  chrome.tabs.onReplaced.addListener(onTabReplaced);
+  chrome.tabs.onRemoved.addListener(onTabRemoved);
 
   /** Fill or Refill the page through the existing pipeline; its end is not the run's end. */
   /** Stop when the run has spent its AI budget: fills of this step, or model calls overall. */
@@ -642,9 +745,10 @@ export async function runOrchestrator(args: RunOrchestratorArgs): Promise<RunRep
         requireResume: true,
         pendingOnly: opts.pendingOnly,
         scoped: opts.scoped,
+        // The run reads the page itself right after; a refill does not scan it again.
+        rescan: false,
         verificationCode: opts.verificationCode,
         signal,
-        emitDomTree: (payload) => getAcornSocket()?.emit("dom:tree", payload),
         onProgress: (inner) => {
           // A fill cut short by Stop must not overwrite the stopped status.
           if (signal?.aborted) return;
@@ -666,7 +770,6 @@ export async function runOrchestrator(args: RunOrchestratorArgs): Promise<RunRep
       costUsd: last?.usage?.costUsd,
       phases: last?.phases,
     });
-    await log.screenshot(fillShot);
     clock.add(mode === FILL_MODE.refill ? "refill" : "fill", Date.now() - started);
     // The fill stopped before anything else for want of a résumé file.
     const resumeMissing = failed && last?.message === NO_RESUME_FILE;
@@ -852,9 +955,11 @@ export async function runOrchestrator(args: RunOrchestratorArgs): Promise<RunRep
     on: PageSnapshot,
     picked: NonNullable<Awaited<ReturnType<typeof read>>["control"]>,
     label: string,
-    opts: { census?: boolean } = {},
+    /** keepTab: a requirement's detour, which comes back to the tab it leaves. */
+    opts: { census?: boolean; keepTab?: boolean } = {},
   ): Promise<ClickOutcome> => {
     control = label;
+    const from = tabId;
     const started = Date.now();
     lastClickAt = started;
     checkStop();
@@ -873,7 +978,14 @@ export async function runOrchestrator(args: RunOrchestratorArgs): Promise<RunRep
     try {
       checkStop();
       const result = await until(clickControl(tabId, on.frameId, picked.id));
-      log.event("click", { role: picked.role, text: label, ok: result.ok, error: result.error });
+      // The address the click started from: with the trace, it is the run's record of the page.
+      log.event("click", {
+        role: picked.role,
+        text: label,
+        url: logUrl(on.url),
+        ok: result.ok,
+        error: result.error,
+      });
       if (result.ok) {
         lastClicked = { text: label, role: picked.role, at: Date.now() };
         workedSinceLook = true;
@@ -894,6 +1006,7 @@ export async function runOrchestrator(args: RunOrchestratorArgs): Promise<RunRep
       );
       log.event("settled", { how: settled.how, url: logUrl(settled.snapshot.url) });
       await adoptTab(settled.tabId);
+      if (settled.how === "new-tab" && !opts.keepTab) await leaveTab(from);
       return { settled };
     } finally {
       watcher.stop();
@@ -1162,12 +1275,16 @@ export async function runOrchestrator(args: RunOrchestratorArgs): Promise<RunRep
    * fails to reach Gmail is tried again, up to RUN_MAIL_MAX_FAILED_LOOKS in a row.
    * Null when no Gmail is connected (the applicant does the step themselves).
    */
-  const findInMail = async (kind: Verification, page: PageSnapshot): Promise<string | null> => {
+  const findInMail = async (
+    kind: Verification,
+    page: PageSnapshot,
+  ): Promise<string | null | { moved: PageSnapshot }> => {
     const wanted = kind === VERIFICATION.emailCode ? "code" : "link";
     let seen = "";
     let judgedNone = false;
     let failedLooks = 0;
     const started = Date.now();
+    let lastPageLook = started;
     const say = () => {
       const waited = Math.round((Date.now() - started) / 1000);
       enter(
@@ -1235,6 +1352,17 @@ export async function runOrchestrator(args: RunOrchestratorArgs): Promise<RunRep
         );
       }
       await until(sleep(RUN_MAIL_POLL_MS));
+      // The email has not come: is the page still asking for it? A page that went on
+      // (or whose read of "asking" was wrong) is read again, never waited on.
+      if (Date.now() - lastPageLook >= RUN_MAIL_REREAD_MS) {
+        lastPageLook = Date.now();
+        const fresh = await snap({ form: true, frameId: page.frameId });
+        const again = await read(READ_INTENT.advance, fresh);
+        if (again.verification !== kind) {
+          log.event("mail:not-asked", { kind, now: again.verification });
+          return { moved: fresh };
+        }
+      }
     }
   };
 
@@ -1270,6 +1398,7 @@ export async function runOrchestrator(args: RunOrchestratorArgs): Promise<RunRep
     }
     const value = await findInMail(kind, page);
     if (value == null) return "wait";
+    if (typeof value === "object") return { pending: { snapshot: value.moved, how: "changed" } };
     mailVerifications += 1;
 
     if (kind === VERIFICATION.emailLink) {
@@ -1635,7 +1764,7 @@ export async function runOrchestrator(args: RunOrchestratorArgs): Promise<RunRep
       label,
     });
     const from = { tabId, url: page.url };
-    const clicked = await click(page, target.control, label, { census: true });
+    const clicked = await click(page, target.control, label, { census: true, keepTab: true });
     if (!clicked.settled) {
       // Never landed: the page is read again, and the requirement is still open.
       state.resolved.delete(target.key);
@@ -1678,12 +1807,21 @@ export async function runOrchestrator(args: RunOrchestratorArgs): Promise<RunRep
    * the guest path's own form is moved on by the forward pick, not by taking the
    * guest control again.
    */
-  const guestOf = (r: Awaited<ReturnType<typeof read>>, url: string) => {
+  const guestOf = (r: Awaited<ReturnType<typeof read>>, page: PageSnapshot) => {
     if (r.kind !== PAGE_KIND.accountStep || !r.guest || !r.guestControl || !r.guestPicked) {
       return null;
     }
-    const site = evidenceOf(url);
-    if (site.guestTaken || site.opened || siteAttempts(url).length > 0) return null;
+    const guest = {
+      guestControl: r.guestControl.id,
+      forwardControl: r.control?.id ?? null,
+      pageFields: page.fields,
+    };
+    if (!isGuestPath(guest)) {
+      log.event("guest:own-form", guest);
+      return null;
+    }
+    const site = evidenceOf(page.url);
+    if (site.guestTaken || site.opened || siteAttempts(page.url).length > 0) return null;
     return { control: r.guestControl, picked: r.guestPicked, fallback: false };
   };
 
@@ -1746,6 +1884,9 @@ export async function runOrchestrator(args: RunOrchestratorArgs): Promise<RunRep
   });
 
   const finish = async (result: RunReport): Promise<RunReport> => {
+    chrome.tabs.onReplaced.removeListener(onTabReplaced);
+    chrome.tabs.onRemoved.removeListener(onTabRemoved);
+    network.stop();
     await dialogs.stop();
     const failed = result.outcome === RUN_OUTCOME.failed;
     const halted = result.outcome === RUN_OUTCOME.stopped;
@@ -1764,7 +1905,6 @@ export async function runOrchestrator(args: RunOrchestratorArgs): Promise<RunRep
       calls: usage?.calls,
       costUsd: usage?.costUsd,
     });
-    await log.screenshot("run:end");
     const cost = usage ? ` · ${formatUsd(usage.costUsd)}` : "";
     const message = halted
       ? `Stopped by you · ${seconds}s${cost}`
@@ -1800,432 +1940,465 @@ export async function runOrchestrator(args: RunOrchestratorArgs): Promise<RunRep
   log.event("run:start", { tabId, maxRefills: RUN_MAX_REFILLS_PER_PAGE, maxSteps: RUN_MAX_STEPS });
   progress("Starting…", "fetching");
 
-  try {
-    /** The page a click just produced, how that click settled, and what it did. */
-    let pending: Pending | null = null;
+  /** The page a click just produced, how that click settled, and what it did. */
+  let pending: Pending | null = null;
+  for (;;) {
+    try {
+      while (log.step < RUN_MAX_STEPS) {
+        checkStop();
+        log.step += 1;
+        await checkBudget(snapshot);
 
-    while (log.step < RUN_MAX_STEPS) {
-      checkStop();
-      log.step += 1;
-      await checkBudget(snapshot);
-
-      // 1. Look at the page: the one a click just produced, or a fresh read.
-      let page: PageSnapshot;
-      let settled: SettleHow | null = null;
-      let clickedRole: ControlRole | null = null;
-      if (pending) {
-        page = pending.snapshot;
-        settled = pending.how;
-        clickedRole = pending.role ?? null;
-        pending = null;
-      } else {
-        enter(RUN_STAGE.reading);
-        page = await snap({
-          form: current?.filled === true,
-          frameId: snapshot?.frameId,
-        });
-      }
-      snapshot = page;
-      // A page caught between documents (mid-navigation, still drawing) shows
-      // nothing yet: give it the same patience as a page that is still loading.
-      const blankSince = Date.now();
-      for (let look = 1; isBlankPage(page); look += 1) {
-        if (!(await keepWaiting(look, blankSince, page))) break;
-        log.event("read:blank", { look });
-        await until(sleep(RUN_UNCLEAR_WAIT_MS));
-        await until(waitForPageSettled(tabId));
-        page = await snap({ form: current?.filled === true, frameId: page.frameId });
-        snapshot = page;
-      }
-
-      const moved = isNewStep({ previous: current, page, settled, role: clickedRole });
-      if (!moved && current) {
-        current.signature = page.signature;
-        current.url = page.url;
-      }
-      if (moved) {
-        pageAccountMode = null;
-        pageOffers = null;
-        pageCount += 1;
-        if (pageCount > RUN_MAX_PAGES) {
-          throw new RunStop(stage, page, [
-            `The run went through ${RUN_MAX_PAGES} pages without finishing`,
-          ]);
+        // 1. Look at the page: the one a click just produced, or a fresh read.
+        let page: PageSnapshot;
+        let settled: SettleHow | null = null;
+        let clickedRole: ControlRole | null = null;
+        if (pending) {
+          page = pending.snapshot;
+          settled = pending.how;
+          clickedRole = pending.role ?? null;
+          pending = null;
+        } else {
+          enter(RUN_STAGE.reading);
+          page = await snap({
+            form: current?.filled === true,
+            frameId: snapshot?.frameId,
+          });
         }
-        current = {
-          signature: page.signature,
-          url: page.url,
-          filled: false,
-          clicks: 0,
-          refills: 0,
-          noEffect: 0,
-          scanBeforeClick: null,
-          scanBeforeFill: null,
-          turns: [],
-          fillStartedAt: 0,
-          retryClick: false,
-          blockedPasses: 0,
-          fills: 0,
-          verified: false,
-          emailChosen: false,
-          landedAt: 0,
-          busyWaits: 0,
-          alertPasses: 0,
-          resolves: 0,
-          resolved: new Set(),
-        };
-        refillsOnPage = 0;
-        // A new step at the same address (a single-page application) needs what it needs.
-        progressLedger.forget(addressOf(page.url));
-        log.event("page", { page: pageCount, url: logUrl(page.url), flagged: page.flagged });
-        await log.screenshot("page", page.frameId);
-        enterNewPage(page, current);
-      }
-      const state = current as PageState;
-      const retrying = state.retryClick;
-      state.retryClick = false;
-      // An account step the site refused is answered by another account step, not a refill.
-      const accountRefused = await settleAccount(moved, page);
-      // A refused account step on the same page: read it again, so the next goal
-      // decides whether its form is filled (never a refill of a refused password).
-      if (accountRefused && !moved) state.filled = false;
-      if (mailExpected) {
-        mailExpected = false;
-        pending = await linkOrWait(followMail(VERIFICATION.emailLink, page, state), page);
-        continue;
-      }
+        snapshot = page;
+        // A page caught between documents (mid-navigation, still drawing) shows
+        // nothing yet: give it the same patience as a page that is still loading.
+        const blankSince = Date.now();
+        for (let look = 1; isBlankPage(page); look += 1) {
+          if (!(await keepWaiting(look, blankSince, page))) break;
+          log.event("read:blank", { look });
+          await until(sleep(RUN_UNCLEAR_WAIT_MS));
+          await until(waitForPageSettled(tabId));
+          page = await snap({ form: current?.filled === true, frameId: page.frameId });
+          snapshot = page;
+        }
 
-      // 2. The same page after a click: the page rejected the answers, or nothing happened.
-      if (!moved && state.clicks > 0 && !retrying && !accountRefused) {
-        // Only what the click flagged: a hint the page always shows is no rejection.
-        const flagged = countFlaggedSince(state.scanBeforeClick, page.scan);
-        const missing = countRequiredEmpty(page.scan);
-        // A page with no ARIA rejects an answer in plain copy beside the field.
-        const noted = countNotedSince(state.scanBeforeFill ?? state.scanBeforeClick, page.scan);
-        log.event("after-click", { flagged, missing, noted, shown: page.flagged });
-        const onlyNoted = flagged === 0 && missing === 0;
-        if (flagged > 0 || missing > 0 || noted > 0) {
-          // The emailed code was typed and the page refused it: a refill has no other
-          // code to give, so it would only spend the run's budget on empty passes.
-          if (state.verified && (flagged > 0 || missing > 0)) {
-            log.event("verify:code-rejected", { flagged, missing });
-            throw verificationNotFound(page, CODE_REJECTED);
-          }
-          if (state.refills >= RUN_MAX_REFILLS_PER_PAGE) {
-            throw new RunStop(RUN_STAGE.refilling, page, [
-              `Still flagged after ${state.refills} refills (limit ${RUN_MAX_REFILLS_PER_PAGE})`,
+        const moved = isNewStep({ previous: current, page, settled, role: clickedRole });
+        if (!moved && current) {
+          current.signature = page.signature;
+          current.url = page.url;
+        }
+        if (moved) {
+          pageAccountMode = null;
+          pageOffers = null;
+          pageCount += 1;
+          if (pageCount > RUN_MAX_PAGES) {
+            throw new RunStop(stage, page, [
+              `The run went through ${RUN_MAX_PAGES} pages without finishing`,
             ]);
           }
-          state.refills += 1;
-          refillsOnPage = state.refills;
-          refillsTotal += 1;
-          enter(
-            RUN_STAGE.refilling,
-            `Refill ${state.refills}/${RUN_MAX_REFILLS_PER_PAGE} · ${flagged + missing + noted} to fix`,
-          );
-          const flaggedScan = page.scan;
-          const refilled = await fill(FILL_MODE.refill, page, { history: state.turns });
-          if (refilled.failed) {
-            throw new RunStop(
+          current = {
+            signature: page.signature,
+            url: page.url,
+            filled: false,
+            clicks: 0,
+            refills: 0,
+            noEffect: 0,
+            scanBeforeClick: null,
+            scanBeforeFill: null,
+            turns: [],
+            fillStartedAt: 0,
+            retryClick: false,
+            blockedPasses: 0,
+            fills: 0,
+            verified: false,
+            emailChosen: false,
+            landedAt: 0,
+            busyWaits: 0,
+            alertPasses: 0,
+            resolves: 0,
+            resolved: new Set(),
+          };
+          refillsOnPage = 0;
+          // A new step at the same address (a single-page application) needs what it needs.
+          progressLedger.forget(addressOf(page.url));
+          log.event("page", { page: pageCount, url: logUrl(page.url), flagged: page.flagged });
+          enterNewPage(page, current);
+        }
+        const state = current as PageState;
+        const retrying = state.retryClick;
+        state.retryClick = false;
+        // An account step the site refused is answered by another account step, not a refill.
+        const accountRefused = await settleAccount(moved, page);
+        // A refused account step on the same page: read it again, so the next goal
+        // decides whether its form is filled (never a refill of a refused password).
+        if (accountRefused && !moved) state.filled = false;
+        if (mailExpected) {
+          mailExpected = false;
+          pending = await linkOrWait(followMail(VERIFICATION.emailLink, page, state), page);
+          continue;
+        }
+
+        // 2. The same page after a click: the page rejected the answers, or nothing happened.
+        if (!moved && state.clicks > 0 && !retrying && !accountRefused) {
+          // Only what the click flagged: a hint the page always shows is no rejection.
+          const flagged = countFlaggedSince(state.scanBeforeClick, page.scan);
+          const missing = countRequiredEmpty(page.scan);
+          // A page with no ARIA rejects an answer in plain copy beside the field.
+          const noted = countNotedSince(state.scanBeforeFill ?? state.scanBeforeClick, page.scan);
+          log.event("after-click", { flagged, missing, noted, shown: page.flagged });
+          const onlyNoted = flagged === 0 && missing === 0;
+          if (flagged > 0 || missing > 0 || noted > 0) {
+            // The emailed code was typed and the page refused it: a refill has no other
+            // code to give, so it would only spend the run's budget on empty passes.
+            if (state.verified && (flagged > 0 || missing > 0)) {
+              log.event("verify:code-rejected", { flagged, missing });
+              throw verificationNotFound(page, CODE_REJECTED);
+            }
+            if (state.refills >= RUN_MAX_REFILLS_PER_PAGE) {
+              throw new RunStop(RUN_STAGE.refilling, page, [
+                `Still flagged after ${state.refills} refills (limit ${RUN_MAX_REFILLS_PER_PAGE})`,
+              ]);
+            }
+            state.refills += 1;
+            refillsOnPage = state.refills;
+            refillsTotal += 1;
+            enter(
               RUN_STAGE.refilling,
-              page,
-              [`Refill failed: ${refilled.error ?? "unknown"}`],
-              refilled.steps,
+              `Refill ${state.refills}/${RUN_MAX_REFILLS_PER_PAGE} · ${flagged + missing + noted} to fix`,
             );
-          }
-          remember(state, FILL_MODE.refill, refilled, flaggedScan);
-          // The planner read the new text and found nothing to fix: it is the page's
-          // copy, not a rejection. Stop asking about it; the click changed nothing.
-          if (onlyNoted && !refilled.steps?.length) {
-            state.scanBeforeFill = flaggedScan;
-            log.event("refill:nothing-to-fix", { noted });
+            const flaggedScan = page.scan;
+            const refilled = await fill(FILL_MODE.refill, page, { history: state.turns });
+            if (refilled.failed) {
+              throw new RunStop(
+                RUN_STAGE.refilling,
+                page,
+                [`Refill failed: ${refilled.error ?? "unknown"}`],
+                refilled.steps,
+              );
+            }
+            remember(state, FILL_MODE.refill, refilled, flaggedScan);
+            // The planner read the new text and found nothing to fix: it is the page's
+            // copy, not a rejection. Stop asking about it; the click changed nothing.
+            if (onlyNoted && !refilled.steps?.length) {
+              state.scanBeforeFill = flaggedScan;
+              log.event("refill:nothing-to-fix", { noted });
+              countNoEffect(state, page);
+            }
+          } else if (
+            newAlerts(state.scanBeforeClick, page.scan) > 0 &&
+            state.alertPasses < RUN_MAX_ALERT_PASSES
+          ) {
+            // The page answered the click with an alert but marked no field. That alert
+            // may say the application went through (a single-page site shows it before
+            // its address changes): read the page first, a moment's decision, before any
+            // pass over the form.
+            const look = await read(READ_INTENT.advance, page);
+            if (look.kind === PAGE_KIND.confirmation || look.alreadyApplied) {
+              log.event("alert:sent", { kind: look.kind, applied: look.alreadyApplied });
+              return await finish(report(RUN_OUTCOME.completed));
+            }
+            // Otherwise it says something is still missing ("the above information is
+            // required"): answer whatever is still blank or unset.
+            state.alertPasses += 1;
+            log.event("alert:pass", { pass: state.alertPasses });
+            enter(RUN_STAGE.filling, "Answering what the page says is still missing…");
+            const completed = await fill(FILL_MODE.fill, page, { pendingOnly: true });
+            if (completed.resumeMissing) {
+              throw noResumeStop(RUN_STAGE.filling, page, completed.error ?? RESUME_NOT_CHOSEN);
+            }
+          } else {
             countNoEffect(state, page);
           }
-        } else if (
-          newAlerts(state.scanBeforeClick, page.scan) > 0 &&
-          state.alertPasses < RUN_MAX_ALERT_PASSES
-        ) {
-          // The page answered the click with an alert but marked no field. That alert
-          // may say the application went through (a single-page site shows it before
-          // its address changes): read the page first, a moment's decision, before any
-          // pass over the form.
-          const look = await read(READ_INTENT.advance, page);
-          if (look.kind === PAGE_KIND.confirmation || look.alreadyApplied) {
-            log.event("alert:sent", { kind: look.kind, applied: look.alreadyApplied });
+          page = await snap({ form: true, frameId: page.frameId });
+          snapshot = page;
+        } else if (!state.filled) {
+          // 3. A page seen for the first time: what is it? A tab bound to a job can
+          // have its résumé recommended while the page is read.
+          if (!resumeChecked && (await getTabJob(tabId))) recommend(page.url, page.title);
+          const looked = await readUntilClear(page, state);
+          const first = looked.first;
+          page = looked.page;
+          // A requirement's own site said it is done, or led nowhere the run can work.
+          if (detour && DETOUR_END_KINDS.has(first.kind)) {
+            pending = await endDetour(page, first.kind);
+            continue;
+          }
+          if (first.kind === PAGE_KIND.confirmation) {
             return await finish(report(RUN_OUTCOME.completed));
           }
-          // Otherwise it says something is still missing ("the above information is
-          // required"): answer whatever is still blank or unset.
-          state.alertPasses += 1;
-          log.event("alert:pass", { pass: state.alertPasses });
-          enter(RUN_STAGE.filling, "Answering what the page says is still missing…");
-          const completed = await fill(FILL_MODE.fill, page, { pendingOnly: true });
-          if (completed.resumeMissing) {
-            throw noResumeStop(RUN_STAGE.filling, page, completed.error ?? RESUME_NOT_CHOSEN);
+          stopIfApplied(first, page);
+          // A click led off the application (a talent-community form, a site page):
+          // go back to the posting the run started on and apply from there.
+          if (first.kind === PAGE_KIND.other && canReturnToStart(page)) {
+            pending = await returnToStart(page, "off-path");
+            continue;
           }
-        } else {
-          countNoEffect(state, page);
-        }
-        page = await snap({ form: true, frameId: page.frameId });
-        snapshot = page;
-      } else if (!state.filled) {
-        // 3. A page seen for the first time: what is it? A tab bound to a job can
-        // have its résumé recommended while the page is read.
-        if (!resumeChecked && (await getTabJob(tabId))) recommend(page.url, page.title);
-        const looked = await readUntilClear(page, state);
-        const first = looked.first;
-        page = looked.page;
-        // A requirement's own site said it is done, or led nowhere the run can work.
-        if (detour && DETOUR_END_KINDS.has(first.kind)) {
-          pending = await endDetour(page, first.kind);
-          continue;
-        }
-        if (first.kind === PAGE_KIND.confirmation) {
-          return await finish(report(RUN_OUTCOME.completed));
-        }
-        stopIfApplied(first, page);
-        // A click led off the application (a talent-community form, a site page):
-        // go back to the posting the run started on and apply from there.
-        if (first.kind === PAGE_KIND.other && canReturnToStart(page)) {
-          pending = await returnToStart(page, "off-path");
-          continue;
-        }
-        if (first.kind === PAGE_KIND.blocked || first.kind === PAGE_KIND.other) {
-          throw new RunStop(RUN_STAGE.reading, page, [
-            `This page is ${first.kind.replace("_", " ")}`,
-          ]);
-        }
-
-        if (!resumeChecked) recommend(page.url, page.title);
-        await settleRecommend();
-
-        const handed = await verifyOrWait(first, page, state);
-        if (handed) {
-          pending = handed.pending;
-          continue;
-        }
-
-        if (first.kind === PAGE_KIND.posting) {
-          // Jev's likeliest apply control is tried even when it answered none: a
-          // posting can word its apply control unlike most.
-          const target = pickOf(first);
-          if (!target) {
-            throw new RunStop(RUN_STAGE.applying, page, [
-              "No way to apply was found on the posting",
+          if (first.kind === PAGE_KIND.blocked || first.kind === PAGE_KIND.other) {
+            throw new RunStop(RUN_STAGE.reading, page, [
+              `This page is ${first.kind.replace("_", " ")}`,
             ]);
           }
-          state.clicks += 1;
-          const label = target.picked.text || target.picked.label;
-          if (target.fallback) {
-            log.event("click:fallback", { text: label, disabled: target.picked.disabled });
-          }
-          enter(RUN_STAGE.applying, `Opening the application · ${label}`);
-          const clicked = await click(page, target.control, label);
-          if (clicked.missed != null) missedClick(state, label, clicked.missed);
-          else pending = { snapshot: clicked.settled.snapshot, how: clicked.settled.how };
-          continue;
-        }
 
-        let skipFill: string | null = page.fields === 0 ? "no fields on the page" : null;
-        // An account step: go on without an account when the page offers it.
-        if (first.kind === PAGE_KIND.accountStep) {
-          const target = guestOf(first, page.url);
-          if (target) {
+          if (!resumeChecked) recommend(page.url, page.title);
+          await settleRecommend();
+
+          const handed = await verifyOrWait(first, page, state);
+          if (handed) {
+            pending = handed.pending;
+            continue;
+          }
+
+          if (first.kind === PAGE_KIND.posting) {
+            // Jev's likeliest apply control is tried even when it answered none: a
+            // posting can word its apply control unlike most.
+            const target = pickOf(first);
+            if (!target) {
+              throw new RunStop(RUN_STAGE.applying, page, [
+                "No way to apply was found on the posting",
+              ]);
+            }
             state.clicks += 1;
             const label = target.picked.text || target.picked.label;
-            enter(RUN_STAGE.applying, `Going on without an account · ${label}`);
-            noteEvidence(page.url, { guestTaken: true });
+            if (target.fallback) {
+              log.event("click:fallback", { text: label, disabled: target.picked.disabled });
+            }
+            enter(RUN_STAGE.applying, `Opening the application · ${label}`);
             const clicked = await click(page, target.control, label);
             if (clicked.missed != null) missedClick(state, label, clicked.missed);
             else pending = { snapshot: clicked.settled.snapshot, how: clicked.settled.how };
             continue;
           }
-          // The account is mandatory. The goal comes from the account order, fed by
-          // what this site offered and how it answered earlier steps; the page's own
-          // form is filled only when it is the goal's form (the applicant's email and
-          // name, the profile's default password).
-          // Otherwise nothing is filled and the control that opens the goal's form
-          // is clicked below.
-          if (!first.accountPassword) throw noAccountPassword(page);
-          const goal = goalOrStop(page);
-          enter(RUN_STAGE.account, `${ACCOUNT_MESSAGE[goal]}…`);
-          if (!fillsAccountForm(goal, first.accountMode)) {
-            log.event("account:open", { goal, page: first.accountMode });
-            skipFill = `the page shows ${first.accountMode}, the goal is ${goal}`;
+
+          let skipFill: string | null = page.fields === 0 ? "no fields on the page" : null;
+          // An account step: go on without an account when the page offers it.
+          if (first.kind === PAGE_KIND.accountStep) {
+            const target = guestOf(first, page);
+            if (target) {
+              state.clicks += 1;
+              const label = target.picked.text || target.picked.label;
+              enter(RUN_STAGE.applying, `Going on without an account · ${label}`);
+              noteEvidence(page.url, { guestTaken: true });
+              const clicked = await click(page, target.control, label);
+              if (clicked.missed != null) missedClick(state, label, clicked.missed);
+              else pending = { snapshot: clicked.settled.snapshot, how: clicked.settled.how };
+              continue;
+            }
+            // The account is mandatory. The goal comes from the account order, fed by
+            // what this site offered and how it answered earlier steps; the page's own
+            // form is filled only when it is the goal's form (the applicant's email and
+            // name, the profile's default password).
+            // Otherwise nothing is filled and the control that opens the goal's form
+            // is clicked below.
+            if (!first.accountPassword && needsAccountPassword(first.accountMode)) {
+              throw noAccountPassword(page);
+            }
+            const goal = goalOrStop(page);
+            enter(RUN_STAGE.account, `${ACCOUNT_MESSAGE[goal]}…`);
+            if (!fillsAccountForm(goal, first.accountMode)) {
+              log.event("account:open", { goal, page: first.accountMode });
+              skipFill = `the page shows ${first.accountMode}, the goal is ${goal}`;
+            }
+          }
+
+          // An application form: fill it, then look again for the control that moves it
+          // on. A page that asks for nothing goes straight to that control.
+          if (skipFill) {
+            log.event("fill:skipped", { reason: skipFill });
+            state.filled = true;
+          } else {
+            enter(RUN_STAGE.filling);
+            state.fillStartedAt = Date.now();
+            state.scanBeforeFill = page.scan;
+            const filled = await fill(FILL_MODE.fill, page);
+            if (filled.resumeMissing) {
+              throw noResumeStop(RUN_STAGE.filling, page, filled.error ?? RESUME_NOT_CHOSEN);
+            }
+            if (filled.failed) {
+              throw new RunStop(
+                RUN_STAGE.filling,
+                page,
+                [`Fill failed: ${filled.error ?? "unknown"}`],
+                filled.steps,
+              );
+            }
+            remember(state, FILL_MODE.fill, filled);
+            state.filled = true;
+            page = await snap({ form: true, frameId: page.frameId });
+            snapshot = page;
           }
         }
 
-        // An application form: fill it, then look again for the control that moves it
-        // on. A page that asks for nothing goes straight to that control.
-        if (skipFill) {
-          log.event("fill:skipped", { reason: skipFill });
-          state.filled = true;
+        // 4. A filled page: put back what the page cleared since the fill, then click
+        // the control that moves the application forward. The click comes before any
+        // verdict: a page that looks stuck often answers it by showing what it needs.
+        enter(RUN_STAGE.advancing);
+        if (state.fillStartedAt > 0) {
+          checkStop();
+          const drift = await until(repairDriftInTab(tabId, page.frameId, state.fillStartedAt));
+          if (drift.checked) log.event("drift", { ...drift });
+          if (drift.repaired > 0) {
+            page = await snap({ form: true, frameId: page.frameId });
+            snapshot = page;
+          }
+        }
+        const next = await read(READ_INTENT.advance, page);
+        if (detour && DETOUR_END_KINDS.has(next.kind)) {
+          pending = await endDetour(page, next.kind);
+          continue;
+        }
+        if (next.kind === PAGE_KIND.confirmation) {
+          return await finish(report(RUN_OUTCOME.completed));
+        }
+        stopIfApplied(next, page);
+        const handed = await verifyOrWait(next, page, state);
+        if (handed) {
+          pending = handed.pending;
+          continue;
+        }
+        const guest = guestOf(next, page);
+        const sendsAccount = next.kind === PAGE_KIND.accountStep && !guest;
+        if (sendsAccount && !next.accountPassword && needsAccountPassword(next.accountMode)) {
+          throw noAccountPassword(page);
+        }
+        const goal = sendsAccount ? goalOrStop(page) : null;
+        // A round of work on a form must settle something it still needed; rounds that
+        // settle nothing are a run going in circles, and it stops in seconds.
+        if (workedSinceLook && next.kind === PAGE_KIND.form) {
+          workedSinceLook = false;
+          const needs = pageNeeds(
+            page.scan,
+            next.requirementPicked ? controlName(next.requirementPicked) : null,
+          );
+          const stalls = progressLedger.note(addressOf(page.url), needs);
+          if (stalls > 0) {
+            log.event("progress:stalled", { stalls, limit: RUN_MAX_STALLED_ROUNDS, needs });
+          }
+          if (stalls >= RUN_MAX_STALLED_ROUNDS) throw noProgress(page, needs, stalls);
+        }
+        // The best next step: what the page still requires comes before moving on.
+        const requirement = guest || sendsAccount ? null : requirementOf(next, state);
+        if (requirement) {
+          pending = await doRequirement(page, state, requirement, controlName(requirement.picked));
+          continue;
+        }
+        const target = guest ?? pickOf(next);
+        if (guest) noteEvidence(page.url, { guestTaken: true });
+        // An account step finished somewhere with nothing to go on with (a page that
+        // says the account is unblocked or its password is set): the account is ready,
+        // so apply again from the posting the run started on, in this same tab.
+        const accountWorked = accountHistory.length > 0 || mailVerifications > 0;
+        if (!target && accountWorked && canReturnToStart(page)) {
+          pending = await returnToStart(page, "account-done");
+          continue;
+        }
+        if (
+          !target &&
+          state.clicks > 0 &&
+          state.landedAt > 0 &&
+          Date.now() - state.landedAt < RUN_BUSY_AFTER_CLICK_MS &&
+          state.busyWaits < RUN_MAX_BUSY_WAITS
+        ) {
+          // The click just landed and the page is between steps (drawing the next one):
+          // a page read now has no controls. Let it finish, then look again.
+          state.busyWaits += 1;
+          state.retryClick = true;
+          pending = null;
+          log.event("busy:no-control", { control, wait: state.busyWaits });
+          enter(RUN_STAGE.advancing, `Waiting for the page to finish "${control}"…`);
+          await until(sleep(RUN_BUSY_WAIT_MS));
+          await until(waitForPageSettled(tabId));
+          continue;
+        }
+        if (!target) {
+          // After a click, a missing control is the page holding the click (busy,
+          // disabled, waiting on a check), not a page that never had one.
+          const notes =
+            state.clicks > 0 && control
+              ? [
+                  `"${control}" was clicked ${state.clicks} time${state.clicks === 1 ? "" : "s"}; the page stayed on this step and no longer offers a control that moves it forward`,
+                ]
+              : ["No control on the page moves the application forward"];
+          throw new RunStop(RUN_STAGE.advancing, page, notes);
+        }
+        state.clicks += 1;
+        state.scanBeforeClick = page.scan;
+        // The next look is compared with the page as it was clicked: the fill itself
+        // changes a page's fields (rows added, follow-ups revealed).
+        state.signature = page.signature;
+        state.url = page.url;
+        const label = target.picked.text || target.picked.label;
+        if (target.fallback) {
+          log.event("click:fallback", { text: label, disabled: target.picked.disabled });
+        }
+        // Stop before Submit: the last step is filled; sending it is left to the person.
+        if (args.stopBeforeSubmit && !goal && target.control.role === CONTROL_ROLE.submit) {
+          log.event("run:ready-to-submit", { control: label });
+          return await finish(report(RUN_OUTCOME.readyToSubmit));
+        }
+        announceForward(page, {
+          goal,
+          pageMode: next.accountMode,
+          role: target.control.role,
+          label,
+        });
+        const clicked = await click(page, target.control, label);
+        // A click that never landed sent no account step.
+        if (!clicked.settled) accountSent = null;
+        if (clicked.settled) {
+          state.landedAt = Date.now();
+          pending = { snapshot: clicked.settled.snapshot, how: clicked.settled.how };
+        } else if (
+          clicked.disabled &&
+          state.landedAt > 0 &&
+          Date.now() - state.landedAt < RUN_BUSY_AFTER_CLICK_MS &&
+          state.busyWaits < RUN_MAX_BUSY_WAITS
+        ) {
+          // The control went disabled right after its own click landed: the page is
+          // still working on it (saving, submitting). Let it finish, then look again;
+          // answering more would only redo the step.
+          state.clicks -= 1;
+          state.retryClick = true;
+          state.busyWaits += 1;
+          log.event("busy:after-click", { control: label, wait: state.busyWaits });
+          enter(RUN_STAGE.advancing, `Waiting for the page to finish "${label}"…`);
+          await until(sleep(RUN_BUSY_WAIT_MS));
+          await until(waitForPageSettled(tabId));
+        } else if (clicked.disabled) {
+          // The page holds its forward control until it has what it needs: answer what
+          // is still blank or off, put back what it cleared, then click again.
+          state.clicks -= 1;
+          state.retryClick = true;
+          if (state.blockedPasses >= RUN_MAX_BLOCKED_PASSES) {
+            throw new RunStop(RUN_STAGE.advancing, page, [
+              `"${label}" stayed disabled after ${state.blockedPasses} passes over what the page still needed`,
+              ...(await unansweredNotes(tabId, page.frameId)),
+            ]);
+          }
+          state.blockedPasses += 1;
+          log.event("blocked", { control: label, pass: state.blockedPasses });
+          enter(RUN_STAGE.filling, `Answering what "${label}" is waiting on`);
+          const completed = await fill(FILL_MODE.fill, page, { pendingOnly: true });
+          if (completed.resumeMissing) {
+            throw noResumeStop(RUN_STAGE.filling, page, completed.error ?? RESUME_NOT_CHOSEN);
+          }
         } else {
-          enter(RUN_STAGE.filling);
-          state.fillStartedAt = Date.now();
-          state.scanBeforeFill = page.scan;
-          const filled = await fill(FILL_MODE.fill, page);
-          if (filled.resumeMissing) {
-            throw noResumeStop(RUN_STAGE.filling, page, filled.error ?? RESUME_NOT_CHOSEN);
-          }
-          if (filled.failed) {
-            throw new RunStop(
-              RUN_STAGE.filling,
-              page,
-              [`Fill failed: ${filled.error ?? "unknown"}`],
-              filled.steps,
-            );
-          }
-          remember(state, FILL_MODE.fill, filled);
-          state.filled = true;
-          page = await snap({ form: true, frameId: page.frameId });
-          snapshot = page;
+          missedClick(state, label, clicked.missed);
         }
       }
-
-      // 4. A filled page: put back what the page cleared since the fill, then click
-      // the control that moves the application forward. The click comes before any
-      // verdict: a page that looks stuck often answers it by showing what it needs.
-      enter(RUN_STAGE.advancing);
-      if (state.fillStartedAt > 0) {
-        checkStop();
-        const drift = await until(repairDriftInTab(tabId, page.frameId, state.fillStartedAt));
-        if (drift.checked) log.event("drift", { ...drift });
-        if (drift.repaired > 0) {
-          page = await snap({ form: true, frameId: page.frameId });
-          snapshot = page;
-        }
-      }
-      const next = await read(READ_INTENT.advance, page);
-      if (detour && DETOUR_END_KINDS.has(next.kind)) {
-        pending = await endDetour(page, next.kind);
+      throw new RunStop(stage, snapshot, [`The run used ${RUN_MAX_STEPS} steps without finishing`]);
+    } catch (err) {
+      // The tab was swapped or closed mid-step and the run went on in another: read it afresh.
+      if (err instanceof TabMoved) {
+        pending = null;
+        armInterrupt();
         continue;
       }
-      if (next.kind === PAGE_KIND.confirmation) {
-        return await finish(report(RUN_OUTCOME.completed));
+      const stop =
+        err instanceof RunStop
+          ? err
+          : new RunStop(stage, snapshot, [err instanceof Error ? err.message : String(err)]);
+      log.event("run:stop", { stage: stop.stage, notes: stop.notes });
+      if (signal?.aborted) {
+        return finish(report(RUN_OUTCOME.stopped, { ...STOPPED_FAILURE, stage: stop.stage }));
       }
-      stopIfApplied(next, page);
-      const handed = await verifyOrWait(next, page, state);
-      if (handed) {
-        pending = handed.pending;
-        continue;
-      }
-      const guest = guestOf(next, page.url);
-      const sendsAccount = next.kind === PAGE_KIND.accountStep && !guest;
-      if (sendsAccount && !next.accountPassword) throw noAccountPassword(page);
-      const goal = sendsAccount ? goalOrStop(page) : null;
-      // A round of work on a form must settle something it still needed; rounds that
-      // settle nothing are a run going in circles, and it stops in seconds.
-      if (workedSinceLook && next.kind === PAGE_KIND.form) {
-        workedSinceLook = false;
-        const needs = pageNeeds(
-          page.scan,
-          next.requirementPicked ? controlName(next.requirementPicked) : null,
-        );
-        const stalls = progressLedger.note(addressOf(page.url), needs);
-        if (stalls > 0) {
-          log.event("progress:stalled", { stalls, limit: RUN_MAX_STALLED_ROUNDS, needs });
-        }
-        if (stalls >= RUN_MAX_STALLED_ROUNDS) throw noProgress(page, needs, stalls);
-      }
-      // The best next step: what the page still requires comes before moving on.
-      const requirement = guest || sendsAccount ? null : requirementOf(next, state);
-      if (requirement) {
-        pending = await doRequirement(page, state, requirement, controlName(requirement.picked));
-        continue;
-      }
-      const target = guest ?? pickOf(next);
-      if (guest) noteEvidence(page.url, { guestTaken: true });
-      // An account step finished somewhere with nothing to go on with (a page that
-      // says the account is unblocked or its password is set): the account is ready,
-      // so apply again from the posting the run started on, in this same tab.
-      const accountWorked = accountHistory.length > 0 || mailVerifications > 0;
-      if (!target && accountWorked && canReturnToStart(page)) {
-        pending = await returnToStart(page, "account-done");
-        continue;
-      }
-      if (!target) {
-        // After a click, a missing control is the page holding the click (busy,
-        // disabled, waiting on a check), not a page that never had one.
-        const notes =
-          state.clicks > 0 && control
-            ? [
-                `"${control}" was clicked ${state.clicks} time${state.clicks === 1 ? "" : "s"}; the page stayed on this step and no longer offers a control that moves it forward`,
-              ]
-            : ["No control on the page moves the application forward"];
-        throw new RunStop(RUN_STAGE.advancing, page, notes);
-      }
-      state.clicks += 1;
-      state.scanBeforeClick = page.scan;
-      // The next look is compared with the page as it was clicked: the fill itself
-      // changes a page's fields (rows added, follow-ups revealed).
-      state.signature = page.signature;
-      state.url = page.url;
-      const label = target.picked.text || target.picked.label;
-      if (target.fallback) {
-        log.event("click:fallback", { text: label, disabled: target.picked.disabled });
-      }
-      // Stop before Submit: the last step is filled; sending it is left to the person.
-      if (args.stopBeforeSubmit && !goal && target.control.role === CONTROL_ROLE.submit) {
-        log.event("run:ready-to-submit", { control: label });
-        return await finish(report(RUN_OUTCOME.readyToSubmit));
-      }
-      announceForward(page, { goal, pageMode: next.accountMode, role: target.control.role, label });
-      const clicked = await click(page, target.control, label);
-      // A click that never landed sent no account step.
-      if (!clicked.settled) accountSent = null;
-      if (clicked.settled) {
-        state.landedAt = Date.now();
-        pending = { snapshot: clicked.settled.snapshot, how: clicked.settled.how };
-      } else if (
-        clicked.disabled &&
-        state.landedAt > 0 &&
-        Date.now() - state.landedAt < RUN_BUSY_AFTER_CLICK_MS &&
-        state.busyWaits < RUN_MAX_BUSY_WAITS
-      ) {
-        // The control went disabled right after its own click landed: the page is
-        // still working on it (saving, submitting). Let it finish, then look again;
-        // answering more would only redo the step.
-        state.clicks -= 1;
-        state.retryClick = true;
-        state.busyWaits += 1;
-        log.event("busy:after-click", { control: label, wait: state.busyWaits });
-        enter(RUN_STAGE.advancing, `Waiting for the page to finish "${label}"…`);
-        await until(sleep(RUN_BUSY_WAIT_MS));
-        await until(waitForPageSettled(tabId));
-      } else if (clicked.disabled) {
-        // The page holds its forward control until it has what it needs: answer what
-        // is still blank or off, put back what it cleared, then click again.
-        state.clicks -= 1;
-        state.retryClick = true;
-        if (state.blockedPasses >= RUN_MAX_BLOCKED_PASSES) {
-          throw new RunStop(RUN_STAGE.advancing, page, [
-            `"${label}" stayed disabled after ${state.blockedPasses} passes over what the page still needed`,
-            ...(await unansweredNotes(tabId, page.frameId)),
-          ]);
-        }
-        state.blockedPasses += 1;
-        log.event("blocked", { control: label, pass: state.blockedPasses });
-        enter(RUN_STAGE.filling, `Answering what "${label}" is waiting on`);
-        const completed = await fill(FILL_MODE.fill, page, { pendingOnly: true });
-        if (completed.resumeMissing) {
-          throw noResumeStop(RUN_STAGE.filling, page, completed.error ?? RESUME_NOT_CHOSEN);
-        }
-      } else {
-        missedClick(state, label, clicked.missed);
-      }
+      const failure = stop.known ? { ...stop.known, stage: stop.stage } : await diagnose(stop);
+      return finish(report(RUN_OUTCOME.failed, failure));
     }
-    throw new RunStop(stage, snapshot, [`The run used ${RUN_MAX_STEPS} steps without finishing`]);
-  } catch (err) {
-    const stop =
-      err instanceof RunStop
-        ? err
-        : new RunStop(stage, snapshot, [err instanceof Error ? err.message : String(err)]);
-    log.event("run:stop", { stage: stop.stage, notes: stop.notes });
-    if (signal?.aborted) {
-      return finish(report(RUN_OUTCOME.stopped, { ...STOPPED_FAILURE, stage: stop.stage }));
-    }
-    const failure = stop.known ? { ...stop.known, stage: stop.stage } : await diagnose(stop);
-    return finish(report(RUN_OUTCOME.failed, failure));
   }
 }
