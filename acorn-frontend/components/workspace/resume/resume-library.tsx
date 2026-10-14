@@ -5,6 +5,7 @@ import {
   Badge,
   Banner,
   Button,
+  CheckboxInput,
   Collapsible,
   Dialog,
   DialogHeader,
@@ -326,6 +327,14 @@ export function ResumeLibrary({ initial }: { initial: LibraryStart }) {
     void analyzeIds(ids, false);
   };
 
+  /** Analyze only what is not analyzed yet, leaving the already analyzed files as they are. */
+  const analyzeNewOnly = () => {
+    const ids = (reanalyzeIds ?? []).filter((id) => !rows.find((row) => row.id === id)?.analyzed);
+    setReanalyzeIds(null);
+    if (ids.length) void analyzeIds(ids, false);
+    else notify(`Everything selected is already analyzed`);
+  };
+
   const act = async (run: () => Promise<{ ok: boolean; message?: string }>, done?: string) => {
     setError("");
     const result = await run();
@@ -349,11 +358,14 @@ export function ResumeLibrary({ initial }: { initial: LibraryStart }) {
       .toLowerCase()
       .includes(query);
   });
+  const visibleIds = visible.map((row) => row.id);
+  const pickedVisible = visibleIds.filter((id) => selected.includes(id)).length;
   const bulkShown = bulkPending?.slice(0, BULK_ALIAS_PREVIEW) ?? [];
   const bulkMore = (bulkPending?.length ?? 0) - bulkShown.length;
   const alreadyAnalyzed = reanalyzeIds
     ? rows.filter((row) => reanalyzeIds.includes(row.id) && row.analyzed).length
     : 0;
+  const reanalyzeTotal = reanalyzeIds?.length ?? 0;
 
   return (
     <Stack gap={4}>
@@ -448,6 +460,26 @@ export function ResumeLibrary({ initial }: { initial: LibraryStart }) {
               }))}
               onChange={setStack}
             />
+            {shownView === "uploaded" && visible.length > 0 ? (
+              <CheckboxInput
+                label={`Select all (${visible.length})`}
+                value={
+                  pickedVisible === 0
+                    ? false
+                    : pickedVisible === visibleIds.length
+                      ? true
+                      : "indeterminate"
+                }
+                isDisabled={busy}
+                onChange={(checked) =>
+                  setSelected(
+                    checked
+                      ? [...new Set([...selected, ...visibleIds])]
+                      : selected.filter((id) => !visibleIds.includes(id)),
+                  )
+                }
+              />
+            ) : null}
             {shownView === "uploaded" && !deleteProgress ? (
               analyzeProgress ? (
                 <Button
@@ -585,8 +617,8 @@ export function ResumeLibrary({ initial }: { initial: LibraryStart }) {
           height="auto"
           header={
             <DialogHeader
-              title="Analyze again?"
-              subtitle={`${countOf(alreadyAnalyzed, kind)} selected ${alreadyAnalyzed === 1 ? "is" : "are"} already analyzed. Analyzing again replaces skill scores.`}
+              title="Some are already analyzed"
+              subtitle={`${alreadyAnalyzed} of ${countOf(reanalyzeTotal, kind)} selected ${alreadyAnalyzed === 1 ? "is" : "are"} already analyzed. Skip them, or analyze them again and replace their skill scores.`}
               onOpenChange={() => setReanalyzeIds(null)}
               hasDivider
             />
@@ -602,8 +634,9 @@ export function ResumeLibrary({ initial }: { initial: LibraryStart }) {
             <LayoutFooter hasDivider>
               <HStack gap={2} hAlign="end">
                 <Button label="Cancel" variant="ghost" onClick={() => setReanalyzeIds(null)} />
+                <Button label="Skip analyzed" variant="secondary" onClick={analyzeNewOnly} />
                 <Button
-                  label="Analyze again"
+                  label="Analyze all again"
                   variant="primary"
                   onClick={() => {
                     if (reanalyzeIds) void analyzeIds(reanalyzeIds, true);
