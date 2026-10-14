@@ -26,6 +26,9 @@ const CARD_COLUMNS = 3;
 /** One stack and the same file in each format it was uploaded in. */
 export type LibraryGroup = { key: string; label: string; rows: ResumeLibraryRow[] };
 
+/** PDF first, then the other formats in the order they were uploaded. */
+const formatRank = (row: ResumeLibraryRow) => (row.format === "pdf" ? 0 : 1);
+
 /** Files with the same title are one stack in several formats; PDF is listed first. */
 export function groupByStack(rows: ResumeLibraryRow[]): LibraryGroup[] {
   const groups = new Map<string, LibraryGroup>();
@@ -37,7 +40,7 @@ export function groupByStack(rows: ResumeLibraryRow[]): LibraryGroup[] {
   }
   return [...groups.values()].map((group) => ({
     ...group,
-    rows: [...group.rows].sort((a, b) => a.format.localeCompare(b.format)),
+    rows: [...group.rows].sort((a, b) => formatRank(a) - formatRank(b)),
   }));
 }
 
