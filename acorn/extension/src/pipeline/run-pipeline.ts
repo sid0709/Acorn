@@ -5,14 +5,13 @@ import { PhaseClock } from "@acorn/shared/phase-clock";
 import { applyApplicantIdentityToActions } from "@acorn/shared/plan-runner/applicant-identity";
 import { planCodeFill, spreadCodeAcrossBoxes } from "@acorn/shared/plan-runner/code-fill";
 import { runActionPlan } from "@acorn/shared/plan-runner/orchestrator";
-import { planWantsCoverLetter } from "@acorn/shared/plan-runner/step-file";
+import { isFileUploadAction, planWantsCoverLetter } from "@acorn/shared/plan-runner/step-file";
 import { formatPlannerTree } from "@acorn/shared/planner-tree";
 import { redactPlan } from "@acorn/shared/secret-value";
 import { formatAnalyzeTrees } from "@acorn/shared/tree-export";
 
 import { DEFAULT_ACORN_API_URL } from "../auth/acorn-auth";
 import { traceFromBackground } from "../background/debug-trace-sink";
-import { ACORN_CAPTURE } from "../debug-trace";
 import { customTabHasResume, getCustomTab } from "../tab-custom-session";
 import { getTabJob } from "../tab-job-session";
 import { LOG_KIND, logTab } from "../tab-log-session";
@@ -117,6 +116,11 @@ export interface RunPipelineArgs {
    * already and is not planned again.
    */
   scoped?: boolean;
+  /**
+   * Refill: read the page's errors again at the end, for the "still flagged" count.
+   * Run reads the page itself right after, so it turns this off.
+   */
+  rescan?: boolean;
   /** Emit DOM tree to the backend (optional socket emit callback). */
   emitDomTree?: (payload: DomTreePayload) => void;
   /** Broadcast progress to the Chrome side panel + backend. */
@@ -135,6 +139,7 @@ export async function runFabPipeline(args: RunPipelineArgs): Promise<void> {
     requireResume = false,
     pendingOnly = false,
     scoped = false,
+    rescan = true,
     verificationCode,
     signal,
     emitDomTree,
@@ -177,46 +182,64 @@ export async function runFabPipeline(args: RunPipelineArgs): Promise<void> {
       source !== "custom" && customTab != null && customTabHasResume(customTab);
     const resumeSource: PipelineSource =
       source === "custom" || usingForcedCustom ? "custom" : "fill";
-    const [fetchedDom, resumeLoad, runtimeFile] = await clock.time("dom", () =>
+    // What each read asks the page for: the compact tree, plus the fields a plan
+    // reads (a refill lists only those the page flags). The page's HTML never leaves it.
+    const readOptions = {
+      fieldIssues: refill,
+      formFields: wantsFastPlan(mode) || refill,
+      flaggedFields: refill,
+      scopeFields: scoped,
+    };
+    // The files a fill attaches load while the page is read. A refill attaches one
+    // only when its plan uploads one, so it does not wait for them before planning.
+    const loadFiles = () =>
       Promise.all([
-        fetchDomFromTab(tabId, preferredFrameId, {
-          fieldIssues: refill,
-          formFields: wantsFastPlan(mode),
-          scopeFields: scoped,
-          html: ACORN_CAPTURE,
-        }),
-        loadFillResume({
-          source: resumeSource,
-          tabJob,
-          customTab,
-          customGenerationId: customTab?.generationId ?? null,
-          apiUrl: aiServerUrl,
-        }),
-        fetchRuntimeFile(aiServerUrl).catch(() => null),
-      ]),
+        clock.time("resume", () =>
+          loadFillResume({
+            source: resumeSource,
+            tabJob,
+            customTab,
+            customGenerationId: customTab?.generationId ?? null,
+            apiUrl: aiServerUrl,
+          }),
+        ),
+        clock.time("runtime", () => fetchRuntimeFile(aiServerUrl).catch(() => null)),
+      ]);
+    let filesLoad = refill ? null : loadFiles();
+    // Awaited right after the read; a read that fails first must not leave it unhandled.
+    filesLoad?.catch(() => undefined);
+    const fetchedDom = await clock.time("dom", () =>
+      fetchDomFromTab(tabId, preferredFrameId, readOptions),
     );
-    // The page HTML only rides to Analyze's debug capture, not the socket or sidebar.
-    let { html: pageHtml, fieldIssues, formFields, ...treePayload } = fetchedDom;
-    const boundResume =
-      resumeSource === "custom"
-        ? { file: resumeLoad.file, skipReason: resumeLoad.skipReason }
-        : keepResumeIfSameSite(resumeLoad.file, tabJob, treePayload.url, resumeLoad.skipReason);
-    const resumeFile = boundResume.file;
+    let [resumeLoad, runtimeFile]: Awaited<ReturnType<typeof loadFiles>> = filesLoad
+      ? await filesLoad
+      : [{ file: null, skipReason: null }, null];
+    let { fieldIssues, formFields, timings, ...treePayload } = fetchedDom;
     const usingLibrary = resumeSource === "custom" && customTab?.resumeMode === "recommend";
-    const recommendedResume =
-      resumeSource === "custom" ? (usingLibrary ? resumeFile : null) : resumeFile;
-    const customResume = resumeSource === "custom" && !usingLibrary ? resumeFile : null;
     const resumeFileKind = resumeSource === "custom" && !usingLibrary ? "custom" : "library";
-    const resumeSkipReason = boundResume.skipReason;
-    const boundResumeStack =
-      resumeSource === "custom"
-        ? resumeFile?.label ||
-          (usingLibrary
-            ? customTab?.recommendedResumeStack
-            : customTab?.generationId
-              ? "Generated"
-              : null)
-        : (tabJob?.resumeStack ?? null);
+    /** The résumé this fill attaches, from what was loaded, and how the sidebar names it. */
+    const bindResume = (load: typeof resumeLoad) => {
+      const bound =
+        resumeSource === "custom"
+          ? { file: load.file, skipReason: load.skipReason }
+          : keepResumeIfSameSite(load.file, tabJob, treePayload.url, load.skipReason);
+      return {
+        file: bound.file,
+        recommended: resumeSource === "custom" ? (usingLibrary ? bound.file : null) : bound.file,
+        custom: resumeSource === "custom" && !usingLibrary ? bound.file : null,
+        skipReason: bound.skipReason,
+        stack:
+          resumeSource === "custom"
+            ? bound.file?.label ||
+              (usingLibrary
+                ? customTab?.recommendedResumeStack
+                : customTab?.generationId
+                  ? "Generated"
+                  : null)
+            : (tabJob?.resumeStack ?? null),
+      };
+    };
+    let resume = bindResume(resumeLoad);
     emitDomTree?.(treePayload);
     logTab(tabId, LOG_KIND.dom, `DOM tree · ${treePayload.title || "Untitled"}`, () => ({
       url: treePayload.url,
@@ -225,8 +248,9 @@ export async function runFabPipeline(args: RunPipelineArgs): Promise<void> {
       frameId: treePayload.frameId ?? null,
       nodes: countDomNodes(treePayload.tree),
       treeJsonChars: JSON.stringify(treePayload.tree).length,
-      pageHtmlChars: pageHtml?.length ?? null,
+      timings,
     }));
+    traceFromBackground("dom:read", () => ({ refill, timings }), tabId);
     treeSnapshot = {
       url: treePayload.url,
       title: treePayload.title,
@@ -234,20 +258,20 @@ export async function runFabPipeline(args: RunPipelineArgs): Promise<void> {
       fetchedAt: treePayload.fetchedAt,
     };
 
-    const resumeUpload = () =>
+    const resumeUpload = (steps = stepsSnapshot) =>
       buildResumeUploadProgress({
-        recommendedResume: resumeFile,
-        resumeStack: boundResumeStack,
-        skipReason: resumeSkipReason,
-        steps: stepsSnapshot,
+        recommendedResume: resume.file,
+        resumeStack: resume.stack,
+        skipReason: resume.skipReason,
+        steps,
       });
 
-    if (requireResume && !refill && !resumeFile) {
+    if (requireResume && !refill && !resume.file) {
       const { durationMs, usage, phases } = await finishMeta();
       emit({
         phase: "error",
         message: NO_RESUME_FILE,
-        error: resumeSkipReason ? `${NO_RESUME_FILE}: ${resumeSkipReason}` : NO_RESUME_FILE,
+        error: resume.skipReason ? `${NO_RESUME_FILE}: ${resume.skipReason}` : NO_RESUME_FILE,
         durationMs,
         phases,
         usage,
@@ -286,8 +310,8 @@ export async function runFabPipeline(args: RunPipelineArgs): Promise<void> {
         message:
           refill && fieldIssues
             ? refillAnalyzingMessage(fieldIssues)
-            : resumeFile
-              ? `Analyzing ${nodeCount} nodes · resume ${resumeFile.label || resumeFile.name}`
+            : resume.file
+              ? `Analyzing ${nodeCount} nodes · resume ${resume.file.label || resume.file.name}`
               : source === "custom"
                 ? usingLibrary && customTab?.recommendedResumeId
                   ? `Analyzing ${nodeCount} nodes · Library file unavailable`
@@ -339,9 +363,9 @@ export async function runFabPipeline(args: RunPipelineArgs): Promise<void> {
         customLibraryResumeId:
           source === "custom" && usingLibrary ? (customTab?.recommendedResumeId ?? null) : null,
         customRemembered: source === "custom",
-        recommendedResumeAvailable: Boolean(resumeFile),
+        recommendedResumeAvailable: Boolean(resume.file),
         recommendedResumeStack:
-          resumeFile?.label ||
+          resume.file?.label ||
           (source === "custom"
             ? usingLibrary
               ? customTab?.recommendedResumeStack
@@ -361,20 +385,24 @@ export async function runFabPipeline(args: RunPipelineArgs): Promise<void> {
         pureTree,
         mode,
         fieldIssues: refill ? fieldIssues : undefined,
+        // A refill's flagged fields are planned on their own first; the conversation
+        // (tree and history) plans the fixes only when they leave one open.
+        formFields: refill ? formFields : undefined,
         history: refill && history?.length ? history : undefined,
         page,
         verificationCode,
-        debug: ACORN_CAPTURE ? { html: pageHtml, domTree: treePayload.tree, metaTree } : undefined,
       };
       // What a click opened is planned from its own fields alone: the full planner
-      // reads the whole page and would plan the rest of it over again.
+      // reads the whole page and would plan the rest of it over again. A refill of
+      // it is a refill like any other, of the fields the page flags in it.
+      const scopedFill = scoped && !refill;
       const analyze =
-        pendingOnly || (scoped && !formFields?.length)
+        pendingOnly || (scopedFill && !formFields?.length)
           ? { mode: FAST_PLAN_MODE, plan: emptyPlan() }
           : codeActions
             ? { mode: FAST_PLAN_MODE, plan: { ...emptyPlan(), actions: codeActions } }
             : await clock.time("plan", () =>
-                scoped
+                scopedFill
                   ? requestAiAnalyze(
                       { ...planRequest, mode: FAST_PLAN_MODE, formFields },
                       aiServerUrl,
@@ -384,6 +412,16 @@ export async function runFabPipeline(args: RunPipelineArgs): Promise<void> {
               );
       if (refill && analyze.mode !== FILL_MODE.refill) {
         throw new Error(REFILL_UNSUPPORTED);
+      }
+      if (refill) {
+        traceFromBackground(
+          "refill:planner",
+          () => ({
+            planner: "refillPlanner" in analyze ? (analyze.refillPlanner ?? null) : null,
+            flaggedFields: formFields?.length ?? 0,
+          }),
+          tabId,
+        );
       }
 
       const plan = analyze.plan as ActionPlan;
@@ -442,12 +480,18 @@ export async function runFabPipeline(args: RunPipelineArgs): Promise<void> {
       try {
         const runPlan = async (target: ActionPlan, total: number) => {
           const coverLetter = await coverLetterFor(target);
+          // A refill that uploads (a résumé the page refused) loads its files only now.
+          if (!filesLoad && (target.actions ?? []).some(isFileUploadAction)) {
+            filesLoad = loadFiles();
+            [resumeLoad, runtimeFile] = await filesLoad;
+            resume = bindResume(resumeLoad);
+          }
           return clock.time("steps", () =>
             runActionPlan({
               plan: target,
               runtimeFile,
-              recommendedResume,
-              customResume,
+              recommendedResume: resume.recommended,
+              customResume: resume.custom,
               resumeFileKind,
               coverLetter,
               force: refill,
@@ -508,12 +552,7 @@ export async function runFabPipeline(args: RunPipelineArgs): Promise<void> {
                       ? shortLabel(current.expected_label, current.action)
                       : undefined,
                     steps,
-                    resumeUpload: buildResumeUploadProgress({
-                      recommendedResume: resumeFile,
-                      resumeStack: boundResumeStack,
-                      skipReason: resumeSkipReason,
-                      steps,
-                    }),
+                    resumeUpload: resumeUpload(steps),
                   });
                 },
                 onPause: (request) => {
@@ -579,9 +618,11 @@ export async function runFabPipeline(args: RunPipelineArgs): Promise<void> {
           traceFromBackground("drift:repair", () => drift, tabId);
         }
 
-        // Refill only touches the fields the page flagged.
-        if (!report.aborted && !refill) {
-          await clock.time("leftover", () =>
+        // The dropdowns no step answered. A refill touches only the blank ones the page
+        // asks for: a custom dropdown is in no field list, so this pass answers it, as
+        // in a first fill.
+        if (!report.aborted) {
+          const leftover = await clock.time("leftover", () =>
             sendTabMessage<{
               ok?: boolean;
               found?: number;
@@ -596,13 +637,14 @@ export async function runFabPipeline(args: RunPipelineArgs): Promise<void> {
                 // steps (a fill, the Submit click) queue behind it.
                 deadline: Date.now() + LEFTOVER_PASS_TIMEOUT_MS - LEFTOVER_STOP_MARGIN_MS,
                 scoped,
+                flagged: refill,
               },
               frameId ?? undefined,
               LEFTOVER_PASS_TIMEOUT_MS,
             ),
           );
           // A dropdown answer can draw new fields (an address block after a country).
-          if (looksLate) await settleLate();
+          if (looksLate && (!refill || (leftover?.filled ?? 0) > 0)) await settleLate();
         }
 
         if (!watch.left() || signal?.aborted) break;
@@ -616,19 +658,10 @@ export async function runFabPipeline(args: RunPipelineArgs): Promise<void> {
         watch.stop();
       }
       await waitForPageSettled(tabId, frameId ?? undefined);
-      ({
-        html: pageHtml,
-        fieldIssues,
-        formFields,
-        ...treePayload
-      } = await clock.time("dom", () =>
-        fetchDomFromTab(tabId, frameId, {
-          fieldIssues: refill,
-          formFields: wantsFastPlan(mode),
-          scopeFields: scoped,
-          html: ACORN_CAPTURE,
-        }),
+      ({ fieldIssues, formFields, timings, ...treePayload } = await clock.time("dom", () =>
+        fetchDomFromTab(tabId, frameId, readOptions),
       ));
+      traceFromBackground("dom:read", () => ({ refill, timings, reread: true }), tabId);
       emitDomTree?.(treePayload);
       treeSnapshot = {
         url: treePayload.url,
@@ -642,12 +675,7 @@ export async function runFabPipeline(args: RunPipelineArgs): Promise<void> {
     const timeLabel = formatDuration(durationMs);
     const costLabel = formatUsd(usage?.costUsd);
 
-    const doneResume = buildResumeUploadProgress({
-      recommendedResume: resumeFile,
-      resumeStack: boundResumeStack,
-      skipReason: resumeSkipReason,
-      steps: report.steps,
-    });
+    const doneResume = resumeUpload(report.steps);
 
     if (report.aborted) {
       emit({
@@ -668,11 +696,11 @@ export async function runFabPipeline(args: RunPipelineArgs): Promise<void> {
 
     const { summary } = report;
     const okLabel = report.ok ? `${summary.ok} ok` : `${summary.ok} ok, ${summary.skipped} skipped`;
-    const resultLabel = refill
-      ? `Refilled ${okLabel}${refillResultSuffix(
-          await clock.time("rescan", () => rescanFieldIssues(tabId, frameId)),
-        )}`
-      : okLabel;
+    const stillFlagged =
+      refill && rescan
+        ? refillResultSuffix(await clock.time("rescan", () => rescanFieldIssues(tabId, frameId)))
+        : "";
+    const resultLabel = refill ? `Refilled ${okLabel}${stillFlagged}` : okLabel;
 
     emit({
       phase: "done",

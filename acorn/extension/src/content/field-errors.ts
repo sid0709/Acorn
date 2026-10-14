@@ -58,6 +58,16 @@ function isUserInvalid(control: Element): boolean {
   return matchesSafe(control, ":user-invalid");
 }
 
+/** The page marks the control itself invalid: aria-invalid, or native constraint validation. */
+export function isMarkedInvalid(control: Element): boolean {
+  return control.getAttribute("aria-invalid") === "true" || isUserInvalid(control);
+}
+
+/** The page asks for this control's answer: it requires it, or marks it invalid. */
+export function pageWantsAnswer(control: Element): boolean {
+  return isRequired([control]) || isMarkedInvalid(control);
+}
+
 function linkedMessages(control: Element): string[] {
   const messages = [
     ...textOfIds(control, "aria-errormessage"),
@@ -93,9 +103,7 @@ function describeControl(control: Element): FieldIssue | null {
   const members = groupMembers(control);
   const value = clip(shownValue(control, currentValue(control, members)), MAX_VALUE_CHARS);
   const required = isRequired(members);
-  const invalid = members.some(
-    (el) => el.getAttribute("aria-invalid") === "true" || isUserInvalid(el),
-  );
+  const invalid = members.some(isMarkedInvalid);
   const linked = members.flatMap(linkedMessages);
   const wrapper = fieldWrapper(control);
   const label = fieldLabel(control, members, wrapper);

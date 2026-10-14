@@ -32,7 +32,6 @@ import {
   type Verification,
 } from "@acorn/shared/run-types";
 
-import { getAcornSocket } from "../acorn-socket";
 import { markTabUsage, usageSince, type UsageMark } from "../background/tab-usage-store";
 import { rekeyCustomTab } from "../tab-custom-session";
 import { getTabJob, rekeyTabJob } from "../tab-job-session";
@@ -43,6 +42,8 @@ import {
   emptyAccountEvidence,
   fillsAccountForm,
   identifiedBy,
+  isGuestPath,
+  needsAccountPassword,
   nextAccountGoal,
   triedGoals,
   withOffers,
@@ -642,9 +643,10 @@ export async function runOrchestrator(args: RunOrchestratorArgs): Promise<RunRep
         requireResume: true,
         pendingOnly: opts.pendingOnly,
         scoped: opts.scoped,
+        // The run reads the page itself right after; a refill does not scan it again.
+        rescan: false,
         verificationCode: opts.verificationCode,
         signal,
-        emitDomTree: (payload) => getAcornSocket()?.emit("dom:tree", payload),
         onProgress: (inner) => {
           // A fill cut short by Stop must not overwrite the stopped status.
           if (signal?.aborted) return;
@@ -666,7 +668,6 @@ export async function runOrchestrator(args: RunOrchestratorArgs): Promise<RunRep
       costUsd: last?.usage?.costUsd,
       phases: last?.phases,
     });
-    await log.screenshot(fillShot);
     clock.add(mode === FILL_MODE.refill ? "refill" : "fill", Date.now() - started);
     // The fill stopped before anything else for want of a résumé file.
     const resumeMissing = failed && last?.message === NO_RESUME_FILE;
@@ -873,7 +874,14 @@ export async function runOrchestrator(args: RunOrchestratorArgs): Promise<RunRep
     try {
       checkStop();
       const result = await until(clickControl(tabId, on.frameId, picked.id));
-      log.event("click", { role: picked.role, text: label, ok: result.ok, error: result.error });
+      // The address the click started from: with the trace, it is the run's record of the page.
+      log.event("click", {
+        role: picked.role,
+        text: label,
+        url: logUrl(on.url),
+        ok: result.ok,
+        error: result.error,
+      });
       if (result.ok) {
         lastClicked = { text: label, role: picked.role, at: Date.now() };
         workedSinceLook = true;
@@ -1678,12 +1686,21 @@ export async function runOrchestrator(args: RunOrchestratorArgs): Promise<RunRep
    * the guest path's own form is moved on by the forward pick, not by taking the
    * guest control again.
    */
-  const guestOf = (r: Awaited<ReturnType<typeof read>>, url: string) => {
+  const guestOf = (r: Awaited<ReturnType<typeof read>>, page: PageSnapshot) => {
     if (r.kind !== PAGE_KIND.accountStep || !r.guest || !r.guestControl || !r.guestPicked) {
       return null;
     }
-    const site = evidenceOf(url);
-    if (site.guestTaken || site.opened || siteAttempts(url).length > 0) return null;
+    const guest = {
+      guestControl: r.guestControl.id,
+      forwardControl: r.control?.id ?? null,
+      pageFields: page.fields,
+    };
+    if (!isGuestPath(guest)) {
+      log.event("guest:own-form", guest);
+      return null;
+    }
+    const site = evidenceOf(page.url);
+    if (site.guestTaken || site.opened || siteAttempts(page.url).length > 0) return null;
     return { control: r.guestControl, picked: r.guestPicked, fallback: false };
   };
 
@@ -1764,7 +1781,6 @@ export async function runOrchestrator(args: RunOrchestratorArgs): Promise<RunRep
       calls: usage?.calls,
       costUsd: usage?.costUsd,
     });
-    await log.screenshot("run:end");
     const cost = usage ? ` · ${formatUsd(usage.costUsd)}` : "";
     const message = halted
       ? `Stopped by you · ${seconds}s${cost}`
@@ -1878,7 +1894,6 @@ export async function runOrchestrator(args: RunOrchestratorArgs): Promise<RunRep
         // A new step at the same address (a single-page application) needs what it needs.
         progressLedger.forget(addressOf(page.url));
         log.event("page", { page: pageCount, url: logUrl(page.url), flagged: page.flagged });
-        await log.screenshot("page", page.frameId);
         enterNewPage(page, current);
       }
       const state = current as PageState;
@@ -2029,7 +2044,7 @@ export async function runOrchestrator(args: RunOrchestratorArgs): Promise<RunRep
         let skipFill: string | null = page.fields === 0 ? "no fields on the page" : null;
         // An account step: go on without an account when the page offers it.
         if (first.kind === PAGE_KIND.accountStep) {
-          const target = guestOf(first, page.url);
+          const target = guestOf(first, page);
           if (target) {
             state.clicks += 1;
             const label = target.picked.text || target.picked.label;
@@ -2046,7 +2061,9 @@ export async function runOrchestrator(args: RunOrchestratorArgs): Promise<RunRep
           // name, the profile's default password).
           // Otherwise nothing is filled and the control that opens the goal's form
           // is clicked below.
-          if (!first.accountPassword) throw noAccountPassword(page);
+          if (!first.accountPassword && needsAccountPassword(first.accountMode)) {
+            throw noAccountPassword(page);
+          }
           const goal = goalOrStop(page);
           enter(RUN_STAGE.account, `${ACCOUNT_MESSAGE[goal]}…`);
           if (!fillsAccountForm(goal, first.accountMode)) {
@@ -2110,9 +2127,11 @@ export async function runOrchestrator(args: RunOrchestratorArgs): Promise<RunRep
         pending = handed.pending;
         continue;
       }
-      const guest = guestOf(next, page.url);
+      const guest = guestOf(next, page);
       const sendsAccount = next.kind === PAGE_KIND.accountStep && !guest;
-      if (sendsAccount && !next.accountPassword) throw noAccountPassword(page);
+      if (sendsAccount && !next.accountPassword && needsAccountPassword(next.accountMode)) {
+        throw noAccountPassword(page);
+      }
       const goal = sendsAccount ? goalOrStop(page) : null;
       // A round of work on a form must settle something it still needed; rounds that
       // settle nothing are a run going in circles, and it stops in seconds.

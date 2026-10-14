@@ -35,4 +35,20 @@ export interface FormField {
    * or unchecked: it may be what the page is waiting for.
    */
   blocking?: boolean;
+  /** Refill only: what the page shows about this field, which it flags. */
+  issue?: FieldIssueNote;
+}
+
+/**
+ * What the page shows about a field it flags, gathered from every issue the field
+ * answers (see @acorn/shared/field-issues): those issues' ids, the answer the field
+ * holds now, whether the page marks it invalid, and the messages it ties to the
+ * field or shows beside it.
+ */
+export interface FieldIssueNote {
+  elementIndexes: number[];
+  value: string;
+  invalid: boolean;
+  linkedMessages: string[];
+  nearbyMessages: string[];
 }

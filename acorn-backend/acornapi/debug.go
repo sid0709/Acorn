@@ -4,7 +4,6 @@ import (
 	"context"
 	"encoding/base64"
 	"encoding/json"
-	"fmt"
 	"net/http"
 	"net/url"
 	"strings"
@@ -17,14 +16,6 @@ import (
 
 // debugShotMaxBytes is a JPEG small enough that its base64 form fits maxBody.
 const debugShotMaxBytes = 4 << 20
-
-// analyzeDebug is what a debug build of the extension attaches to Analyze.
-// It is ignored unless this server runs with debug capture on.
-type analyzeDebug struct {
-	HTML     string          `json:"html"`
-	DomTree  json.RawMessage `json:"domTree"`
-	MetaTree string          `json:"metaTree"`
-}
 
 // debugKey names whose debug run a request belongs to: the user, and the Chrome
 // tab it came from, so runs going on in several tabs each keep their own folder.
@@ -44,23 +35,16 @@ func (s *Server) traceContext(r *http.Request, userID string) context.Context {
 	return debugtrace.WithRun(ctx, s.debug.Latest(debugKey(r, userID)))
 }
 
-// startAnalyzeRun opens a run for this Analyze and saves what the planner is given.
-func (s *Server) startAnalyzeRun(r *http.Request, userID, applicant, pureTree string, page map[string]any, debug *analyzeDebug) context.Context {
+// startAnalyzeRun opens a run for this Analyze and saves what the planner is given:
+// the compact tree and the page block (its address included). The page's own HTML
+// never travels; the tree is all the planner reads.
+func (s *Server) startAnalyzeRun(r *http.Request, userID, applicant, pureTree string, page map[string]any) context.Context {
 	ctx := s.withUsage(r, userID)
 	if s.debug == nil {
 		return ctx
 	}
 	run := s.debug.StartRun(debugKey(r, userID), pageLabel(page))
 	run.WriteJSON("page.json", page)
-	if debug != nil && debug.HTML != "" {
-		run.WriteFile("page.html", []byte(debug.HTML))
-	}
-	if debug != nil && len(debug.DomTree) > 0 {
-		run.WriteFile("dom-tree.json", debug.DomTree)
-	}
-	if debug != nil && debug.MetaTree != "" {
-		run.WriteFile("meta-tree.txt", []byte(debug.MetaTree))
-	}
 	run.WriteFile("pure-tree.txt", []byte(pureTree))
 	run.WriteFile("applicant.txt", []byte(applicant))
 	return debugtrace.WithRun(ctx, run)
@@ -142,54 +126,12 @@ func (s *Server) debugShot(w http.ResponseWriter, r *http.Request) {
 	w.WriteHeader(http.StatusNoContent)
 }
 
-// debugHTML stores one page's HTML (the extension removed every password first)
-// in the tab's capture, next to the screenshot of the same moment.
-func (s *Server) debugHTML(w http.ResponseWriter, r *http.Request) {
-	session, ok := s.session(w, r)
-	if !ok {
-		return
-	}
-	var body struct {
-		Label   string `json:"label"`
-		FrameID int    `json:"frameId"`
-		URL     string `json:"url"`
-		HTML    string `json:"html"`
-	}
-	if !decode(w, r, &body) {
-		return
-	}
-	if strings.TrimSpace(body.HTML) == "" {
-		writeError(w, http.StatusBadRequest, "html is required")
-		return
-	}
-	run := s.debug.Latest(debugKey(r, session.User.ID))
-	file := run.WriteFile(htmlFileName(body.Label, body.FrameID), []byte(body.HTML))
-	if file != "" {
-		line, err := json.Marshal(map[string]any{
-			"t": time.Now().UnixMilli(), "from": "background", "event": "html",
-			"data": map[string]any{"file": file, "label": strings.TrimSpace(body.Label), "frameId": body.FrameID, "url": logPage(body.URL)},
-		})
-		if err == nil {
-			run.AppendSteps([]json.RawMessage{line})
-		}
-	}
-	w.WriteHeader(http.StatusNoContent)
-}
-
 func jpeg(raw []byte) bool {
 	return len(raw) >= 3 && len(raw) <= debugShotMaxBytes && raw[0] == 0xff && raw[1] == 0xd8 && raw[2] == 0xff
 }
 
 // shotFileName turns a step label into a filename the run folder can list, like screen-fill-done.jpg.
 func shotFileName(label string) string { return captureFileName("screen", label, ".jpg") }
-
-// htmlFileName names a captured page, like page-run-end-frame-12.html.
-func htmlFileName(label string, frameID int) string {
-	if frameID > 0 {
-		label = fmt.Sprintf("%s frame %d", label, frameID)
-	}
-	return captureFileName("page", label, ".html")
-}
 
 // captureFileName joins a prefix and a step label into a short, safe filename.
 func captureFileName(prefix, label, ext string) string {

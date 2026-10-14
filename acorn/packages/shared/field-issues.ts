@@ -1,5 +1,7 @@
 /** Refill contract: what the page says is wrong with its fields after Submit / Next. */
 
+import type { FieldIssueNote, FormField } from "./form-fields";
+
 /** Fill plans every field; Refill only fixes the fields the page flagged. */
 export const FILL_MODE = {
   fill: "fill",
@@ -85,4 +87,33 @@ export function countNotedSince(before: FieldIssueScan | null, after: FieldIssue
       issue.linkedMessages.length === 0 &&
       issue.nearbyMessages.some((message) => !earlier.has(noteKey(issue, message))),
   ).length;
+}
+
+/**
+ * The fields a page flags, each carrying what the page shows about it, for Refill.
+ * `answers` says whether a field answers the control an issue names. A field no
+ * issue names is left out; an issue no field answers (a custom dropdown, whose
+ * options exist only once opened) stays in the scan alone.
+ */
+export function flaggedFields(
+  fields: FormField[],
+  scan: FieldIssueScan,
+  answers: (field: FormField, issue: FieldIssue) => boolean,
+): FormField[] {
+  const flagged: FormField[] = [];
+  for (const field of fields) {
+    const issues = scan.issues.filter((issue) => answers(field, issue));
+    if (issues.length) flagged.push({ ...field, issue: issueNote(issues) });
+  }
+  return flagged;
+}
+
+function issueNote(issues: FieldIssue[]): FieldIssueNote {
+  return {
+    elementIndexes: issues.map((issue) => issue.elementIndex),
+    value: issues.find((issue) => issue.value.trim())?.value ?? "",
+    invalid: issues.some((issue) => issue.invalid),
+    linkedMessages: [...new Set(issues.flatMap((issue) => issue.linkedMessages))],
+    nearbyMessages: [...new Set(issues.flatMap((issue) => issue.nearbyMessages))],
+  };
 }

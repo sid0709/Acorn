@@ -285,6 +285,24 @@ func TestAnalyzeUsesProfileAndNeverReturnsResumeGate(t *testing.T) {
 	}
 }
 
+// A refill that lists the flagged fields is still answered when only the
+// conversational planner can plan it (here: no decision model).
+func TestRefillWithFlaggedFieldsFallsBackToTheConversation(t *testing.T) {
+	plan := `{"goal":"g","actions":[{"action":"fill","element_index":4,"element_indexes":null,"expected_label":"Email","expected_role":"textbox","value":"j@example.com","file":null,"reason":null,"ms":null}],"forbidden_actions":[],"validation":{"required_element_indexes":[4],"stop_before_submit":true},"unresolved_items":[]}`
+	handler, _ := newTestServer(t, fakeModel{reply: plan})
+	issues := `"fieldIssues":{"issues":[{"elementIndex":4,"label":"Email","role":"textbox","value":"","required":true,"invalid":true,"linkedMessages":[],"nearbyMessages":[]}],"pageMessages":[]}`
+	fields := `"formFields":[{"elementIndex":4,"kind":"text","label":"Email","required":true,"issue":{"elementIndexes":[4],"value":"","invalid":true}}]`
+	rec := call(handler, "POST", "/acorn/ai-analyze", `{"pureTree":"input[4]","mode":"refill",`+issues+`,`+fields+`}`, bearer("hunter"), "")
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status %d: %s", rec.Code, rec.Body)
+	}
+	for _, want := range []string{`"mode":"refill"`, `"refillPlanner":"conversation"`, `"j@example.com"`} {
+		if !strings.Contains(rec.Body.String(), want) {
+			t.Errorf("body lacks %s: %s", want, rec.Body)
+		}
+	}
+}
+
 func TestMatchOptionFailureIsData(t *testing.T) {
 	handler, _ := newTestServerWith(t, fakeModel{}, fakeDecider{err: errors.New("jev down")})
 	rec := call(handler, "POST", "/acorn/match-option", `{"intendedValue":"No","options":["Yes","No"]}`, bearer("hunter"), "")

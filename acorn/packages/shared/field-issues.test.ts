@@ -4,9 +4,12 @@ import { describe, it } from "node:test";
 import {
   countFlaggedSince,
   countNotedSince,
+  flaggedFields,
   type FieldIssue,
   type FieldIssueScan,
 } from "./field-issues.ts";
+
+import type { FormField } from "./form-fields.ts";
 
 function issue(overrides: Partial<FieldIssue>): FieldIssue {
   return {
@@ -64,5 +67,52 @@ describe("countNotedSince", () => {
   it("leaves fields with a hard signal to countFlaggedSince", () => {
     const flagged = { ...phone, invalid: true, nearbyMessages: ["Invalid"] };
     assert.equal(countNotedSince(scan(), scan(flagged)), 0);
+  });
+});
+
+describe("flaggedFields", () => {
+  const field = (elementIndex: number, label: string): FormField => ({
+    elementIndex,
+    kind: "text",
+    label,
+    required: false,
+  });
+  const email = field(4, "Email");
+  const phone = field(6, "Phone");
+  // A field answers the issues named by its own id, or by any id it lists here.
+  const owns: Record<number, number[]> = { 4: [4], 6: [6, 7] };
+  const answers = (f: FormField, i: FieldIssue) =>
+    Boolean(owns[f.elementIndex]?.includes(i.elementIndex));
+
+  it("keeps only the fields an issue names, with what the page shows about each", () => {
+    const missing = issue({ elementIndex: 4, label: "Email", required: true, invalid: true });
+    const [only, ...rest] = flaggedFields([email, phone], scan(missing), answers);
+    assert.equal(rest.length, 0);
+    assert.deepEqual(only.issue, {
+      elementIndexes: [4],
+      value: "",
+      invalid: true,
+      linkedMessages: [],
+      nearbyMessages: [],
+    });
+  });
+
+  it("gathers every issue one field answers into one note", () => {
+    const shown = issue({
+      elementIndex: 6,
+      value: "4243207354",
+      linkedMessages: ["Invalid number"],
+    });
+    const box = issue({ elementIndex: 7, nearbyMessages: ["Invalid number", "Use digits"] });
+    const [only] = flaggedFields([email, phone], scan(shown, box), answers);
+    assert.equal(only.elementIndex, 6);
+    assert.deepEqual(only.issue?.elementIndexes, [6, 7]);
+    assert.equal(only.issue?.value, "4243207354");
+    assert.deepEqual(only.issue?.nearbyMessages, ["Invalid number", "Use digits"]);
+  });
+
+  it("lists no field for an issue no field answers", () => {
+    const dropdown = issue({ elementIndex: 12, role: "combobox", required: true });
+    assert.deepEqual(flaggedFields([email, phone], scan(dropdown), answers), []);
   });
 });

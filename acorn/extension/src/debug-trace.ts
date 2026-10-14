@@ -10,14 +10,11 @@ export const ACORN_DEBUG =
 
 /**
  * Process capture, in every build unless built with VITE_ACORN_CAPTURE=false: each
- * tab session's step trace, page HTML and trees, and screenshots go to the backend,
- * which keeps them for a few days so a support report carries the whole session.
- * Passwords are redacted before anything leaves the page.
+ * tab session's step trace (page addresses, labels, decisions) goes to the backend,
+ * which keeps it for a few days so a support report carries the whole session. The
+ * page's HTML never leaves the browser, and passwords never leave the page.
  */
 export const ACORN_CAPTURE = import.meta.env.VITE_ACORN_CAPTURE !== "false";
-
-/** Page HTML beyond this is cut so Analyze stays under the API body limit. */
-export const DEBUG_HTML_MAX_CHARS = 6_000_000;
 
 /** Lazy so production builds never pay for snapshots they would not send. */
 export type TraceData = () => unknown;

@@ -1,5 +1,4 @@
 import { authHeaders, getAcornApiUrl } from "../auth/acorn-auth";
-import { captureDebugHtml } from "../background/debug-html";
 import { traceFromBackground } from "../background/debug-trace-sink";
 
 import { RUN_LOG_BATCH_MAX, RUN_LOG_FLUSH_MS } from "./run-limits";
@@ -45,12 +44,6 @@ export class RunLog {
       return;
     }
     this.timer ??= setTimeout(() => void this.flush(), RUN_LOG_FLUSH_MS);
-  }
-
-  /** The page's HTML (and that of the frame the run reads) for a moment the run stands still. */
-  screenshot(label: string, frameId?: number | null): Promise<void> {
-    void captureDebugHtml(this.tabId, label, frameId);
-    return Promise.resolve();
   }
 
   /** Send what is queued and wait for it. Called when the run ends. */

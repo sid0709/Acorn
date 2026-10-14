@@ -168,6 +168,29 @@ export function fillsAccountForm(goal: AccountMode, pageMode: AccountMode): bool
   return pageMode === goal || pageMode === ACCOUNT_MODE.identify;
 }
 
+/**
+ * Whether an account step the page shows needs the profile's default password. An
+ * email-first step asks for the email alone: it is sent without one, and the form
+ * that follows asks for a password when the site has one (some sites only email a code).
+ */
+export function needsAccountPassword(pageMode: AccountMode): boolean {
+  return pageMode !== ACCOUNT_MODE.identify;
+}
+
+/**
+ * Whether the control a read named as the way on without an account is one. The
+ * same control as the one that moves the page forward, on a page with fields of
+ * its own, sends that page's form (an email-first step): it is the account step's
+ * own control, and the page is filled before it is pressed. Ids are the read's.
+ */
+export function isGuestPath(args: {
+  guestControl: number;
+  forwardControl: number | null;
+  pageFields: number;
+}): boolean {
+  return args.guestControl !== args.forwardControl || args.pageFields === 0;
+}
+
 /** The account steps the run sent on a site, each once, in the order first tried. */
 export function triedGoals(attempts: readonly AccountAttempt[]): AccountMode[] {
   return [...new Set(attempts.map((attempt) => attempt.mode))];

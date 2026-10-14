@@ -205,19 +205,18 @@ A non-matching frame replies `{ skipped: true }` (never holding the channel open
 
 Every message that touches form controls goes through one promise queue (`runExclusive`), so a slow step can never overlap the next step or the leftover pass.
 
-| Message                                                                 | Content-side work                                                                                                             |
-| ----------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------- |
-| `acorn:fetch-dom`                                                       | Wait (≤ 5 s) for the form to hydrate, then serialize the DOM; optionally include field issues, form fields, scope, page HTML. |
-| `acorn:plan-step`                                                       | Run one plan step (§9). The page gives up at 115 s so its own error reaches the worker before the 120 s channel timeout.      |
-| `acorn:fill-leftover-combos`                                            | Answer dropdowns no step answered (§9.5), stopping new work at the given deadline.                                            |
-| `acorn:collect-choices`                                                 | List planned choice steps that still need an exact option label (§8, choice batch).                                           |
-| `acorn:scan-field-issues`                                               | After the page goes quiet, re-read what it flags (Refill's after-check).                                                      |
-| `acorn:repair-drift`                                                    | Put back answers the page cleared since a timestamp (§9.6).                                                                   |
-| `acorn:page-probe`                                                      | Cheap page fingerprint for settle loops (§7.8).                                                                               |
-| `acorn:click-control`                                                   | Press a control by node id (the click lands 60 ms after the reply, so a navigation cannot swallow the answer).                |
-| `acorn:scope-census` / `-state` / `-end`                                | Track what a requirement's click opens inside the page (§10.9).                                                               |
-| `acorn:capture-html`                                                    | This frame's HTML with password values removed, for capture.                                                                  |
-| `acorn:highlight`, `-clear-highlight`, `get-content`, `execute-actions` | Socket-relayed inspection and low-level actions (§5.4).                                                                       |
+| Message                                                                 | Content-side work                                                                                                                                                                                             |
+| ----------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `acorn:fetch-dom`                                                       | Wait (≤ 5 s) for the form to hydrate, then serialize the DOM; optionally include field issues, form fields, scope. The page's HTML never leaves the page. The reply says how long each part took (`timings`). |
+| `acorn:plan-step`                                                       | Run one plan step (§9). The page gives up at 115 s so its own error reaches the worker before the 120 s channel timeout.                                                                                      |
+| `acorn:fill-leftover-combos`                                            | Answer dropdowns no step answered (§9.5), stopping new work at the given deadline; a refill's pass (`flagged`) answers only blank ones the page asks for.                                                     |
+| `acorn:collect-choices`                                                 | List planned choice steps that still need an exact option label (§8, choice batch).                                                                                                                           |
+| `acorn:scan-field-issues`                                               | After the page goes quiet, re-read what it flags (Refill's after-check).                                                                                                                                      |
+| `acorn:repair-drift`                                                    | Put back answers the page cleared since a timestamp (§9.6).                                                                                                                                                   |
+| `acorn:page-probe`                                                      | Cheap page fingerprint for settle loops (§7.8).                                                                                                                                                               |
+| `acorn:click-control`                                                   | Press a control by node id (the click lands 60 ms after the reply, so a navigation cannot swallow the answer).                                                                                                |
+| `acorn:scope-census` / `-state` / `-end`                                | Track what a requirement's click opens inside the page (§10.9).                                                                                                                                               |
+| `acorn:highlight`, `-clear-highlight`, `get-content`, `execute-actions` | Socket-relayed inspection and low-level actions (§5.4).                                                                                                                                                       |
 
 ### 4.4 Side panel
 
@@ -296,7 +295,7 @@ The server side ([`gateway/gateway.go`](../../../acorn-backend/acornapi/gateway/
 | `ai-usage:recorded`                                                        | server → extension                          | `{ tab, entry }` for every model call recorded; the worker appends it to that tab's usage ledger.                              |
 | `support:message`, `support:claim`                                         | server → extension                          | A claim changed; the worker forwards `acorn:support-claims-changed` to the panel.                                              |
 | `pipeline:progress`                                                        | extension → server → room                   | Relayed to the account's other clients.                                                                                        |
-| `dom:tree`                                                                 | extension → server → room                   | A serialized tree (Fill emits it); relayed with node counts.                                                                   |
+| `dom:tree`                                                                 | extension → server → room                   | A serialized tree, emitted only by the sidebar's explicit fetch-and-emit (never during Run); relayed with node counts.         |
 | `clients:update`, `connected`                                              | server → room                               | Who is connected.                                                                                                              |
 | `dom:highlight`, `dom:get-content`, `dom:execute-actions`, `dom:plan-step` | another client → server → extension (acked) | Remote inspection and actions on a tab, relayed only to an extension socket of the same account (timeouts 15 s / 60 s / 45 s). |
 
@@ -363,7 +362,7 @@ A **posting read** ([`fetch-posting.ts`](../../extension/src/pipeline/fetch-post
 | ---------------- | ----------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | **Planner tree** | [`formatPlannerTree`](../../packages/shared/planner-tree.ts)            | The tree `/acorn/ai-analyze` reads. One line per node `tag[id] attrs "text"`, bare wrappers folded, class tokens on controls only, option lists > 12 shortened to head 6 + "… N more options …" + tail 3. |
 | **Pure tree**    | [`formatAnalyzeTrees().pureTree`](../../packages/shared/tree-export.ts) | Full indented tree with every node's `detail` (attrs + classes). Used for page text (Run reads, Custom JD extract).                                                                                       |
-| **Meta tree**    | `formatAnalyzeTrees().metaTree`                                         | Raw attrs/classes per id; only sent to debug capture.                                                                                                                                                     |
+| **Meta tree**    | `formatAnalyzeTrees().metaTree`                                         | Raw attrs/classes per id; kept in the local Logs panel only, never sent.                                                                                                                                  |
 
 ### 7.5 The field list (fast plan input)
 
@@ -376,7 +375,7 @@ A **posting read** ([`fetch-posting.ts`](../../extension/src/pipeline/fetch-post
 - `aria-hidden` mirror inputs and invisible "robot trap" fields are never listed.
 - Custom dropdowns (`role=combobox` without native options) are **not** listed: their options exist only once opened, so the leftover pass answers them (§9.5).
 
-`pending` mode lists only fields still unanswered and untouched by any plan step; `blocked` mode adds unchecked boxes and marks them `blocking` (the page holds its forward control); `scoped` mode keeps only what the last opening click drew (§10.9).
+`pending` mode lists only fields still unanswered and untouched by any plan step; `blocked` mode adds unchecked boxes and marks them `blocking` (the page holds its forward control); `scoped` mode keeps only what the last opening click drew (§10.9); `flagged` mode (Refill) lists only the fields the field-issue scan of the same read names (§7.6). A field answers an issue when the issue's control is its own control, another box of its group, or the hidden box behind its Yes/No buttons; each listed field carries an `issue` note: the issue ids it answers, the value it shows, whether it is marked invalid, and its linked and nearby messages ([`flaggedFields`](../../packages/shared/field-issues.ts)). An issue no field answers (a custom dropdown) stays in the scan alone.
 
 ### 7.6 Field issues (what the page flags)
 
@@ -405,19 +404,21 @@ A failed read (page loading, content script not yet injected) is retried every 2
 [`runFabPipeline`](../../extension/src/pipeline/run-pipeline.ts) is the single fill engine. The sidebar's (hidden) Fill page / Refill buttons call it directly; Run calls it for every page it fills. Inputs that matter: `mode` (`fill` or `refill`), `requireResume` (Run: a fill with no résumé file stops before touching the page), `pendingOnly` (only what is still unanswered), `scoped` (only what an opening click drew), `verificationCode`, and an abort `signal`.
 
 ```text
-fetching ── read DOM (+fields / +issues / +HTML)  ┐
+fetching ── read DOM (+fields / +issues)          ┐
             load résumé file                     ├─ in parallel
             GET /acorn/runtime-file              ┘
+   │  refill: flagged fields + issues; files only once its plan uploads one
    │  keep résumé only if page is on the job's apply site (eTLD+1)
    │  Run with no résumé → error "No résumé file to attach"
    │  Refill with nothing flagged → done
    ▼
 analyzing ── planner tree ── plan:
    │           code-only page + verificationCode → code plan (no model)
-   │           pendingOnly / scoped-with-no-fields → empty plan
-   │           scoped → fast plan of the scope's fields
+   │           pendingOnly / scoped fill with no fields → empty plan
+   │           scoped fill → fast plan of the scope's fields
    │           otherwise fast plan (Jev + writer), fallback full planner
-   │           refill → refill planner (with this page's plan history)
+   │           refill → fast refill of the flagged fields; the refill conversation
+   │                    (with this page's plan history) when it leaves an issue open
    │  applicant-identity rewrite · spread code over boxes · redact for display
    ▼
 running ── runActionPlan:
@@ -426,17 +427,17 @@ running ── runActionPlan:
    │   page navigating away? abort remaining steps
    ├─ late fields: up to 3 looks for fields drawn after the plan (fast plan of new ones only)
    ├─ drift repair: put back answers the page cleared
-   ├─ leftover dropdowns (fill only, 120 s budget) ─▶ late fields again
+   ├─ leftover dropdowns (120 s budget; refill: blank ones the page asks for) ─▶ late fields again
    └─ frame reloaded mid-fill? wait, re-read, re-plan (≤ 3 times)
    ▼
-done / error ── "Done · N ok · 42s · $0.0123"  (Refill: "· K still flagged")
+done / error ── "Done · N ok · 42s · $0.0123"  (sidebar Refill: "· K still flagged")
 ```
 
 Step by step:
 
 1. **Résumé file.** [`loadFillResume`](../../extension/src/pipeline/fill-resume.ts) picks, in order: a remembered tab's recommended Library résumé or generated résumé; for a Worker Pool job, its completed recommend result, its completed generation, else `GET /acorn/jobs/:id/recommended-resume`. Files are cached for 10 minutes (8 files) so a run that fills one page several times does not re-download. For a job tab the file is used only if the page shares the apply URL's root domain.
 2. **Runtime file.** `GET /acorn/runtime-file` returns an optional fallback file the server is configured with (`ACORN_RUNTIME_FILE_PATH`) for generic upload fields; 404 means none.
-3. **Plan request.** [`requestPlan`](../../extension/src/pipeline/plan-request.ts) tries the **fast planner** first (`mode: "fast"` with the field list; `FAST_FILL_ENABLED = true`) and falls back to the **full planner** (`mode: "fill"`, the planner tree only) if the fast plan fails or has no actions. The request also carries a `page` block: title, URL, the applicant's local date (`today`), the bound job, which résumé is available. Refill sends `mode: "refill"`, the field issues, and the page's earlier plans (`history`, at most 4 turns) so the planner continues its own conversation; a backend that does not echo `mode: "refill"` is refused ("This Acorn server doesn't support Refill yet").
+3. **Plan request.** [`requestPlan`](../../extension/src/pipeline/plan-request.ts) tries the **fast planner** first (`mode: "fast"` with the field list; `FAST_FILL_ENABLED = true`) and falls back to the **full planner** (`mode: "fill"`, the planner tree only) if the fast plan fails or has no actions. The request also carries a `page` block: title, URL, the applicant's local date (`today`), the bound job, which résumé is available. Refill sends `mode: "refill"`, the field issues, the flagged fields (`formFields` read in `flagged` mode, §7.5), and the page's earlier plans (`history`, at most 4 turns). The backend plans the flagged fields first with the fast planner (§13.3, fast refill); only when that leaves an issue open does the refill conversation continue from the history. A backend that does not echo `mode: "refill"` is refused ("This Acorn server doesn't support Refill yet"); an older one that ignores `formFields` plans every refill with the conversation. A scoped refill (fixing an entry form a requirement opened, §10.9) is a refill of the flagged fields in the scope. A refill loads the résumé and runtime file only when its plan uploads one. No read carries page HTML, and plan requests carry only the compact tree and field list (no debug payload).
 4. **Post-processing.** [`applyApplicantIdentityToActions`](../../packages/shared/plan-runner/applicant-identity.ts) turns any "yes / I consent" on an AI-tool or automated-decision question into "No". A code planned whole into one-character boxes is spread one character per box. Plans shown in the panel or logs are redacted (`(hidden)` for password fills).
 5. **Running the plan.** [`runActionPlan`](../../packages/shared/plan-runner/orchestrator.ts):
    - runs **upload steps first** (a résumé upload often makes the site parse it and rewrite the form; answers given after the upload survive that), then every other step in the planner's order;
@@ -445,9 +446,9 @@ Step by step:
    - blocks steps that target `forbidden` indexes (the planner marks Submit as forbidden), skips résumé uploads into non-résumé fields and cover-letter uploads when the Library has none;
    - sends each step to the page and records `ok` / `skipped` (already filled) / `failed` / `blocked`; the unattended pause policy skips failed steps and continues planned pauses.
 6. **Late fields** ([`late-fields.ts`](../../extension/src/pipeline/late-fields.ts)): sections that render late, fields an import re-rendered, follow-ups an answer revealed. Up to 3 looks, each planning only questions (by label) it has not seen, with the fast planner.
-7. **Drift repair** (§9.6), then the **leftover dropdown pass** (§9.5, not in Refill), then late fields again (a dropdown answer can draw an address block).
+7. **Drift repair** (§9.6), then the **leftover dropdown pass** (§9.5), then late fields again (a dropdown answer can draw an address block). In a Refill the pass answers only blank dropdowns the page asks for (required, or marked invalid) and never re-judges values the site put in itself; late fields follow it only when it answered one.
 8. **Page replaced under the fill** ([`frame-navigation.ts`](../../extension/src/pipeline/frame-navigation.ts)): `webNavigation.onBeforeNavigate` on the fill's frame or any frame holding it means the document is going away (some sites submit the form as soon as a résumé is attached). Remaining steps are dropped, the pipeline waits for the new document (≤ 60 s), lets it settle, re-reads, and plans again — at most 3 times.
-9. **Result.** Progress carries the phase timings (`dom`, `plan`, `steps`, `late`, `drift`, `leftover`…), and the AI cost: every call the server pushed for this tab's usage key between the fill's start and end (§12.6).
+9. **Result.** Progress carries the phase timings (`dom` for the page read alone, `resume` and `runtime` for the files, `plan`, `steps`, `late`, `drift`, `leftover`…), and the AI cost: every call the server pushed for this tab's usage key between the fill's start and end (§12.6). Each read also logs the page's own `timings` (form wait, serialize, issues, fields) in the Logs DOM entry and the `dom:read` trace; a refill traces which planner planned it (`refill:planner`). A refill started by the sidebar ends with a rescan for "· K still flagged"; Run's refills skip it, since the run reads the page right after.
 
 ---
 
@@ -506,6 +507,7 @@ The **leftover pass** ([`leftover-combobox.ts`](../../extension/src/content/agen
 - Each dropdown's label includes its section, fieldset legend, and date-part group ("Education — Start Date — Month").
 - Per round, every dropdown's options are read and its decision is started at once: a whole list (≤ 30 or not searchable) goes to Jev with the instruction "Answer from the applicant profile"; a long searchable list gets the writer's short estimate (`/acorn/qa`) to type. Answers are applied one dropdown at a time; each gets 2 tries.
 - Up to 3 rounds and 40 dropdowns; unanswered ones are retried when another answer changed the page (a state narrows its cities). New work stops at a deadline 15 s before the 120 s budget so the page is free when the run moves on.
+- In a Refill (`flagged`) the pass takes only blank dropdowns the page asks for (required, or marked invalid) and skips the site-prefilled check: a custom dropdown is in no field list, so this is how a refill answers one the page flags.
 
 ### 9.6 Memory inside the page and drift repair
 
@@ -541,13 +543,14 @@ Each iteration (max 60) is one look at the page:
 ```text
 ┌─▶ 1. LOOK ── the page a click just produced, or a fresh read
 │      (blank page? wait up to the slow-page budget)
-│      new step?  (§10.4)  → new PageState, page count (≤ 25), HTML capture
+│      new step?  (§10.4)  → new PageState, page count (≤ 25)
 │      account step just sent? → Jev judges how the site answered (§10.7)
 │      a password reset was accepted? → read the reset link from Gmail
 │
 │   2. SAME PAGE AFTER A FORWARD CLICK?
 │      fields flagged / required still empty / new text beside fields
-│          → Refill with this page's plan history (≤ 3 per page)
+│          → Refill: fast refill of the flagged fields, the conversation with
+│            this page's plan history when it leaves one open (≤ 3 per page)
 │          (a typed email code the page rejects → stop "code rejected")
 │      only a new page alert → quick read: confirmation? done.
 │          otherwise fill what is still blank (pendingOnly), once
@@ -611,11 +614,11 @@ The instructions encode the behavioural rules: judge controls by what they do, n
 
 ### 10.6 Rejections, refills, and "no effect"
 
-After a forward click on the same step: a field the click flagged, a required field still empty, or new text beside a field (pages without ARIA reject in plain copy) triggers a **Refill** with the page's previous plans as conversation history. A refill that plans nothing for "noted" text means that text was help copy: the run notes it as the baseline and counts a no-effect click instead. A page alert with no flagged field is read first (a single-page app may show "Application submitted" before its address changes). A click that changes nothing and says nothing is retried, up to 2 times. Separately, a **progress ledger** ([`run-progress.ts`](../../extension/src/pipeline/run-progress.ts)) records, per address, what the page still needs (flagged / required-empty labels and the named requirement); 2 rounds in a row that settle none of it stop the run in seconds ("The page kept asking for the same things").
+After a forward click on the same step: a field the click flagged, a required field still empty, or new text beside a field (pages without ARIA reject in plain copy) triggers a **Refill**: the flagged fields are planned by the fast refill (§13.3), with the page's previous plans kept as conversation history for the refill conversation when the fast refill leaves an issue open. A refill that plans nothing for "noted" text means that text was help copy: the run notes it as the baseline and counts a no-effect click instead. A page alert with no flagged field is read first (a single-page app may show "Application submitted" before its address changes). A click that changes nothing and says nothing is retried, up to 2 times. Separately, a **progress ledger** ([`run-progress.ts`](../../extension/src/pipeline/run-progress.ts)) records, per address, what the page still needs (flagged / required-empty labels and the named requirement); 2 rounds in a row that settle none of it stop the run in seconds ("The page kept asking for the same things").
 
 ### 10.7 Account steps
 
-When the site requires an account, the run uses the profile's email and **default account password** (a profile field; the run stops with "add a default account password" when there is none). The order is fixed code in [`account-goal.ts`](../../extension/src/pipeline/account-goal.ts), fed only by evidence Jev reads:
+When the site requires an account, the run uses the profile's email and **default account password** (a profile field; the run stops with "add a default account password" when there is none and a step needs it). An email-first step (`identify`) needs no password ([`needsAccountPassword`](../../extension/src/pipeline/account-goal.ts)): it is filled and sent, and the form that follows asks for one when the site has one (some sites only email a code). The order is fixed code in [`account-goal.ts`](../../extension/src/pipeline/account-goal.ts), fed only by evidence Jev reads:
 
 ```text
 guest path offered (and account work not started on this site)?  ─▶ take it, once
@@ -628,6 +631,7 @@ email-first page (identify): fill it and send it; the next form says whether the
 ```
 
 - Only the goal's own form is filled; on any other account form the run clicks the control that opens the goal's form.
+- A guest control the read names is a way around the account only when it is not the very control that moves the page forward on a page with fields of its own ([`isGuestPath`](../../extension/src/pipeline/account-goal.ts)). An email-first page's own Next is often named as both; it sends the page's form, so the run fills the email and sends it (logged `guest:own-form`) instead of clicking Next with the field empty.
 - After each account click, `POST /acorn/run/account-outcome` has Jev judge the next page: `accepted` (signed in, created, reset sent, now asks to verify by email, or shows the next part of the step), `refused` (wrong password, exists, locked, field flagged), or `not_sent` (the click only switched forms). Without a model answer, a structural fallback is used. A page that answers an account step by asking to verify by email counts as accepted.
 - A refused account step is never "refilled" with the same password.
 - Limits: 8 account steps per site. History and evidence are kept per site (host) and saved in the checkpoint.
@@ -734,30 +738,30 @@ The code can still generate a tailored résumé ([`run-generate.ts`](../../exten
 
 ### 12.2 Routes the extension calls
 
-| Route                                                                                                  | Purpose                                                                                                                             |
-| ------------------------------------------------------------------------------------------------------ | ----------------------------------------------------------------------------------------------------------------------------------- |
-| `POST /acorn/auth/extension/signin`                                                                    | Email + extension password → session token.                                                                                         |
-| `POST /acorn/auth/signout`, `GET /acorn/auth/me`                                                       | Revoke / describe the session.                                                                                                      |
-| `POST /acorn/auth/support/redeem`                                                                      | Redeem a support handoff code.                                                                                                      |
-| `POST /acorn/ai-analyze`                                                                               | Plan a page. `mode`: `fast` (field list → decision-model plan), `refill` (field issues + history), otherwise the full planner.      |
-| `POST /acorn/match-option`                                                                             | One Jev option decision (`allowNotListed`, `listComplete`, `multiple`). A failed decision is `200 {ok:false}`; the page falls back. |
-| `POST /acorn/pick-options`                                                                             | The choice batch (≤ 120 fields) in parallel Jev requests.                                                                           |
-| `POST /acorn/qa`                                                                                       | Writer answer to one question (Ask tab, selection chip, dropdown estimates).                                                        |
-| `POST /acorn/run/read-page`                                                                            | §10.3.                                                                                                                              |
-| `POST /acorn/run/account-outcome`                                                                      | §10.7.                                                                                                                              |
-| `POST /acorn/run/mail-verification`                                                                    | §10.8. The value is returned only to the caller and never logged.                                                                   |
-| `POST /acorn/run/dialog`, `POST /acorn/run/diagnose`                                                   | §10.12, §10.11.                                                                                                                     |
-| `POST /acorn/run/log`                                                                                  | Run timeline into the server log and capture.                                                                                       |
-| `GET /acorn/runtime-file`                                                                              | The configured fallback upload file.                                                                                                |
-| `POST /acorn/custom/recommend`, `/custom/cover-letter`, `/custom/extract-jd`                           | Recommend a Library résumé, choose a cover letter, extract a JD.                                                                    |
-| `POST /acorn/custom/generate` (+ `/continue`, `GET` poll)                                              | Résumé generation.                                                                                                                  |
-| `GET /acorn/custom/library-resumes/:id` (+ `/preview`), `/custom/resumes/:generationId` (+ `/preview`) | Library or generated file `{file:{key,name,mimeType,base64,label,format,variants}}`; HTML previews.                                 |
-| `GET /acorn/jobs/:jobId`, `/jobs/:jobId/recommended-resume`, `/jobs/:jobId/resume-preview`             | Worker Pool job (with stored JD) and its résumé.                                                                                    |
-| `GET /acorn/profile`                                                                                   | The profile (the sidebar reads `defaultAccountPassword` to show it on account steps).                                               |
-| `GET /acorn/ai-usage?tab=…`, `GET /acorn/ai-usage/:id`                                                 | A tab's usage list (exact `costNanos`/`totalNanos`) and one entry.                                                                  |
-| `POST /acorn/support/claims`, `GET …/claims`, `…/claims/:id/messages`, `/read`, `/reopen`, attachments | Support reports.                                                                                                                    |
-| `POST /acorn/debug/log`, `/debug/html`, `/debug/shot`                                                  | Process capture uploads (§12.7).                                                                                                    |
-| `GET/POST /acorn/socket.io`                                                                            | Socket.IO gateway (§5.4).                                                                                                           |
+| Route                                                                                                  | Purpose                                                                                                                                                                                                                                                             |
+| ------------------------------------------------------------------------------------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `POST /acorn/auth/extension/signin`                                                                    | Email + extension password → session token.                                                                                                                                                                                                                         |
+| `POST /acorn/auth/signout`, `GET /acorn/auth/me`                                                       | Revoke / describe the session.                                                                                                                                                                                                                                      |
+| `POST /acorn/auth/support/redeem`                                                                      | Redeem a support handoff code.                                                                                                                                                                                                                                      |
+| `POST /acorn/ai-analyze`                                                                               | Plan a page. `mode`: `fast` (field list → decision-model plan), `refill` (field issues + history; with `formFields` the flagged fields are planned by the fast refill first, and the answer says which planner ran in `refillPlanner`), otherwise the full planner. |
+| `POST /acorn/match-option`                                                                             | One Jev option decision (`allowNotListed`, `listComplete`, `multiple`). A failed decision is `200 {ok:false}`; the page falls back.                                                                                                                                 |
+| `POST /acorn/pick-options`                                                                             | The choice batch (≤ 120 fields) in parallel Jev requests.                                                                                                                                                                                                           |
+| `POST /acorn/qa`                                                                                       | Writer answer to one question (Ask tab, selection chip, dropdown estimates).                                                                                                                                                                                        |
+| `POST /acorn/run/read-page`                                                                            | §10.3.                                                                                                                                                                                                                                                              |
+| `POST /acorn/run/account-outcome`                                                                      | §10.7.                                                                                                                                                                                                                                                              |
+| `POST /acorn/run/mail-verification`                                                                    | §10.8. The value is returned only to the caller and never logged.                                                                                                                                                                                                   |
+| `POST /acorn/run/dialog`, `POST /acorn/run/diagnose`                                                   | §10.12, §10.11.                                                                                                                                                                                                                                                     |
+| `POST /acorn/run/log`                                                                                  | Run timeline into the server log and capture.                                                                                                                                                                                                                       |
+| `GET /acorn/runtime-file`                                                                              | The configured fallback upload file.                                                                                                                                                                                                                                |
+| `POST /acorn/custom/recommend`, `/custom/cover-letter`, `/custom/extract-jd`                           | Recommend a Library résumé, choose a cover letter, extract a JD.                                                                                                                                                                                                    |
+| `POST /acorn/custom/generate` (+ `/continue`, `GET` poll)                                              | Résumé generation.                                                                                                                                                                                                                                                  |
+| `GET /acorn/custom/library-resumes/:id` (+ `/preview`), `/custom/resumes/:generationId` (+ `/preview`) | Library or generated file `{file:{key,name,mimeType,base64,label,format,variants}}`; HTML previews.                                                                                                                                                                 |
+| `GET /acorn/jobs/:jobId`, `/jobs/:jobId/recommended-resume`, `/jobs/:jobId/resume-preview`             | Worker Pool job (with stored JD) and its résumé.                                                                                                                                                                                                                    |
+| `GET /acorn/profile`                                                                                   | The profile (the sidebar reads `defaultAccountPassword` to show it on account steps).                                                                                                                                                                               |
+| `GET /acorn/ai-usage?tab=…`, `GET /acorn/ai-usage/:id`                                                 | A tab's usage list (exact `costNanos`/`totalNanos`) and one entry.                                                                                                                                                                                                  |
+| `POST /acorn/support/claims`, `GET …/claims`, `…/claims/:id/messages`, `/read`, `/reopen`, attachments | Support reports.                                                                                                                                                                                                                                                    |
+| `POST /acorn/debug/log`, `/debug/shot`                                                                 | Process capture uploads (§12.7).                                                                                                                                                                                                                                    |
+| `GET/POST /acorn/socket.io`                                                                            | Socket.IO gateway (§5.4).                                                                                                                                                                                                                                           |
 
 The site and console use the rest: profile editing and import from a résumé (`/acorn/profile`, `/profile/from-resume`), the résumé config/templates/generations/Library (`/acorn/resume/*`), Gmail connect and labels (`/acorn/gmail/*`), Google sign-in, and `/acorn/admin/*`.
 
@@ -797,7 +801,7 @@ Worker Pool jobs come from the shared jobs catalog (`backend-core/jobs`).
 
 ### 12.7 Process capture and support reports
 
-Capture is on in every build (`VITE_ACORN_CAPTURE` unset) and on every server with MongoDB. Per user and tab (`<userId>/<X-Acorn-Tab>`), [`debugtrace`](../../../acorn-backend/debugtrace/recorder.go) keeps "run folders": each Analyze opens one with `page.json`, `pure-tree.txt`, `applicant.txt`, `form-fields.json` or `field-issues.json`, every model call (`ai-<purpose>.md`) and Jev decision (`jev-<call>.md`), `plan.json` (passwords redacted), the extension's `steps.ndjson` trace (what each control read before and after, option lists, clicks, timeouts…), page HTML at marked moments (passwords removed in the page), and each Run decision (`run-<id>-NN-read-page.json`, `account-outcome`, `dialog`, `diagnose`, `mail-verification` with the mailbox and ranked emails — never the code or link). Retention is 72 hours.
+Capture is on in every build (`VITE_ACORN_CAPTURE` unset) and on every server with MongoDB. Per user and tab (`<userId>/<X-Acorn-Tab>`), [`debugtrace`](../../../acorn-backend/debugtrace/recorder.go) keeps "run folders": each Analyze opens one with `page.json`, `pure-tree.txt`, `applicant.txt`, `form-fields.json` or `field-issues.json`, every model call (`ai-<purpose>.md`) and Jev decision (`jev-<call>.md`), `plan.json` (passwords redacted), the extension's `steps.ndjson` trace (what each control read before and after, option lists, clicks with the address they started from, timeouts…), and each Run decision (`run-<id>-NN-read-page.json`, `account-outcome`, `dialog`, `diagnose`, `mail-verification` with the mailbox and ranked emails — never the code or link). Retention is 72 hours.
 
 **Report** (header menu) flushes pending traces, takes a full-page screenshot (scroll-and-stitch, fixed elements shown once, JPEG ≤ 8 MB), and posts it with the notes, page URL/title, extension version, and tab key. The server copies that tab's whole capture session onto the claim, where admins download it as a zip. A follow-up on an open claim is a multipart message with the screenshot attached.
 
@@ -809,22 +813,24 @@ Locally, `ACORN_DEBUG_DIR=./debug-runs` also writes the run folders to disk, and
 
 ### 13.1 Who decides what
 
-| Decision                                                                                      | Model               | Where                                                                 |
-| --------------------------------------------------------------------------------------------- | ------------------- | --------------------------------------------------------------------- |
-| Full plan of a page (every field, values, forbidden Submit)                                   | text                | `acorn.Analyze`, prompt `prompts/analyze_system.txt`                  |
-| Refill plan (fix only real errors, never repeat a rejected value)                             | text (conversation) | `acorn.Refill`, `prompts/refill_system.txt`                           |
-| Free-text answers (short facts verbatim, prose in first person)                               | text                | `acorn.writeAnswers`, `prompts/prose_system.txt`                      |
-| Q&A, dropdown estimates                                                                       | text                | `acorn.Answer` (same writer prompt)                                   |
-| Is this a job description, and extract it                                                     | text                | `acorn.ExtractJD`, `prompts/extract_jd_system.txt`                    |
-| Which profile fact fills a text field (or write / skip / other person / person only)          | Jev                 | `FastPlan` via `ClassifyEach`                                         |
-| Whose detail a field asks for (applicant vs. another person)                                  | Jev                 | `FastPlan`                                                            |
-| File field kind (résumé, autofill drop zone, cover letter, other) and accepted format         | Jev                 | `FastPlan`; `PickOne` settles one résumé field among several          |
-| Choice fields (select, radio, buttons, checkbox sets, toggles)                                | Jev                 | `PickBatch` (fast plan, choice batch), `PickOption`/`PickMany` (page) |
-| "Did the applicant use AI" questions                                                          | Jev (or text)       | `classifyIdentityByDecision`                                          |
-| Page kind, forward control, guest path, account mode, verification, requirement, save control | Jev                 | `ReadPage`                                                            |
-| Account outcome, browser dialog, failure reason                                               | Jev                 | `JudgeAccountOutcome`, `DecideDialog`, `Diagnose`                     |
-| Which email, which code/link                                                                  | Jev                 | `RankMail`, `PickSecret`                                              |
-| Posting? which Library résumé / cover letter                                                  | Jev                 | `MatchPosting`                                                        |
+| Decision                                                                                                    | Model               | Where                                                                                   |
+| ----------------------------------------------------------------------------------------------------------- | ------------------- | --------------------------------------------------------------------------------------- |
+| Full plan of a page (every field, values, forbidden Submit)                                                 | text                | `acorn.Analyze`, prompt `prompts/analyze_system.txt`                                    |
+| Refill plan of the flagged fields (fast refill)                                                             | Jev (+ writer)      | `acorn.RefillFlagged` ([`refill_fast.go`](../../../acorn-backend/acorn/refill_fast.go)) |
+| Does the text with a flagged field refuse its answer, or only help?                                         | Jev                 | `refusedByText` (one batched `ClassifyEach`)                                            |
+| Refill plan when the fast refill leaves an issue open (fix only real errors, never repeat a rejected value) | text (conversation) | `acorn.Refill`, `prompts/refill_system.txt`                                             |
+| Free-text answers (short facts verbatim, prose in first person)                                             | text                | `acorn.writeAnswers`, `prompts/prose_system.txt`                                        |
+| Q&A, dropdown estimates                                                                                     | text                | `acorn.Answer` (same writer prompt)                                                     |
+| Is this a job description, and extract it                                                                   | text                | `acorn.ExtractJD`, `prompts/extract_jd_system.txt`                                      |
+| Which profile fact fills a text field (or write / skip / other person / person only)                        | Jev                 | `FastPlan` via `ClassifyEach`                                                           |
+| Whose detail a field asks for (applicant vs. another person)                                                | Jev                 | `FastPlan`                                                                              |
+| File field kind (résumé, autofill drop zone, cover letter, other) and accepted format                       | Jev                 | `FastPlan`; `PickOne` settles one résumé field among several                            |
+| Choice fields (select, radio, buttons, checkbox sets, toggles)                                              | Jev                 | `PickBatch` (fast plan, choice batch), `PickOption`/`PickMany` (page)                   |
+| "Did the applicant use AI" questions                                                                        | Jev (or text)       | `classifyIdentityByDecision`                                                            |
+| Page kind, forward control, guest path, account mode, verification, requirement, save control               | Jev                 | `ReadPage`                                                                              |
+| Account outcome, browser dialog, failure reason                                                             | Jev                 | `JudgeAccountOutcome`, `DecideDialog`, `Diagnose`                                       |
+| Which email, which code/link                                                                                | Jev                 | `RankMail`, `PickSecret`                                                                |
+| Posting? which Library résumé / cover letter                                                                | Jev                 | `MatchPosting`                                                                          |
 
 Jev is asked typed questions (`choice` among keyed criteria, or `noul` = P(yes)) about a text `state`; it answers each with a choice, a confidence, and probabilities, and never generates text. Options are sent as keys (`option_0`, …) so labels round-trip exactly. A question lists at most 255 options; field batches (`ClassifyEach`, `PickBatch`) are split into requests of up to 32 questions that run in parallel, while a page read asks its dozen questions in one request. The client retries transient failures (3 attempts, 30 s timeout) on one shared keep-alive connection pool.
 
@@ -855,6 +861,15 @@ fields ──┬─ textareas ────────────────�
 - The choice batch's shared state is the applicant profile plus fixed rules: the applicant is a human; they give every ordinary consent or acknowledgement; work authorization from immigration status, sponsorship from the sponsorship answer; a profile silent on a history question means "no".
 - Custom dropdowns are left to the leftover pass; any fast-plan failure falls back to the full planner on the extension side.
 
+**Fast refill** ([`RefillFlagged`](../../../acorn-backend/acorn/refill_fast.go)) plans a Refill from the flagged fields alone, the way a first fill plans a page:
+
+- An issue **needs an answer** when the page marks it (invalid, or required and still blank), or when one batched Jev question reads its text (linked or nearby) as refusing the answer or saying one is missing rather than helping (a format, a counter, an example). Jev reads the field's label and the text, never the value. The marked fields are planned while that question is asked.
+- A blank field that needs an answer goes through `FastPlan` as required, so the writer answers it even when the profile is silent.
+- A field that holds a refused answer goes through `FastPlan`. A typed answer planned for it is rewritten by the writer with the page's message as its `page error` (or "not accepted" when the page gave none), and a typed step that would send the very value the page refused is dropped. An optional typed field whose answer no profile fact backs is cleared. A choice may be clicked again, since a widget may not have taken the first click.
+- Password fields take the account password, as in every plan.
+- A blank custom dropdown no field answers is left to the refill's dropdown pass (§9.5).
+- Any other issue that needs an answer and gets no step, a fast-refill error, or no decision model: the same request plans the refill with the conversation (`acorn.Refill`, tree plus history). The answer's `refillPlanner` says `fast` or `conversation`.
+
 ### 13.4 The writer
 
 The writer prompt ([`prose_system.txt`](../../../acorn-backend/acorn/prompts/prose_system.txt)) returns short facts exactly as stored and writes prose answers in the first person, with rules against generic phrasing and a length matched to the question and to the field's limits (`maxLength`, a "0/300" counter). Each field is its own call (≤ 8 in flight, 20 s each), and each call lists the form's other questions so answers do not repeat each other. A Refill passes the page's error message for the field. Note that the prompt's hard rules allow the writer to **invent** employers, dates, metrics, or details when the profile is thin (see §14.4).
@@ -881,7 +896,7 @@ Described in §10.8. The masking means the decision model never sees a code or a
 
 ### 14.2 How passwords stay out
 
-- The serializer writes `(hidden)` for a password box's value; capture HTML strips password `value` attributes.
+- The serializer writes `(hidden)` for a password box's value. No page HTML is ever sent: the planner, capture and traces carry the compact tree, labels and addresses only.
 - Plans are redacted for display, progress, logs, and server capture (`(hidden)` for fills whose role is `password`).
 - The planner prompts never contain the password; the backend inserts it into the plan (`fillPasswords`, the `account_password` fact).
 - Trace events show `(hidden)` for password steps.
@@ -900,7 +915,7 @@ These are facts about the current code that are easy to miss:
 3. **The writer may invent.** The prose prompt's hard rules let it make up employers, dates, metrics, and "friction" details when the profile is thin.
 4. **Secrets in the profile are plain text** in `acorn_profiles`, and `GET /acorn/profile` returns them (OpenRouter key, default account password, extension password) to any valid session for that account, including support sessions.
 5. **The sidebar shows the default account password** in plain text on account steps ("Using default password: …", [`NowCard.tsx`](../../extension/src/sidebar/NowCard.tsx)). Policy §6 says the password never reaches plans, progress, or logs — which holds — but it is displayed in the panel.
-6. **Capture is on by default in production** and stores page HTML, the applicant profile text, prompts, and decisions per tab for 72 h.
+6. **Capture is on by default in production** and stores the compact tree, the applicant profile text, prompts, and decisions per tab for 72 h (never page HTML).
 7. **Usage detail has no bodies.** Usage rows store no request/response text, so the usage detail view shows its "recorded before request bodies were saved" placeholder.
 
 ---
@@ -932,6 +947,7 @@ bun run dev:acorn         # watch-build the extension into acorn/extension/dist
 Load `acorn/extension/dist` unpacked in `chrome://extensions`, set an OpenRouter key and an extension password on the profile in the site, then sign in from the side panel.
 
 - **Where to look when a run misbehaves:** the tab's **Logs** panel (trees, plan, every trace event), the worker console (`[acorn:run] <runId> #<step> <event>`), the server log (`acorn run event`, `acorn run read-page decided` with probabilities and cost), and the capture folders (`ACORN_DEBUG_DIR`) or a support claim's zip.
+- **Where a fill's time goes:** each `fill:done` / `refill:done` run event carries its phases (`dom`, `resume`, `runtime`, `plan`, `steps`, `late`, `drift`, `leftover`); the `dom:read` trace splits a page read into the page's own parts, and `refill:planner` says whether a refill was planned fast or by the conversation (the server logs why it fell back).
 - `VITE_ACORN_DEBUG=true` (development builds) pins the build's API URL and reports refused capture uploads in the panel.
 - **Tests:** `bun run test` runs the TypeScript unit tests (`*.test.ts` in the extension and `@acorn/shared`: account goal order, run step detection, evidence, frame navigation, upload formats, label matching…); `go test ./acorn-backend/...` runs the backend's (selector decisions, fast plan, mail extraction, gateway isolation…).
 - **End to end:** `bun run e2e:mock-apply:setup` then `bun run e2e:mock-apply` drives the built extension headless through a local multi-step site (posting → apply dialog → sign-in refused → create account → sign in → four form steps → Review) with Stop before Submit and screenshots each step; `tests/e2e/mock-apply/entries.ts` checks entry-list handling without model calls. It needs the local backend and the test account's OpenRouter key.

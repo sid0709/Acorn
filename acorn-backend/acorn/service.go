@@ -162,6 +162,8 @@ type AnalyzeResult struct {
 	ResponseID *string `json:"responseId"`
 	// Mode echoes ModeRefill on a Refill plan, so the extension knows the backend honored it.
 	Mode string `json:"mode,omitempty"`
+	// RefillPlanner says which planner planned a Refill: RefillPlannerFast or RefillPlannerConversation.
+	RefillPlanner string `json:"refillPlanner,omitempty"`
 	// Fields are the questions a fast plan found in the planner tree, answered or not.
 	Fields []FormField `json:"fields,omitempty"`
 }
