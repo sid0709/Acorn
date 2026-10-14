@@ -4,6 +4,7 @@ import { useEffect, useRef, useState } from "react";
 import {
   Banner,
   Button,
+  Collapsible,
   EmptyState,
   Glyph,
   GridColumn,
@@ -22,6 +23,7 @@ import {
   listGenerations,
   previewGeneration,
 } from "@/lib/resume/api";
+import { ROUTES } from "@/lib/routes";
 import { saveBase64File } from "@/lib/workspace/resume-file";
 import { RESUME_TEMPLATES } from "@acorn/shared/resume-templates";
 import {
@@ -72,6 +74,7 @@ export function ResumeHistory({
   const [models, setModels] = useState<string[]>(
     initial.ok ? (initial.data.facets?.models ?? []) : [],
   );
+  const [hasHistory, setHasHistory] = useState(initial.ok && initial.data.total > 0);
   const [selected, setSelected] = useState<string | null>(null);
   const [html, setHtml] = useState("");
   const [error, setError] = useState(initial.ok ? "" : initial.message);
@@ -82,6 +85,8 @@ export function ResumeHistory({
     const timer = setTimeout(() => setDebounced(search), RESUME_HISTORY_SEARCH_DEBOUNCE_MS);
     return () => clearTimeout(timer);
   }, [search]);
+
+  const filtering = Boolean(debounced || status !== "all" || model || templateId || from || to);
 
   useEffect(() => {
     if (skipInitialFetch.current > 0) {
@@ -109,6 +114,7 @@ export function ResumeHistory({
         return;
       }
       setError("");
+      if (!filtering) setHasHistory(result.data.total > 0);
       setRuns(result.data.runs);
       setTotal(result.data.total);
       setModels(result.data.facets?.models ?? []);
@@ -116,6 +122,8 @@ export function ResumeHistory({
     return () => {
       cancel = true;
     };
+    // filtering is derived from the same inputs listed here.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [debounced, searchIn, status, model, templateId, from, to, sort, offset]);
 
   const open = async (id: string) => {
@@ -149,6 +157,7 @@ export function ResumeHistory({
     }
     setRuns((current) => current.filter((run) => run.id !== id));
     setTotal((count) => Math.max(0, count - 1));
+    if (!filtering && total <= 1) setHasHistory(false);
   };
 
   const page = Math.floor(offset / RESUME_HISTORY_PER_PAGE) + 1;
@@ -157,97 +166,125 @@ export function ResumeHistory({
   return (
     <Stack gap={4}>
       {error ? <Banner status="error" title="History" description={error} /> : null}
-      <SectionCard title="Search" description={`Drafts generated for ${account.name}.`}>
-        <Stack gap={3}>
-          <TextInput
-            label="Search"
-            value={search}
-            onChange={(value) => {
-              setOffset(0);
-              setSearch(value);
-            }}
-          />
-          <HStack gap={3} wrap="wrap">
-            <Selector
-              label="In"
-              value={searchIn}
-              options={SEARCH_IN}
-              onChange={(value) => {
-                setOffset(0);
-                setSearchIn(value as ResumeHistorySearchIn);
-              }}
-            />
-            <Selector
-              label="Status"
-              value={status}
-              options={STATUSES}
-              onChange={(value) => {
-                setOffset(0);
-                setStatus(value as ResumeHistoryStatus);
-              }}
-            />
-            <Selector
-              label="Model"
-              value={model || "all"}
-              options={[
-                { value: "all", label: "Any model" },
-                ...models.map((item) => ({ value: item, label: item })),
-              ]}
-              onChange={(value) => {
-                setOffset(0);
-                setModel(value === "all" ? "" : value);
-              }}
-            />
-            <Selector
-              label="Template"
-              value={templateId || "all"}
-              options={[
-                { value: "all", label: "Any template" },
-                ...RESUME_TEMPLATES.map((item) => ({ value: item.id, label: item.name })),
-              ]}
-              onChange={(value) => {
-                setOffset(0);
-                setTemplateId(value === "all" ? "" : value);
-              }}
-            />
-            <Selector
-              label="Sort"
-              value={sort}
-              options={RESUME_HISTORY_SORTS.map((item) => ({ value: item.id, label: item.label }))}
-              onChange={(value) => {
-                setOffset(0);
-                setSort(value as ResumeHistorySort);
-              }}
-            />
-          </HStack>
-          <HStack gap={3} wrap="wrap">
-            <TextInput
-              label="From"
-              value={from}
-              placeholder="YYYY-MM-DD"
-              onChange={(value) => {
-                setOffset(0);
-                setFrom(value);
-              }}
-            />
-            <TextInput
-              label="To"
-              value={to}
-              placeholder="YYYY-MM-DD"
-              onChange={(value) => {
-                setOffset(0);
-                setTo(value);
-              }}
-            />
-          </HStack>
-        </Stack>
-      </SectionCard>
+      {hasHistory || filtering ? (
+        <SectionCard title="Search" description={`Drafts generated for ${account.name}.`}>
+          <Stack gap={3}>
+            <HStack gap={3} wrap="wrap" vAlign="end">
+              <TextInput
+                label="Search"
+                value={search}
+                onChange={(value) => {
+                  setOffset(0);
+                  setSearch(value);
+                }}
+              />
+              <Selector
+                label="Sort"
+                value={sort}
+                options={RESUME_HISTORY_SORTS.map((item) => ({
+                  value: item.id,
+                  label: item.label,
+                }))}
+                onChange={(value) => {
+                  setOffset(0);
+                  setSort(value as ResumeHistorySort);
+                }}
+              />
+            </HStack>
+            <Collapsible
+              defaultIsOpen={false}
+              trigger={
+                <Text type="supporting" color="secondary">
+                  Filters
+                </Text>
+              }
+            >
+              <Stack gap={3}>
+                <HStack gap={3} wrap="wrap">
+                  <Selector
+                    label="In"
+                    value={searchIn}
+                    options={SEARCH_IN}
+                    onChange={(value) => {
+                      setOffset(0);
+                      setSearchIn(value as ResumeHistorySearchIn);
+                    }}
+                  />
+                  <Selector
+                    label="Status"
+                    value={status}
+                    options={STATUSES}
+                    onChange={(value) => {
+                      setOffset(0);
+                      setStatus(value as ResumeHistoryStatus);
+                    }}
+                  />
+                  <Selector
+                    label="Model"
+                    value={model || "all"}
+                    options={[
+                      { value: "all", label: "Any model" },
+                      ...models.map((item) => ({ value: item, label: item })),
+                    ]}
+                    onChange={(value) => {
+                      setOffset(0);
+                      setModel(value === "all" ? "" : value);
+                    }}
+                  />
+                  <Selector
+                    label="Template"
+                    value={templateId || "all"}
+                    options={[
+                      { value: "all", label: "Any template" },
+                      ...RESUME_TEMPLATES.map((item) => ({ value: item.id, label: item.name })),
+                    ]}
+                    onChange={(value) => {
+                      setOffset(0);
+                      setTemplateId(value === "all" ? "" : value);
+                    }}
+                  />
+                </HStack>
+                <HStack gap={3} wrap="wrap">
+                  <TextInput
+                    label="From"
+                    value={from}
+                    placeholder="YYYY-MM-DD"
+                    onChange={(value) => {
+                      setOffset(0);
+                      setFrom(value);
+                    }}
+                  />
+                  <TextInput
+                    label="To"
+                    value={to}
+                    placeholder="YYYY-MM-DD"
+                    onChange={(value) => {
+                      setOffset(0);
+                      setTo(value);
+                    }}
+                  />
+                </HStack>
+              </Stack>
+            </Collapsible>
+          </Stack>
+        </SectionCard>
+      ) : null}
       {runs.length === 0 ? (
-        <EmptyState
-          icon={<Glyph name="sparkle" />}
-          title="No generations"
-          description="Generate a résumé and it shows up here."
-        />
+        hasHistory || filtering ? (
+          <EmptyState
+            icon={<Glyph name="search" />}
+            title="No matching résumés"
+            description="Try a different search or clear the filters."
+          />
+        ) : (
+          <EmptyState
+            icon={<Glyph name="sparkle" />}
+            title="Your generated résumés will show up here"
+            actions={
+              <Button label="Generate your first résumé" variant="primary" href={ROUTES.resume} />
+            }
+          />
+        )
       ) : (
         <GridSystem gap={4} align="start">
           <GridColumn span="full" lg={5}>

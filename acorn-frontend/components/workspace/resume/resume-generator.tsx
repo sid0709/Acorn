@@ -10,6 +10,7 @@ import {
   ProgressBar,
   SectionCard,
   Stack,
+  Switch,
   Text,
   TextArea,
 } from "sid-ui";
@@ -23,9 +24,13 @@ import {
   saveResumeConfig,
   uploadResumeTemplate,
 } from "@/lib/resume/api";
-import { FALLBACK_TEMPLATE_ID, PREVIEW_DEBOUNCE_MS, withTemplate } from "@/lib/resume/design";
+import {
+  FALLBACK_TEMPLATE_ID,
+  PREVIEW_DEBOUNCE_MS,
+  withDefaultPrompts,
+  withTemplate,
+} from "@/lib/resume/design";
 import { identityFrom } from "@/lib/resume/identity";
-import { stepIssues } from "@/lib/resume/steps";
 import { JOB_DESCRIPTION_MAX, JOB_DESCRIPTION_ROWS } from "@/lib/workspace/model";
 import { sampleProfile } from "@/lib/workspace/profile";
 import { bytesToBase64, saveBase64File } from "@/lib/workspace/resume-file";
@@ -42,7 +47,6 @@ import {
 } from "@acorn/shared/resume-templates";
 import { DesignCard } from "./design-card";
 import { LivePreview, type PreviewStage } from "./live-preview";
-import { PromptsCard } from "./prompts-card";
 import { SectionsCard } from "./sections-card";
 import { TemplateGallery, type UploadedTemplate } from "./template-gallery";
 import { TypographyCard } from "./typography-card";
@@ -73,7 +77,9 @@ export function ResumeGenerator({
   const identity = identityFrom(account, profile);
   const ready = initial.config.ok && initial.templates.ok;
   const [config, setConfig] = useState<ResumeGeneratorConfig>(() =>
-    initial.config.ok ? mergeStoredResumeConfig(initial.config.data.config) : defaultResumeConfig(),
+    initial.config.ok
+      ? withDefaultPrompts(mergeStoredResumeConfig(initial.config.data.config))
+      : defaultResumeConfig(),
   );
   const [loaded, setLoaded] = useState(ready);
   const [uploads, setUploads] = useState<UploadedTemplate[]>(() =>
@@ -103,7 +109,7 @@ export function ResumeGenerator({
     void (async () => {
       const [stored, templates] = await Promise.all([loadResumeConfig(), listResumeTemplates()]);
       if (cancel) return;
-      if (stored.ok) setConfig(mergeStoredResumeConfig(stored.data.config));
+      if (stored.ok) setConfig(withDefaultPrompts(mergeStoredResumeConfig(stored.data.config)));
       if (templates.ok) setUploads(templates.data.templates);
       setLoaded(true);
     })();
@@ -173,11 +179,6 @@ export function ResumeGenerator({
       setError("Paste the job description first.");
       return;
     }
-    const problem = Object.values(stepIssues(config))[0];
-    if (problem) {
-      setError(`Fix the prompts first: ${problem}`);
-      return;
-    }
     setError("");
     void run.generate(config, jobDescription, identity);
   };
@@ -217,7 +218,7 @@ export function ResumeGenerator({
           <Stack gap={4}>
             <SectionCard
               title="Job description"
-              description="The model writes summary, skills, and experience for this posting."
+              description="Acorn writes your summary, skills, and experience for this posting."
             >
               <Stack gap={3}>
                 <TextArea
@@ -226,6 +227,12 @@ export function ResumeGenerator({
                   rows={JOB_DESCRIPTION_ROWS}
                   placeholder="Paste the full posting: role, responsibilities, requirements."
                   onChange={(value) => setDescription(value.slice(0, JOB_DESCRIPTION_MAX))}
+                />
+                <Switch
+                  label="Tailor job titles to the posting"
+                  description="Off keeps each title exactly as on your profile. On proposes a concise title per role. Employers, dates, and order never change."
+                  value={config.dynamicCareerTitles}
+                  onChange={(dynamicCareerTitles) => setConfig({ ...config, dynamicCareerTitles })}
                 />
                 <Text type="supporting" color="secondary">
                   {`Written for ${identity.fullName}. Edit your name and roles on Profile.`}
@@ -250,7 +257,6 @@ export function ResumeGenerator({
                 />
               </Stack>
             </SectionCard>
-            <PromptsCard config={config} onChange={setConfig} />
             <DesignCard
               config={config}
               templateName={uploadedTemplate?.name ?? template.name}

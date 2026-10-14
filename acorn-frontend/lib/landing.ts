@@ -25,7 +25,6 @@ export const LANDING_SECTIONS = {
   compare: "compare",
   resume: "ats-resume",
   useCases: "who-its-for",
-  topics: "topics",
   pricing: "pricing",
   faq: "faq",
 } as const;

@@ -1,7 +1,6 @@
 /**
  * Search terms Acorn wants to rank for, grouped by intent. lib/seo.ts sends all of
- * them as meta keywords and JSON-LD; the landing "topics" section shows each group
- * as readable copy, so the words also appear in the page body.
+ * them as meta keywords and JSON-LD. They are metadata only, never on-page copy.
  */
 
 export type KeywordGroup = { id: string; title: string; description: string; terms: string[] };

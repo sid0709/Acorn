@@ -1,8 +1,8 @@
 import { addDays, type Day } from "./workspace/dates";
 
 /**
- * Plans, limits, and the billing cycle. No payment provider is connected yet, so the
- * current plan and invoices are a sample; checkout buttons stay off until one is.
+ * Plans, limits, and the usage window. No payment provider is connected yet, so every
+ * account is on Free and checkout buttons stay off until one is.
  */
 
 export type BillingInterval = "monthly" | "yearly";
@@ -69,18 +69,12 @@ export const PLANS: Plan[] = [
   },
 ];
 
+/** Usage is counted over the last this-many days. */
 export const BILLING_CYCLE_DAYS = 30;
-const INVOICE_COUNT = 6;
 const MONTHS_PER_YEAR = 12;
 
-/** The plan this workspace is on until a payment provider reports the real one. */
-export const SAMPLE_SUBSCRIPTION = {
-  planId: "pro" as PlanId,
-  interval: "monthly" as BillingInterval,
-  /** Days into the current cycle. */
-  dayOfCycle: 18,
-  card: { brand: "Visa", last4: "4242", expires: "08/28" },
-};
+/** The plan every account is on until a payment provider reports the real one. */
+export const CURRENT_PLAN_ID: PlanId = "free";
 
 export function planById(id: PlanId) {
   return PLANS.find((plan) => plan.id === id) ?? PLANS[0];
@@ -95,39 +89,9 @@ export function yearlySaving(plan: Plan) {
   return (plan.price.monthly - plan.price.yearly) * MONTHS_PER_YEAR;
 }
 
-export type Cycle = { start: Day; renews: Day };
+export type Cycle = { start: Day };
 
+/** The usage window ending today: the last BILLING_CYCLE_DAYS days. */
 export function currentCycle(today: Day): Cycle {
-  const start = addDays(today, -SAMPLE_SUBSCRIPTION.dayOfCycle);
-  return { start, renews: addDays(start, BILLING_CYCLE_DAYS) };
-}
-
-export type Invoice = {
-  id: string;
-  on: Day;
-  description: string;
-  amount: number;
-  status: "paid" | "upcoming";
-};
-
-/** The next charge, then the last few, newest first. */
-export function sampleInvoices(today: Day): Invoice[] {
-  const plan = planById(SAMPLE_SUBSCRIPTION.planId);
-  const cycle = currentCycle(today);
-  const amount = plan.price[SAMPLE_SUBSCRIPTION.interval];
-  const upcoming: Invoice = {
-    id: "inv-next",
-    on: cycle.renews,
-    description: `${plan.name} · monthly`,
-    amount,
-    status: "upcoming",
-  };
-  const paid = Array.from({ length: INVOICE_COUNT }, (_, index) => ({
-    id: `inv-${index}`,
-    on: addDays(cycle.start, -index * BILLING_CYCLE_DAYS),
-    description: `${plan.name} · monthly`,
-    amount,
-    status: "paid" as const,
-  }));
-  return [upcoming, ...paid];
+  return { start: addDays(today, -(BILLING_CYCLE_DAYS - 1)) };
 }

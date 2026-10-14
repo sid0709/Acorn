@@ -1,6 +1,7 @@
 import { RESUME_PALETTES } from "@acorn/shared/resume-fonts";
-import type {
-  ResumeGeneratorConfig,
+import {
+  defaultResumeConfig,
+  type ResumeGeneratorConfig,
   ResumeLayoutSection,
   ResumeTheme,
 } from "@acorn/shared/resume-config";
@@ -11,6 +12,15 @@ export const FALLBACK_TEMPLATE_ID = "classic";
 
 /** Wait after the last design change before asking the server for a new preview. */
 export const PREVIEW_DEBOUNCE_MS = 250;
+
+/**
+ * The config with Acorn's own prompts. Prompts are not editable in the app, so a config saved
+ * before they were hidden cannot keep steering the model out of sight.
+ */
+export function withDefaultPrompts(config: ResumeGeneratorConfig): ResumeGeneratorConfig {
+  const base = defaultResumeConfig();
+  return { ...config, systemInstruction: base.systemInstruction, steps: base.steps };
+}
 
 /** The config with a template picked: its own font, accent, and header alignment come along. */
 export function withTemplate(config: ResumeGeneratorConfig, id: string): ResumeGeneratorConfig {

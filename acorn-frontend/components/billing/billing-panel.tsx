@@ -2,14 +2,9 @@
 
 import { useState } from "react";
 import {
-  Banner,
   BarChart,
-  Glyph,
   GridColumn,
   GridSystem,
-  HStack,
-  MetadataList,
-  MetadataListItem,
   PageHeader,
   SectionCard,
   SegmentedControl,
@@ -19,30 +14,25 @@ import {
 } from "sid-ui";
 import {
   BILLING_CYCLE_DAYS,
-  SAMPLE_SUBSCRIPTION,
+  CURRENT_PLAN_ID,
   currentCycle,
-  formatPrice,
   planById,
-  sampleInvoices,
   type BillingInterval,
 } from "@/lib/billing";
 import type { Activity } from "@/lib/workspace/activity";
 import { addDays, formatDay } from "@/lib/workspace/dates";
 import { useWorkspace } from "@/components/workspace/use-workspace";
-import { InvoiceTable } from "./invoice-table";
 import { PlanCards } from "./plan-cards";
 import { UsageMeters } from "./usage-meters";
 
 const CYCLES_SHOWN = 6;
-const SAMPLE_MAILBOXES = 2;
 
 export function BillingPanel({ activity }: { activity: Activity }) {
   const { workspace } = useWorkspace();
-  const [interval, setBillingInterval] = useState<BillingInterval>(SAMPLE_SUBSCRIPTION.interval);
+  const [interval, setBillingInterval] = useState<BillingInterval>("monthly");
   const { today, applications } = activity;
-  const plan = planById(SAMPLE_SUBSCRIPTION.planId);
+  const plan = planById(CURRENT_PLAN_ID);
   const cycle = currentCycle(today);
-  const card = SAMPLE_SUBSCRIPTION.card;
 
   const sentBetween = (from: string, to: string) =>
     applications.filter((app) => app.appliedOn && app.appliedOn >= from && app.appliedOn < to)
@@ -61,7 +51,7 @@ export function BillingPanel({ activity }: { activity: Activity }) {
     <Stack gap={6}>
       <PageHeader
         title="Billing"
-        description="Your plan, what this cycle has used, and every charge."
+        description="Your plan and what the last 30 days have used."
         action={
           <SegmentedControl
             label="Billing interval"
@@ -73,60 +63,37 @@ export function BillingPanel({ activity }: { activity: Activity }) {
           </SegmentedControl>
         }
       />
-      <Banner
-        status="info"
-        title="Sample billing"
-        description="No payment provider is connected yet. The plan, card, and invoices below are placeholders, and plan switches turn on once checkout is wired."
-      />
       <PlanCards current={plan.id} interval={interval} />
       <GridSystem gap={4} align="stretch">
         <GridColumn span="full" lg={7}>
           <SectionCard
-            title="This cycle"
-            description={`${formatDay(cycle.start)} – ${formatDay(cycle.renews)} · renews in ${BILLING_CYCLE_DAYS - SAMPLE_SUBSCRIPTION.dayOfCycle} days`}
+            title="Last 30 days"
+            description={`${formatDay(cycle.start)} – ${formatDay(today)}`}
           >
             <UsageMeters
               limits={plan.limits}
               used={{
                 applications: sentBetween(cycle.start, addDays(today, 1)),
                 drafts: workspace.resumes.length,
-                mailboxes: workspace.mailboxes.length || SAMPLE_MAILBOXES,
+                mailboxes: workspace.mailboxes.length,
               }}
             />
           </SectionCard>
         </GridColumn>
         <GridColumn span="full" lg={5}>
-          <SectionCard title="Payment method" description="Charged on each renewal.">
-            <Stack gap={4}>
-              <HStack gap={3} vAlign="center">
-                <Glyph name="creditCard" />
-                <Stack gap={0}>
-                  <Text weight="semibold">{`${card.brand} ending in ${card.last4}`}</Text>
-                  <Text type="supporting" color="secondary">
-                    {`Expires ${card.expires}`}
-                  </Text>
-                </Stack>
-              </HStack>
-              <MetadataList columns={2}>
-                <MetadataListItem label="Plan">{`${plan.name} · ${SAMPLE_SUBSCRIPTION.interval}`}</MetadataListItem>
-                <MetadataListItem label="Next charge">
-                  {`${formatPrice(plan.price[SAMPLE_SUBSCRIPTION.interval])} on ${formatDay(cycle.renews)}`}
-                </MetadataListItem>
-              </MetadataList>
-            </Stack>
+          <SectionCard title="Payment method">
+            <Text color="secondary">
+              No payment method on file. Add one when you’re ready to upgrade; paid plans open once
+              checkout launches.
+            </Text>
           </SectionCard>
         </GridColumn>
-        <GridColumn span="full" lg={5}>
+        <GridColumn span="full">
           <SectionCard
-            title="Applications per cycle"
-            description="The current cycle is highlighted."
+            title="Applications per 30 days"
+            description="The latest window is highlighted."
           >
-            <BarChart label="Applications per billing cycle" data={cycles} height={180} />
-          </SectionCard>
-        </GridColumn>
-        <GridColumn span="full" lg={7}>
-          <SectionCard title="Invoices" description="The next charge, then past ones.">
-            <InvoiceTable invoices={sampleInvoices(today)} />
+            <BarChart label="Applications per 30-day window" data={cycles} height={180} />
           </SectionCard>
         </GridColumn>
       </GridSystem>
