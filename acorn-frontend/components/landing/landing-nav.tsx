@@ -1,7 +1,7 @@
 import { Button, HStack, Hide, TopNav } from "sid-ui";
 import { AcornHeading } from "@/components/brand/acorn-heading";
 import { BRAND } from "@/lib/config";
-import { LANDING_NAV } from "@/lib/landing";
+import { CTA_START, LANDING_NAV } from "@/lib/landing";
 import { ROUTES } from "@/lib/routes";
 
 /** The signed-out top bar on the home page: brand, section links, sign-in and sign-up. */
@@ -28,7 +28,7 @@ export function LandingNav() {
       endContent={
         <HStack gap={2}>
           <Button label="Sign in" variant="ghost" size="sm" href={ROUTES.signIn} />
-          <Button label="Get started" variant="primary" size="sm" href={ROUTES.signUp} />
+          <Button label={CTA_START} variant="primary" size="sm" href={ROUTES.signUp} />
         </HStack>
       }
     />

@@ -8,8 +8,8 @@ export function FeatureGrid() {
     <LandingSection
       id={LANDING_SECTIONS.features}
       eyebrow="Features"
-      title="Everything between finding a job and getting the interview"
-      description="Auto-bid, AI autofill, tailored ATS resumes, keyword match, Gmail reply sorting, and job search analytics in one account and one browser extension."
+      title="One extension. Every form you were about to retype."
+      description="Autofill, a résumé tailored to each posting, a keyword check before you send, and recruiter replies sorted in your inbox. One profile behind all of it."
     >
       <div className="lp-bento">
         {FEATURES.map((feature) => (

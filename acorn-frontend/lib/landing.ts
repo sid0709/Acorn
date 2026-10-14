@@ -18,6 +18,10 @@ export const POSITIONING = "The No. 1 auto-bid agent for job seekers";
 
 export const HERO_LEDE = `${BRAND} is an AI agent in your browser that bids on jobs for you. It reads the posting, tailors an ATS-friendly resume, fills every field and screening question, and sends the application, so you apply to more jobs in a fraction of the time.`;
 
+/** The one phrase for "start using Acorn". "Add to Chrome" is the secondary action beside it. */
+export const CTA_START = "Start free";
+export const CTA_INSTALL = "Add to Chrome";
+
 /** In-page anchors the landing nav links to. */
 export const LANDING_SECTIONS = {
   agent: "auto-bid-agent",

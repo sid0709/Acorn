@@ -12,7 +12,7 @@ import {
   Text,
 } from "sid-ui";
 import { PLANS, formatPrice, type PlanId } from "@/lib/billing";
-import { LANDING_SECTIONS } from "@/lib/landing";
+import { CTA_START, LANDING_SECTIONS } from "@/lib/landing";
 import { ROUTES } from "@/lib/routes";
 import { LandingSection } from "./landing-section";
 
@@ -26,8 +26,8 @@ export function Pricing() {
     <LandingSection
       id={LANDING_SECTIONS.pricing}
       eyebrow="Pricing"
-      title="Start auto-bidding free. Upgrade when your search picks up."
-      description="Every plan includes the auto-bid agent, AI autofill, your profile, and job search analytics. No credit card to start."
+      title="Start free. Upgrade when your search heats up."
+      description="Every plan includes the agent, autofill, and your profile. No credit card to start."
     >
       <Grid columns={{ minWidth: PLAN_MIN_WIDTH, max: PLAN_COLUMNS }} gap={4}>
         {PLANS.map((plan) => {
@@ -67,7 +67,7 @@ export function Pricing() {
                   ))}
                 </List>
                 <Button
-                  label={free ? "Start free" : `Start with ${plan.name}`}
+                  label={free ? CTA_START : `Start with ${plan.name}`}
                   variant={highlighted ? "primary" : "secondary"}
                   href={ROUTES.signUp}
                 />

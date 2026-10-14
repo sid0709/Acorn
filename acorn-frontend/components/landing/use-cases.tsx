@@ -10,8 +10,8 @@ export function UseCases() {
     <LandingSection
       id={LANDING_SECTIONS.useCases}
       eyebrow="Who it's for"
-      title="Built for every job seeker who has better things to do than fill forms"
-      description="Whether you are hunting for your first role or your next promotion, the auto-bid agent turns hours of applications into minutes."
+      title="For anyone with a dozen tabs open and a form in every one"
+      description="First role or next promotion, the work is the same: more applications than two hands can type. Acorn takes the typing."
     >
       <Grid columns={{ minWidth: CASE_MIN_WIDTH, max: CASE_COLUMNS }} gap={4}>
         {USE_CASES.map((useCase, index) => (

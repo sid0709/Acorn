@@ -8,8 +8,8 @@ export function Faq() {
     <LandingSection
       id={LANDING_SECTIONS.faq}
       eyebrow="FAQ"
-      title="Auto-bid questions, answered"
-      description="Everything job seekers ask about Acorn, AI auto-apply, and ATS-friendly resumes."
+      title="What people ask before they let an agent apply for them"
+      description="Straight answers on how Acorn applies, which AI it uses, and what it costs."
     >
       <Stack hAlign="center">
         <Card padding={4} width="100%" maxWidth={PAGE_WIDTHS.narrow}>

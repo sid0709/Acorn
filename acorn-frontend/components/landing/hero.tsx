@@ -1,6 +1,6 @@
 import { Badge, Button, Glyph, HStack, Heading, Stack, Text } from "sid-ui";
 import { AcornMark } from "@/components/brand/acorn-mark";
-import { HERO_LEDE, POSITIONING, SLOGAN_LEAD } from "@/lib/landing";
+import { CTA_INSTALL, CTA_START, HERO_LEDE, POSITIONING, SLOGAN_LEAD } from "@/lib/landing";
 import { ROUTES } from "@/lib/routes";
 import { AgentConsole } from "./agent-console";
 import { LandingContainer } from "./landing-section";
@@ -30,14 +30,14 @@ export function Hero({ installHref }: { installHref: string }) {
             </Text>
             <HStack gap={3} wrap="wrap" className="lp-rise">
               <Button
-                label="Start auto-bidding free"
+                label={CTA_START}
                 variant="primary"
                 size="lg"
                 icon={<Glyph name="arrowRight" />}
                 href={ROUTES.signUp}
               />
               <Button
-                label="Add to Chrome"
+                label={CTA_INSTALL}
                 variant="secondary"
                 size="lg"
                 icon={<Glyph name="download" />}
