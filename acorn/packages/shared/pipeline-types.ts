@@ -26,6 +26,9 @@ export interface PipelineProgress {
   stepTotal?: number;
   stepLabel?: string;
   error?: string;
+  /** The backend's stable code and the HTTP status behind `error`, for the plain-words message. */
+  errorCode?: string;
+  errorStatus?: number;
   /** Wall-clock ms for the full FAB pipeline (set on done/error). */
   durationMs?: number;
   /** Ms per pipeline phase (DOM read, plan, steps, late pass, …), set on done/error for the run log. */
@@ -70,5 +73,7 @@ export function mergePipelineProgress(
     steps: starting ? (next.steps ?? []) : (next.steps ?? prev.steps),
     resumeUpload: starting ? next.resumeUpload : (next.resumeUpload ?? prev.resumeUpload),
     run: starting ? next.run : (next.run ?? prev.run),
+    errorCode: starting ? next.errorCode : (next.errorCode ?? prev.errorCode),
+    errorStatus: starting ? next.errorStatus : (next.errorStatus ?? prev.errorStatus),
   };
 }

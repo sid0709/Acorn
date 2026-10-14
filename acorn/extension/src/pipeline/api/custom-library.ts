@@ -2,8 +2,9 @@ import { readRecommendedTop, type RecommendedResumeRank } from "@acorn/shared/re
 
 import { authHeaders, getAcornApiUrl } from "../../auth/acorn-auth";
 
+import { loggedFetch } from "./api-log";
 import { cachedFileGet } from "./file-cache";
-import { extractError, isNestMissingRoute, readId } from "./http";
+import { apiError, isNestMissingRoute, readId } from "./http";
 
 import type { RuntimeAttachedFile } from "@acorn/shared/plan-runner/types";
 
@@ -30,7 +31,7 @@ export async function recommendCustomLibrary(
   const jobDescription = input.jobDescription.trim();
   if (!jobDescription) throw new Error("No readable text on this tab");
   const base = (_apiUrl || (await getAcornApiUrl())).replace(/\/$/, "");
-  const res = await fetch(`${base}/acorn/custom/recommend`, {
+  const res = await loggedFetch(tabId, "custom/recommend", `${base}/acorn/custom/recommend`, {
     method: "POST",
     headers: await authHeaders(tabId),
     body: JSON.stringify({
@@ -53,12 +54,12 @@ export async function recommendCustomLibrary(
     throw new Error(CUSTOM_RECOMMEND_UNAVAILABLE);
   }
   if (!res.ok) {
-    throw new Error(extractError(data, `Recommend failed: ${res.status}`));
+    throw apiError(res, data, `Recommend failed: ${res.status}`);
   }
   const recommendedResumeId = readId(data.recommendedResumeId);
   const recommendedResumeStack = String(data.recommendedResumeStack || "").trim();
   if (!recommendedResumeId || !recommendedResumeStack) {
-    throw new Error(extractError(data, "No Library resume matched this posting"));
+    throw apiError(res, data, "No Library resume matched this posting");
   }
   return {
     recommendedResumeId,
@@ -82,6 +83,7 @@ function readTimings(value: unknown): Record<string, number> {
 export async function fetchCustomLibraryResume(
   resumeId: string,
   _apiUrl?: string,
+  tabId?: number,
 ): Promise<RuntimeAttachedFile | null> {
   const id = String(resumeId || "").trim();
   if (!id) return null;
@@ -93,13 +95,13 @@ export async function fetchCustomLibraryResume(
     stack?: string | null;
     error?: string;
     message?: string;
-  }>(`${base}/acorn/custom/library-resumes/${encodeURIComponent(id)}`, await authHeaders());
+  }>(`${base}/acorn/custom/library-resumes/${encodeURIComponent(id)}`, await authHeaders(), tabId);
   const data = res.data;
   if (isNestMissingRoute(res.status, data)) {
     throw new Error(CUSTOM_LIBRARY_FILE_UNAVAILABLE);
   }
   if (!res.ok) {
-    throw new Error(extractError(data, `Resume file failed: ${res.status}`));
+    throw apiError(res, data, `Resume file failed: ${res.status}`);
   }
   const responseId = readId(data.resumeId);
   if (responseId && responseId !== id) {
@@ -138,7 +140,7 @@ export async function fetchCustomLibraryResumePreview(
     if (isNestMissingRoute(res.status, data)) {
       throw new Error(CUSTOM_LIBRARY_FILE_UNAVAILABLE);
     }
-    throw new Error(extractError(data, `Resume preview failed: ${res.status}`));
+    throw apiError(res, data, `Resume preview failed: ${res.status}`);
   }
   const html = typeof data.html === "string" ? data.html : "";
   if (!html.trim()) throw new Error("Library résumé preview is empty");

@@ -19,6 +19,7 @@ import { sendPlanStepToTab, sendTabMessage } from "../tab-messaging";
 import { MSG, type DomTreePayload, type PipelineSource } from "../types";
 
 import { requestAiAnalyze } from "./api/analyze";
+import { ApiError } from "./api/http";
 import { fetchRuntimeFile } from "./api/job-files";
 import { decideChoicesInBatch } from "./choice-batch";
 import { loadCoverLetter } from "./cover-letter";
@@ -208,6 +209,7 @@ export async function runFabPipeline(args: RunPipelineArgs): Promise<void> {
             customTab,
             customGenerationId: customTab?.generationId ?? null,
             apiUrl: aiServerUrl,
+            tabId,
           }),
         ),
         clock.time("runtime", () => fetchRuntimeFile(aiServerUrl).catch(() => null)),
@@ -778,6 +780,8 @@ export async function runFabPipeline(args: RunPipelineArgs): Promise<void> {
       phase: "error",
       message: `Failed · ${formatDuration(durationMs)} · ${formatUsd(usage?.costUsd)}`,
       error,
+      errorCode: err instanceof ApiError ? err.code : undefined,
+      errorStatus: err instanceof ApiError ? err.status : undefined,
       durationMs,
       phases: clock.summary(),
       usage,

@@ -3,7 +3,7 @@ import { readStoredJobDescription } from "@acorn/shared/job-description";
 import { authHeaders, getAcornApiUrl } from "../../auth/acorn-auth";
 
 import { cachedFileGet } from "./file-cache";
-import { extractError, isNestMissingRoute } from "./http";
+import { apiError, isNestMissingRoute } from "./http";
 
 import type { RuntimeAttachedFile } from "@acorn/shared/plan-runner/types";
 
@@ -28,6 +28,7 @@ export async function fetchRuntimeFile(_apiUrl?: string): Promise<RuntimeAttache
 export async function fetchRecommendedResume(
   jobId: string,
   _apiUrl?: string,
+  tabId?: number,
 ): Promise<RuntimeAttachedFile | null> {
   const id = String(jobId || "").trim();
   if (!id) return null;
@@ -40,10 +41,10 @@ export async function fetchRecommendedResume(
     stack?: string | null;
     error?: string;
     message?: string;
-  }>(`${base}/acorn/jobs/${encodeURIComponent(id)}/recommended-resume`, await authHeaders());
+  }>(`${base}/acorn/jobs/${encodeURIComponent(id)}/recommended-resume`, await authHeaders(), tabId);
   const data = res.data;
   if (!res.ok) {
-    throw new Error(extractError(data, `Resume file failed: ${res.status}`));
+    throw apiError(res, data, `Resume file failed: ${res.status}`);
   }
   const responseJobId = String(data.jobId || "").trim();
   if (responseJobId && responseJobId !== id) {
@@ -82,7 +83,7 @@ export async function fetchStoredJobDescription(jobId: string, _apiUrl?: string)
     throw new Error(NO_STORED_JD);
   }
   if (!res.ok) {
-    throw new Error(extractError(data, `Job JD failed: ${res.status}`));
+    throw apiError(res, data, `Job JD failed: ${res.status}`);
   }
   const jd = readStoredJobDescription(data.job) || readStoredJobDescription(data) || null;
   if (!jd) throw new Error(NO_STORED_JD);

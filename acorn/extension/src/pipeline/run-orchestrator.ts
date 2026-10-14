@@ -31,6 +31,7 @@ import {
   type RunStage,
   type Verification,
 } from "@acorn/shared/run-types";
+import { describeError, knowsErrorCode } from "@acorn/shared/user-messages";
 
 import { markTabUsage, usageSince, type UsageMark } from "../background/tab-usage-store";
 import { rekeyCustomTab } from "../tab-custom-session";
@@ -561,7 +562,11 @@ export async function runOrchestrator(args: RunOrchestratorArgs): Promise<RunRep
     );
     // The chosen file loads while the run clicks Apply and the form draws.
     const on = tabId;
-    void recommending.then(() => prefetchFillResume(on, apiUrl)).catch(() => undefined);
+    void recommending
+      .then(() => prefetchFillResume(on, apiUrl))
+      .catch((err: unknown) =>
+        log.event("prefetch:failed", { error: err instanceof Error ? err.message : String(err) }),
+      );
   };
   /** Wait for the recommend before the run touches the page or moves tabs. */
   const settleRecommend = async () => {
@@ -852,9 +857,18 @@ export async function runOrchestrator(args: RunOrchestratorArgs): Promise<RunRep
       ),
     );
     if (!res.ok || !res.kind) {
-      throw new RunStop(RUN_STAGE.reading, within, [
-        `Page read failed: ${res.error ?? "no answer"}`,
-      ]);
+      const raw = `Page read failed: ${res.error ?? "no answer"}`;
+      // The AI could not answer (no key, no credits, rate limit, provider down): say that.
+      if (knowsErrorCode(res.code)) {
+        const said = describeError({ code: res.code, message: raw });
+        throw new RunStop(RUN_STAGE.reading, within, [raw], undefined, {
+          reason: RUN_FAILURE_REASON.aiUnavailable,
+          code: res.code,
+          label: said.title,
+          detail: said.detail,
+        });
+      }
+      throw new RunStop(RUN_STAGE.reading, within, [raw]);
     }
     kind = res.kind;
     pageAccountMode = res.accountMode ?? null;
@@ -938,6 +952,8 @@ export async function runOrchestrator(args: RunOrchestratorArgs): Promise<RunRep
       commitPicked,
       needsPerson: res.needsPerson === true,
       verification: res.verification ?? VERIFICATION.none,
+      kindProbabilities: res.kindProbabilities ?? null,
+      verificationProbabilities: res.verificationProbabilities ?? null,
       /** The site says this applicant has already applied to this job. */
       alreadyApplied: res.alreadyApplied === true,
       accountMode: res.accountMode ?? ACCOUNT_MODE.none,
@@ -977,6 +993,20 @@ export async function runOrchestrator(args: RunOrchestratorArgs): Promise<RunRep
     const watcher = watchOpenedTabs(tabId);
     try {
       checkStop();
+      log.decision(
+        `Click "${label}"`,
+        `The decision model read this page as ${kind || "a page"} and chose this control as the ${picked.role} (confidence ${picked.confidence}).`,
+        {
+          role: picked.role,
+          confidence: picked.confidence,
+          controlId: picked.id,
+          url: logUrl(on.url),
+          pageKind: kind,
+          fields: on.scan.pageMessages.length,
+          flagged: on.flagged,
+          lastClick: lastClicked?.text ?? null,
+        },
+      );
       const result = await until(clickControl(tabId, on.frameId, picked.id));
       // The address the click started from: with the trace, it is the run's record of the page.
       log.event("click", {
@@ -1031,8 +1061,25 @@ export async function runOrchestrator(args: RunOrchestratorArgs): Promise<RunRep
    * The page waits on something only the applicant can give: do nothing to it and
    * spend nothing, look again once they have moved it on.
    */
-  const awaitPerson = async (page: PageSnapshot) => {
+  const awaitPerson = async (
+    page: PageSnapshot,
+    why = "The page asks for something only the applicant can do.",
+    evidence?: Record<string, unknown>,
+  ) => {
     log.event("wait:person", { url: logUrl(page.url) });
+    log.decision(
+      "Wait for the applicant",
+      why,
+      {
+        url: logUrl(page.url),
+        title: page.title,
+        controls: page.controls.length,
+        pageMessages: page.scan.pageMessages,
+        pageText: page.text,
+        ...evidence,
+      },
+      "warn",
+    );
     progress(WAITING_FOR_PERSON);
     const moved = await until(clock.time("wait", () => waitForPerson(tabId, page.frameId, signal)));
     if (!moved) {
@@ -1560,8 +1607,32 @@ export async function runOrchestrator(args: RunOrchestratorArgs): Promise<RunRep
       return chooseEmail(page, state);
     }
     const mailed = await verifyByMail(r, page, state);
-    if (mailed === "wait" || (mailed == null && r.needsPerson && !state.verified)) {
-      return { pending: await awaitPerson(page) };
+    if (mailed === "wait") {
+      return {
+        pending: await awaitPerson(
+          page,
+          "The page asks for an emailed code or link and no Gmail is connected, so only the applicant can give it.",
+          { verification: r.verification },
+        ),
+      };
+    }
+    if (mailed == null && r.needsPerson && !state.verified) {
+      return {
+        pending: await awaitPerson(
+          page,
+          `The decision model answered that this page is waiting on something only the applicant can give (verification: ${r.verification}); nothing on the page was filled.`,
+          {
+            verification: r.verification,
+            verificationProbabilities: r.verificationProbabilities,
+            kindProbabilities: r.kindProbabilities,
+            pageKind: r.kind,
+            nextControl: r.control
+              ? { role: r.control.role, confidence: r.control.confidence }
+              : null,
+            attempted: "no field was filled before waiting",
+          },
+        ),
+      };
     }
     return mailed;
   };
@@ -2394,6 +2465,18 @@ export async function runOrchestrator(args: RunOrchestratorArgs): Promise<RunRep
           ? err
           : new RunStop(stage, snapshot, [err instanceof Error ? err.message : String(err)]);
       log.event("run:stop", { stage: stop.stage, notes: stop.notes });
+      log.decision(
+        signal?.aborted ? "The applicant stopped the run" : "The run stopped",
+        signal?.aborted ? "Stop was pressed." : (stop.notes[0] ?? "The run could not go on."),
+        {
+          stage: stop.stage,
+          notes: stop.notes,
+          page: logUrl(stop.snapshot?.url ?? ""),
+          known: stop.known ?? null,
+          clicks: clickFailures,
+        },
+        signal?.aborted ? "info" : "error",
+      );
       if (signal?.aborted) {
         return finish(report(RUN_OUTCOME.stopped, { ...STOPPED_FAILURE, stage: stop.stage }));
       }

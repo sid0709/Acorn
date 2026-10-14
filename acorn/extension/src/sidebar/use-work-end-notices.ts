@@ -1,5 +1,6 @@
 import { FILL_MODE } from "@acorn/shared/field-issues";
 import { RUN_OUTCOME } from "@acorn/shared/run-types";
+import { describeError, describeRunFailure } from "@acorn/shared/user-messages";
 import { useEffect, useRef } from "react";
 
 import { pushAcornNotice } from "./acorn-notice";
@@ -11,11 +12,20 @@ import type { PipelineProgress } from "@acorn/shared/pipeline-types";
 /** The notice for work on one tab that has just ended; null while it runs or idles. */
 function endNotice(progress: PipelineProgress): AcornNoticePayload | null {
   if (progress.phase === "error") {
+    const failure = progress.run?.report?.failure;
     const errored = progress.run?.report?.outcome === RUN_OUTCOME.failed;
+    // Words for a person; the raw error stays in the Logs tab.
+    const said = failure
+      ? describeRunFailure(failure)
+      : describeError({
+          code: progress.errorCode,
+          status: progress.errorStatus,
+          message: progress.error || progress.message,
+        });
     return {
       kind: "error",
-      title: errored ? "Run stopped" : "Fill couldn’t finish",
-      detail: progress.error || progress.message || "Fill failed",
+      title: said.title || (errored ? "Run stopped" : "Fill couldn’t finish"),
+      detail: said.detail,
     };
   }
   if (progress.phase !== "done") return null;

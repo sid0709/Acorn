@@ -30,6 +30,22 @@ import { endScope, readScope, scopeState, scopeTest, takeCensus } from "./scope"
 import { initSelectionQa } from "./selection-qa";
 import { initSupportHandoff } from "./support-handoff";
 
+// A failure in the extension's own page code is written to the tab's log. The page's
+// own script errors (other origins) are the site's business, not ours.
+window.addEventListener("error", (event) => {
+  if (!event.filename.startsWith("chrome-extension://")) return;
+  traceFromPage("page:error", () => ({
+    message: event.message,
+    file: event.filename,
+    line: event.lineno,
+  }));
+});
+window.addEventListener("unhandledrejection", (event) => {
+  const reason: unknown = event.reason;
+  if (!(reason instanceof Error) || !reason.stack?.includes("chrome-extension://")) return;
+  traceFromPage("page:error", () => ({ message: reason.message, stack: reason.stack }));
+});
+
 const CONTENT_BOOT = "__acornContentBoot";
 
 type AcornContentWindow = Window & { [CONTENT_BOOT]?: boolean };

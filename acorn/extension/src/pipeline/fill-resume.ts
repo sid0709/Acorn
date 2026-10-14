@@ -25,6 +25,8 @@ export async function loadFillResume(input: {
   customTab?: AcornCustomTabBinding | null;
   customGenerationId?: string | null;
   apiUrl: string;
+  /** The tab whose log records the file requests. */
+  tabId?: number;
 }): Promise<{ file: RuntimeAttachedFile | null; skipReason: string | null }> {
   if (input.source === "custom" || (input.customTab && customTabHasResume(input.customTab))) {
     return loadCustomFillResume(input);
@@ -42,7 +44,7 @@ export async function loadFillResume(input: {
   if (completed && jobGen?.workKind === "recommend" && libraryId) {
     try {
       const file = await cachedResumeFile(`library:${libraryId}`, () =>
-        fetchCustomLibraryResume(libraryId, input.apiUrl),
+        fetchCustomLibraryResume(libraryId, input.apiUrl, input.tabId),
       );
       if (file) return { file, skipReason: null };
     } catch (err) {
@@ -55,7 +57,7 @@ export async function loadFillResume(input: {
   if (generationId && completed) {
     try {
       const file = await cachedResumeFile(`generation:${generationId}`, () =>
-        fetchCustomResume(generationId, input.apiUrl),
+        fetchCustomResume(generationId, input.apiUrl, input.tabId),
       );
       if (file) return { file, skipReason: null };
     } catch (err) {
@@ -68,7 +70,7 @@ export async function loadFillResume(input: {
   try {
     const jobId = tabJob.jobId;
     const file = await cachedResumeFile(`job:${jobId}`, () =>
-      fetchRecommendedResume(jobId, input.apiUrl),
+      fetchRecommendedResume(jobId, input.apiUrl, input.tabId),
     );
     if (!file) {
       return {
@@ -91,6 +93,7 @@ async function loadCustomFillResume(input: {
   customTab?: AcornCustomTabBinding | null;
   customGenerationId?: string | null;
   apiUrl: string;
+  tabId?: number;
 }): Promise<{ file: RuntimeAttachedFile | null; skipReason: string | null }> {
   const tab = input.customTab;
   const recommending = tab?.resumeMode === "recommend";
@@ -103,7 +106,7 @@ async function loadCustomFillResume(input: {
     }
     try {
       const file = await cachedResumeFile(`library:${libraryId}`, () =>
-        fetchCustomLibraryResume(libraryId, input.apiUrl),
+        fetchCustomLibraryResume(libraryId, input.apiUrl, input.tabId),
       );
       if (!file) {
         return {
@@ -125,7 +128,7 @@ async function loadCustomFillResume(input: {
   }
   try {
     const file = await cachedResumeFile(`generation:${generationId}`, () =>
-      fetchCustomResume(generationId, input.apiUrl),
+      fetchCustomResume(generationId, input.apiUrl, input.tabId),
     );
     if (!file) {
       return {
@@ -185,6 +188,7 @@ export async function prefetchFillResume(tabId: number, apiUrl: string): Promise
     customTab,
     customGenerationId: customTab?.generationId ?? null,
     apiUrl,
+    tabId,
   });
 }
 

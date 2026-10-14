@@ -2,13 +2,14 @@ import { messageFormData } from "@acorn/support-chat/form";
 import {
   MAX_NOTES_LENGTH,
   SUPPORT_CLAIMS_PATH,
+  supportClaimLogPath,
   supportClaimMessagesPath,
 } from "@acorn/support-chat/types";
 
 import { authHeaders, getAcornApiUrl } from "../../auth/acorn-auth";
 import { usageTabKey } from "../../tab-usage-key";
 import { blobToBase64, captureFullPage, captureVisible } from "../capture/full-page";
-import { flushDebugTraces } from "../debug-trace-sink";
+import { reportLogGzipBase64 } from "../report-log";
 
 import type { FullPageShot } from "../capture/full-page";
 
@@ -17,7 +18,12 @@ const MAX_SCREENSHOT_BYTES = 8 << 20;
 /** The name a follow-up's screenshot carries in the conversation. */
 const SCREENSHOT_NAME = "screenshot";
 
-type ApiAnswer = { error?: string; message?: string; claim?: { id?: string } };
+type ApiAnswer = {
+  error?: string;
+  /** An error's text, or (for a follow-up) the message just filed, which its log goes under. */
+  message?: string | { id?: string };
+  claim?: { id?: string };
+};
 type ReportResult = { ok: boolean; error?: string; claimId?: string };
 
 /**
@@ -38,12 +44,9 @@ export async function handleSubmitSupportClaim(
   }
   const notes =
     typeof message.notes === "string" ? message.notes.trim().slice(0, MAX_NOTES_LENGTH) : "";
-  // The server copies this tab's debug run as the claim is saved.
-  const flushed = flushDebugTraces();
   const shot = await captureFullPage(tabId, tab.windowId, MAX_SCREENSHOT_BYTES).catch(() =>
     captureVisible(tab.windowId),
   );
-  await flushed;
   const base = (await getAcornApiUrl()).replace(/\/$/, "");
   const claimId = typeof message.claimId === "string" && message.claimId ? message.claimId : null;
   const res = claimId
@@ -53,10 +56,39 @@ export async function handleSubmitSupportClaim(
   if (!res.ok) {
     return {
       ok: false,
-      error: payload.error || payload.message || `Report failed (${res.status})`,
+      error:
+        payload.error ||
+        (typeof payload.message === "string" ? payload.message : "") ||
+        `Report failed (${res.status})`,
     };
   }
-  return { ok: true, claimId: claimId ?? payload.claim?.id };
+  const filedId = claimId ?? payload.claim?.id;
+  // The log leaves the browser here and nowhere else: the report is filed, so its log goes with it.
+  if (filedId) {
+    const messageId = typeof payload.message === "object" ? payload.message?.id : undefined;
+    await sendReportLog(base, tabId, filedId, messageId);
+  }
+  return { ok: true, claimId: filedId };
+}
+
+/** Send the tab's local log with the report just filed; a failure never fails the report. */
+async function sendReportLog(
+  base: string,
+  tabId: number,
+  claimId: string,
+  messageId?: string,
+): Promise<void> {
+  try {
+    const gzipBase64 = await reportLogGzipBase64(tabId);
+    if (!gzipBase64) return;
+    await fetch(`${base}${supportClaimLogPath(claimId)}`, {
+      method: "POST",
+      headers: await authHeaders(tabId),
+      body: JSON.stringify({ messageId: messageId ?? "", gzipBase64 }),
+    });
+  } catch {
+    // The report is filed; the log is the extra.
+  }
 }
 
 async function postClaim(

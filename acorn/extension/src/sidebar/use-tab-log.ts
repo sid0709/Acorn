@@ -12,8 +12,11 @@ function inTimeOrder(shown: TabLogEntry[], added: TabLogEntry[]): TabLogEntry[] 
 /** The active tab's pipeline log, live: the service worker appends, this follows. */
 export function useTabLog(tabId: number | null) {
   const [entries, setEntries] = useState<TabLogEntry[]>([]);
+  // Entries a write failed to keep, since the log was opened: the panel says so.
+  const [lost, setLost] = useState(0);
 
   useEffect(() => {
+    setLost(0);
     if (tabId == null) {
       setEntries([]);
       return;
@@ -27,6 +30,10 @@ export function useTabLog(tabId: number | null) {
       if ("cleared" in change) {
         early.length = 0;
         setEntries([]);
+        return;
+      }
+      if ("lost" in change) {
+        setLost((count) => count + change.lost);
         return;
       }
       if (!loaded) early.push(...change.added);
@@ -53,5 +60,5 @@ export function useTabLog(tabId: number | null) {
     if (tabId != null) void clearTabLog(tabId);
   }, [tabId]);
 
-  return { entries, clear };
+  return { entries, clear, lost };
 }

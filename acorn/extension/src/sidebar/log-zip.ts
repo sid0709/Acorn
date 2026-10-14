@@ -1,6 +1,7 @@
+import { logIndex, summarizeLog } from "../log-summary";
 import { LOG_KIND, type TabLogEntry } from "../tab-log-session";
 
-/** A zip of the log: one file per entry, named by its time, kind and title. */
+/** A zip of the log: one file per entry, named by its time, kind and title, each compressed. */
 
 const ZIP_MIME = "application/zip";
 /** Longest title kept in a file name, so the path stays well inside any file system's limit. */
@@ -15,6 +16,7 @@ const ZIP_VERSION = 20;
 /** General-purpose bit 11: names and contents are UTF-8. */
 const FLAG_UTF8 = 0x0800;
 const METHOD_STORE = 0;
+const METHOD_DEFLATE = 8;
 const DOS_YEAR_BASE = 1980;
 
 const CRC_TABLE = (() => {
@@ -45,8 +47,37 @@ function dosDateTime(date: Date): { time: number; day: number } {
 
 type ZipFile = { name: string; data: Uint8Array; modified: Date };
 
-/** Files stored uncompressed: the log is for reading, and a viewer opens it anywhere. */
-export function buildZip(files: ZipFile[]): Blob {
+/** A file as it is written: its bytes, how they are packed, and the original size. */
+type PackedFile = ZipFile & { packed: Uint8Array; method: number };
+
+/** Raw deflate, the method every zip reader understands; null when the browser cannot. */
+async function deflate(data: Uint8Array): Promise<Uint8Array | null> {
+  if (typeof CompressionStream === "undefined") return null;
+  try {
+    const stream = new Blob([data as Uint8Array<ArrayBuffer>])
+      .stream()
+      .pipeThrough(new CompressionStream("deflate-raw"));
+    return new Uint8Array(await new Response(stream).arrayBuffer());
+  } catch {
+    return null;
+  }
+}
+
+/** Compress each file; one that does not shrink is stored as it is. */
+async function pack(files: ZipFile[]): Promise<PackedFile[]> {
+  return Promise.all(
+    files.map(async (file) => {
+      const compressed = await deflate(file.data);
+      return compressed && compressed.length < file.data.length
+        ? { ...file, packed: compressed, method: METHOD_DEFLATE }
+        : { ...file, packed: file.data, method: METHOD_STORE };
+    }),
+  );
+}
+
+/** The zip of `files`: every file deflated (logs are text and shrink many times over). */
+export async function buildZip(input: ZipFile[]): Promise<Blob> {
+  const files = await pack(input);
   const encoder = new TextEncoder();
   const parts: Uint8Array<ArrayBuffer>[] = [];
   const central: Uint8Array<ArrayBuffer>[] = [];
@@ -61,31 +92,31 @@ export function buildZip(files: ZipFile[]): Blob {
     local.setUint32(0, SIG_LOCAL, true);
     local.setUint16(4, ZIP_VERSION, true);
     local.setUint16(6, FLAG_UTF8, true);
-    local.setUint16(8, METHOD_STORE, true);
+    local.setUint16(8, file.method, true);
     local.setUint16(10, time, true);
     local.setUint16(12, day, true);
     local.setUint32(14, crc, true);
-    local.setUint32(18, file.data.length, true);
+    local.setUint32(18, file.packed.length, true);
     local.setUint32(22, file.data.length, true);
     local.setUint16(26, name.length, true);
-    parts.push(new Uint8Array(local.buffer), name, file.data as Uint8Array<ArrayBuffer>);
+    parts.push(new Uint8Array(local.buffer), name, file.packed as Uint8Array<ArrayBuffer>);
 
     const entry = new DataView(new ArrayBuffer(46));
     entry.setUint32(0, SIG_CENTRAL, true);
     entry.setUint16(4, ZIP_VERSION, true);
     entry.setUint16(6, ZIP_VERSION, true);
     entry.setUint16(8, FLAG_UTF8, true);
-    entry.setUint16(10, METHOD_STORE, true);
+    entry.setUint16(10, file.method, true);
     entry.setUint16(12, time, true);
     entry.setUint16(14, day, true);
     entry.setUint32(16, crc, true);
-    entry.setUint32(20, file.data.length, true);
+    entry.setUint32(20, file.packed.length, true);
     entry.setUint32(24, file.data.length, true);
     entry.setUint16(28, name.length, true);
     entry.setUint32(42, offset, true);
     central.push(new Uint8Array(entry.buffer), name);
 
-    offset += 30 + name.length + file.data.length;
+    offset += 30 + name.length + file.packed.length;
   }
 
   const centralSize = central.reduce((sum, part) => sum + part.length, 0);
@@ -129,20 +160,33 @@ export function logFileNames(entries: TabLogEntry[]): string[] {
   });
 }
 
-export function buildLogZip(entries: TabLogEntry[]): Blob {
+/** The zip's two overview files come first, named so they sort before every entry. */
+const SUMMARY_FILE = "00-summary.json";
+const INDEX_FILE = "01-index.json";
+
+export async function buildLogZip(entries: TabLogEntry[]): Promise<Blob> {
   const encoder = new TextEncoder();
   const names = logFileNames(entries);
-  return buildZip(
-    entries.map((entry, i) => ({
+  const now = Date.now();
+  const version = import.meta.env.VITE_ACORN_VERSION ?? "";
+  const overview = (name: string, value: unknown) => ({
+    name,
+    data: encoder.encode(JSON.stringify(value, null, 2)),
+    modified: new Date(now),
+  });
+  return buildZip([
+    overview(SUMMARY_FILE, summarizeLog(entries, version, now)),
+    overview(INDEX_FILE, logIndex(entries, names)),
+    ...entries.map((entry, i) => ({
       name: names[i],
       data: encoder.encode(entry.text),
       modified: new Date(entry.t),
     })),
-  );
+  ]);
 }
 
-export function downloadLogZip(entries: TabLogEntry[], tabId: number | null): void {
-  const url = URL.createObjectURL(buildLogZip(entries));
+export async function downloadLogZip(entries: TabLogEntry[], tabId: number | null): Promise<void> {
+  const url = URL.createObjectURL(await buildLogZip(entries));
   const a = document.createElement("a");
   a.href = url;
   a.download = `acorn-log-tab${tabId ?? "none"}-${stampOf(Date.now())}.zip`;

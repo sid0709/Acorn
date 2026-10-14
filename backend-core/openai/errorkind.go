@@ -22,6 +22,15 @@ const (
 	ErrorKindNoAPIKey      = "no_api_key"
 )
 
+// StatusError is a model provider's refusal. It keeps the HTTP status so a caller can
+// tell a spent balance (402) from a rejected key (401) or a rate limit (429).
+type StatusError struct {
+	Status int
+	Text   string
+}
+
+func (e *StatusError) Error() string { return e.Text }
+
 // ErrEmptyResponse is a 2xx reply with no content.
 var ErrEmptyResponse = errors.New("model returned an empty job")
 
@@ -34,6 +43,10 @@ func ClassifyError(err error, status int) string {
 	var syntax *json.SyntaxError
 	var typed *json.UnmarshalTypeError
 	var netErr net.Error
+	var refused *StatusError
+	if status == 0 && errors.As(err, &refused) {
+		status = refused.Status
+	}
 	switch {
 	case errors.Is(err, context.Canceled):
 		return ErrorKindCancelled

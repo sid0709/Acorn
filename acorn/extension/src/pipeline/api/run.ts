@@ -1,5 +1,7 @@
 import { authHeaders, getAcornApiUrl } from "../../auth/acorn-auth";
 
+import { loggedFetch } from "./api-log";
+
 import type { AiUsageSummary } from "@acorn/shared/ai-usage";
 import type { PageControl } from "@acorn/shared/page-controls";
 import type {
@@ -49,8 +51,13 @@ export interface ReadPageRequest {
 export interface ReadPageResponse {
   ok: boolean;
   error?: string;
+  /** The backend's stable error code when the call was refused (see user-messages.ts). */
+  code?: string;
   kind?: PageKind;
   kindConfidence?: number;
+  /** How sure the model was of each page kind and each verification answer, for the log. */
+  kindProbabilities?: Record<string, number>;
+  verificationProbabilities?: Record<string, number>;
   /** The control to click; null when nothing on the page moves the application forward. */
   control?: { id: number; role: ControlRole; confidence: number } | null;
   /**
@@ -107,6 +114,8 @@ export interface MailVerificationRequest {
 export interface MailVerificationResponse {
   ok: boolean;
   error?: string;
+  /** The backend's stable error code when the call was refused (see user-messages.ts). */
+  code?: string;
   status?: MailVerificationStatus;
   /** The code to enter, or the link to open. Set only when found. */
   value?: string;
@@ -134,6 +143,8 @@ export interface DialogRequest {
 export interface DialogResponse {
   ok: boolean;
   error?: string;
+  /** The backend's stable error code when the call was refused (see user-messages.ts). */
+  code?: string;
   /** Press OK (or Leave) rather than Cancel (or Stay). */
   accept?: boolean;
   confidence?: number;
@@ -160,6 +171,8 @@ export interface AccountOutcomeRequest {
 export interface AccountOutcomeResponse {
   ok: boolean;
   error?: string;
+  /** The backend's stable error code when the call was refused (see user-messages.ts). */
+  code?: string;
   outcome?: AccountOutcome;
   confidence?: number;
   usage?: AiUsageSummary;
@@ -179,6 +192,8 @@ export interface DiagnoseRequest {
 export interface DiagnoseResponse {
   ok: boolean;
   error?: string;
+  /** The backend's stable error code when the call was refused (see user-messages.ts). */
+  code?: string;
   reason?: string;
   label?: string;
   detail?: string;
@@ -186,18 +201,25 @@ export interface DiagnoseResponse {
   usage?: AiUsageSummary;
 }
 
-async function post<T extends { ok: boolean; error?: string }>(
+async function post<T extends { ok: boolean; error?: string; code?: string }>(
   path: string,
   body: unknown,
   apiUrl: string,
   tabId: number,
 ): Promise<T> {
   const base = (apiUrl || (await getAcornApiUrl())).replace(/\/$/, "");
-  const res = await fetch(`${base}/acorn/run/${path}`, {
-    method: "POST",
-    headers: await authHeaders(tabId),
-    body: JSON.stringify(body),
-  });
+  const res = await loggedFetch(
+    tabId,
+    `run/${path}`,
+    `${base}/acorn/run/${path}`,
+    {
+      method: "POST",
+      headers: await authHeaders(tabId),
+      body: JSON.stringify(body),
+    },
+    // The code or link a mail look found is the one thing here that never reaches the log.
+    { hide: path === "mail-verification" ? ["value"] : [] },
+  );
   const data = (await res.json().catch(() => ({}))) as T & { message?: string };
   if (!res.ok) {
     return { ...data, ok: false, error: data.error || data.message || `HTTP ${res.status}` };

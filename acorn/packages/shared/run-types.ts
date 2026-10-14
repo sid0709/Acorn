@@ -151,11 +151,15 @@ export const RUN_FAILURE_REASON = {
   scopeRefused: "scope_refused",
   /** The tab the application was in closed, and it opened no other to go on in. */
   tabClosed: "tab_closed",
+  /** The AI could not answer (no key, no credits, rate limit, provider down): see RunFailure.code. */
+  aiUnavailable: "ai_unavailable",
 } as const;
 
 /** Why a run could not finish, in the decision model's words (mirrors the backend's reasons). */
 export interface RunFailure {
   reason: string;
+  /** The backend's stable error code, when the failure came from a refused call (user-messages.ts). */
+  code?: string;
   label: string;
   /** The page's own words behind the reason: flagged fields, alerts, failed steps. */
   detail: string;

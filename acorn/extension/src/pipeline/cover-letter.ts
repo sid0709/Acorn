@@ -55,6 +55,6 @@ export async function loadCoverLetter(input: {
   if (!letterId) return null;
   // Cached like a résumé: the same letter for the next application is no download.
   return cachedResumeFile(`library:${letterId}`, () =>
-    fetchCustomLibraryResume(letterId, input.apiUrl),
+    fetchCustomLibraryResume(letterId, input.apiUrl, input.tabId),
   );
 }

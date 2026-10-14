@@ -186,7 +186,7 @@ func (s *Server) runReadPage(w http.ResponseWriter, r *http.Request) {
 	})
 	if err != nil {
 		log.Warn("acorn run read-page failed", "error", err, "ms", elapsed.Milliseconds())
-		writeJSON(w, http.StatusOK, map[string]any{"ok": false, "error": err.Error()})
+		writeJSON(w, http.StatusOK, errorBody(err))
 		return
 	}
 
@@ -195,6 +195,10 @@ func (s *Server) runReadPage(w http.ResponseWriter, r *http.Request) {
 		"needsPerson": read.NeedsPerson, "verification": read.Verification, "accountMode": read.AccountMode,
 		"alreadyApplied": read.AlreadyApplied,
 		"model":          gateway.Model(), "usage": decisionUsage(gateway.Model(), read.Usage),
+		// What the extension's log needs to explain the decision on its own: how sure
+		// each answer was, and how long the server took. No prompt text.
+		"kindProbabilities": read.KindProbs, "verificationProbabilities": read.VerifyProbs,
+		"ms": elapsed.Milliseconds(),
 	}
 	attrs := []any{
 		"kind", read.Kind, "kindConfidence", read.KindConfidence,
@@ -294,7 +298,7 @@ func (s *Server) runDialog(w http.ResponseWriter, r *http.Request) {
 	})
 	if err != nil {
 		log.Warn("acorn run dialog failed", "error", err, "ms", elapsed.Milliseconds())
-		writeJSON(w, http.StatusOK, map[string]any{"ok": false, "error": err.Error()})
+		writeJSON(w, http.StatusOK, errorBody(err))
 		return
 	}
 	log.Info("acorn run dialog decided", "accept", answer.Accept, "confidence", answer.Confidence,
@@ -351,7 +355,7 @@ func (s *Server) runAccountOutcome(w http.ResponseWriter, r *http.Request) {
 	})
 	if err != nil {
 		log.Warn("acorn run account-outcome failed", "error", err, "ms", elapsed.Milliseconds())
-		writeJSON(w, http.StatusOK, map[string]any{"ok": false, "error": err.Error()})
+		writeJSON(w, http.StatusOK, errorBody(err))
 		return
 	}
 	log.Info("acorn run account-outcome decided", "outcome", answer.Outcome, "confidence", answer.Confidence,
@@ -405,7 +409,7 @@ func (s *Server) runDiagnose(w http.ResponseWriter, r *http.Request) {
 	})
 	if err != nil {
 		log.Warn("acorn run diagnose failed", "error", err, "ms", elapsed.Milliseconds())
-		writeJSON(w, http.StatusOK, map[string]any{"ok": false, "error": err.Error()})
+		writeJSON(w, http.StatusOK, errorBody(err))
 		return
 	}
 	detail := body.Evidence

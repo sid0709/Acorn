@@ -1,6 +1,6 @@
 import { authHeaders, getAcornApiUrl } from "../../auth/acorn-auth";
 
-import { extractError } from "./http";
+import { apiError } from "./http";
 
 /**
  * The profile's default account password, as the backend fills it into a site's
@@ -14,6 +14,6 @@ export async function fetchDefaultAccountPassword(): Promise<string> {
     error?: string;
     message?: string;
   };
-  if (!res.ok) throw new Error(extractError(data, `Profile failed: ${res.status}`));
+  if (!res.ok) throw apiError(res, data, `Profile failed: ${res.status}`);
   return data.profile?.defaultAccountPassword ?? "";
 }

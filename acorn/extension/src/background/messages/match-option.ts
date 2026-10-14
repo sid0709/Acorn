@@ -1,4 +1,5 @@
 import { authHeaders, getAcornApiUrl } from "../../auth/acorn-auth";
+import { loggedFetch } from "../../pipeline/api/api-log";
 
 import type { RuntimeMessage, SendResponse } from "./shared";
 import type { MatchOptionRequest, MatchOptionResponse } from "../../types";
@@ -32,7 +33,7 @@ export function handleMatchOption(
       if (incoming.multiple) {
         payload.multiple = true;
       }
-      const res = await fetch(`${base}/acorn/match-option`, {
+      const res = await loggedFetch(usageTabId, "match-option", `${base}/acorn/match-option`, {
         method: "POST",
         headers: await authHeaders(usageTabId),
         body: JSON.stringify(payload),

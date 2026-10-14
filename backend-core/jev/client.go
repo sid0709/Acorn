@@ -235,7 +235,7 @@ func statusError(status int, payload []byte) error {
 		} `json:"error"`
 	}
 	if json.Unmarshal(payload, &body) == nil && body.Error != nil && strings.TrimSpace(body.Error.Message) != "" {
-		return fmt.Errorf("jev request failed (%d): %s", status, strings.TrimSpace(body.Error.Message))
+		return &openai.StatusError{Status: status, Text: fmt.Sprintf("jev request failed (%d): %s", status, strings.TrimSpace(body.Error.Message))}
 	}
-	return fmt.Errorf("jev request failed (%d)", status)
+	return &openai.StatusError{Status: status, Text: fmt.Sprintf("jev request failed (%d)", status)}
 }

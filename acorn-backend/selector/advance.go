@@ -273,6 +273,9 @@ type PageRead struct {
 	NeedsPerson bool
 	// Verification is what the page asks to verify (a Verify* key); VerifyNone when nothing.
 	Verification string
+	// VerifyProbs is Jev's probability for each verification answer, for the log: a
+	// stop on "other" at 0.51 reads differently from one at 0.99.
+	VerifyProbs map[string]float64
 	// AccountMode is what an account step asks for (an Account* key); AccountNone elsewhere.
 	AccountMode string
 	// Offers are the account goals an account step makes possible: its own form, or
@@ -463,6 +466,7 @@ func (g *Gateway) ReadPage(ctx context.Context, q PageQuery) (PageRead, error) {
 		read.AlreadyApplied = *applied.Noul > checkThreshold
 	}
 	read.Verification = listedChoice(res.Answers[verifyQuestion], verifications, VerifyNone)
+	read.VerifyProbs = res.Answers[verifyQuestion].Probabilities
 	read.NeedsPerson = read.Verification == VerifyOther
 	read.AccountMode = AccountNone
 	if read.Kind == KindAccount {

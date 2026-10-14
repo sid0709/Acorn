@@ -167,6 +167,22 @@
   min-width: 0;
 }
 
+/* A run's entries: a heading that opens and closes the whole run. */
+.log-run {
+  display: flex;
+  flex-direction: column;
+  gap: var(--spacing-2);
+}
+
+.log-run-summary {
+  display: flex;
+  align-items: center;
+  gap: var(--spacing-2);
+  cursor: pointer;
+  min-width: 0;
+  font-weight: 600;
+}
+
 .log-entry-title {
   flex: 1;
   min-width: 0;
@@ -186,4 +202,34 @@
   font-family: var(--font-family-code);
   font-size: var(--font-size-sm);
   white-space: pre;
+}
+
+/* A stopped run's raw text, kept out of sight until the person asks for it. */
+.run-failure-details > summary {
+  cursor: pointer;
+  font-size: var(--font-size-sm);
+  color: var(--color-text-secondary);
+}
+
+/* Jobs tab: the run as a list of steps, each opening to the log entries behind it. */
+.activity-item {
+  border-bottom: var(--border-width) solid var(--color-border);
+  padding: var(--spacing-2) 0;
+}
+
+.activity-summary {
+  display: flex;
+  align-items: center;
+  gap: var(--spacing-2);
+  cursor: pointer;
+  min-width: 0;
+}
+
+.activity-title {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: var(--font-size-sm);
 }

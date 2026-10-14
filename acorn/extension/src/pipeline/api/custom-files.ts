@@ -1,7 +1,7 @@
 import { authHeaders, getAcornApiUrl } from "../../auth/acorn-auth";
 
 import { cachedFileGet } from "./file-cache";
-import { extractError, isNestMissingRoute, readId } from "./http";
+import { apiError, isNestMissingRoute, readId } from "./http";
 
 import type { RuntimeAttachedFile } from "@acorn/shared/plan-runner/types";
 
@@ -17,6 +17,7 @@ const CUSTOM_PREVIEW_UNAVAILABLE =
 export async function fetchCustomResume(
   generationId: string,
   _apiUrl?: string,
+  tabId?: number,
 ): Promise<RuntimeAttachedFile | null> {
   const id = String(generationId || "").trim();
   if (!id) return null;
@@ -29,13 +30,13 @@ export async function fetchCustomResume(
     stack?: string | null;
     error?: string;
     message?: string;
-  }>(`${base}/acorn/custom/resumes/${encodeURIComponent(id)}`, await authHeaders());
+  }>(`${base}/acorn/custom/resumes/${encodeURIComponent(id)}`, await authHeaders(), tabId);
   const data = res.data;
   if (isNestMissingRoute(res.status, data)) {
     throw new Error(CUSTOM_STORED_FILE_UNAVAILABLE);
   }
   if (!res.ok) {
-    throw new Error(extractError(data, `Resume file failed: ${res.status}`));
+    throw apiError(res, data, `Resume file failed: ${res.status}`);
   }
   const responseId = readId(data.generationId);
   if (responseId && responseId !== id) {
@@ -72,7 +73,7 @@ export async function fetchCustomResumePreview(
     if (isNestMissingRoute(res.status, data)) {
       throw new Error(CUSTOM_PREVIEW_UNAVAILABLE);
     }
-    throw new Error(extractError(data, `Resume preview failed: ${res.status}`));
+    throw apiError(res, data, `Resume preview failed: ${res.status}`);
   }
   const html = typeof data.html === "string" ? data.html : "";
   if (!html.trim()) throw new Error("Generated résumé preview is empty");

@@ -1,3 +1,4 @@
+import { ActivityFeed } from "./ActivityFeed";
 import { AutoFocusSwitch } from "./AutoFocusSwitch";
 import { UsageHistoryList } from "./UsageHistoryList";
 import { useAiUsage } from "./use-ai-usage";
@@ -14,7 +15,7 @@ interface Props {
   socketConnected: boolean;
 }
 
-/** The Jobs tab: the tab's job, the run switches, and that tab's AI usage. */
+/** The Jobs tab: the tab's job, what the run is doing step by step, the run switches, and that tab's AI usage. */
 export function JobsPanel({ mainTab, nowCard, tabId, signedIn, socketConnected }: Props) {
   const usage = useAiUsage(tabId, mainTab === "fill", signedIn, socketConnected);
   return (
@@ -25,6 +26,7 @@ export function JobsPanel({ mainTab, nowCard, tabId, signedIn, socketConnected }
       hidden={mainTab !== "fill"}
     >
       {nowCard}
+      <ActivityFeed tabId={tabId} active={mainTab === "fill"} />
       <AutoFocusSwitch />
       <UsageHistoryList
         entries={usage.entries}

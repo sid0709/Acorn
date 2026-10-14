@@ -586,11 +586,12 @@ func (s *Server) writeResumeErr(w http.ResponseWriter, err error) {
 	case errors.Is(err, resume.ErrNoPosting):
 		writeError(w, http.StatusUnprocessableEntity, resume.ErrNoPosting.Error())
 	case errors.Is(err, openai.ErrMissingOpenRouterKey):
-		writeError(w, http.StatusServiceUnavailable, openai.ErrMissingOpenRouterKey.Error())
+		writeCodedError(w, http.StatusServiceUnavailable, CodeNoKey, openai.ErrMissingOpenRouterKey.Error())
 	case errors.Is(err, resume.ErrUnavailable):
 		writeError(w, http.StatusServiceUnavailable, err.Error())
 	default:
-		writeError(w, http.StatusBadGateway, err.Error())
+		code := modelErrorCode(err)
+		writeCodedError(w, statusForCode(code, http.StatusBadGateway), code, err.Error())
 	}
 }
 

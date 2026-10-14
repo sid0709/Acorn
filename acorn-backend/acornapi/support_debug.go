@@ -2,6 +2,8 @@ package acornapi
 
 import (
 	"archive/zip"
+	"encoding/base64"
+	"encoding/json"
 	"fmt"
 	"log/slog"
 	"net/http"
@@ -10,6 +12,50 @@ import (
 
 	"github.com/sid0709/OpenSeat/acorn-backend/support"
 )
+
+const (
+	// extensionLogName is the stored name of the log a report carries from the browser.
+	extensionLogName = "extension-log.json.gz"
+	// gzipMagic opens every gzip stream; the log is kept as sent, never unpacked here.
+	gzipMagic0, gzipMagic1 = 0x1f, 0x8b
+	// logBodyLimit bounds the request: a base64 log of at most MaxDebugFileBytes, plus its envelope.
+	logBodyLimit = support.MaxDebugFileBytes*4/3 + 4<<10
+)
+
+// claimLog stores the log the extension sends when its person submits a report: the
+// tab's whole local log, gzipped. It is the only time the log leaves the browser.
+// messageID names the follow-up it came with; empty for the opening report.
+func (s *Server) claimLog(w http.ResponseWriter, r *http.Request) {
+	claim, _, ok := s.myClaim(w, r)
+	if !ok {
+		return
+	}
+	var body struct {
+		MessageID  string `json:"messageId"`
+		GzipBase64 string `json:"gzipBase64"`
+	}
+	if err := json.NewDecoder(http.MaxBytesReader(w, r.Body, logBodyLimit)).Decode(&body); err != nil {
+		writeError(w, http.StatusBadRequest, "the log could not be read")
+		return
+	}
+	raw, err := base64.StdEncoding.DecodeString(strings.TrimSpace(body.GzipBase64))
+	if err != nil || len(raw) < 2 || raw[0] != gzipMagic0 || raw[1] != gzipMagic1 {
+		writeError(w, http.StatusBadRequest, "the log must be gzip")
+		return
+	}
+	if len(raw) > support.MaxDebugFileBytes {
+		writeError(w, http.StatusRequestEntityTooLarge, "the log is too large")
+		return
+	}
+	stored, err := s.claims.SaveDebugLog(r.Context(), claim.ID, strings.TrimSpace(body.MessageID),
+		[]support.DebugBlob{{Name: extensionLogName, Data: raw}})
+	if err != nil {
+		slog.Error("acorn support log", "error", err, "claimId", claim.ID)
+		writeError(w, http.StatusInternalServerError, "could not save the log")
+		return
+	}
+	writeJSON(w, http.StatusCreated, map[string]any{"success": true, "files": stored})
+}
 
 // storeClaimDebugLog copies the tab's whole captured session onto the claim: every
 // run folder kept for it (pages, trees, decisions, prompts, plans, step traces,

@@ -8,6 +8,9 @@
  */
 
 import { getAcornSession } from "../../auth/acorn-auth";
+import { LOG_KIND, LOG_LEVEL, logTab } from "../../tab-log-session";
+
+import { describeNetworkError } from "./api-log";
 
 const DB_NAME = "acorn-file-cache";
 const DB_VERSION = 1;
@@ -108,27 +111,71 @@ export interface CachedResponse<T> {
 export async function cachedFileGet<T>(
   url: string,
   headers: Record<string, string>,
+  tabId?: number,
 ): Promise<CachedResponse<T>> {
+  const started = Date.now();
+  const where = new URL(url, "https://acorn.invalid").pathname;
+  const note = (title: string, data: Record<string, unknown>, level: "info" | "warn" | "error") =>
+    logTab(
+      tabId,
+      LOG_KIND.api,
+      `${title} · ${Date.now() - started} ms`,
+      () => ({ file: where, ...data }),
+      {
+        ms: Date.now() - started,
+        level,
+        group: `file#${where}`,
+      },
+    );
   const account = (await getAcornSession().catch(() => null))?.username ?? "";
   const key = `${account}|${url}`;
   const stored = await Promise.race([
     readStored(key).catch(() => null),
     new Promise<null>((resolve) => setTimeout(() => resolve(null), FILE_CACHE_READ_TIMEOUT_MS)),
   ]);
-  const res = await fetch(url, {
-    headers: stored ? { ...headers, "If-None-Match": stored.etag } : headers,
-    signal: AbortSignal.timeout(FILE_FETCH_TIMEOUT_MS),
-  });
+  let res: Response;
+  try {
+    res = await fetch(url, {
+      headers: stored ? { ...headers, "If-None-Match": stored.etag } : headers,
+      signal: AbortSignal.timeout(FILE_FETCH_TIMEOUT_MS),
+    });
+  } catch (err) {
+    note(
+      "✕ file · no answer",
+      { cause: describeNetworkError(err), hadStoredCopy: Boolean(stored) },
+      LOG_LEVEL.error,
+    );
+    throw err;
+  }
   if (res.status === 304 && stored) {
-    void touch(stored).catch(() => undefined);
+    void touch(stored).catch((err: unknown) =>
+      note("✕ file · could not mark the stored copy used", { error: String(err) }, LOG_LEVEL.warn),
+    );
+    note(
+      "← file · unchanged, stored copy used",
+      { status: 304, chars: stored.chars },
+      LOG_LEVEL.info,
+    );
     return { ok: true, status: 200, data: stored.data as T };
   }
   const data = (await res.json().catch(() => ({}))) as T;
   const etag = res.headers.get("ETag");
+  note(
+    res.ok ? "← file · downloaded" : "← file · refused",
+    {
+      status: res.status,
+      etag,
+      hadStoredCopy: Boolean(stored),
+      chars: JSON.stringify(data).length,
+    },
+    res.ok ? LOG_LEVEL.info : LOG_LEVEL.warn,
+  );
   if (res.ok && etag) {
     const chars = JSON.stringify(data).length;
     // Kept in the background: the file is the caller's now, whatever the store does.
-    void writeStored({ key, etag, data, chars, usedAt: Date.now() }).catch(() => undefined);
+    void writeStored({ key, etag, data, chars, usedAt: Date.now() }).catch((err: unknown) =>
+      note("✕ file · could not keep a copy on disk", { error: String(err) }, LOG_LEVEL.warn),
+    );
   }
   return { ok: res.ok, status: res.status, data };
 }

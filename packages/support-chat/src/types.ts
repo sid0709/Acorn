@@ -94,6 +94,8 @@ export type ClaimThreadData = { claim: SupportClaim; messages: SupportMessage[] 
 export const SUPPORT_CLAIMS_PATH = "/acorn/support/claims";
 export const supportClaimPath = (id: string) => `${SUPPORT_CLAIMS_PATH}/${encodeURIComponent(id)}`;
 export const supportClaimMessagesPath = (id: string) => `${supportClaimPath(id)}/messages`;
+/** Where the extension sends its local log once a report is submitted. */
+export const supportClaimLogPath = (id: string) => `${supportClaimPath(id)}/log`;
 export const supportClaimReadPath = (id: string) => `${supportClaimPath(id)}/read`;
 export const supportClaimReopenPath = (id: string) => `${supportClaimPath(id)}/reopen`;
 export const supportClaimAttachmentPath = (id: string, attachmentId: string) =>
