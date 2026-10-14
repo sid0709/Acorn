@@ -1,19 +1,29 @@
 "use client";
 
-import { usePathname } from "next/navigation";
-import { PillNav, useAppShellMobile, type PillNavItem } from "sid-ui";
+import { usePathname, useRouter } from "next/navigation";
+import {
+  DropdownMenu,
+  Glyph,
+  TopNavItem,
+  icons,
+  type DropdownMenuOption,
+  type GlyphName,
+} from "sid-ui";
 import { ROUTES } from "@/lib/routes";
 
-const ITEMS: PillNavItem[] = [
+type NavEntry = { href: string; label: string; icon: GlyphName };
+
+const ITEMS: NavEntry[] = [
   { href: ROUTES.overview, label: "Statistics", icon: "home" },
   { href: ROUTES.profile, label: "Profile", icon: "user" },
-  { href: ROUTES.resume, label: "Resume", icon: "file" },
-  { href: ROUTES.gmail, label: "Gmail", icon: "mail" },
-  { href: ROUTES.apps, label: "Apps", icon: "grid" },
+  { href: ROUTES.resume, label: "Résumé", icon: "file" },
+  { href: ROUTES.connections, label: "Connections", icon: "link" },
   { href: ROUTES.billing, label: "Billing", icon: "creditCard" },
 ];
 
-/** The pill whose page holds `pathname`; Resume stays lit on /resume/library and /resume/history. */
+const MOBILE_MENU_WIDTH = 240;
+
+/** The entry whose page holds `pathname`; Résumé stays lit on /resume/library and /resume/history. */
 function activeFor(pathname: string) {
   const match = ITEMS.find(
     (item) => pathname === item.href || pathname.startsWith(`${item.href}/`),
@@ -21,20 +31,46 @@ function activeFor(pathname: string) {
   return match?.href ?? ROUTES.overview;
 }
 
-/** The workspace pages as pills; the current one opens to show its name. */
-export function WorkspaceNav({ placement = "top" }: { placement?: "top" | "bottom" }) {
+/** Every workspace page, each with its name beside its icon. */
+export function WorkspaceNav() {
+  const active = activeFor(usePathname());
   return (
-    <PillNav
-      label="Acorn"
-      items={ITEMS}
-      activeHref={activeFor(usePathname())}
-      placement={placement}
-    />
+    <>
+      {ITEMS.map((item) => (
+        <TopNavItem
+          key={item.href}
+          label={item.label}
+          href={item.href}
+          icon={<Glyph name={item.icon} />}
+          isSelected={item.href === active}
+        />
+      ))}
+    </>
   );
 }
 
-/** On small screens the pills leave the header for a bar along the bottom edge. */
+/** Below the desktop breakpoint the pages collapse into one labelled menu. */
 export function MobileWorkspaceNav() {
-  const { isMobile } = useAppShellMobile();
-  return isMobile ? <WorkspaceNav placement="bottom" /> : null;
+  const router = useRouter();
+  const active = activeFor(usePathname());
+  const items: DropdownMenuOption[] = ITEMS.map((item) => ({
+    id: item.href,
+    label: item.label,
+    icon: icons[item.icon],
+    isSelected: item.href === active,
+    onClick: () => router.push(item.href),
+  }));
+  return (
+    <DropdownMenu
+      button={{
+        label: "Menu",
+        isIconOnly: true,
+        variant: "ghost",
+        icon: <Glyph name="list" />,
+      }}
+      alignment="start"
+      menuWidth={MOBILE_MENU_WIDTH}
+      items={items}
+    />
+  );
 }

@@ -32,7 +32,7 @@ export async function POST(request: Request) {
     reauthorize,
   );
   if (!started.ok) {
-    return seeOther(gmailErrorPath(ROUTES.gmailConnect, started.error, next));
+    return seeOther(gmailErrorPath(ROUTES.connectGmail, started.error, next));
   }
   (await cookies()).set(
     GMAIL_STATE_COOKIE,

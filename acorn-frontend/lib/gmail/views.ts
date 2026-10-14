@@ -13,6 +13,10 @@ export const GUIDE_DESCRIPTION_MAX = 400;
 export const GMAIL_SEARCH_MAX = 500;
 /** Wait this long after the last keystroke before searching Gmail. */
 export const GMAIL_SEARCH_DEBOUNCE_MS = 300;
+/** Gmail search for mail that carries any custom label, e.g. ones Autolabel applied. */
+export const LABELED_QUERY = "has:userlabels";
+/** Rows in the Connections page's recent-replies feed. */
+export const RECENT_REPLIES_COUNT = 8;
 /** Opened message ids kept locally; older ones fall off. */
 export const READ_MAIL_MAX = 2000;
 

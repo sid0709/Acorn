@@ -19,6 +19,13 @@ const DYNAMIC_ROUTE_CACHE_SECONDS = 30;
 /** A prefetched route (a link's frame and loading state) stays warm this long. */
 const PREFETCHED_ROUTE_CACHE_SECONDS = 180;
 
+/** Gmail and Apps became one Connections page; old links and bookmarks still land there. */
+const LEGACY_REDIRECTS = [
+  { source: "/gmail", destination: "/connections", permanent: true },
+  { source: "/gmail/connect", destination: "/connections/gmail", permanent: true },
+  { source: "/apps", destination: "/connections", permanent: true },
+];
+
 const nextConfig: NextConfig = {
   env: extensionVersion ? { NEXT_PUBLIC_ACORN_EXTENSION_VERSION: extensionVersion } : undefined,
   experimental: {
@@ -26,6 +33,9 @@ const nextConfig: NextConfig = {
       dynamic: DYNAMIC_ROUTE_CACHE_SECONDS,
       static: PREFETCHED_ROUTE_CACHE_SECONDS,
     },
+  },
+  async redirects() {
+    return LEGACY_REDIRECTS;
   },
   output: "standalone",
   outputFileTracingRoot: path.join(__dirname, ".."),

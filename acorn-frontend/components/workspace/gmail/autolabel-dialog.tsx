@@ -184,7 +184,7 @@ export function AutolabelDialog({
                     <form action={GMAIL_AUTH_ROUTE} method="post">
                       <input type="hidden" name="email" value={email} />
                       <input type="hidden" name="reauthorize" value="1" />
-                      <input type="hidden" name="next" value={ROUTES.gmail} />
+                      <input type="hidden" name="next" value={ROUTES.connections} />
                       <Button label="Allow labeling" variant="secondary" size="sm" type="submit" />
                     </form>
                   }

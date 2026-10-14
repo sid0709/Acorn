@@ -32,7 +32,6 @@ export const LANDING_SECTIONS = {
 export const LANDING_NAV = [
   { label: "Auto-bid", id: LANDING_SECTIONS.agent },
   { label: "Features", id: LANDING_SECTIONS.features },
-  { label: "Compare", id: LANDING_SECTIONS.compare },
   { label: "Pricing", id: LANDING_SECTIONS.pricing },
   { label: "FAQ", id: LANDING_SECTIONS.faq },
 ] as const;
