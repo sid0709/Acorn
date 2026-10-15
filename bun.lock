@@ -80,7 +80,7 @@
     },
     "acorn/extension": {
       "name": "acorn-extension",
-      "version": "1.49.0",
+      "version": "1.55.0",
       "dependencies": {
         "@acorn/app-theme": "workspace:*",
         "@acorn/face": "workspace:*",
@@ -193,7 +193,7 @@
     "react": "19.3.0",
     "react-dom": "19.3.0",
     "sharp": "0.35.4",
-    "sid-ui": "0.1.1",
+    "sid-ui": "0.1.3",
     "socket.io-client": "4.8.3",
     "tailwindcss": "4.3.3",
     "turbo": "2.11.4",
@@ -1230,7 +1230,7 @@
 
     "shebang-regex": ["shebang-regex@3.0.0", "", {}, "sha512-7++dFhtcx3353uBaq8DDR4NuxBetBzC7ZQOhmTQInHEd6bSrXdiEyzCvG07Z44UYdLShWUyXt5M/yhz8ekcb1A=="],
 
-    "sid-ui": ["sid-ui@0.1.1", "", { "dependencies": { "@astryxdesign/core": "0.6.3", "@astryxdesign/theme-neutral": "0.6.3", "@stylexjs/stylex": "0.19.1" }, "peerDependencies": { "react": ">=19", "react-dom": ">=19" } }, "sha512-jv2gsmGTIgt1NnPWLic+dVhu33OnLVx7UDGc2RzeRgyM8VAhfnuPPPGEfUzhs84wGO0QPEYIhfI6OPvDm0Pp1A=="],
+    "sid-ui": ["sid-ui@0.1.3", "", { "dependencies": { "@astryxdesign/core": "0.6.3", "@astryxdesign/theme-neutral": "0.6.3", "@stylexjs/stylex": "0.19.1" }, "peerDependencies": { "react": ">=19", "react-dom": ">=19" } }, "sha512-hEpE9v6LMM9DYJq98J0yIjeSoq2PFKVbh9Chv5vp2mTfsmSMoMI11aJqCAH4KKBKeGC6kzIpEMgr46QmvYF18A=="],
 
     "side-channel": ["side-channel@1.1.1", "", { "dependencies": { "es-errors": "^1.3.0", "object-inspect": "^1.13.4", "side-channel-list": "^1.0.1", "side-channel-map": "^1.0.1", "side-channel-weakmap": "^1.0.2" } }, "sha512-6x6dK6zJdpTzF4sQeNYxwtvBzf6Eg4GtlesS94HOvTudUeyK2WXAaIfmDgsyslYrRBeFIlsi54AYsFGUuhmvrQ=="],
 
