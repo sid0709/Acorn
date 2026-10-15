@@ -45,6 +45,7 @@ export function agentRunState(input: {
   startedAt: number;
   step: number;
   control?: string;
+  usage?: AgentUsage | null;
 }): RunProgress {
   return {
     runId: input.runId,
@@ -55,6 +56,9 @@ export function agentRunState(input: {
     refills: 0,
     maxRefills: 0,
     control: input.control,
+    costUsd: input.usage?.cost,
+    modelCalls: input.usage?.calls,
+    screenChecks: input.usage?.checks,
   };
 }
 

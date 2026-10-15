@@ -149,6 +149,8 @@ type Progress = {
   message: string;
   run?: {
     step?: number;
+    costUsd?: number;
+    modelCalls?: number;
     report?: {
       outcome: string;
       failure?: {
@@ -359,6 +361,14 @@ try {
   check(
     progress.some((p) => p.run?.step === 3),
     "the sidebar is told each step",
+  );
+  const finalRun = progress.at(-1)?.run;
+  check(
+    progress.some((p) => (p.run?.costUsd ?? 0) > 0 && p.phase === "running") &&
+      Math.abs((finalRun?.costUsd ?? 0) - 0.005) < 1e-9 &&
+      finalRun?.modelCalls === 5,
+    "the sidebar is told what the run has cost while it works and when it ends",
+    finalRun,
   );
 
   // What the server sent the model.

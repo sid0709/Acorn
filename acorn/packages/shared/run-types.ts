@@ -214,6 +214,13 @@ export interface RunProgress {
   kind?: PageKind;
   /** What the run is about to click, or just clicked. */
   control?: string;
+  /**
+   * An agent Run: what the models have cost so far, in US dollars (OpenRouter's own figure),
+   * and how many driving-model calls and screen checks that was. Unset until the first answer.
+   */
+  costUsd?: number;
+  modelCalls?: number;
+  screenChecks?: number;
   /** While the run reads the mail: the newest emails it hands to Jev. */
   mail?: MailRow[];
   /** The run stopped partway and kept a checkpoint: Continue carries on from here. */

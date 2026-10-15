@@ -216,22 +216,32 @@ describe("OVERLAY_SCRIPT", () => {
     assert.doesNotMatch(OVERLAY_SCRIPT, /innerHTML/);
   });
 
-  it("draws the demo's Acorn cursor: its outline, swoosh and gradient stops", () => {
+  it("draws the demo's Acorn shape and motion", () => {
     for (const part of [
       "M 50 14 C 62 14, 76 36, 83 62 C 89 82, 79 88, 66 84 C 56 80, 53 66, 50 66 C 47 66, 44 80, 34 84 C 21 88, 11 82, 17 62 C 24 36, 38 14, 50 14 Z",
       "M 39 63 C 44 51, 56 51, 61 63",
-      '"stop-color": "#ffe37a"',
-      '"stop-color": "#ff4800"',
       "drop-shadow(0 0 16px rgba(255, 170, 0, 0.95))",
       "animation: pulseAura 2.2s infinite alternate ease-in-out",
-      "virtual.x += (mouse.x - virtual.x) * 0.2",
+      "virtual.x += (mouse.x - virtual.x) * chase",
+      "const chase = reduced ? 0.45 : 0.2",
       "spawnParticles(virtual.x, virtual.y, 45, true)",
     ]) {
-      assert.ok(
-        OVERLAY_SCRIPT.includes(part) || OVERLAY_SCRIPT.includes(JSON.stringify(part).slice(1, -1)),
-        part,
-      );
+      assert.ok(OVERLAY_SCRIPT.includes(part), part);
     }
+  });
+
+  it("keeps the cursor readable on any page: a white halo, a dark edge, no pale body", () => {
+    assert.match(OVERLAY_SCRIPT, /ring\("halo", "#ffffff"/);
+    assert.match(OVERLAY_SCRIPT, /ring\("edge", "#3b1500"/);
+    assert.doesNotMatch(
+      OVERLAY_SCRIPT,
+      /"stop-color": "#ffffff"|#ffe37a|255, 245, 190|mix-blend-mode/,
+    );
+  });
+
+  it("follows the person's accessibility settings", () => {
+    assert.match(OVERLAY_SCRIPT, /prefers-reduced-motion: reduce/);
+    assert.match(OVERLAY_SCRIPT, /forced-colors: active/);
   });
 
   it("resolves a move even when the page draws no frames", async () => {

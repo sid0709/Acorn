@@ -6,6 +6,7 @@ import { AgentStopNotice } from "./AgentStopNotice";
 import { customTabResumeLine, hostOf } from "./custom-tab-resume";
 import { GenerateProgressBar } from "./GenerateProgressBar";
 import { RunCelebration } from "./RunCelebration";
+import { RunCost } from "./RunCost";
 import { RunTimer } from "./RunTimer";
 import { JOBS_NOW_CARD_RUN_ONLY } from "./sidebar-work-state";
 import { useDefaultPassword } from "./use-default-password";
@@ -212,6 +213,7 @@ function RunStatus({ progress }: { progress: PipelineProgress }) {
     return (
       <VStack gap={1}>
         {timer}
+        <RunCost run={run} />
         <AgentStopNotice failure={failure} />
         {extras}
       </VStack>
@@ -222,6 +224,7 @@ function RunStatus({ progress }: { progress: PipelineProgress }) {
     return (
       <VStack gap={1}>
         {timer}
+        <RunCost run={run} />
         <HStack gap={2} align="center">
           <Badge variant="error" label="Run stopped" />
         </HStack>
@@ -248,6 +251,7 @@ function RunStatus({ progress }: { progress: PipelineProgress }) {
   return (
     <VStack gap={1}>
       {timer}
+      <RunCost run={run} />
       {ready ? (
         <HStack gap={2} align="center">
           <Badge variant="green" label="Ready to submit" />

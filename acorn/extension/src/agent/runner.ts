@@ -137,7 +137,7 @@ export async function runAgent(args: AgentRunArgs): Promise<RunReport> {
 
   const emit = (progress: PipelineProgress) => args.emit(tabs, progress);
   const runState = (control?: string) =>
-    agentRunState({ runId, startedAt, step: stepNumber, control });
+    agentRunState({ runId, startedAt, step: stepNumber, control, usage: lastUsage });
 
   const onCreated = (tab: chrome.tabs.Tab) => {
     if (tab.openerTabId === current?.tabId && tab.id != null) pendingTab = tab.id;

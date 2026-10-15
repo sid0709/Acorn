@@ -6,11 +6,17 @@
  * the mouse (the Stop button excepted), and it is hidden for each screenshot so the model sees
  * the page, not the overlay.
  *
- * The cursor, its aura and its sparks are copied from the design demo (demo/demo.html): the
- * same SVG, gradients, glow, keyframes, particle physics and chase-and-tilt motion. The page
- * is a foreign document where the design system's tokens do not exist, so the cursor's palette
- * is written out here, in this one module; the edge glow and the bar use CSS keywords and
- * follow the page's own light or dark scheme.
+ * The cursor's shape, aura, sparks and motion are copied from the design demo (demo/demo.html):
+ * the same outline and swoosh paths, glow, keyframes, particle physics and chase-and-tilt
+ * motion. Its colors are not: the demo sits on a near-black page, where white and pale yellow
+ * show, but on a light page they vanish and one orange cannot reach 3:1 (WCAG 1.4.11) against
+ * both white and black. So the cursor is drawn the way operating systems draw theirs, in three
+ * layers that need no knowledge of the page: a white halo, a very dark brown edge, and a
+ * saturated amber body (dark edge on white 16:1, white halo on black 21:1, body on its edge
+ * 6.9:1). The sparks blend normally, with a dark rim, and the bar is a fixed high-contrast pair.
+ * The page is a foreign document where the design system's tokens do not exist, so these
+ * colors are written out here, in this one module. With `forced-colors` the cursor and bar use
+ * the system colors, and with `prefers-reduced-motion` there are no sparks and the glide is short.
  */
 
 import type { Cdp } from "./cdp";
@@ -34,6 +40,7 @@ const OVERLAY_CSS = `
   :host { all: initial; }
   .root { position: fixed; inset: 0; z-index: ${OVERLAY_Z_INDEX}; pointer-events: none; font: 13px/1.3 system-ui, sans-serif; opacity: 1; transition: opacity ${CAPTURE_FADE_IN_MS}ms ease-out; }
   .root.hidden { visibility: hidden; opacity: 0; transition: none; }
+  @media (prefers-reduced-motion: reduce) { .glow, .cursor-aura { animation: none; } }
   .glow {
     position: absolute; inset: 0;
     box-shadow: inset 0 0 28px 6px color-mix(in srgb, orange 70%, transparent), inset 0 0 90px 10px color-mix(in srgb, orange 35%, transparent);
@@ -41,13 +48,13 @@ const OVERLAY_CSS = `
   }
   @keyframes breathe { 0%, 100% { opacity: 0.55; } 50% { opacity: 1; } }
 
-  /* From demo/demo.html: the canvas for the sparks and warm glows. */
+  /* From demo/demo.html: the canvas for the sparks and warm glows. The demo blends them with
+     "screen", which only brightens and so shows nothing on a light page; these blend normally. */
   #fx-canvas {
     position: fixed;
     inset: 0;
     pointer-events: none;
     z-index: 9998;
-    mix-blend-mode: screen;
   }
 
   /* Fixed Origin Container - Only handles position (X, Y) */
@@ -118,20 +125,35 @@ const OVERLAY_CSS = `
     scale: 0.85;
   }
 
+  /* A fixed pair, whatever the page: white on near-black is 17:1, and the light border and
+     the dark ring give the pill an edge on both a light and a dark page. */
   .bar {
     position: absolute; left: 50%; bottom: 18px; transform: translateX(-50%); z-index: 10000;
     display: flex; align-items: center; gap: 10px; padding: 7px 8px 7px 14px;
-    border-radius: 999px; background: Canvas; color: CanvasText;
-    border: 1px solid color-mix(in srgb, CanvasText 18%, transparent);
-    box-shadow: 0 4px 18px color-mix(in srgb, CanvasText 25%, transparent);
+    border-radius: 999px; background: #1c1410; color: #ffffff;
+    border: 1px solid rgba(255, 255, 255, 0.6);
+    box-shadow: 0 0 0 1px rgba(0, 0, 0, 0.55), 0 4px 18px rgba(0, 0, 0, 0.4);
     max-width: min(560px, calc(100vw - 40px)); pointer-events: auto;
   }
   .label { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
   .stop {
     all: unset; cursor: pointer; padding: 4px 12px; border-radius: 999px; font-weight: 600;
-    background: color-mix(in srgb, CanvasText 10%, Canvas); color: CanvasText;
+    background: #ffffff; color: #1c1410;
   }
-  .stop:hover { background: color-mix(in srgb, CanvasText 20%, Canvas); }
+  .stop:hover { background: #ffe1b0; }
+  .stop:focus-visible { outline: 2px solid #ffb52e; outline-offset: 2px; }
+
+  /* The person's own high-contrast colors win over ours. */
+  @media (forced-colors: active) {
+    .cursor-rotator, .cursor-container.hovering .cursor-rotator { filter: none; }
+    .cursor-aura { display: none; }
+    .halo { fill: Canvas; stroke: Canvas; }
+    .edge { fill: CanvasText; stroke: CanvasText; }
+    .body { fill: Highlight; stroke: Highlight; }
+    .swoosh { stroke: CanvasText; }
+    .bar { background: Canvas; color: CanvasText; border: 1px solid CanvasText; box-shadow: none; }
+    .stop { background: ButtonFace; color: ButtonText; border: 1px solid ButtonText; }
+  }
 `;
 
 /**
@@ -184,34 +206,43 @@ export const OVERLAY_SCRIPT = `(() => {
   const defs = svgNode("defs", {});
   const acornGrad = svgNode("linearGradient", { id: "acornGrad", x1: "0%", y1: "0%", x2: "100%", y2: "100%" });
   acornGrad.append(
-    svgNode("stop", { offset: "0%", "stop-color": "#ffffff" }),
-    svgNode("stop", { offset: "35%", "stop-color": "#ffe37a" }),
-    svgNode("stop", { offset: "85%", "stop-color": "#ff9000" }),
-    svgNode("stop", { offset: "100%", "stop-color": "#ff4800" }),
+    svgNode("stop", { offset: "0%", "stop-color": "#ffc23d" }),
+    svgNode("stop", { offset: "35%", "stop-color": "#ffb52e" }),
+    svgNode("stop", { offset: "85%", "stop-color": "#ff8a00" }),
+    svgNode("stop", { offset: "100%", "stop-color": "#ff6a00" }),
   );
   const innerGlow = svgNode("linearGradient", { id: "innerGlow", x1: "50%", y1: "0%", x2: "50%", y2: "100%" });
   innerGlow.append(
-    svgNode("stop", { offset: "0%", "stop-color": "rgba(255,255,255,0.9)" }),
-    svgNode("stop", { offset: "100%", "stop-color": "rgba(255,165,0,0.2)" }),
+    svgNode("stop", { offset: "0%", "stop-color": "#ffc84a" }),
+    svgNode("stop", { offset: "100%", "stop-color": "#ff8f10" }),
   );
   defs.append(acornGrad, innerGlow);
-  // Outer organic A outline
-  const outline = svgNode("path", {
-    d: "M 50 14 C 62 14, 76 36, 83 62 C 89 82, 79 88, 66 84 C 56 80, 53 66, 50 66 C 47 66, 44 80, 34 84 C 21 88, 11 82, 17 62 C 24 36, 38 14, 50 14 Z",
+  // Outer organic A outline (the demo's path), drawn three times: a white halo, a very dark
+  // brown edge, and the amber body, so one of the rings contrasts with any page.
+  const OUTLINE = "M 50 14 C 62 14, 76 36, 83 62 C 89 82, 79 88, 66 84 C 56 80, 53 66, 50 66 C 47 66, 44 80, 34 84 C 21 88, 11 82, 17 62 C 24 36, 38 14, 50 14 Z";
+  const ring = (className, color, width) => svgNode("path", {
+    class: className, d: OUTLINE, fill: color, stroke: color, "stroke-width": width, "stroke-linejoin": "round",
+  });
+  const halo = ring("halo", "#ffffff", "21");
+  const edge = ring("edge", "#3b1500", "15");
+  const body = svgNode("path", {
+    class: "body",
+    d: OUTLINE,
     stroke: "url(#acornGrad)",
     "stroke-width": "7",
     "stroke-linecap": "round",
     "stroke-linejoin": "round",
     fill: "url(#innerGlow)",
   });
-  // Inner swoosh
+  // Inner swoosh (the demo's path), dark so the A's bar reads against the amber body.
   const swoosh = svgNode("path", {
+    class: "swoosh",
     d: "M 39 63 C 44 51, 56 51, 61 63",
-    stroke: "url(#acornGrad)",
+    stroke: "#3b1500",
     "stroke-width": "6.5",
     "stroke-linecap": "round",
   });
-  svg.append(defs, outline, swoosh);
+  svg.append(defs, halo, edge, body, swoosh);
   rotator.append(aura, svg);
   cursor.appendChild(rotator);
 
@@ -279,11 +310,12 @@ export const OVERLAY_SCRIPT = `(() => {
       this.airResistance = 0.96;
       this.gravity = -0.035;
 
+      // Saturated oranges only: the demo's cream spark disappears on a light page.
       const colors = [
-        "255, 245, 190",
-        "255, 200, 60",
-        "255, 140, 20",
-        "255, 90, 0",
+        "255, 190, 40",
+        "255, 150, 20",
+        "255, 110, 0",
+        "255, 80, 0",
       ];
       this.color = colors[Math.floor(Math.random() * colors.length)];
     }
@@ -311,11 +343,21 @@ export const OVERLAY_SCRIPT = `(() => {
       context.shadowBlur = 12;
       context.fillStyle = "rgba(" + this.color + ", " + Math.max(this.life * 0.85, 0) + ")";
       context.fill();
+      // A thin dark rim, so a spark shows on a light page as well as a dark one.
+      context.shadowBlur = 0;
+      context.lineWidth = 0.8;
+      context.strokeStyle = "rgba(59, 21, 0, " + Math.max(this.life * 0.6, 0) + ")";
+      context.stroke();
       context.restore();
     }
   }
 
+  // The person asked their system for less motion: no sparks, and a short glide.
+  const reduced = Boolean(window.matchMedia && window.matchMedia("(prefers-reduced-motion: reduce)").matches);
+  const chase = reduced ? 0.45 : 0.2;
+
   function spawnParticles(x, y, count, isClick = false) {
+    if (reduced) return;
     for (let i = 0; i < count; i++) {
       if (particles.length < 500) {
         particles.push(new Particle(x, y, isClick));
@@ -343,8 +385,8 @@ export const OVERLAY_SCRIPT = `(() => {
     const prevY = virtual.y;
 
     // 1. Virtual cursor chases mouse
-    virtual.x += (mouse.x - virtual.x) * 0.2;
-    virtual.y += (mouse.y - virtual.y) * 0.2;
+    virtual.x += (mouse.x - virtual.x) * chase;
+    virtual.y += (mouse.y - virtual.y) * chase;
 
     virtual.vx = virtual.x - prevX;
     virtual.vy = virtual.y - prevY;
