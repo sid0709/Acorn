@@ -288,6 +288,9 @@ func (s *Service) FastPlan(ctx context.Context, applicant string, fields []FormF
 		slog.Warn("acorn fast plan: choice fields left to the runtime", "error", pickErr)
 	}
 
+	// A required choice the decision model left blank is still answered: see settleChoices.
+	picks = s.settleChoices(ctx, applicant, choices, picks, pickErr)
+
 	plan := newPlan()
 	addUnanswerable(plan, unreadable, questionUnread)
 	addResumeUpload(plan, files, fileTypes, fileFormats)

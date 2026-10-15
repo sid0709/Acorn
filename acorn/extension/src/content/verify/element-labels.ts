@@ -76,13 +76,19 @@ export function uniqueById(el: Element, id: string): Element | null {
  * when the id names this control alone.
  */
 export function forLabelOf(el: Element): string | null | undefined {
+  const label = forLabelElementOf(el);
+  return label ? drawnText(label) : null;
+}
+
+/** The label element a `for` attribute ties to this control (see forLabelOf). */
+export function forLabelElementOf(el: Element): Element | null {
   if (!el.id) return null;
   const root = el.getRootNode() as Document | ShadowRoot;
   if (typeof root.querySelectorAll !== "function") return null;
   const selector = `label[for="${CSS.escape(el.id)}"]`;
-  const label =
-    uniqueById(el, el.id) === el ? root.querySelector(selector) : nearestSharedLabel(el, selector);
-  return label ? drawnText(label) : null;
+  return uniqueById(el, el.id) === el
+    ? root.querySelector(selector)
+    : nearestSharedLabel(el, selector);
 }
 
 /**
@@ -110,10 +116,16 @@ const OPENER_HOST_DEPTH = 10;
  * shadow root, where no label points at it.
  */
 function hostLabelOf(opener: Element): string | null {
+  const label = hostLabelElementOf(opener);
+  return label ? drawnText(label) : null;
+}
+
+/** The label element the page ties to the custom element a dropdown button belongs to. */
+export function hostLabelElementOf(opener: Element): Element | null {
   let node = composedParent(opener);
   for (let depth = 0; node && depth < OPENER_HOST_DEPTH; depth += 1) {
     if (node.id && !(node.getRootNode() instanceof ShadowRoot)) {
-      const label = forLabelOf(node);
+      const label = forLabelElementOf(node);
       if (label) return label;
     }
     node = composedParent(node);

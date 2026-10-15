@@ -334,6 +334,8 @@ const SCOPE_REFUSED = "The page would not take what Acorn filled in";
 const NEEDS_SHOWN_MAX = 6;
 /** The connected Gmail could not be read, look after look. */
 const MAIL_UNREADABLE = "Acorn could not read your Gmail";
+/** The page is filled and nothing on it moves the application forward. */
+const NO_FORWARD_CONTROL = "The button that moves the application forward could not be found";
 /** A required field was left for the person: its question was unreadable, or it asks for a document Acorn lacks. */
 const NEEDS_ANSWER = "A required field on this form needs you";
 /** The site kept refusing the account step. */
@@ -2473,7 +2475,21 @@ export async function runOrchestrator(args: RunOrchestratorArgs): Promise<RunRep
                   `"${control}" was clicked ${state.clicks} time${state.clicks === 1 ? "" : "s"}; the page stayed on this step and no longer offers a control that moves it forward`,
                 ]
               : ["No control on the page moves the application forward"];
-          throw new RunStop(RUN_STAGE.advancing, page, notes);
+          // A form that was filled and offers no way on says so plainly: the person knows the button.
+          const unseen = state.clicks === 0 && next.kind === PAGE_KIND.form;
+          throw new RunStop(
+            RUN_STAGE.advancing,
+            page,
+            notes,
+            undefined,
+            unseen
+              ? {
+                  reason: RUN_FAILURE_REASON.noForwardControl,
+                  label: NO_FORWARD_CONTROL,
+                  detail: "Click it on the page yourself, then press Continue",
+                }
+              : undefined,
+          );
         }
         // A required field whose question the page never gave, or that asks for a document
         // Acorn does not have, was left to the person, not invented or filled with the

@@ -13,6 +13,11 @@ import { LIST_OPENER_ATTR, POPUP_OWNER_SELECTOR } from "./popup-roles";
 
 /** What a person presses to open a popup. */
 const OPENER_CANDIDATE_SELECTOR = 'button, [role="button"]';
+/** Everything else a person can press or type into inside a box. */
+const BOX_CONTROL_SELECTOR =
+  'a[href], button, input:not([type="hidden"]), select, textarea, [role="button"], [role="link"], [tabindex]:not([tabindex="-1"])';
+/** A button says it opens a popup in standard ARIA: it is expandable, has a popup, or controls one. */
+const POPUP_DECLARATIONS = ["aria-expanded", "aria-haspopup", "aria-controls"];
 /**
  * Levels above a shut list that still count as its own widget box. A popup pane drawn
  * by a custom element sits several shadow trees deep (list, slot, pane container, pane
@@ -79,6 +84,7 @@ function openerOf(
     const sameTree = list.getRootNode();
     const candidates = deepQueryAll(box, OPENER_CANDIDATE_SELECTOR).filter((node) => {
       if (!(node instanceof HTMLElement) || !isDisplayed(node)) return false;
+      if (!POPUP_DECLARATIONS.some((name) => node.hasAttribute(name))) return false;
       if (node.hasAttribute("disabled") || node.getAttribute("aria-disabled") === "true")
         return false;
       if (insideAnyList(node, allLists)) return false;
@@ -88,7 +94,21 @@ function openerOf(
       }
       return true;
     });
-    if (candidates.length) return { opener: candidates[0], box };
+    if (candidates.length) {
+      const opener = candidates[0];
+      // A widget is one control with its popup: a box that holds anything else a person can
+      // press (a header's menus and links around a hidden list) is a region of the page.
+      const others = deepQueryAll(box, BOX_CONTROL_SELECTOR).filter(
+        (node) =>
+          node instanceof HTMLElement &&
+          node !== opener &&
+          isDisplayed(node) &&
+          !opener.contains(node) &&
+          !node.contains(opener) &&
+          !insideAnyList(node, allLists),
+      );
+      return others.length ? null : { opener, box };
+    }
     box = composedParent(box);
   }
   return null;

@@ -25,6 +25,13 @@ export const LAYER_ATTR = {
   covered: "acorn-covered",
   /** Not rendered (display:none or visibility:hidden): a person cannot click it at all. */
   hidden: "acorn-hidden",
+  /**
+   * Clickable only by its look: the cursor turns to a pointer over it, though its markup is no
+   * link, button, or role (an icon or a plain box the page's script listens on).
+   */
+  pointer: "acorn-pointer",
+  /** What the picture inside a clickable element shows: its alt text, title, or file name. */
+  icon: "acorn-icon",
 } as const;
 
 /** Regions whose controls are site chrome, not part of the application. */
@@ -54,6 +61,12 @@ export interface PageControl {
    * which names the entry or section it acts on. "" otherwise.
    */
   near: string;
+  /** What the picture inside the control shows (alt, title, or file name); "" when it holds none. */
+  icon: string;
+  /** Clickable by its look only: its markup is no link, button, or role. */
+  pointer: boolean;
+  /** The control comes after the page's last field in reading order, where a form's forward control sits. */
+  afterFields: boolean;
 }
 
 function squash(text: string | undefined): string {
@@ -91,9 +104,43 @@ function nearText(control: DomTreeNode, ancestors: DomTreeNode[]): string {
 function isControl(node: DomTreeNode): boolean {
   const role = node.attrs?.role;
   if (node.tag === "button" || role === "button") return true;
+  if (node.attrs?.[LAYER_ATTR.pointer] === "true") return true;
   if (node.tag === "a") return Boolean(node.attrs?.href) || role === "link";
   if (node.tag === "input") return BUTTON_INPUT_TYPES.has((node.attrs?.type ?? "").toLowerCase());
   return false;
+}
+
+/** A picture's name: its file name without folders, extension, query, or separators. */
+export function fileLabel(src: string): string {
+  const name = src.split(/[?#]/)[0].split("/").pop() ?? "";
+  let decoded = name;
+  try {
+    decoded = decodeURIComponent(name);
+  } catch {
+    // a malformed escape: keep the raw name
+  }
+  return squash(decoded.replace(/\.[a-z0-9]{2,5}$/i, "").replace(/[-_+]+/g, " "));
+}
+
+/** What a control's picture shows: the serializer's note on it, or the picture's own alt, title, or file name. */
+function iconOf(node: DomTreeNode): string {
+  const noted = squash(node.attrs?.[LAYER_ATTR.icon]);
+  if (noted) return noted;
+  if (node.tag !== "img") return "";
+  return squash(node.attrs?.alt ?? node.attrs?.title) || fileLabel(node.attrs?.src ?? "");
+}
+
+/** Fields a person can see: the count a control's place after the last field is judged against. */
+function shownFieldCount(node: DomTreeNode): number {
+  if (isHidden(node)) return 0;
+  return (
+    (isFormField(node) ? 1 : 0) + node.children.reduce((sum, c) => sum + shownFieldCount(c), 0)
+  );
+}
+
+function isFormField(node: DomTreeNode): boolean {
+  const type = (node.attrs?.type ?? "").toLowerCase();
+  return FIELD_TAGS.has(node.tag) && !NON_FIELD_INPUTS.has(type);
 }
 
 function isHidden(node: DomTreeNode): boolean {
@@ -112,8 +159,11 @@ function isDisabled(node: DomTreeNode): boolean {
 export function collectPageControls(root: DomTreeNode): PageControl[] {
   const out: PageControl[] = [];
   const ancestors: DomTreeNode[] = [];
+  const totalFields = shownFieldCount(root);
+  let fieldsSeen = 0;
   const walk = (node: DomTreeNode, form: string | null, chrome: string) => {
     if (isHidden(node)) return;
+    if (isFormField(node)) fieldsSeen += 1;
     let nextForm = form;
     let nextChrome = chrome;
     if (node.tag === "form") {
@@ -123,9 +173,12 @@ export function collectPageControls(root: DomTreeNode): PageControl[] {
 
     if (isControl(node)) {
       const text = textOf(node);
-      const label = squash(node.attrs?.["aria-label"] ?? node.attrs?.value);
+      const label = squash(
+        node.attrs?.["aria-label"] ?? node.attrs?.value ?? node.attrs?.alt ?? node.attrs?.title,
+      );
+      const icon = iconOf(node);
       const near = text ? "" : nearText(node, ancestors);
-      if (text || label || near) {
+      if (text || label || icon || near) {
         out.push({
           id: node.nodeId,
           tag: node.tag,
@@ -139,6 +192,9 @@ export function collectPageControls(root: DomTreeNode): PageControl[] {
           dialog: node.attrs?.[LAYER_ATTR.dialog] ?? "",
           covered: node.attrs?.[LAYER_ATTR.covered] === "true",
           near,
+          icon,
+          pointer: node.attrs?.[LAYER_ATTR.pointer] === "true",
+          afterFields: totalFields > 0 && fieldsSeen >= totalFields,
         });
       }
       return;
@@ -169,7 +225,9 @@ function uncoverWhenNoneInDialog(controls: PageControl[]): PageControl[] {
 function prioritize(controls: PageControl[]): PageControl[] {
   const rank = (c: PageControl) =>
     (c.dialog ? 0 : 1) +
-    (c.text || c.label ? 0 : 1) +
+    (c.text || c.label || c.icon ? 0 : 1) +
+    // A box clickable only by its look is a control when the form is done; mid-form it is more often layout.
+    (c.pointer && !c.afterFields ? 1 : 0) +
     (c.covered ? 8 : 0) +
     (c.disabled ? 3 : 0) +
     (c.context ? 2 : 0) +

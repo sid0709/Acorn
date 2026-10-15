@@ -153,6 +153,8 @@ export const RUN_FAILURE_REASON = {
   tabClosed: "tab_closed",
   /** A required field's question is not on the page, so the run cannot answer it and does not send the form. */
   needsAnswer: "needs_answer",
+  /** The page is filled but no control on it could be found that moves the application forward. */
+  noForwardControl: "no_forward_control",
   /** The AI could not answer (no key, no credits, rate limit, provider down): see RunFailure.code. */
   aiUnavailable: "ai_unavailable",
 } as const;

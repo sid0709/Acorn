@@ -5,10 +5,16 @@
  * Structural only — no host class names or copy.
  */
 
+import { isListOpener } from "./agents/combobox/list-opener";
 import { getDirectText } from "./dom-serializer";
 import { FILLABLE_SELECTOR } from "./form-frame";
 import { composedClosest, drawnText } from "./shadow-control";
-import { labelCandidates, uniqueById } from "./verify/element-labels";
+import {
+  forLabelElementOf,
+  hostLabelElementOf,
+  labelCandidates,
+  uniqueById,
+} from "./verify/element-labels";
 import { inferRole } from "./verify/element-role";
 
 export { ACORN_ID_ATTR } from "./acorn-id";
@@ -205,6 +211,13 @@ const CONTROL_HOLDER_SELECTOR = "input, select, textarea, button";
  * Its own text is the question; a required mark inside it is not part of it.
  */
 export function questionBeforeGroup(members: Element[]): string {
+  const element = questionElementBeforeGroup(members);
+  if (!element) return "";
+  return clip(getDirectText(element) || (element.textContent ?? ""), MAX_TEXT_CHARS);
+}
+
+/** The element questionBeforeGroup reads: the nearest words before the group that hold no control. */
+function questionElementBeforeGroup(members: Element[]): Element | null {
   const first = members[0];
   let node: Element | null = first;
   for (let level = 0; node && level < QUESTION_CLIMB_LEVELS; level += 1) {
@@ -213,11 +226,11 @@ export function questionBeforeGroup(members: Element[]): string {
         continue;
       }
       const text = getDirectText(prev) || (prev.textContent ?? "");
-      if (carriesWords(text) && isVisible(prev)) return clip(text, MAX_TEXT_CHARS);
+      if (carriesWords(text) && isVisible(prev)) return prev;
     }
     node = node.parentElement;
   }
-  return "";
+  return null;
 }
 
 /**
@@ -328,6 +341,16 @@ const QUESTION_SELECTOR = 'legend, label, h1, h2, h3, h4, h5, h6, [role="heading
  * one of the options themselves.
  */
 export function groupQuestion(wrapper: Element, first: Element, members: Element[]): string {
+  const nearest = groupQuestionElement(wrapper, first, members);
+  return nearest ? clip(nearest.textContent || "", MAX_TEXT_CHARS) : "";
+}
+
+/** The element groupQuestion reads. */
+function groupQuestionElement(
+  wrapper: Element,
+  first: Element,
+  members: Element[],
+): Element | null {
   const memberSet = new Set(members);
   const titles = Array.from(wrapper.querySelectorAll(QUESTION_SELECTOR)).filter((el) => {
     if (!(first.compareDocumentPosition(el) & Node.DOCUMENT_POSITION_PRECEDING)) return false;
@@ -338,8 +361,7 @@ export function groupQuestion(wrapper: Element, first: Element, members: Element
       !(control && memberSet.has(control)) && carriesWords(el.textContent || "") && isVisible(el)
     );
   });
-  const nearest = titles.at(-1);
-  return nearest ? clip(nearest.textContent || "", MAX_TEXT_CHARS) : "";
+  return titles.at(-1) ?? null;
 }
 
 export function groupMembers(control: Element): Element[] {
@@ -355,9 +377,39 @@ export function groupMembers(control: Element): Element[] {
   );
 }
 
+/**
+ * The mark a page draws beside a question to say it must be answered: a lone asterisk
+ * (or a look-alike) closing the question's text. Typography, not wording.
+ */
+const REQUIRED_MARK_END = /[*∗✱✲⁎＊﹡]\s*$/u;
+
+/** Whether the words that ask a question end in the required mark. */
+function endsWithRequiredMark(question: Element | null): boolean {
+  return question != null && REQUIRED_MARK_END.test(question.textContent ?? "");
+}
+
+/** The elements that ask a control's (or a group's) question, whichever way the page ties them. */
+function questionElementsOf(members: Element[]): Element[] {
+  const first = members[0];
+  if (!first) return [];
+  const asking: (Element | null)[] = [forLabelElementOf(first)];
+  if (isListOpener(first)) asking.push(hostLabelElementOf(first));
+  if (members.length > 1 || choiceGroupKey(first)) {
+    asking.push(groupQuestionElement(fieldWrapper(first), first, members));
+    asking.push(questionElementBeforeGroup(members));
+  }
+  return asking.filter((element): element is Element => element != null);
+}
+
+/**
+ * The page requires this control's answer: it says so in markup (required,
+ * aria-required) or draws the required mark beside the question that asks it.
+ */
 export function isRequired(members: Element[]): boolean {
-  return members.some(
-    (el) =>
-      (el as HTMLInputElement).required === true || el.getAttribute("aria-required") === "true",
+  return (
+    members.some(
+      (el) =>
+        (el as HTMLInputElement).required === true || el.getAttribute("aria-required") === "true",
+    ) || questionElementsOf(members).some(endsWithRequiredMark)
   );
 }

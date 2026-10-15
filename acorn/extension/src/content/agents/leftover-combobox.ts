@@ -1,5 +1,5 @@
 import { traceFromPage } from "../../debug-trace";
-import { fieldWrapper, groupQuestion, partGroupName, sectionTitle } from "../form-dom";
+import { fieldWrapper, groupQuestion, isRequired, partGroupName, sectionTitle } from "../form-dom";
 import { deepQueryAll } from "../shadow-control";
 import { forLabelOf, labelCandidates, normalize, uniqueById } from "../verify/element-labels";
 
@@ -19,6 +19,12 @@ import { readControlValue } from "./read-control-value";
 
 /** Planner-less leftover controls: matcher AI answers from the applicant profile. */
 const PROFILE_ANSWER = "Answer from the applicant profile";
+/**
+ * What the matcher is asked when the profile did not settle a dropdown the page requires:
+ * the option most applicants select. Asked only after the profile answer found none.
+ */
+const COMMON_SELECTION =
+  "The profile does not settle this question. Pick the option most applicants select for it.";
 /** Dropdowns the plan did not answer (in fast fill: every custom dropdown). */
 const MAX_LEFTOVER = 40;
 /** Look-again rounds for dropdowns that earlier answers revealed. */
@@ -165,7 +171,9 @@ export async function fillLeftoverComboboxes(
         el,
         label,
         // A decision that fails is the one-by-one path, never a failed pass.
-        answer: decideLeftover(label, listed).catch((): LeftoverAnswer => ({ kind: "live" })),
+        answer: decideLeftover(label, listed, isRequired([el])).catch((): LeftoverAnswer => ({
+          kind: "live",
+        })),
       });
     }
     const unanswered: HTMLElement[] = [];
@@ -228,7 +236,11 @@ async function readListedOptions(el: HTMLElement): Promise<ListedOptions> {
 }
 
 /** Starts the decision now; the promise resolves while later dropdowns are being read. */
-async function decideLeftover(label: string, listed: ListedOptions): Promise<LeftoverAnswer> {
+async function decideLeftover(
+  label: string,
+  listed: ListedOptions,
+  required: boolean,
+): Promise<LeftoverAnswer> {
   const whole =
     listed.labels.length > 0 && (listed.labels.length <= JEV_LIST_MAX || !listed.searchable);
   if (whole) {
@@ -244,12 +256,34 @@ async function decideLeftover(label: string, listed: ListedOptions): Promise<Lef
       listComplete: true,
     });
     if (ai.matched_option) return { kind: "option", label: ai.matched_option };
-    return ai.ok ? { kind: "none" } : { kind: "live" };
+    if (!ai.ok) return { kind: "live" };
+    return required ? await commonOrAny(label, listed.labels) : { kind: "none" };
   }
   if (listed.searchable && label) {
     return { kind: "search", estimate: estimateOptionAnswer(label) };
   }
   return { kind: "live" };
+}
+
+/**
+ * A dropdown the page requires, whose list holds no option the profile points at: the
+ * most common selection, then any option. A required dropdown left empty only stops the
+ * form, and only a model that answered gets here (a failed call is the one-by-one path).
+ */
+async function commonOrAny(label: string, options: string[]): Promise<LeftoverAnswer> {
+  const common = await askAiMatchOption({
+    intendedValue: COMMON_SELECTION,
+    options,
+    fieldLabel: label || null,
+    typedQuery: null,
+    allowNotListed: false,
+    listComplete: true,
+  });
+  if (common.matched_option) return { kind: "option", label: common.matched_option };
+  if (!common.ok) return { kind: "live" };
+  const any = options[Math.floor(Math.random() * options.length)];
+  traceFromPage("leftover:any-option", () => ({ label, options: options.length }));
+  return { kind: "option", label: any };
 }
 
 async function fillLeftover(

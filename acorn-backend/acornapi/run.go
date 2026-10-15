@@ -47,6 +47,12 @@ type runControl struct {
 	Dialog   string `json:"dialog"`
 	Covered  bool   `json:"covered"`
 	Near     string `json:"near"`
+	// Icon is what the picture inside the control shows (alt text, title, or file name).
+	Icon string `json:"icon"`
+	// Pointer is true when the control is clickable by its look only: no link, button, or role.
+	Pointer bool `json:"pointer"`
+	// AfterFields is true when the control comes after the page's last field in reading order.
+	AfterFields bool `json:"afterFields"`
 }
 
 // runAccountAttempt is one account step the run already sent on this site.
@@ -168,6 +174,7 @@ func (s *Server) runReadPage(w http.ResponseWriter, r *http.Request) {
 			ID: c.ID, Tag: c.Tag, Text: c.Text, Label: c.Label, Type: c.Type, Href: c.Href,
 			Context: c.Context, Disabled: c.Disabled, InForm: c.InForm,
 			Dialog: c.Dialog, Covered: c.Covered, Near: c.Near,
+			Icon: c.Icon, Pointer: c.Pointer, AfterFields: c.AfterFields,
 		})
 	}
 	log.Info("acorn run read-page", "controls", len(controls), "textChars", len([]rune(body.Text)),

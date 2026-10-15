@@ -1,4 +1,4 @@
-import { LAYER_ATTR } from "@acorn/shared/page-controls";
+import { LAYER_ATTR, fileLabel } from "@acorn/shared/page-controls";
 import { HIDDEN_VALUE, isSecretControl } from "@acorn/shared/secret-value";
 
 import { ACORN_ID_ATTR } from "./acorn-id";
@@ -108,6 +108,7 @@ function getChildNodes(el: Element): Node[] {
 export function serializeDom(root?: Element, opts: SerializeOptions = {}): DomNode {
   postingPass = opts.posting === true;
   acornIdCounter = 0;
+  pointerVerdicts = new WeakMap();
   _childCapHits = 0;
   _depthCapHits = 0;
   _fillableHits = 0;
@@ -131,8 +132,76 @@ export function serializeDom(root?: Element, opts: SerializeOptions = {}): DomNo
   throw new Error("Root element was completely pruned");
 }
 
+/** Markup that already says an element is clicked or typed into: no look-based detection is needed. */
+function hasInteractiveMarkup(el: Element): boolean {
+  if (INTERACTIVE_TAGS.has(tn(el)) || el.hasAttribute("role") || el.hasAttribute("onclick")) {
+    return true;
+  }
+  const tabIndex = el.getAttribute("tabindex");
+  return tabIndex !== null && tabIndex !== "-1";
+}
+
+/** Controls inside an element: one that holds any is a container, not itself the control. */
+const NESTED_CONTROL_SELECTOR =
+  'a[href], button, input, select, textarea, [role="button"], [role="link"], [onclick]';
+/** A clickable box says little in words: more than this is a block of text the page made clickable. */
+const POINTER_MAX_TEXT = 80;
+
+/** Verdicts of this pass: a page restyles itself between passes. */
+let pointerVerdicts = new WeakMap<Element, boolean>();
+
+/**
+ * An element the page makes clickable by its look alone: the cursor turns to a pointer
+ * over it, yet its markup is no link, button, or role (an icon, or a box the page's
+ * script listens on). Only the outermost such element counts, since a cursor is
+ * inherited by everything inside it. Computed style is the page's own statement of what
+ * is clickable, so nothing here depends on a class name or a word.
+ */
+function isPointerTarget(el: Element): boolean {
+  const known = pointerVerdicts.get(el);
+  if (known != null) return known;
+  let verdict = false;
+  if (!hasInteractiveMarkup(el) && !shouldOmitNonMedia(el)) {
+    const view = el.ownerDocument?.defaultView;
+    const style = view?.getComputedStyle(el);
+    if (style?.cursor === "pointer") {
+      const parent = el.parentElement;
+      const parentStyle = parent ? view?.getComputedStyle(parent) : null;
+      verdict =
+        parentStyle?.cursor !== "pointer" &&
+        (getDirectText(el)?.length ?? 0) <= POINTER_MAX_TEXT &&
+        !el.querySelector(NESTED_CONTROL_SELECTOR);
+    }
+  }
+  pointerVerdicts.set(el, verdict);
+  return verdict;
+}
+
+function shouldOmitNonMedia(el: Element): boolean {
+  return SKIP_TAGS.has(tn(el)) || isHeadNoise(el);
+}
+
+/** What a picture shows: alt text, title, an SVG's own title, or its file name. */
+function pictureName(el: Element): string {
+  const own =
+    el.getAttribute("alt") ||
+    el.getAttribute("title") ||
+    el.getAttribute("aria-label") ||
+    el.querySelector("title")?.textContent ||
+    "";
+  return own.replace(/\s+/g, " ").trim();
+}
+
+/** The first picture in or at a control, described for the model (alt, title, or src is read from the node). */
+function iconNote(el: Element): string {
+  const picture = MEDIA_TAGS.has(tn(el)) ? el : el.querySelector("img, svg, picture, canvas");
+  if (!picture) return "";
+  return (pictureName(picture) || fileLabel(picture.getAttribute("src") ?? "")).slice(0, MAX_TEXT);
+}
+
 function isInteractive(el: Element): boolean {
   if (INTERACTIVE_TAGS.has(tn(el))) return true;
+  if (isPointerTarget(el)) return true;
   if (el.getAttribute("role") === "button" || el.getAttribute("role") === "link") return true;
   if (el.hasAttribute("onclick")) return true;
   if (el instanceof HTMLElement && el.isContentEditable) return true;
@@ -145,7 +214,14 @@ function isInteractive(el: Element): boolean {
 function isClickable(el: Element): boolean {
   const tag = tn(el);
   const role = el.getAttribute("role");
-  return tag === "A" || tag === "BUTTON" || tag === "INPUT" || role === "button" || role === "link";
+  return (
+    tag === "A" ||
+    tag === "BUTTON" ||
+    tag === "INPUT" ||
+    role === "button" ||
+    role === "link" ||
+    isPointerTarget(el)
+  );
 }
 
 /** Rendered for a person: not display:none, not visibility:hidden, here or above. */
@@ -191,7 +267,9 @@ function isStyleHidden(el: Element): boolean {
 
 function shouldOmitElement(el: Element): boolean {
   if (SKIP_TAGS.has(tn(el))) return true;
-  if (MEDIA_TAGS.has(tn(el))) return true;
+  // A picture is layout, unless the page makes it clickable by itself (an icon button
+  // drawn as a bare image): then it is the control.
+  if (MEDIA_TAGS.has(tn(el))) return !isPointerTarget(el);
   if (isHeadNoise(el)) return true;
   if (postingPass && isStyleHidden(el)) return true;
   return false;
@@ -298,6 +376,7 @@ function serializeNode(el: Element, depth: number): DomNode[] {
     "aria-checked",
     "autocomplete",
     "placeholder",
+    "alt",
     "value",
     "data-automation-id",
     "data-fkit-id",
@@ -333,6 +412,16 @@ function serializeNode(el: Element, depth: number): DomNode[] {
   // A password never reaches the tree: the planner only learns the box is filled.
   if (attrs["value"] && isSecretControl(el)) attrs["value"] = HIDDEN_VALUE;
   if (delegate || isClickable(el)) markLayers(el, attrs, delegate);
+  if (isPointerTarget(el)) {
+    attrs[LAYER_ATTR.pointer] = "true";
+    const title = el.getAttribute("title")?.trim();
+    if (title) attrs["title"] = title.slice(0, MAX_TEXT);
+  }
+  // A control that is a picture (an icon button) is told apart by what the picture shows.
+  if (isClickable(el)) {
+    const icon = iconNote(el);
+    if (icon) attrs[LAYER_ATTR.icon] = icon;
+  }
   // Whatever a person cannot see is marked, so the page's readable text leaves it out
   // (a dialog kept in the page until it is needed): the model must not read a panel
   // that is not on screen as the page's state.

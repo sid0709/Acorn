@@ -10,7 +10,7 @@
 
 import { shownValue } from "@acorn/shared/secret-value";
 
-import { choiceOptionLabel } from "./agents/choice-group";
+import { choiceOptionLabel, inputOptionLabel } from "./agents/choice-group";
 import { isListOpener } from "./agents/combobox/list-opener";
 import { LIST_OPENER_ATTR } from "./agents/combobox/popup-roles";
 import { wasGroupAnswered } from "./agents/plan-fill-registry";
@@ -34,6 +34,8 @@ import { inferRole } from "./verify/element-role";
 
 import type { FieldIssue, FieldIssueScan } from "@acorn/shared/field-issues";
 
+/** The value of a checked box with no words of its own. */
+const CHECKED_ANSWER = "checked";
 const MAX_MESSAGES_PER_FIELD = 4;
 const MAX_MESSAGE_CHARS = 200;
 const MAX_VALUE_CHARS = 120;
@@ -126,11 +128,21 @@ function nearbyMessages(control: Element, wrapper: Element, skip: Set<string>): 
   );
 }
 
+/**
+ * What a checked box or radio answers: its option's words. A native input has no text of
+ * its own (its label is beside it), so it is read through its label; a box that names
+ * nothing still answers "checked", never empty.
+ */
+function checkedAnswer(el: Element): string {
+  const words = el instanceof HTMLInputElement ? inputOptionLabel(el) : choiceOptionLabel(el);
+  return words || CHECKED_ANSWER;
+}
+
 function currentValue(control: Element, members: Element[]): string {
   if (members.length > 1 || choiceGroupKey(control)) {
     return members
       .filter((el) => (el as HTMLInputElement).checked)
-      .map((el) => choiceOptionLabel(el))
+      .map((el) => checkedAnswer(el))
       .join(", ");
   }
   return readControlValue(control);

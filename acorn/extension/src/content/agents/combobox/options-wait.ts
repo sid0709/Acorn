@@ -1,13 +1,17 @@
+import { deepQueryAll } from "../../shadow-control";
 import { waitMs } from "../wait";
 
 import {
   collectOptionsInRoot,
   displayedListboxes,
+  isDisplayed,
   normalize,
   optionSignature,
   optionText,
+  ownedPopupOpen,
   pickScopedOptions,
 } from "./options-dom";
+import { POPUP_SELECTOR } from "./popup-roles";
 import { focusAndOpenCombobox } from "./typing";
 
 const OPTION_WAIT_MS = 3000;
@@ -144,6 +148,14 @@ export async function findLiveOption(
   return null;
 }
 
+/** Whether anything that holds options (a list, a menu, a grid, a tree) is on screen after the control was opened. */
+function popupShown(control: HTMLElement, doc: Document): boolean {
+  if (ownedPopupOpen(control)) return true;
+  return deepQueryAll(doc, `${POPUP_SELECTOR}, [role="menu"]`).some(
+    (node) => node instanceof HTMLElement && isDisplayed(node),
+  );
+}
+
 export async function openAndCollectOptions(
   html: HTMLElement,
   doc: Document,
@@ -156,8 +168,9 @@ export async function openAndCollectOptions(
     );
     options = await waitForStableOptions(html, doc, OPEN_ATTEMPT_MS);
   }
-  if (!options.length) {
-    // Remote-search menus fill in slowly: one full wait before giving up.
+  if (!options.length && popupShown(html, doc)) {
+    // Remote-search menus fill in slowly: one full wait before giving up. A control that
+    // opened no popup at all after both gestures is no dropdown: nothing is waited for.
     options = await waitForStableOptions(html, doc, OPTION_WAIT_MS);
   }
   const scrolled = await collectOptionsByScrolling(html, doc);

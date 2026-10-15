@@ -205,6 +205,14 @@ type Control struct {
 	// Near is the text around a control that has little of its own (an icon button):
 	// the entry or section it acts on.
 	Near string
+	// Icon is what the picture inside the control shows (alt text, title, or file name): an
+	// icon button has no words, and what it pictures says what it does.
+	Icon string
+	// Pointer is true when the control is clickable by its look only (the cursor turns to a
+	// pointer over it): its markup is no link, button, or role.
+	Pointer bool
+	// AfterFields is true when the control comes after the page's last field in reading order.
+	AfterFields bool
 	// Opened is true for a control of the form the run opened inside the page (see
 	// PageQuery.Scope); ReadPage sets it from the query.
 	Opened bool
@@ -689,7 +697,9 @@ func controlInstructions(intent string) string {
 	if intent == IntentAdvance {
 		return "The applicant has finished filling this page. Which control moves the application to its next step, " +
 			"or sends it on the last step? Judge by what the control does on this page, whatever its wording, " +
-			"an arrow, or an icon. " + thisRoleOnly + dialogSteps + repairSteps + verifySteps + accountSteps +
+			"an arrow, or an icon. A control may have no words at all: judge it by what its picture shows, by whether it is a " +
+			"clickable area, and by where it sits (a control after the page's last field is where a form's forward " +
+			"control usually is). " + thisRoleOnly + dialogSteps + repairSteps + verifySteps + accountSteps +
 			"Never pick a control that goes back, cancels, leaves the application, saves a draft, signs out, " +
 			"signs in through another service, or opens another site, and never a link in the site's header, menu, or footer " +
 			"that opens another page of the site rather than sending this form. A step listed in the application's progress " +
@@ -837,6 +847,9 @@ func describeControl(c Control) string {
 	if text == "" {
 		text = "(no text)"
 	}
+	if c.Icon != "" && c.Text == "" {
+		parts = append(parts, "picture")
+	}
 	line := strings.Join(parts, " ") + " \"" + clip(text, maxControlLine/2) + "\""
 	if c.Label != "" && c.Label != text {
 		line += " label=\"" + clip(c.Label, 60) + "\""
@@ -847,8 +860,17 @@ func describeControl(c Control) string {
 	if c.Context != "" {
 		line += " under \"" + clip(c.Context, 60) + "\""
 	}
+	if c.Icon != "" {
+		line += " showing \"" + clip(c.Icon, 60) + "\""
+	}
 	if c.Near != "" {
 		line += " beside \"" + clip(c.Near, maxControlNear) + "\""
+	}
+	if c.Pointer {
+		line += " clickable area (no link or button markup)"
+	}
+	if c.AfterFields {
+		line += " after the page's last field"
 	}
 	if c.Dialog != "" {
 		line += " in dialog \"" + clip(c.Dialog, 60) + "\""
