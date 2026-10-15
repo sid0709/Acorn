@@ -3,6 +3,7 @@ import { isA } from "../realm";
 import { isChoiceSelected, isChoiceWidget } from "./choice-state";
 import { comboboxWidgetRoot, readWidgetTextParts } from "./combobox/widget-value";
 import { isSearchBox } from "./field-focus";
+import { isBlankOption } from "./native-select";
 
 const PLACEHOLDER_VALUES = new Set(["", "select...", "select", "choose...", "choose"]);
 
@@ -87,6 +88,8 @@ export function readControlValue(el: Element | null): string {
 
   if (isA(el, HTMLSelectElement)) {
     const selected = el.selectedOptions?.[0];
+    // The blank choice is no answer, whatever value it carries.
+    if (selected && isBlankOption(selected)) return "";
     const label = (selected?.textContent || selected?.label || el.value || "").trim();
     if (label && !isPlaceholder(label)) return label;
 

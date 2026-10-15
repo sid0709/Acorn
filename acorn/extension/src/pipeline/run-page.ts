@@ -7,6 +7,7 @@ import {
   collectPageControls,
   countFormFields,
   pageSignature,
+  shortHash,
   type PageControl,
 } from "@acorn/shared/page-controls";
 import { clipEnds, extractVisiblePageText } from "@acorn/shared/page-text";
@@ -49,6 +50,8 @@ export interface PageSnapshot {
   fields: number;
   /** Those fields as the planner lists them (label, kind, required, choices): what the decision model is shown. */
   formFields: FormField[];
+  /** Which fields the page asks for (kinds and labels): the same key is the same step drawn again. */
+  fieldsKey: string;
   /** Embedded frames outside the read frame, by title or address. */
   frames: string[];
   /** Read with `scope`: what the run's last opening click drew, in this read's node ids. */
@@ -59,6 +62,18 @@ export interface PageSnapshot {
  * Read the page. A first look takes the frame with the most text, so a posting is
  * read at once; a form read takes the frame that holds the form and waits for it.
  */
+/**
+ * What fields a page asks for, as one key: their kinds and labels in page order. A
+ * step drawn again (a form posted back to itself) has the same key whatever text,
+ * messages or marks it now carries. Empty when the page asks for nothing.
+ */
+function fieldsKeyOf(fields: FormField[]): string {
+  const rows = fields
+    .filter((field) => field.kind !== "file")
+    .map((field) => `${field.kind}:${field.label.replace(/\s+/g, " ").trim().toLowerCase()}`);
+  return rows.length ? shortHash(rows.join("|")) : "";
+}
+
 /**
  * Read the page, patiently: a read that fails while the page is still loading or
  * before its content script answers is tried again (the script is injected again
@@ -148,6 +163,7 @@ async function readPage(
     signature: pageSignature(tree, url, text),
     fields: countFormFields(tree),
     formFields,
+    fieldsKey: fieldsKeyOf(formFields),
     frames: await embeddedFrames(tabId, frameId, tree),
     scope: payload.scope,
   };

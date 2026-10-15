@@ -114,6 +114,22 @@ function textAttrs(
   };
 }
 
+/**
+ * What a choice field (a select, a lone box) shows beyond its label: its own id, and the
+ * text the page puts after it in its own wrapper. A box labelled "Signature" is told apart
+ * from one that states something untrue by the line under it ("… equivalent to a
+ * handwritten signature"), and a "Month" select by an id that says it is a date's month.
+ */
+function choiceAttrs(el: Element, label: string): Pick<FormField, "identifier" | "notes"> {
+  const notes = wrapperTexts(
+    el,
+    fieldWrapper(el),
+    Node.DOCUMENT_POSITION_FOLLOWING,
+    new Set([normalize(label)]),
+  ).slice(0, TEXT_FIELD_NOTES);
+  return { identifier: attr(el, "id"), notes: notes.length ? notes : undefined };
+}
+
 /** Short visible option buttons in a field box. */
 function optionButtons(root: ParentNode): HTMLElement[] {
   return Array.from(root.querySelectorAll(BUTTON_SELECTOR)).filter(
@@ -189,6 +205,7 @@ function choiceField(control: HTMLInputElement): FormField | null {
       label: toggleLabel(control, label),
       required,
       group: choiceGroupKey(control) ?? undefined,
+      ...choiceAttrs(control, label),
     };
   }
   const options = members.map((member) => inputOptionLabel(member)).filter(Boolean);
@@ -218,6 +235,7 @@ function describeControl(control: Element, seenGroups: Set<string>): FormField |
       label: withPartGroup(control, label()),
       required,
       options,
+      ...choiceAttrs(control, label()),
     };
   }
   if (isA(control, HTMLInputElement)) {

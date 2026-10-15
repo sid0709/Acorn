@@ -8,6 +8,8 @@ export interface SeenPage {
   signature: string;
   /** Fields the page marks invalid; only the page in view needs it. */
   flagged?: number;
+  /** Which fields the page asks for (their kinds and labels), whatever the text around them says. */
+  fieldsKey?: string;
 }
 
 /**
@@ -53,6 +55,13 @@ export function isNewStep(args: {
   // The site drew the same form again at the same address and now refuses fields
   // in it (a form posted back to itself): the click did not move the application on.
   if (settled === "navigated" && page.signature === previous.signature && (page.flagged ?? 0) > 0) {
+    return false;
+  }
+  // The site drew the same step again at the same address: the same fields, asked for
+  // anew after a click that reloaded the page. Whatever else it now says (a message in
+  // plain text, no mark on any field), the click did not move the application on, and
+  // the page it shows is this step, refused.
+  if (settled === "navigated" && page.fieldsKey && page.fieldsKey === previous.fieldsKey) {
     return false;
   }
   return settled === "navigated" || settled === "new-tab" || page.signature !== previous.signature;

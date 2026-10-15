@@ -119,6 +119,7 @@ import {
   RUN_MAX_SCOPE_SAVES,
   RUN_MAX_STALLED_ROUNDS,
   RUN_MAX_STEPS,
+  RUN_MAX_BLANK_PASSES,
   RUN_NEW_TEXT_LINES_MAX,
 } from "./run-limits";
 import { logUrl, RunLog } from "./run-log";
@@ -187,6 +188,10 @@ interface PageState {
   /** The page as the run last saw it; its own edits update this, they never make a new step. */
   signature: string;
   url: string;
+  /** Which fields the page asked for when the run last saw it (see PageSnapshot.fieldsKey). */
+  fieldsKey: string;
+  /** The page's whole text right before the first forward click on this step: what it says anew afterwards is its answer. */
+  textBeforeClick: string;
   filled: boolean;
   /** Clicks of a Next / Submit / Apply control on this page. */
   clicks: number;
@@ -219,6 +224,8 @@ interface PageState {
   busyWaits: number;
   /** Passes over what was still blank, made because the page answered a click with an alert. */
   alertPasses: number;
+  /** Passes over required fields still blank, made before the step's first forward click. */
+  blankPasses: number;
   /** Clicks on a control that does what the page still requires (an assessment, a document). */
   resolves: number;
   /**
@@ -744,6 +751,8 @@ export async function runOrchestrator(args: RunOrchestratorArgs): Promise<RunRep
       history?: PlanTurn[];
       /** Only what a requirement's click opened; bounded by the requirements, not the fill cap. */
       scoped?: boolean;
+      /** Refill: what the page said in plain words after the click, with no mark on any field. */
+      pageNotes?: string[];
     } = {},
   ) => {
     await checkBudget(within);
@@ -762,6 +771,7 @@ export async function runOrchestrator(args: RunOrchestratorArgs): Promise<RunRep
         history: opts.history,
         requireResume: true,
         pendingOnly: opts.pendingOnly,
+        pageNotes: opts.pageNotes,
         scoped: opts.scoped,
         // The run reads the page itself right after; a refill does not scan it again.
         rescan: false,
@@ -795,12 +805,13 @@ export async function runOrchestrator(args: RunOrchestratorArgs): Promise<RunRep
   };
 
   /** A forward click the page ignored; past the limit the run stops. */
-  const countNoEffect = (state: PageState, page: PageSnapshot) => {
+  const countNoEffect = (state: PageState, page: PageSnapshot, said: string[] = []) => {
     state.noEffect += 1;
     log.event("no-effect", { count: state.noEffect, limit: RUN_MAX_NO_EFFECT });
     if (state.noEffect > RUN_MAX_NO_EFFECT) {
       throw new RunStop(RUN_STAGE.advancing, page, [
         `Clicking "${control ?? "the control"}" ${state.noEffect} times changed nothing and the page flagged no field`,
+        ...said.slice(0, NEEDS_SHOWN_MAX).map((line) => `The page says: ${line}`),
       ]);
     }
   };
@@ -1603,6 +1614,7 @@ export async function runOrchestrator(args: RunOrchestratorArgs): Promise<RunRep
       snapshot = page;
       state.signature = page.signature;
       state.url = page.url;
+      state.fieldsKey = page.fieldsKey;
       first = await read(READ_INTENT.start, page);
     }
     return { first, page };
@@ -2124,10 +2136,16 @@ export async function runOrchestrator(args: RunOrchestratorArgs): Promise<RunRep
           snapshot = page;
         }
 
-        const moved = isNewStep({ previous: current, page, settled, role: clickedRole });
+        const moved = isNewStep({
+          previous: current ? { ...current, flagged: page.flagged } : null,
+          page,
+          settled,
+          role: clickedRole,
+        });
         if (!moved && current) {
           current.signature = page.signature;
           current.url = page.url;
+          current.fieldsKey = page.fieldsKey;
         }
         if (moved) {
           pageAccountMode = null;
@@ -2141,6 +2159,8 @@ export async function runOrchestrator(args: RunOrchestratorArgs): Promise<RunRep
           current = {
             signature: page.signature,
             url: page.url,
+            fieldsKey: page.fieldsKey,
+            textBeforeClick: "",
             filled: false,
             clicks: 0,
             refills: 0,
@@ -2157,6 +2177,7 @@ export async function runOrchestrator(args: RunOrchestratorArgs): Promise<RunRep
             landedAt: 0,
             busyWaits: 0,
             alertPasses: 0,
+            blankPasses: 0,
             resolves: 0,
             resolved: new Set(),
           };
@@ -2187,9 +2208,21 @@ export async function runOrchestrator(args: RunOrchestratorArgs): Promise<RunRep
           const missing = countRequiredEmpty(page.scan);
           // A page with no ARIA rejects an answer in plain copy beside the field.
           const noted = countNotedSince(state.scanBeforeFill ?? state.scanBeforeClick, page.scan);
-          log.event("after-click", { flagged, missing, noted, shown: page.flagged });
+          // A page drawn again by the click that says something it did not before refused in
+          // plain words, with no mark on any field and no ARIA to say so.
+          const said =
+            settled === "navigated"
+              ? newLines(state.textBeforeClick, page.fullText).slice(0, RUN_NEW_TEXT_LINES_MAX)
+              : [];
+          log.event("after-click", {
+            flagged,
+            missing,
+            noted,
+            said: said.length,
+            shown: page.flagged,
+          });
           const onlyNoted = flagged === 0 && missing === 0;
-          if (flagged > 0 || missing > 0 || noted > 0) {
+          if (flagged > 0 || missing > 0 || noted > 0 || said.length > 0) {
             // The emailed code was typed and the page refused it: a refill has no other
             // code to give, so it would only spend the run's budget on empty passes.
             if (state.verified && (flagged > 0 || missing > 0)) {
@@ -2199,6 +2232,7 @@ export async function runOrchestrator(args: RunOrchestratorArgs): Promise<RunRep
             if (state.refills >= RUN_MAX_REFILLS_PER_PAGE) {
               throw new RunStop(RUN_STAGE.refilling, page, [
                 `Still flagged after ${state.refills} refills (limit ${RUN_MAX_REFILLS_PER_PAGE})`,
+                ...said.slice(0, NEEDS_SHOWN_MAX).map((line) => `The page says: ${line}`),
               ]);
             }
             state.refills += 1;
@@ -2209,7 +2243,10 @@ export async function runOrchestrator(args: RunOrchestratorArgs): Promise<RunRep
               `Refill ${state.refills}/${RUN_MAX_REFILLS_PER_PAGE} · ${flagged + missing + noted} to fix`,
             );
             const flaggedScan = page.scan;
-            const refilled = await fill(FILL_MODE.refill, page, { history: state.turns });
+            const refilled = await fill(FILL_MODE.refill, page, {
+              history: state.turns,
+              pageNotes: said,
+            });
             if (refilled.failed) {
               throw new RunStop(
                 RUN_STAGE.refilling,
@@ -2224,7 +2261,7 @@ export async function runOrchestrator(args: RunOrchestratorArgs): Promise<RunRep
             if (onlyNoted && !refilled.steps?.length) {
               state.scanBeforeFill = flaggedScan;
               log.event("refill:nothing-to-fix", { noted });
-              countNoEffect(state, page);
+              countNoEffect(state, page, said);
             }
           } else if (
             newAlerts(state.scanBeforeClick, page.scan) > 0 &&
@@ -2382,6 +2419,22 @@ export async function runOrchestrator(args: RunOrchestratorArgs): Promise<RunRep
             snapshot = page;
           }
         }
+        // A step with required fields still blank is not sent: they are asked for first, once,
+        // so a form that only checks on its last page is not carried there incomplete.
+        const blank = onAccountStep() ? 0 : countRequiredEmpty(page.scan);
+        if (blank > 0 && state.clicks === 0 && state.blankPasses < RUN_MAX_BLANK_PASSES) {
+          state.blankPasses += 1;
+          log.event("blank:required", { blank, pass: state.blankPasses });
+          enter(
+            RUN_STAGE.refilling,
+            `Answering ${blank} required field${blank === 1 ? "" : "s"} still blank…`,
+          );
+          const flaggedScan = page.scan;
+          const completed = await fill(FILL_MODE.refill, page, { history: state.turns });
+          if (!completed.failed) remember(state, FILL_MODE.refill, completed, flaggedScan);
+          page = await snap({ form: true, frameId: page.frameId });
+          snapshot = page;
+        }
         const next = await read(READ_INTENT.advance, page);
         if (detour && DETOUR_END_KINDS.has(next.kind)) {
           pending = await endDetour(page, next.kind);
@@ -2500,6 +2553,11 @@ export async function runOrchestrator(args: RunOrchestratorArgs): Promise<RunRep
         // changes a page's fields (rows added, follow-ups revealed).
         state.signature = page.signature;
         state.url = page.url;
+        state.fieldsKey = page.fieldsKey;
+        // The page as it stood before the first click on this step: what it says afterwards
+        // that it did not say then stays "new" for every click that follows, so a message that
+        // comes back each time is read each time.
+        if (state.clicks === 1) state.textBeforeClick = page.fullText;
         const label = target.picked.text || target.picked.label;
         if (target.fallback) {
           log.event("click:fallback", { text: label, disabled: target.picked.disabled });

@@ -42,7 +42,8 @@ func (s *Service) refillConversation(ctx context.Context, applicant, pureTree st
 	if strings.TrimSpace(pureTree) == "" {
 		return AnalyzeResult{}, fmt.Errorf("%w: pureTree is required", ErrInvalid)
 	}
-	if len(scan.Issues) == 0 {
+	// A page that refuses in plain words marks no field: its messages are the issue.
+	if len(scan.Issues) == 0 && len(scan.PageMessages) == 0 {
 		return AnalyzeResult{}, fmt.Errorf("%w: fieldIssues are required for refill", ErrInvalid)
 	}
 	if err := validateHistory(history); err != nil {

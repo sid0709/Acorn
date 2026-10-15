@@ -97,6 +97,9 @@ function emptyPlan(): ActionPlan {
   };
 }
 
+/** Most lines of what the page said that a refill is shown. */
+const PAGE_NOTES_MAX = 8;
+
 export interface RunPipelineArgs {
   /** Pinned at Fill click. DOM fetch and every plan step target this tab, even if the user focuses another. */
   tabId: number;
@@ -108,6 +111,12 @@ export interface RunPipelineArgs {
   mode?: FillMode;
   /** Refill: the plans already run on this page and what came of them, oldest first. */
   history?: PlanTurn[];
+  /**
+   * Refill: what the page said in plain words after the click, with no mark on any field
+   * ("Please fill in all date fields"). Read with the page's alerts, so a refusal that marks
+   * nothing is still something to fix.
+   */
+  pageNotes?: string[];
   /** Run: a fill with no résumé file stops before touching the page. Fill page leaves it off. */
   requireResume?: boolean;
   /** Run: a code found in the applicant's mail, filled into the field that asks for it. */
@@ -148,6 +157,7 @@ export async function runFabPipeline(args: RunPipelineArgs): Promise<void> {
     history,
     requireResume = false,
     pendingOnly = false,
+    pageNotes,
     scoped = false,
     rescan = true,
     verificationCode,
@@ -243,6 +253,16 @@ export async function runFabPipeline(args: RunPipelineArgs): Promise<void> {
       else [resumeLoad, runtimeFile] = await filesLoad;
     }
     let { fieldIssues, formFields, timings, ...treePayload } = fetchedDom;
+    // What the page said in plain words joins its alerts: the planner reads them together.
+    if (refill && pageNotes?.length && fieldIssues) {
+      fieldIssues = {
+        ...fieldIssues,
+        pageMessages: [...new Set([...pageNotes, ...fieldIssues.pageMessages])].slice(
+          0,
+          PAGE_NOTES_MAX,
+        ),
+      };
+    }
     const usingLibrary = resumeSource === "custom" && customTab?.resumeMode === "recommend";
     const resumeFileKind = resumeSource === "custom" && !usingLibrary ? "custom" : "library";
     /** The résumé this fill attaches, from what was loaded, and how the sidebar names it. */
@@ -318,7 +338,7 @@ export async function runFabPipeline(args: RunPipelineArgs): Promise<void> {
       return;
     }
 
-    if (refill && !fieldIssues?.issues.length) {
+    if (refill && !fieldIssues?.issues.length && !pageNotes?.length) {
       const { durationMs, usage, phases } = await finishMeta();
       emit({
         phase: "done",

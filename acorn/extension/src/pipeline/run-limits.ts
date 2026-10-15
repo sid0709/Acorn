@@ -101,6 +101,8 @@ export const RUN_MAX_ALERT_PASSES = 1;
 export const RUN_MAX_BUSY_WAITS = 5;
 /** New page lines one page read hands the decision model, newest answer first in line. */
 export const RUN_NEW_TEXT_LINES_MAX = 20;
+/** Passes over required fields still blank, before a step's first forward click. */
+export const RUN_MAX_BLANK_PASSES = 1;
 /** Codes or links one run takes from the applicant's mail before it stops. */
 export const RUN_MAX_MAIL_VERIFICATIONS = 4;
 /** Page messages kept with a rejected account step, for the next decision. */

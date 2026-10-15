@@ -21,6 +21,7 @@ Rules:
    - A required field with an empty value means yes.
    - nearbyMessages can also be ordinary help text, a character counter, an example, the displayed selection, or unrelated copy. If a field shows no real error, emit nothing for it.
    - Use the Pure Tree around the field to confirm: error text usually sits right under the control.
+1b. A page may refuse in plain words and mark no field at all: the list of Flagged fields is then empty (or short), and Page messages say what is wrong ("fill in all date fields", "signature required", "choose an option"). Read each message, find in the Pure Tree the controls it is about that are still blank, unchecked, or set to an empty placeholder option, and plan the answer for each (a date's month, day, and year parts as today's date or the date the profile gives, a required checkbox checked, a required choice chosen). A message that names no control you can find goes in unresolved_items.
 2. Never touch a field that has no real error, even if you would answer it differently.
 3. Pick exactly one fix per rejected field:
    - clear: the field is optional, and its value is filler (N/A, NA, n/a, None, "-", "Not applicable", "same as above", zeros) or a value the profile does not support. Leaving it blank is the fix. Never invent a number, URL, or other fact just to satisfy a format rule.

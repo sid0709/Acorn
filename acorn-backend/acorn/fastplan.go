@@ -199,6 +199,9 @@ func (s *Service) FastPlan(ctx context.Context, applicant string, fields []FormF
 	texts, unreadable := withoutUnreadable(texts)
 	profile := s.facts(applicant)
 	profile.today = pageToday(page)
+	// A choice that is one part of a date (a month, a day) is answered from today's date, which
+	// the applicant's profile does not hold.
+	choiceState := applicant + "\n\nToday's date, the applicant's own: " + profile.today.Format(isoDate)
 
 	var (
 		wg                   sync.WaitGroup
@@ -278,7 +281,7 @@ func (s *Service) FastPlan(ctx context.Context, applicant string, fields []FormF
 	}()
 	go func() {
 		defer wg.Done()
-		picks, pickErr = s.picker.PickChoices(ctx, applicant, choiceQuestions(choices))
+		picks, pickErr = s.picker.PickChoices(ctx, choiceState, choiceQuestions(choices))
 	}()
 	wg.Wait()
 	if textErr != nil && len(texts) > 0 {
@@ -292,7 +295,7 @@ func (s *Service) FastPlan(ctx context.Context, applicant string, fields []FormF
 	}
 
 	// A required choice the decision model left blank is still answered: see settleChoices.
-	picks = s.settleChoices(ctx, applicant, choices, picks, pickErr)
+	picks = s.settleChoices(ctx, choiceState, choices, picks, pickErr)
 
 	plan := newPlan()
 	addUnanswerable(plan, unreadable, questionUnread)
@@ -615,6 +618,13 @@ const blockingNote = " — the page keeps its submit control disabled until the 
 // choiceField is what the decision model reads about a choice field.
 func choiceField(field FormField) string {
 	text := fieldWithSection(field)
+	// What the page calls the control, and the line under it, say what a bare label cannot.
+	if id := strings.TrimSpace(field.Identifier); id != "" {
+		text += fmt.Sprintf("; id: %q", id)
+	}
+	if notes := fieldNotes(field); notes != "" {
+		text += fmt.Sprintf("; text under the field: %q", notes)
+	}
 	if field.Required {
 		text += requiredNote
 	}

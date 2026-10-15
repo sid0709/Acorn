@@ -18,9 +18,20 @@ function isPlaceholderOption(text: string): boolean {
   return /^(select(\s|$)|choose(\s|$)|pick(\s|$)|make a selection|please select)/i.test(stripped);
 }
 
-/** A native select's answer options, without "Select…" placeholders. */
+/**
+ * An option with no text and no label shows a person nothing: it is the select's blank
+ * choice, whatever value it carries ("0"). Its label would fall back to that value and
+ * read as an answer.
+ */
+export function isBlankOption(option: HTMLOptionElement): boolean {
+  return !(option.textContent || "").trim() && !(option.label || "").trim();
+}
+
+/** A native select's answer options, without "Select…" placeholders and blank choices. */
 export function realOptions(select: HTMLSelectElement): HTMLOptionElement[] {
-  return Array.from(select.options).filter((option) => !isPlaceholderOption(optionLabel(option)));
+  return Array.from(select.options).filter(
+    (option) => !isBlankOption(option) && !isPlaceholderOption(optionLabel(option)),
+  );
 }
 
 function labelsMatch(intended: string, option: HTMLOptionElement): boolean {

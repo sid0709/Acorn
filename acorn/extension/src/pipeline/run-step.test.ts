@@ -40,6 +40,25 @@ describe("isNewStep", () => {
     assert.equal(isNewStep({ previous: form, page: form, settled: "navigated" }), true);
   });
 
+  it("keeps the step when a reload drew the same fields again, whatever the page now says", () => {
+    const fields = { ...form, fieldsKey: "k1" };
+    assert.equal(
+      isNewStep({ previous: fields, page: { ...fields, signature: "b" }, settled: "navigated" }),
+      false,
+    );
+  });
+
+  it("moves on when a reload drew other fields at the same address", () => {
+    assert.equal(
+      isNewStep({
+        previous: { ...form, fieldsKey: "k1" },
+        page: { ...form, signature: "b", fieldsKey: "k2" },
+        settled: "navigated",
+      }),
+      true,
+    );
+  });
+
   it("moves on to a new address", () => {
     assert.equal(
       isNewStep({
