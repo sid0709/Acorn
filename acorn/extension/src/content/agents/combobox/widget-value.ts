@@ -77,6 +77,9 @@ export function comboboxWidgetRoot(control: Element): Element {
   let node = control.parentElement;
   for (let depth = 0; node && depth < WIDGET_ROOT_MAX_DEPTH; depth += 1) {
     if (node === node.ownerDocument.body || node.tagName === "FORM") break;
+    // A label that wraps the control is the field's caption, never its widget chrome: reading
+    // from inside it, every word of the value would sit under a caption and be taken for one.
+    if (node.matches(FIELD_CAPTION_SELECTOR)) break;
     if (node.querySelector(FIELD_CAPTION_SELECTOR)) break;
     if (labels.some((label) => node!.contains(label))) break;
     if (holdsForeignControl(node, control)) break;

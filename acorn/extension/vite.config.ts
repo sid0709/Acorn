@@ -50,6 +50,14 @@ export default defineConfig(({ mode }) => ({
       input: {
         sidebar: "sidebar.html",
       },
+      // Stable file names: a hashed name changes with every build, and an extension that
+      // is already running keeps asking for the names of the build it was loaded from. A
+      // missing content-script file means no script in any page opened after the rebuild.
+      output: {
+        entryFileNames: "assets/[name].js",
+        chunkFileNames: "assets/[name].js",
+        assetFileNames: "assets/[name][extname]",
+      },
     },
   },
 }));

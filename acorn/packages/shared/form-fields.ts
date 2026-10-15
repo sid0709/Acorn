@@ -24,6 +24,11 @@ export interface FormField {
   autocomplete?: string;
   placeholder?: string;
   name?: string;
+  /**
+   * The control's own id, as the page names it (`workHistory.startDate.0`). Passed on as plain
+   * data: what a page calls its control often says which entry or part of the form it is.
+   */
+  identifier?: string;
   /** The control's native maxlength, when it sets one. */
   maxLength?: number;
   /** Short text the page shows after a text field: a character counter, a format hint. */

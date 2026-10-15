@@ -4,7 +4,7 @@ import { isA } from "../realm";
 import { deepQueryAll } from "../shadow-control";
 import { forLabelOf, labelCandidates, normalize, uniqueById } from "../verify/element-labels";
 
-import { JEV_LIST_MAX } from "./combobox/choose-option";
+import { JEV_LIST_MAX, PARTIAL_LIST_MIN } from "./combobox/choose-option";
 import { estimateOptionAnswer } from "./combobox/estimate-client";
 import { isListOpener, markListOpeners } from "./combobox/list-opener";
 import { optionText } from "./combobox/options-dom";
@@ -258,6 +258,10 @@ async function decideLeftover(
     });
     if (ai.matched_option) return { kind: "option", label: ai.matched_option };
     if (!ai.ok) return { kind: "live" };
+    // A long list a search box can still add to may be a partial window: search it.
+    if (listed.searchable && listed.labels.length > PARTIAL_LIST_MIN && label) {
+      return { kind: "search", estimate: estimateOptionAnswer(label) };
+    }
     return required ? await commonOrAny(label, listed.labels) : { kind: "none" };
   }
   if (listed.searchable && label) {

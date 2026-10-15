@@ -8,6 +8,7 @@
 import { isListOpener } from "./agents/combobox/list-opener";
 import { getDirectText } from "./dom-serializer";
 import { FILLABLE_SELECTOR } from "./form-frame";
+import { queryDeep } from "./query-deep";
 import { isA } from "./realm";
 import { composedClosest, drawnText } from "./shadow-control";
 import {
@@ -320,6 +321,67 @@ const SECTION_TITLE_SELECTOR = 'h1, h2, h3, h4, h5, h6, [role="heading"], legend
  * label apart in different sections ("First Name" under References).
  */
 export function sectionTitle(control: Element): string {
+  return headingSection(control) || drawnSection(control);
+}
+
+/** Title text this short is a title; anything longer is copy. */
+const TITLE_BLOCK_MAX_CHARS = 60;
+/** How much larger than the text people type a title is drawn. */
+const TITLE_SIZE_RATIO = 1.25;
+/** The size taken for typed text when the page has no field to measure. */
+const DEFAULT_TEXT_PX = 16;
+/** A page redraws itself: the title blocks found are kept this long. */
+const TITLE_BLOCKS_TTL_MS = 500;
+
+type TitleBlock = { el: Element; text: string };
+const titleBlockCache = new WeakMap<Document, { at: number; blocks: TitleBlock[] }>();
+
+function pixels(value: string | undefined): number {
+  const n = Number.parseFloat(value ?? "");
+  return Number.isFinite(n) ? n : 0;
+}
+
+/**
+ * The blocks of a document drawn as titles: a short run of words with no control inside,
+ * set larger than the text people type into its fields. A page that titles its sections
+ * with plain boxes (no heading tag, no legend, no role) is read by how it draws them.
+ */
+function titleBlocksOf(doc: Document): TitleBlock[] {
+  const cached = titleBlockCache.get(doc);
+  if (cached && Date.now() - cached.at < TITLE_BLOCKS_TTL_MS) return cached.blocks;
+  const view = doc.defaultView;
+  const sizes = queryDeep(doc, "input, textarea, select")
+    .map((field) => pixels(view?.getComputedStyle(field).fontSize))
+    .filter((size) => size > 0)
+    .sort((a, b) => a - b);
+  const base = sizes[Math.floor(sizes.length / 2)] || DEFAULT_TEXT_PX;
+  const blocks: TitleBlock[] = [];
+  for (const el of queryDeep(doc, "div, span, p, strong, b")) {
+    const text = getDirectText(el, TITLE_BLOCK_MAX_CHARS + 1);
+    if (!text || text.length > TITLE_BLOCK_MAX_CHARS || !carriesWords(text)) continue;
+    if (el.querySelector(CONTROL_HOLDER_SELECTOR) || !isVisible(el)) continue;
+    if (pixels(view?.getComputedStyle(el).fontSize) < base * TITLE_SIZE_RATIO) continue;
+    blocks.push({ el, text });
+  }
+  titleBlockCache.set(doc, { at: Date.now(), blocks });
+  return blocks;
+}
+
+/** The nearest block drawn as a title before the control, in the control's own document. */
+function drawnSection(control: Element): string {
+  const blocks = titleBlocksOf(control.ownerDocument);
+  for (let i = blocks.length - 1; i >= 0; i -= 1) {
+    const { el, text } = blocks[i];
+    if (el.ownerDocument !== control.ownerDocument || el.contains(control)) continue;
+    if (control.compareDocumentPosition(el) & Node.DOCUMENT_POSITION_PRECEDING) {
+      return clip(text, MAX_TEXT_CHARS);
+    }
+  }
+  return "";
+}
+
+/** The nearest heading element (h1-h6, role=heading, legend) before the control. */
+function headingSection(control: Element): string {
   let node = control.parentElement;
   for (let depth = 0; node && depth < MAX_SECTION_DEPTH; depth += 1) {
     const headings = Array.from(node.querySelectorAll(SECTION_TITLE_SELECTOR)).filter(

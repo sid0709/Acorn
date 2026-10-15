@@ -4,6 +4,7 @@
  */
 
 import { waitMs } from "./agents/wait";
+import { childDocument } from "./frame-reach";
 
 /** Minimum fillable controls for a child frame to participate in Acorn. */
 export const MIN_CHILD_FORM_CONTROLS = 2;
@@ -28,7 +29,12 @@ export const FILLABLE_SELECTOR = [
   '[role="listbox"]',
 ].join(",");
 
-/** Count fillable controls, including those inside open shadow roots. */
+/**
+ * Count fillable controls, including those inside open shadow roots and in the child
+ * frames this frame reads as its own page (the same reach as the serializer): a form
+ * drawn inside such a frame is the form of this one, and not counting it made the
+ * frame wait out its whole hydration window for a form that was already there.
+ */
 export function formControlScore(doc: ParentNode = document): number {
   const seen = new Set<ParentNode>();
   const visit = (node: ParentNode): number => {
@@ -39,6 +45,8 @@ export function formControlScore(doc: ParentNode = document): number {
       n += node.querySelectorAll(FILLABLE_SELECTOR).length;
       for (const el of Array.from(node.querySelectorAll("*"))) {
         if (el.shadowRoot) n += visit(el.shadowRoot);
+        const inner = childDocument(el);
+        if (inner) n += visit(inner);
       }
     } catch {
       /* closed tree */

@@ -22,6 +22,12 @@ const OPTION_WAIT_MS = 3000;
  * a menu that is still empty after both gestures gets the full OPTION_WAIT_MS.
  */
 const OPEN_ATTEMPT_MS = 700;
+/**
+ * How long typing may show no popup at all before it is taken that none will come: a
+ * suggestion box with nothing to suggest (an address search with no service behind it)
+ * shows no list, and waiting out the full filter window for each word is seconds lost.
+ */
+const NO_POPUP_GIVE_UP_MS = 1500;
 
 /** Wait until the visible list is no longer the pre-type snapshot, then settle. */
 export async function waitForFilteredOptions(
@@ -36,6 +42,13 @@ export async function waitForFilteredOptions(
   let last: HTMLElement[] = pickScopedOptions(control, doc);
   while (Date.now() - started < maxMs) {
     const options = pickScopedOptions(control, doc);
+    if (
+      !options.length &&
+      Date.now() - started >= NO_POPUP_GIVE_UP_MS &&
+      !popupShown(control, doc)
+    ) {
+      return [];
+    }
     const sig = optionSignature(options);
     if (sig !== lastSig) {
       lastSig = sig;
@@ -150,7 +163,7 @@ export async function findLiveOption(
 }
 
 /** Whether anything that holds options (a list, a menu, a grid, a tree) is on screen after the control was opened. */
-function popupShown(control: HTMLElement, doc: Document): boolean {
+export function popupShown(control: HTMLElement, doc: Document): boolean {
   if (ownedPopupOpen(control)) return true;
   return deepQueryAll(doc, `${POPUP_SELECTOR}, [role="menu"]`).some(
     (node) => isA(node, HTMLElement) && isDisplayed(node),

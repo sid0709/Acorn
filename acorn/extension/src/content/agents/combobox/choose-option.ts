@@ -25,10 +25,17 @@ const TYPED_KEEP_SETTLE_MS = 250;
 /** Some menus render their options a beat after opening. */
 const EMPTY_MENU_RETRY_MS = 450;
 /**
- * The SelectorGateway (Jev) is billed per input token, so it reads a list only
- * once it is this short. Longer lists are narrowed by typing first.
+ * The SelectorGateway (Jev) is billed per input token, and a list of a few hundred short
+ * options is a couple of thousand tokens: far cheaper than narrowing it by typing, which
+ * costs a wait of seconds per step. A list this short is read whole; a longer one is
+ * narrowed by typing first.
  */
-export const JEV_LIST_MAX = 30;
+export const JEV_LIST_MAX = 300;
+/**
+ * A list longer than this that answered "not listed" may still be a partial window (a search
+ * box shows more once typed into): it is searched, instead of taken as the whole list.
+ */
+export const PARTIAL_LIST_MIN = 30;
 
 export type ChooseResult = {
   match: HTMLElement | null;

@@ -29,13 +29,20 @@ function sameText(a: string, b: string): boolean {
   );
 }
 
+/** Whether an element is in a document that is still shown: connected, and its document has a window. */
+function isOnPage(el: Element): boolean {
+  return el.isConnected && el.ownerDocument.defaultView != null;
+}
+
 export async function repairDrift(since: number): Promise<DriftRepairResult> {
   const result: DriftRepairResult = { checked: 0, repaired: 0, failed: [] };
   for (const { el, step, shown } of plannedFillsSince(since)) {
     result.checked += 1;
     // A control the page remounted is found again by its label, never by a node id
-    // from an earlier read.
-    const live = el.isConnected
+    // from an earlier read. One whose whole document was replaced (a frame the page
+    // reloaded) is still "connected" to that dead document, which has no window: it is no
+    // longer on the page, and nothing can be typed into it.
+    const live = isOnPage(el)
       ? { ok: true, element: el, matchedLabel: labelCandidates(el)[0], matchedRole: inferRole(el) }
       : relocateElementByPlan(step.expected_label, step.expected_role, step.value);
     if (!live.ok || !live.element) {
@@ -50,7 +57,7 @@ export async function repairDrift(since: number): Promise<DriftRepairResult> {
     traceFromPage("drift:repair", () => ({
       label: step.expected_label,
       before: readControlValue(live.element),
-      connected: el.isConnected,
+      connected: isOnPage(el),
     }));
     const replayed = await actOnVerified({ ...step, force: true }, live);
     if (replayed.ok) result.repaired += 1;

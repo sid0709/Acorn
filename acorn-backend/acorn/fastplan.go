@@ -55,6 +55,9 @@ type FormField struct {
 	Autocomplete string `json:"autocomplete"`
 	Placeholder  string `json:"placeholder"`
 	Name         string `json:"name"`
+	// Identifier is the control's own id as the page names it ("workHistory.startDate.0"):
+	// plain data that often says which entry or part of the form the field belongs to.
+	Identifier string `json:"identifier"`
 	// Accept is a file input's own list of file types it takes (".pdf,application/pdf").
 	Accept string `json:"accept,omitempty"`
 	// MaxLength is the control's native maxlength; 0 when it sets none.
@@ -302,8 +305,8 @@ func (s *Service) FastPlan(ctx context.Context, applicant string, fields []FormF
 			written[index] = answer
 		}
 	}
-	// Today's date, written the way each field that asks for it wants.
-	for index, value := range s.todayValues(ctx, texts, textKinds, profile.today) {
+	// Dates (today's, and those of a job or school), written the way each field that asks for one wants.
+	for index, value := range s.dateValues(ctx, texts, textKinds, profile) {
 		written[index] = value
 	}
 	s.addTextFills(ctx, plan, texts, textKinds, written, applicant, page)
@@ -389,7 +392,7 @@ func describe(field FormField) string {
 	parts = append(parts, fmt.Sprintf("Field label: %q", strings.TrimSpace(field.Label)))
 	for _, attr := range [][2]string{
 		{"input type", field.InputType}, {"autocomplete", field.Autocomplete},
-		{"placeholder", field.Placeholder}, {"name", field.Name}, {"accepts", field.Accept},
+		{"placeholder", field.Placeholder}, {"name", field.Name}, {"id", field.Identifier}, {"accepts", field.Accept},
 	} {
 		if strings.TrimSpace(attr[1]) != "" {
 			parts = append(parts, fmt.Sprintf("%s: %q", attr[0], strings.TrimSpace(attr[1])))
@@ -709,8 +712,8 @@ func (s *Service) addTextFills(ctx context.Context, plan Plan, fields []FormFiel
 		if part, split := parts[field.ElementIndex]; split {
 			fact = part
 		}
-		// Today's date is already written in the field's own format.
-		if dated := written[field.ElementIndex]; kinds[field.ElementIndex] == FactToday && dated != "" {
+		// A date is already written in the field's own format.
+		if dated := written[field.ElementIndex]; isDateKind(kinds[field.ElementIndex]) && dated != "" {
 			fact = dated
 		}
 		if fact != "" {

@@ -96,7 +96,7 @@ function attr(el: Element, name: string): string | undefined {
 function textAttrs(
   el: Element,
   label: string,
-): Pick<FormField, "autocomplete" | "placeholder" | "name" | "maxLength" | "notes"> {
+): Pick<FormField, "autocomplete" | "placeholder" | "name" | "identifier" | "maxLength" | "notes"> {
   const maxLength = isA(el, HTMLInputElement) || isA(el, HTMLTextAreaElement) ? el.maxLength : -1;
   const notes = wrapperTexts(
     el,
@@ -108,6 +108,7 @@ function textAttrs(
     autocomplete: attr(el, "autocomplete"),
     placeholder: attr(el, "placeholder"),
     name: attr(el, "name"),
+    identifier: attr(el, "id"),
     maxLength: maxLength > 0 ? maxLength : undefined,
     notes: notes.length ? notes : undefined,
   };

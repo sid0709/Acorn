@@ -68,8 +68,10 @@ const roleCombobox = "combobox"
 const invalidNote = "The page marked this answer as not accepted."
 
 // textInstructions and textKinds ask the decision model what the page's text with
-// a flagged field does: much of it is help the field shows to everyone.
-const textInstructions = "After the applicant pressed the form's forward control, the page shows this text with a job-application field. Judge what the text does, whatever its wording."
+// a flagged field does to the answer the field holds: much of it is help the field
+// shows to everyone, and a rule ("must be on or after…") refuses an answer only when
+// the answer breaks it, which the model can only tell by seeing the answer.
+const textInstructions = "After the applicant pressed the form's forward control, the page shows this text with a job-application field. Judge what the text does to the answer the field holds now, whatever its wording."
 
 const (
 	textRefuses = "refuses"
@@ -77,8 +79,19 @@ const (
 )
 
 var textKinds = map[string]string{
-	textRefuses: "It says the field's answer is missing, was not accepted, or must change before the form can go on.",
-	textHelps:   "It only helps: a format, a limit, a counter, an example, or other guidance the field shows to anyone.",
+	textRefuses: "It says the field's answer is missing, was not accepted, or must change before the form can go on — or it states a rule (a format, a range, a limit) that the answer the field holds breaks.",
+	textHelps:   "It only helps: a format, a limit, a counter, an example, or other guidance the field shows to anyone, which the answer the field holds already satisfies.",
+}
+
+// maxHeldAnswerChars bounds the answer shown to the decision model with a field's text.
+const maxHeldAnswerChars = 120
+
+// clipRunes keeps the first max characters of text.
+func clipRunes(text string, max int) string {
+	if runes := []rune(text); len(runes) > max {
+		return string(runes[:max]) + "…"
+	}
+	return text
 }
 
 // RefillFlagged plans the fixes for what the page flagged from the flagged fields
@@ -162,7 +175,7 @@ func issueMarked(issue FieldIssue) bool {
 // refusedByText asks, in one decision, which issues carry text that turns their
 // field's answer down (or says one is missing) rather than text that only helps.
 // Issues the page already marks need no reading. The decision model reads each
-// field's label and text, never the answer it holds.
+// field's label, the answer it holds, and its text.
 func (s *Service) refusedByText(ctx context.Context, issues []FieldIssue) (map[int]bool, error) {
 	items := map[int]string{}
 	for _, issue := range issues {
@@ -190,13 +203,14 @@ func (s *Service) refusedByText(ctx context.Context, issues []FieldIssue) (map[i
 }
 
 // textQuestion is what the decision model reads about one issue's text: the field's
-// label, whether it is blank, and the text, never the answer it holds.
+// label, the answer it holds (as the extension shows it, so a password is never in
+// it), and the text. Whether a rule's text refuses depends on the answer it is about.
 func textQuestion(issue FieldIssue, text string) string {
 	parts := []string{fmt.Sprintf("Field label: %q", strings.TrimSpace(issue.Label))}
-	if strings.TrimSpace(issue.Value) == "" {
+	if held := strings.TrimSpace(issue.Value); held == "" {
 		parts = append(parts, "the field is blank")
 	} else {
-		parts = append(parts, "the field holds an answer")
+		parts = append(parts, fmt.Sprintf("the field holds %q", clipRunes(held, maxHeldAnswerChars)))
 	}
 	if issue.Required {
 		parts = append(parts, "required")

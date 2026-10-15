@@ -127,6 +127,13 @@ export const RUN_NETWORK_QUIET_MS = 700;
  * not the page loading: it no longer holds the page from counting as settled.
  */
 export const RUN_NETWORK_LONG_REQUEST_MS = 10_000;
+/**
+ * A request still open after this long, while the page itself has been still for as
+ * long, is not what the page is waiting on: had its answer been going to draw something,
+ * the page would have changed by now. It stops holding the page from counting as settled
+ * (a request that never ends otherwise costs the full long-request wait on every page).
+ */
+export const RUN_NETWORK_STALE_REQUEST_MS = 3_000;
 /** Fresh looks at a page that read as not an application or blocked, before the run stops. */
 export const RUN_UNCLEAR_REREADS = 3;
 /** The wait before each of those looks. */

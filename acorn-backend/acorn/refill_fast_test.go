@@ -182,8 +182,10 @@ func TestRefillFlaggedLeavesHelpTextAlone(t *testing.T) {
 	if result.RefillPlanner != RefillPlannerFast || len(planActions(result.Plan)) != 0 {
 		t.Fatalf("planner %q planned %v, want nothing", result.RefillPlanner, planActions(result.Plan))
 	}
-	if strings.Contains(decider.textItems[8], answer) {
-		t.Fatalf("the decision model read the field's answer: %q", decider.textItems[8])
+	// Whether a rule's text refuses depends on the answer it is about, so the model is shown
+	// the answer the field holds (bounded), next to the text.
+	if !strings.Contains(decider.textItems[8], answer) {
+		t.Fatalf("the decision model was not shown the field's answer: %q", decider.textItems[8])
 	}
 	if len(model.calls) != 0 {
 		t.Fatalf("the text model was called %d times, want none", len(model.calls))
