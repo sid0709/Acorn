@@ -76,7 +76,18 @@ export function SupportPanel({
   onReport: () => void;
   reportDisabled: boolean;
 }) {
-  const { claims, thread, openId, loading, error, open, send, reopen, attachmentSrc } = support;
+  const {
+    claims,
+    thread,
+    openId,
+    loading,
+    error,
+    open,
+    send,
+    reopen,
+    attachmentSrc,
+    openAttachments,
+  } = support;
   const [view, setView] = useState<ClaimStatus>(CLAIM_STATUS.open);
   const [reopening, setReopening] = useState(false);
   const shown = claims.filter((claim) => claim.status === view);
@@ -148,6 +159,7 @@ export function SupportPanel({
                 placeholder="Message Acorn Support"
                 staffAvatar={<SupportStaffAvatar />}
                 attachmentSrc={attachmentSrc}
+                onOpenAttachments={openAttachments}
                 onSend={send}
               />
             ) : (

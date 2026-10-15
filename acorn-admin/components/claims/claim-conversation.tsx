@@ -148,7 +148,9 @@ export function ClaimConversation({
               messages={messages}
               viewer={CLAIM_AUTHOR.admin}
               placeholder={`Reply to ${reporter}`}
-              attachmentSrc={(attachment) => ROUTES.claimAttachment(claim.id, attachment.id)}
+              attachmentSrc={(attachment, size) =>
+                ROUTES.claimAttachment(claim.id, attachment.id, size)
+              }
               onSend={async (draft) => {
                 appendCachedMessage(claim.id, await sendClaimMessage(claim.id, draft));
                 revalidateClaim(claim.id);

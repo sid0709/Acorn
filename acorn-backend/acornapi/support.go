@@ -161,16 +161,19 @@ func (s *Server) loadClaim(w http.ResponseWriter, r *http.Request, accountID str
 }
 
 func (s *Server) getMyClaim(w http.ResponseWriter, r *http.Request) {
+	t := startTiming()
 	claim, _, ok := s.myClaim(w, r)
 	if !ok {
 		return
 	}
-	s.writeThread(w, r, claim, support.AuthorUser)
+	t.step(timingClaim)
+	s.writeThread(w, r, claim, support.AuthorUser, t)
 }
 
 // writeThread answers with the claim and its conversation as reader sees them.
-func (s *Server) writeThread(w http.ResponseWriter, r *http.Request, claim support.Claim, reader string) {
+func (s *Server) writeThread(w http.ResponseWriter, r *http.Request, claim support.Claim, reader string, t *timing) {
 	messages, err := s.claims.Messages(r.Context(), claim.ID)
+	t.step(timingMessages)
 	if err != nil {
 		slog.Error("acorn support messages", "error", err)
 		writeError(w, http.StatusInternalServerError, "could not load the conversation")
@@ -180,6 +183,7 @@ func (s *Server) writeThread(w http.ResponseWriter, r *http.Request, claim suppo
 	for _, msg := range messages {
 		out = append(out, messageRow(msg))
 	}
+	t.apply(w)
 	writeJSON(w, http.StatusOK, map[string]any{"claim": claimRow(claim, reader), "messages": out})
 }
 

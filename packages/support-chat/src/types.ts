@@ -90,6 +90,28 @@ export type MessageDraft = {
 
 export type ClaimThreadData = { claim: SupportClaim; messages: SupportMessage[] };
 
+/**
+ * Which copy of an image to load. A thumbnail is a small preview the server keeps beside the
+ * original; a list or a message shows that, and the original loads only when it is opened.
+ * The strings are imageSizeParam / imageSizeThumb in acornapi.
+ */
+export const ATTACHMENT_SIZE = { thumb: "thumb", full: "full" } as const;
+export type AttachmentSize = (typeof ATTACHMENT_SIZE)[keyof typeof ATTACHMENT_SIZE];
+export const IMAGE_SIZE_PARAM = "size";
+
+/**
+ * What the server pushes when a claim changes (support:message / support:claim). `open` and
+ * `awaitingSupport` are the inbox counts after the change (console stream only), and `sentAt`
+ * is the server's clock in Unix ms, for measuring how long the push took.
+ */
+export type ClaimPush = {
+  claim?: SupportClaim;
+  message?: SupportMessage;
+  open?: number;
+  awaitingSupport?: number;
+  sentAt?: number;
+};
+
 /** The reporter's routes on acorn-backend. */
 export const SUPPORT_CLAIMS_PATH = "/acorn/support/claims";
 export const supportClaimPath = (id: string) => `${SUPPORT_CLAIMS_PATH}/${encodeURIComponent(id)}`;
@@ -98,5 +120,11 @@ export const supportClaimMessagesPath = (id: string) => `${supportClaimPath(id)}
 export const supportClaimLogPath = (id: string) => `${supportClaimPath(id)}/log`;
 export const supportClaimReadPath = (id: string) => `${supportClaimPath(id)}/read`;
 export const supportClaimReopenPath = (id: string) => `${supportClaimPath(id)}/reopen`;
-export const supportClaimAttachmentPath = (id: string, attachmentId: string) =>
-  `${supportClaimPath(id)}/attachments/${encodeURIComponent(attachmentId)}`;
+export const supportClaimAttachmentPath = (
+  id: string,
+  attachmentId: string,
+  size: AttachmentSize = ATTACHMENT_SIZE.full,
+) =>
+  `${supportClaimPath(id)}/attachments/${encodeURIComponent(attachmentId)}${
+    size === ATTACHMENT_SIZE.thumb ? `?${IMAGE_SIZE_PARAM}=${ATTACHMENT_SIZE.thumb}` : ""
+  }`;

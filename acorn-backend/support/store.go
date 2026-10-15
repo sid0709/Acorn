@@ -52,28 +52,30 @@ const (
 // Claim is one support report: the page, a full-page screenshot, the reporter's
 // notes, the debug-run log when the API recorded one, and where the conversation stands.
 type Claim struct {
-	ID               string    `bson:"_id"`
-	AccountID        string    `bson:"accountId"`
-	UserEmail        string    `bson:"userEmail"`
-	UserName         string    `bson:"userName"`
-	PageURL          string    `bson:"pageUrl"`
-	PageTitle        string    `bson:"pageTitle"`
-	Notes            string    `bson:"notes"`
-	ExtensionVersion string    `bson:"extensionVersion"`
-	TabKey           string    `bson:"tabKey"`
-	Status           string    `bson:"status"`
-	Screenshot       []byte    `bson:"screenshot,omitempty"`
-	ScreenshotMIME   string    `bson:"screenshotMime"`
-	ScreenshotWidth  int       `bson:"screenshotWidth"`
-	ScreenshotHeight int       `bson:"screenshotHeight"`
-	DebugLogFiles    int       `bson:"debugLogFiles,omitempty"`
-	MessageCount     int       `bson:"messageCount"`
-	LastMessageAt    time.Time `bson:"lastMessageAt"`
-	LastMessageBy    string    `bson:"lastMessageBy"`
-	UserReadAt       time.Time `bson:"userReadAt"`
-	AdminReadAt      time.Time `bson:"adminReadAt"`
-	CreatedAt        time.Time `bson:"createdAt"`
-	ClosedAt         time.Time `bson:"closedAt,omitempty"`
+	ID               string `bson:"_id"`
+	AccountID        string `bson:"accountId"`
+	UserEmail        string `bson:"userEmail"`
+	UserName         string `bson:"userName"`
+	PageURL          string `bson:"pageUrl"`
+	PageTitle        string `bson:"pageTitle"`
+	Notes            string `bson:"notes"`
+	ExtensionVersion string `bson:"extensionVersion"`
+	TabKey           string `bson:"tabKey"`
+	Status           string `bson:"status"`
+	Screenshot       []byte `bson:"screenshot,omitempty"`
+	// ScreenshotPreview is a small copy of Screenshot, made once after the claim is filed.
+	ScreenshotPreview []byte    `bson:"screenshotPreview,omitempty"`
+	ScreenshotMIME    string    `bson:"screenshotMime"`
+	ScreenshotWidth   int       `bson:"screenshotWidth"`
+	ScreenshotHeight  int       `bson:"screenshotHeight"`
+	DebugLogFiles     int       `bson:"debugLogFiles,omitempty"`
+	MessageCount      int       `bson:"messageCount"`
+	LastMessageAt     time.Time `bson:"lastMessageAt"`
+	LastMessageBy     string    `bson:"lastMessageBy"`
+	UserReadAt        time.Time `bson:"userReadAt"`
+	AdminReadAt       time.Time `bson:"adminReadAt"`
+	CreatedAt         time.Time `bson:"createdAt"`
+	ClosedAt          time.Time `bson:"closedAt,omitempty"`
 }
 
 // UnreadFor reports whether the other side wrote after reader last looked.
@@ -237,10 +239,14 @@ func (s *Store) Create(ctx context.Context, claim Claim) (Claim, error) {
 	if _, err := s.claims.InsertOne(ctx, claim); err != nil {
 		return Claim{}, err
 	}
+	if len(claim.Screenshot) > 0 {
+		s.warmScreenshotPreview(claim.ID)
+	}
 	return claim, nil
 }
 
-var listProjection = bson.M{"screenshot": 0}
+// listProjection leaves out the screenshot and its preview: a list or a thread never needs the bytes.
+var listProjection = bson.M{"screenshot": 0, "screenshotPreview": 0}
 
 // ListForAccount is the reporter's own claims, latest conversation first.
 func (s *Store) ListForAccount(ctx context.Context, accountID string) ([]Claim, error) {
@@ -419,15 +425,31 @@ func readField(reader string) string {
 	return "userReadAt"
 }
 
-// Counts is how many claims are open and how many wait on support.
+// Counts is how many claims are open and how many wait on support, in one round trip.
 func (s *Store) Counts(ctx context.Context) (open, awaitingSupport int64, err error) {
 	if !s.ready() {
 		return 0, 0, nil
 	}
-	open, err = s.claims.CountDocuments(ctx, bson.M{"status": StatusOpen})
+	cursor, err := s.claims.Aggregate(ctx, mongo.Pipeline{
+		{{Key: "$match", Value: bson.M{"status": StatusOpen}}},
+		{{Key: "$group", Value: bson.M{
+			"_id":  nil,
+			"open": bson.M{"$sum": 1},
+			"awaiting": bson.M{"$sum": bson.M{"$cond": bson.A{
+				bson.M{"$eq": bson.A{"$lastMessageBy", AuthorUser}}, 1, 0,
+			}}},
+		}}},
+	})
 	if err != nil {
 		return 0, 0, err
 	}
-	awaitingSupport, err = s.claims.CountDocuments(ctx, bson.M{"status": StatusOpen, "lastMessageBy": AuthorUser})
-	return open, awaitingSupport, err
+	defer cursor.Close(ctx)
+	var rows []struct {
+		Open     int64 `bson:"open"`
+		Awaiting int64 `bson:"awaiting"`
+	}
+	if err := cursor.All(ctx, &rows); err != nil || len(rows) == 0 {
+		return 0, 0, err
+	}
+	return rows[0].Open, rows[0].Awaiting, nil
 }
