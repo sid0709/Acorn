@@ -10,6 +10,7 @@ import { checkboxLabels, singleChoiceLabels } from "./agents/choice-decision";
 import { optionLabel, realOptions } from "./agents/native-select";
 import { groupRoot } from "./agents/select-radio";
 import { resolveElementByNodeId } from "./element-resolver";
+import { isA } from "./realm";
 import { inferRole } from "./verify/element-role";
 
 export type ChoiceBatchStep = {
@@ -36,12 +37,12 @@ function normalize(text: string): string {
 
 function isGroupTarget(el: Element): boolean {
   const role = inferRole(el);
-  if (el instanceof HTMLInputElement) return el.type === "radio" || el.type === "checkbox";
+  if (isA(el, HTMLInputElement)) return el.type === "radio" || el.type === "checkbox";
   return ["radio", "checkbox", "radiogroup", "group"].includes(role) || el.tagName === "FIELDSET";
 }
 
 function optionsFor(el: Element, value: string): { options: string[]; multiple: boolean } | null {
-  if (el instanceof HTMLSelectElement) {
+  if (isA(el, HTMLSelectElement)) {
     if (el.multiple) return null;
     return { options: realOptions(el).map(optionLabel), multiple: false };
   }

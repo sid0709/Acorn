@@ -72,11 +72,13 @@ var verifications = map[string]string{
 	VerifyChooseEmail: "The page asks where or how to send a verification code (a choice of the applicant's email address, " +
 		"phone number, text message, or call) and email is one of the choices. No code has been sent yet. " + emailOnly +
 		"The run chooses the email and sends it, so this is never a wait for the applicant.",
-	VerifyOther: "The page is stopped on a prompt that asks right now for something only the applicant can give in the moment: " +
-		"a box for a code already sent to their phone with no way to send it to email instead, an authenticator app code, or a " +
-		"challenge they must solve themselves. A choice of where to send a code that offers email is choose_email, not this. " +
-		"A form that asks for the applicant's details (a phone number or address to fill in) is not this, and neither is a note " +
-		"about how to sign in or change contact details later.",
+	VerifyOther: "The page is stopped on a prompt that only a person at the keyboard can complete: a CAPTCHA or bot-check " +
+		"widget (pictures to pick, a \"not a robot\" box, a slider or puzzle), a box for a code already sent to their phone " +
+		"with no way to send it to email instead, or an authenticator app code. A choice of where to send a code that offers " +
+		"email is choose_email, not this. Every question or field of the application form, however it is worded (a trivia " +
+		"question, \"type this word\", a short answer), is a field the run fills in words, so it is never this; neither is a " +
+		"form that asks for the applicant's details (a phone number or address to fill in) or a note about how to sign in " +
+		"or change contact details later. Fields the page lists as fields to fill are not a challenge.",
 }
 
 // Account modes say what an account step asks for. The run fills the applicant's
@@ -160,7 +162,6 @@ const (
 	commitQuestion       = "save_opened_form"
 	diagnoseQuestion     = "failure"
 	verifyQuestion       = "verification"
-	appliedQuestion      = "already_applied"
 	accountQuestion      = "account_mode"
 	offersQuestionPrefix = "offers_"
 
@@ -203,6 +204,14 @@ type Control struct {
 	// Near is the text around a control that has little of its own (an icon button):
 	// the entry or section it acts on.
 	Near string
+	// Icon is what the picture inside the control shows (alt text, title, or file name): an
+	// icon button has no words, and what it pictures says what it does.
+	Icon string
+	// Pointer is true when the control is clickable by its look only (the cursor turns to a
+	// pointer over it): its markup is no link, button, or role.
+	Pointer bool
+	// AfterFields is true when the control comes after the page's last field in reading order.
+	AfterFields bool
 	// Opened is true for a control of the form the run opened inside the page (see
 	// PageQuery.Scope); ReadPage sets it from the query.
 	Opened bool
@@ -215,6 +224,9 @@ type PageQuery struct {
 	Text     string
 	Intent   string
 	Controls []Control
+	// Fields are the fields the page asks for (what the run fills in words), so a
+	// question worded like a challenge is seen to be a field with a box under it.
+	Fields []PageField
 	// Flagged is how many fields the page marks invalid right now.
 	Flagged int
 	// PageMessages are page-level alerts, such as "Please fix the errors below".
@@ -273,13 +285,14 @@ type PageRead struct {
 	NeedsPerson bool
 	// Verification is what the page asks to verify (a Verify* key); VerifyNone when nothing.
 	Verification string
+	// VerifyProbs is Jev's probability for each verification answer, for the log: a
+	// stop on "other" at 0.51 reads differently from one at 0.99.
+	VerifyProbs map[string]float64
 	// AccountMode is what an account step asks for (an Account* key); AccountNone elsewhere.
 	AccountMode string
 	// Offers are the account goals an account step makes possible: its own form, or
 	// a control on it that opens one. Empty off account steps.
 	Offers []string
-	// AlreadyApplied is true when the site says this applicant already applied to this job.
-	AlreadyApplied bool
 	// Requirement is the control that does what the page still reports as required
 	// before it can go on (role RoleResolve): the best next step ahead of Control.
 	// Nil when nothing outstanding is done through a control, or on a first look.
@@ -380,16 +393,6 @@ func (g *Gateway) ReadPage(ctx context.Context, q PageQuery) (PageRead, error) {
 				dialogSteps + "Choose none when no control does.",
 			Criteria: guestCriteria,
 		},
-		appliedQuestion: {
-			Type: jev.TypeNoul,
-			Instructions: "Does this page say the applicant has already applied to this job: an application to this role " +
-				"that was already submitted before, as opposed to one being filled in now or just completed? A candidate home or " +
-				"dashboard that lists this job as submitted or in progress, seen before the run sent anything, says so.",
-			Criteria: map[string]string{
-				"true":  "The site says an application to this job was already submitted earlier.",
-				"false": "Nothing on the page says this job was applied to before.",
-			},
-		},
 		verifyQuestion: {
 			Type:         jev.TypeChoice,
 			Instructions: "Does this page ask the applicant to verify something before it can go on, and how?",
@@ -459,10 +462,8 @@ func (g *Gateway) ReadPage(ctx context.Context, q PageQuery) (PageRead, error) {
 	if guest := res.Answers[guestQuestion]; guest.Noul != nil {
 		read.Guest = *guest.Noul > checkThreshold
 	}
-	if applied := res.Answers[appliedQuestion]; applied.Noul != nil {
-		read.AlreadyApplied = *applied.Noul > checkThreshold
-	}
 	read.Verification = listedChoice(res.Answers[verifyQuestion], verifications, VerifyNone)
+	read.VerifyProbs = res.Answers[verifyQuestion].Probabilities
 	read.NeedsPerson = read.Verification == VerifyOther
 	read.AccountMode = AccountNone
 	if read.Kind == KindAccount {
@@ -680,7 +681,9 @@ func controlInstructions(intent string) string {
 	if intent == IntentAdvance {
 		return "The applicant has finished filling this page. Which control moves the application to its next step, " +
 			"or sends it on the last step? Judge by what the control does on this page, whatever its wording, " +
-			"an arrow, or an icon. " + thisRoleOnly + dialogSteps + repairSteps + verifySteps + accountSteps +
+			"an arrow, or an icon. A control may have no words at all: judge it by what its picture shows, by whether it is a " +
+			"clickable area, and by where it sits (a control after the page's last field is where a form's forward " +
+			"control usually is). " + thisRoleOnly + dialogSteps + repairSteps + verifySteps + accountSteps +
 			"Never pick a control that goes back, cancels, leaves the application, saves a draft, signs out, " +
 			"signs in through another service, or opens another site, and never a link in the site's header, menu, or footer " +
 			"that opens another page of the site rather than sending this form. A step listed in the application's progress " +
@@ -695,6 +698,39 @@ func controlInstructions(intent string) string {
 		"control that moves it forward instead. " + thisRoleOnly + dialogSteps + verifySteps + accountSteps +
 		"Never pick a control that saves the job, shares it, creates an alert, signs in through another service, " +
 		"or is disabled. Choose none when the page has no way to apply or continue."
+}
+
+// PageField is one field the page asks for, as the run lists it.
+type PageField struct {
+	Label    string
+	Kind     string
+	Required bool
+	// Options is how many choices a choice field offers; 0 for a typed field.
+	Options int
+}
+
+// maxPageFields bounds how many fields one page read lists.
+const maxPageFields = 60
+
+func writeFields(b *strings.Builder, fields []PageField) {
+	if len(fields) == 0 {
+		return
+	}
+	fmt.Fprintf(b, "\n\nFields on the page, which the run fills in from the applicant's profile and its own answers (%d):\n", len(fields))
+	for i, field := range fields {
+		if i == maxPageFields {
+			fmt.Fprintf(b, "- (%d more)\n", len(fields)-maxPageFields)
+			break
+		}
+		line := fmt.Sprintf("- %s (%s", clip(field.Label, maxControlLine), firstNonEmpty(field.Kind, "field"))
+		if field.Options > 0 {
+			line += fmt.Sprintf(", %d choices", field.Options)
+		}
+		if field.Required {
+			line += ", required"
+		}
+		b.WriteString(line + ")\n")
+	}
 }
 
 func pageState(q PageQuery, controls []Control) string {
@@ -729,6 +765,7 @@ func pageState(q PageQuery, controls []Control) string {
 	}
 	b.WriteString("\nPage text:\n")
 	b.WriteString(clipEnds(q.Text, maxPageText))
+	writeFields(&b, q.Fields)
 	b.WriteString("\n\nControls on the page:\n")
 	if len(controls) == 0 {
 		b.WriteString("(none)\n")
@@ -794,6 +831,9 @@ func describeControl(c Control) string {
 	if text == "" {
 		text = "(no text)"
 	}
+	if c.Icon != "" && c.Text == "" {
+		parts = append(parts, "picture")
+	}
 	line := strings.Join(parts, " ") + " \"" + clip(text, maxControlLine/2) + "\""
 	if c.Label != "" && c.Label != text {
 		line += " label=\"" + clip(c.Label, 60) + "\""
@@ -804,8 +844,17 @@ func describeControl(c Control) string {
 	if c.Context != "" {
 		line += " under \"" + clip(c.Context, 60) + "\""
 	}
+	if c.Icon != "" {
+		line += " showing \"" + clip(c.Icon, 60) + "\""
+	}
 	if c.Near != "" {
 		line += " beside \"" + clip(c.Near, maxControlNear) + "\""
+	}
+	if c.Pointer {
+		line += " clickable area (no link or button markup)"
+	}
+	if c.AfterFields {
+		line += " after the page's last field"
 	}
 	if c.Dialog != "" {
 		line += " in dialog \"" + clip(c.Dialog, 60) + "\""

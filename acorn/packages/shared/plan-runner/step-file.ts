@@ -29,6 +29,21 @@ export function wantsCoverLetter(action: Pick<PlanAction, "action" | "file">): b
   return action.action === "upload" && fileKey(action) === COVER_LETTER_FILE_KEY;
 }
 
+/**
+ * An upload for a required field whose own file is missing becomes an upload of the
+ * file the plan named to give instead: a required field is never left empty when the
+ * applicant has a document to give. Fields with no fallback are returned as they are.
+ */
+export function withUploadFallback(
+  action: PlanAction,
+  files: Pick<PlanStepFiles, "coverLetter">,
+): PlanAction {
+  if (wantsCoverLetter(action) && !files.coverLetter && action.fallback_file) {
+    return { ...action, action: "resume_upload", file: action.fallback_file };
+  }
+  return action;
+}
+
 /** Whether a plan uploads a cover letter anywhere: then one is fetched for it. */
 export function planWantsCoverLetter(actions: PlanAction[] | null | undefined): boolean {
   return (actions ?? []).some(wantsCoverLetter);

@@ -34,8 +34,10 @@ func writeAcornError(w http.ResponseWriter, route string, err error) {
 	case errors.Is(err, acorn.ErrModelUnavailable):
 		status = http.StatusServiceUnavailable
 	}
-	slog.Warn("acorn route failed", "route", route, "status", status, "error", err)
-	writeError(w, status, err.Error())
+	code := modelErrorCode(err)
+	status = statusForCode(code, status)
+	slog.Warn("acorn route failed", "route", route, "status", status, "code", code, "error", err)
+	writeCodedError(w, status, code, err.Error())
 }
 
 // applicant renders the signed-in account for the model. A saved profile supplies

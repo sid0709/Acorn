@@ -47,6 +47,12 @@ type runControl struct {
 	Dialog   string `json:"dialog"`
 	Covered  bool   `json:"covered"`
 	Near     string `json:"near"`
+	// Icon is what the picture inside the control shows (alt text, title, or file name).
+	Icon string `json:"icon"`
+	// Pointer is true when the control is clickable by its look only: no link, button, or role.
+	Pointer bool `json:"pointer"`
+	// AfterFields is true when the control comes after the page's last field in reading order.
+	AfterFields bool `json:"afterFields"`
 }
 
 // runAccountAttempt is one account step the run already sent on this site.
@@ -116,6 +122,7 @@ func (s *Server) runReadPage(w http.ResponseWriter, r *http.Request) {
 		Title        string              `json:"title"`
 		Text         string              `json:"text"`
 		Controls     []runControl        `json:"controls"`
+		Fields       []runField          `json:"fields"`
 		Flagged      int                 `json:"flagged"`
 		PageMessages []string            `json:"pageMessages"`
 		Account      []runAccountAttempt `json:"account"`
@@ -167,6 +174,7 @@ func (s *Server) runReadPage(w http.ResponseWriter, r *http.Request) {
 			ID: c.ID, Tag: c.Tag, Text: c.Text, Label: c.Label, Type: c.Type, Href: c.Href,
 			Context: c.Context, Disabled: c.Disabled, InForm: c.InForm,
 			Dialog: c.Dialog, Covered: c.Covered, Near: c.Near,
+			Icon: c.Icon, Pointer: c.Pointer, AfterFields: c.AfterFields,
 		})
 	}
 	log.Info("acorn run read-page", "controls", len(controls), "textChars", len([]rune(body.Text)),
@@ -175,7 +183,7 @@ func (s *Server) runReadPage(w http.ResponseWriter, r *http.Request) {
 	started := time.Now()
 	read, err := gateway.ReadPage(s.traceContext(r, session.User.ID), selector.PageQuery{
 		URL: body.URL, Title: body.Title, Text: body.Text, Intent: intent,
-		Controls: controls, Flagged: body.Flagged, PageMessages: body.PageMessages,
+		Controls: controls, Fields: pageFields(body.Fields), Flagged: body.Flagged, PageMessages: body.PageMessages,
 		Account: accountHistory(body.Account), AccountGoal: accountGoal(body.AccountGoal),
 		NewText: body.NewText, LastClick: body.LastClick.Text, LastClickRole: body.LastClick.Role,
 		LastClickAgo: body.LastClick.SecondsAgo, Scope: body.Scope.Controls, ScopeTitle: body.Scope.Title,
@@ -186,15 +194,18 @@ func (s *Server) runReadPage(w http.ResponseWriter, r *http.Request) {
 	})
 	if err != nil {
 		log.Warn("acorn run read-page failed", "error", err, "ms", elapsed.Milliseconds())
-		writeJSON(w, http.StatusOK, map[string]any{"ok": false, "error": err.Error()})
+		writeJSON(w, http.StatusOK, errorBody(err))
 		return
 	}
 
 	out := map[string]any{
 		"ok": true, "kind": read.Kind, "kindConfidence": read.KindConfidence, "control": nil, "guest": read.Guest,
 		"needsPerson": read.NeedsPerson, "verification": read.Verification, "accountMode": read.AccountMode,
-		"alreadyApplied": read.AlreadyApplied,
-		"model":          gateway.Model(), "usage": decisionUsage(gateway.Model(), read.Usage),
+		"model": gateway.Model(), "usage": decisionUsage(gateway.Model(), read.Usage),
+		// What the extension's log needs to explain the decision on its own: how sure
+		// each answer was, and how long the server took. No prompt text.
+		"kindProbabilities": read.KindProbs, "verificationProbabilities": read.VerifyProbs,
+		"ms": elapsed.Milliseconds(),
 	}
 	attrs := []any{
 		"kind", read.Kind, "kindConfidence", read.KindConfidence,
@@ -294,7 +305,7 @@ func (s *Server) runDialog(w http.ResponseWriter, r *http.Request) {
 	})
 	if err != nil {
 		log.Warn("acorn run dialog failed", "error", err, "ms", elapsed.Milliseconds())
-		writeJSON(w, http.StatusOK, map[string]any{"ok": false, "error": err.Error()})
+		writeJSON(w, http.StatusOK, errorBody(err))
 		return
 	}
 	log.Info("acorn run dialog decided", "accept", answer.Accept, "confidence", answer.Confidence,
@@ -351,7 +362,7 @@ func (s *Server) runAccountOutcome(w http.ResponseWriter, r *http.Request) {
 	})
 	if err != nil {
 		log.Warn("acorn run account-outcome failed", "error", err, "ms", elapsed.Milliseconds())
-		writeJSON(w, http.StatusOK, map[string]any{"ok": false, "error": err.Error()})
+		writeJSON(w, http.StatusOK, errorBody(err))
 		return
 	}
 	log.Info("acorn run account-outcome decided", "outcome", answer.Outcome, "confidence", answer.Confidence,
@@ -405,7 +416,7 @@ func (s *Server) runDiagnose(w http.ResponseWriter, r *http.Request) {
 	})
 	if err != nil {
 		log.Warn("acorn run diagnose failed", "error", err, "ms", elapsed.Milliseconds())
-		writeJSON(w, http.StatusOK, map[string]any{"ok": false, "error": err.Error()})
+		writeJSON(w, http.StatusOK, errorBody(err))
 		return
 	}
 	detail := body.Evidence
@@ -503,4 +514,23 @@ func (s *Server) runLog(w http.ResponseWriter, r *http.Request) {
 		s.recordRunStep(r, session.User.ID, runID, body.Events[0].Step, "events", body.Events)
 	}
 	w.WriteHeader(http.StatusNoContent)
+}
+
+// runField is one field of the page as the extension lists it for a page read.
+type runField struct {
+	Label    string `json:"label"`
+	Kind     string `json:"kind"`
+	Required bool   `json:"required"`
+	Options  int    `json:"options"`
+}
+
+func pageFields(fields []runField) []selector.PageField {
+	out := make([]selector.PageField, 0, len(fields))
+	for _, field := range fields {
+		if strings.TrimSpace(field.Label) == "" {
+			continue
+		}
+		out = append(out, selector.PageField{Label: field.Label, Kind: field.Kind, Required: field.Required, Options: field.Options})
+	}
+	return out
 }

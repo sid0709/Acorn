@@ -19,12 +19,6 @@ function logAcornVersion(): Plugin {
     name: "acorn-version",
     configResolved(config) {
       config.logger.info(`\nAcorn extension v${ACORN_VERSION} (${config.mode})\n`);
-      // Mirrors ACORN_CAPTURE in src/debug-trace.ts: capture is on unless turned off.
-      if (config.env.VITE_ACORN_CAPTURE === "false") {
-        config.logger.warn("Process capture is OFF: support reports carry no session history.\n");
-      } else {
-        config.logger.info("Process capture is on: reports carry the tab's session history.\n");
-      }
       // Mirrors ACORN_DEBUG: developer conveniences only in development builds.
       if (config.env.VITE_ACORN_DEBUG === "true" && config.mode !== "development") {
         config.logger.info(
@@ -55,6 +49,14 @@ export default defineConfig(({ mode }) => ({
     rollupOptions: {
       input: {
         sidebar: "sidebar.html",
+      },
+      // Stable file names: a hashed name changes with every build, and an extension that
+      // is already running keeps asking for the names of the build it was loaded from. A
+      // missing content-script file means no script in any page opened after the rebuild.
+      output: {
+        entryFileNames: "assets/[name].js",
+        chunkFileNames: "assets/[name].js",
+        assetFileNames: "assets/[name][extname]",
       },
     },
   },

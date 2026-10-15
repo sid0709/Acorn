@@ -24,11 +24,26 @@ export interface FormField {
   autocomplete?: string;
   placeholder?: string;
   name?: string;
+  /**
+   * The control's own id, as the page names it (`workHistory.startDate.0`). Passed on as plain
+   * data: what a page calls its control often says which entry or part of the form it is.
+   */
+  identifier?: string;
   /** The control's native maxlength, when it sets one. */
   maxLength?: number;
   /** Short text the page shows after a text field: a character counter, a format hint. */
   notes?: string[];
+  /**
+   * A lone box's whole statement when its label had to be clipped: a consent or an
+   * acknowledgement says what it commits the applicant to only in its full text.
+   */
+  statement?: string;
   required: boolean;
+  /**
+   * A choice field's identity on the page (the radio group's name, scoped to its form),
+   * which a step carries so it is never acted on in another group.
+   */
+  group?: string;
   options?: string[];
   /**
    * The page holds its forward control disabled while this field is unanswered
@@ -39,6 +54,12 @@ export interface FormField {
   issue?: FieldIssueNote;
 }
 
+/** One earlier answer to a flagged field, and how its step went. */
+export interface FieldAttempt {
+  value: string;
+  result: string;
+}
+
 /**
  * What the page shows about a field it flags, gathered from every issue the field
  * answers (see @acorn/shared/field-issues): those issues' ids, the answer the field
@@ -46,6 +67,8 @@ export interface FormField {
  * field or shows beside it.
  */
 export interface FieldIssueNote {
+  /** Answers an earlier round gave this field that the page still flags, with how each step went. */
+  attempts?: FieldAttempt[];
   elementIndexes: number[];
   value: string;
   invalid: boolean;

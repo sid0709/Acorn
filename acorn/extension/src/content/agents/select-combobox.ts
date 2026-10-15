@@ -1,4 +1,5 @@
 import { traceFromPage } from "../../debug-trace";
+import { isA } from "../realm";
 
 import { chooseOption } from "./combobox/choose-option";
 import { decideAmongOptions, findExactOption } from "./combobox/match";
@@ -9,7 +10,12 @@ import {
   pickScopedOptions,
 } from "./combobox/options-dom";
 import { findLiveOption } from "./combobox/options-wait";
-import { dismissOpenOverlays, settlePopupClosed } from "./combobox/typing";
+import {
+  dismissOpenOverlays,
+  resolveTypeableInput,
+  restoreTypedValue,
+  settlePopupClosed,
+} from "./combobox/typing";
 import { comboboxWidgetRoot } from "./combobox/widget-value";
 import { resolveDropdownInteractionTarget } from "./enhanced-select";
 import { fillNativeSelect } from "./native-select";
@@ -104,11 +110,11 @@ export async function selectComboboxOption(
   { allowTypeahead = true, estimateQuery = false, estimate, searchFirst }: ComboboxFillOptions = {},
 ): Promise<string> {
   const requested = el as HTMLElement;
-  if (requested instanceof HTMLSelectElement) {
+  if (isA(requested, HTMLSelectElement)) {
     return fillNativeSelect(requested, value);
   }
   const html = resolveDropdownInteractionTarget(requested);
-  if (html instanceof HTMLSelectElement) {
+  if (isA(html, HTMLSelectElement)) {
     return fillNativeSelect(html, value);
   }
   const doc = html.ownerDocument || document;
@@ -136,6 +142,7 @@ export async function selectComboboxOption(
       )
       .join(" ") || null;
 
+  const heldBefore = resolveTypeableInput(html)?.value ?? null;
   const { match, options, kept } = await chooseOption(html, doc, value, fieldLabel, {
     allowTypeahead,
     estimateQuery,
@@ -146,6 +153,9 @@ export async function selectComboboxOption(
   if (!match && kept) return kept;
   if (!match) {
     dismissOpenOverlays(doc, html);
+    // The search emptied the box and typed its queries into it: what it held before is the
+    // field's answer, not the last query.
+    if (heldBefore != null) restoreTypedValue(html, heldBefore);
     throw new Error(
       `No combobox option matching "${value}" (saw: ${options
         .slice(0, 6)
@@ -171,11 +181,11 @@ export async function selectComboboxOption(
     label,
     closed,
     displayed,
-    inputValue: html instanceof HTMLInputElement ? html.value : undefined,
+    inputValue: isA(html, HTMLInputElement) ? html.value : undefined,
   }));
   const selected =
     displayed ||
-    (html instanceof HTMLInputElement && html.value) ||
+    (isA(html, HTMLInputElement) && html.value) ||
     html.getAttribute("data-value") ||
     optionText(deepest ?? match);
 

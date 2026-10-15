@@ -1,3 +1,5 @@
+import { traceFromBackground } from "./background/debug-trace-sink";
+
 function contentScriptFiles(): string[] {
   const files: string[] = [];
   for (const spec of chrome.runtime.getManifest().content_scripts ?? []) {
@@ -31,17 +33,32 @@ export function canInjectIntoUrl(url: string | undefined): boolean {
   }
 }
 
-export async function injectContentScripts(tabId: number, frameId?: number): Promise<void> {
+/** What one injection did: how many frames it reached, or why it could not. */
+export type InjectionResult = { frames: number; error: string | null };
+
+/**
+ * Put the content script in the tab's frames (a frame that already has a working one
+ * keeps it). A failure is returned and written to the tab's log, never swallowed: a
+ * page the script cannot reach is otherwise a run that waits on a listener that is not there.
+ */
+export async function injectContentScripts(
+  tabId: number,
+  frameId?: number,
+): Promise<InjectionResult> {
   const files = contentScriptFiles();
-  if (files.length === 0) return;
+  if (files.length === 0) return { frames: 0, error: "the manifest lists no content script" };
   try {
-    await chrome.scripting.executeScript({
+    const reached = await chrome.scripting.executeScript({
       target:
         typeof frameId === "number" ? { tabId, frameIds: [frameId] } : { tabId, allFrames: true },
       files,
     });
-  } catch {
-    /* restricted URL, closed tab, or already tearing down */
+    return { frames: reached.length, error: null };
+  } catch (err) {
+    // A closed tab or a restricted address is expected; anything else is evidence.
+    const error = err instanceof Error ? err.message : String(err);
+    traceFromBackground("inject:error", () => ({ tabId, frameId: frameId ?? "all", error }), tabId);
+    return { frames: 0, error };
   }
 }
 

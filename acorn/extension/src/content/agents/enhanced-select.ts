@@ -3,6 +3,10 @@
  * Vendor-agnostic: ARIA roles + id/sibling structure only.
  */
 
+import { isA } from "../realm";
+
+import { isListOpener } from "./combobox/list-opener";
+
 function isDisplayed(el: HTMLElement): boolean {
   if (el.getClientRects().length === 0) return false;
   const style = el.ownerDocument?.defaultView?.getComputedStyle(el);
@@ -13,7 +17,7 @@ function isDisplayed(el: HTMLElement): boolean {
 function comboboxCandidates(root: ParentNode, exclude?: HTMLElement): HTMLElement[] {
   return Array.from(root.querySelectorAll('[role="combobox"]')).filter(
     (node): node is HTMLElement => {
-      if (!(node instanceof HTMLElement) || node === exclude) return false;
+      if (!isA(node, HTMLElement) || node === exclude) return false;
       if (node.getAttribute("aria-hidden") === "true") return false;
       if (node.closest('[role="listbox"]')) return false;
       return true;
@@ -59,14 +63,15 @@ function pickPreferredCombobox(combos: HTMLElement[]): HTMLElement | null {
  * in the immediate field cell) — never a distant combobox in a large ancestor.
  */
 export function resolveDropdownInteractionTarget(el: HTMLElement): HTMLElement {
-  if (el instanceof HTMLSelectElement) {
+  if (isA(el, HTMLSelectElement)) {
     return findAssociatedCombobox(el) || el;
   }
+  // A button stamped as the opener of a list is the control a person uses.
+  if (isListOpener(el)) return el;
 
   const role = (el.getAttribute("role") || "").toLowerCase();
   const isSearchLike =
-    role === "combobox" &&
-    (el instanceof HTMLInputElement || el.getAttribute("aria-hidden") === "true");
+    role === "combobox" && (isA(el, HTMLInputElement) || el.getAttribute("aria-hidden") === "true");
 
   if (!isSearchLike && role === "combobox" && isDisplayed(el)) {
     return el;
@@ -76,7 +81,7 @@ export function resolveDropdownInteractionTarget(el: HTMLElement): HTMLElement {
   const parent = el.parentElement;
   if (parent) {
     const select = parent.querySelector("select");
-    if (select instanceof HTMLSelectElement) {
+    if (isA(select, HTMLSelectElement)) {
       const linked = findAssociatedCombobox(select);
       if (linked) return linked;
     }
@@ -88,7 +93,7 @@ export function resolveDropdownInteractionTarget(el: HTMLElement): HTMLElement {
   const grand = parent?.parentElement;
   if (grand) {
     const select = grand.querySelector("select");
-    if (select instanceof HTMLSelectElement) {
+    if (isA(select, HTMLSelectElement)) {
       const linked = findAssociatedCombobox(select);
       if (linked) return linked;
     }
@@ -160,7 +165,7 @@ function findAriaOwner(listbox: HTMLElement): HTMLElement | null {
   for (const node of Array.from(
     listbox.ownerDocument.querySelectorAll("[aria-owns], [aria-controls]"),
   )) {
-    if (!(node instanceof HTMLElement) || node === listbox) continue;
+    if (!isA(node, HTMLElement) || node === listbox) continue;
     const refs = [
       ...tokenIds(node.getAttribute("aria-owns")),
       ...tokenIds(node.getAttribute("aria-controls")),
@@ -181,7 +186,7 @@ function comboboxNearOwner(owner: HTMLElement, option: HTMLElement): HTMLElement
   const parent = owner.parentElement;
   if (!parent || parent.tagName === "BODY" || parent.tagName === "HTML") return null;
   const select = parent.querySelector("select");
-  if (select instanceof HTMLSelectElement) {
+  if (isA(select, HTMLSelectElement)) {
     const linked = findAssociatedCombobox(select);
     if (linked) return linked;
     const selects = parent.querySelectorAll("select");
@@ -202,7 +207,7 @@ function comboboxFromFieldRoot(
     return null;
   }
   const selects = Array.from(root.querySelectorAll("select")).filter(
-    (node): node is HTMLSelectElement => node instanceof HTMLSelectElement,
+    (node): node is HTMLSelectElement => isA(node, HTMLSelectElement),
   );
   if (selects.length === 1) {
     return findAssociatedCombobox(selects[0]) || selects[0];
@@ -227,9 +232,9 @@ function comboboxFromFieldRoot(
  */
 export function findComboboxForOption(option: HTMLElement): HTMLElement | null {
   const doc = option.ownerDocument || document;
-  if (option instanceof HTMLOptionElement) {
+  if (isA(option, HTMLOptionElement)) {
     const select = option.closest("select");
-    if (select instanceof HTMLSelectElement) {
+    if (isA(select, HTMLSelectElement)) {
       return findAssociatedCombobox(select) || select;
     }
   }
@@ -277,7 +282,7 @@ export function findComboboxForOption(option: HTMLElement): HTMLElement | null {
   const labelledBy = tokenIds(listbox?.getAttribute("aria-labelledby") || null);
   for (const id of labelledBy) {
     const node = doc.getElementById(id);
-    if (node instanceof HTMLElement) {
+    if (isA(node, HTMLElement)) {
       const role = (node.getAttribute("role") || "").toLowerCase();
       if (role === "combobox") return finish(node, "labelledby-combo");
       const nested = pickPreferredCombobox(comboboxCandidates(node, option));
@@ -285,7 +290,7 @@ export function findComboboxForOption(option: HTMLElement): HTMLElement | null {
     }
   }
 
-  if (listbox instanceof HTMLElement) {
+  if (isA(listbox, HTMLElement)) {
     const owner = findAriaOwner(listbox);
     if (owner) {
       const near = comboboxNearOwner(owner, option);
@@ -293,7 +298,7 @@ export function findComboboxForOption(option: HTMLElement): HTMLElement | null {
     }
   }
 
-  let node: HTMLElement | null = listbox instanceof HTMLElement ? listbox : option;
+  let node: HTMLElement | null = isA(listbox, HTMLElement) ? listbox : option;
   for (let depth = 0; depth < 8 && node; depth += 1) {
     const parent: HTMLElement | null = node.parentElement;
     if (!parent) break;

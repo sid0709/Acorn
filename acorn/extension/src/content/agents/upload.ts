@@ -1,5 +1,6 @@
 import { ACORN_ID_ATTR } from "../acorn-id";
 import { resolveElementByNodeId } from "../element-resolver";
+import { isA } from "../realm";
 
 import { chooseUploadFile } from "./upload-format";
 import { pageMentionsFilename, rememberFileSent, rememberUploadedFile } from "./upload-registry";
@@ -47,7 +48,7 @@ function applyFiles(input: HTMLInputElement, fileObj: File): string[] {
 
 function listFileInputs(doc: Document = document): HTMLInputElement[] {
   return Array.from(doc.querySelectorAll('input[type="file"]')).filter(
-    (node): node is HTMLInputElement => node instanceof HTMLInputElement && node.isConnected,
+    (node): node is HTMLInputElement => isA(node, HTMLInputElement) && node.isConnected,
   );
 }
 
@@ -99,7 +100,7 @@ async function waitForUploadEvidence(
 
     if (acornId) {
       const el = resolveElementByNodeId(Number(acornId));
-      if (el instanceof HTMLInputElement && el.type === "file" && (el.files?.length ?? 0) > 0) {
+      if (isA(el, HTMLInputElement) && el.type === "file" && (el.files?.length ?? 0) > 0) {
         return true;
       }
     }
@@ -169,12 +170,11 @@ async function persistUploadAcrossRemount(
   if (evidenced) {
     rememberUploadedFile(acornId, fileName);
     const resolved = acornId ? resolveElementByNodeId(Number(acornId)) : null;
-    const input =
-      resolved instanceof HTMLInputElement
-        ? resolved
-        : listFileInputs(doc).find((n) =>
-            Array.from(n.files ?? []).some((f) => f.name === fileName),
-          ) || target;
+    const input = isA(resolved, HTMLInputElement)
+      ? resolved
+      : listFileInputs(doc).find((n) =>
+          Array.from(n.files ?? []).some((f) => f.name === fileName),
+        ) || target;
     return { names: [fileName], input };
   }
 
@@ -190,7 +190,7 @@ export async function uploadFileToElement(
   file: RuntimeAttachedFile,
   wanted?: string | null,
 ): Promise<string> {
-  if (!(el instanceof HTMLInputElement) || el.type !== "file") {
+  if (!isA(el, HTMLInputElement) || el.type !== "file") {
     throw new Error(`Upload target is not a file input (got <${el.tagName.toLowerCase()}>)`);
   }
 

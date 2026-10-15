@@ -1,5 +1,8 @@
+import { ELEMENT_NOT_FOUND } from "@acorn/shared/plan-runner/types";
+
 import { resolveElementByNodeId } from "./element-resolver";
 import { fieldLabel, fieldWrapper, groupMembers } from "./form-dom";
+import { isA } from "./realm";
 import { associatedControl, labelCandidates } from "./verify/element-labels";
 import { inferRole, roleMatches } from "./verify/element-role";
 import { labelMatches } from "./verify/label-match";
@@ -22,7 +25,7 @@ export function verifyElementByPlan(
     return {
       ok: false,
       element: null,
-      error: `Element not found for index ${elementIndex}`,
+      error: `${ELEMENT_NOT_FOUND} ${elementIndex}`,
     };
   }
 
@@ -64,8 +67,7 @@ export function verifyElementByPlan(
  * read the same way the field scan reads it.
  */
 function groupQuestionLabel(el: Element): string[] {
-  if (!(el instanceof HTMLInputElement) || (el.type !== "radio" && el.type !== "checkbox"))
-    return [];
+  if (!isA(el, HTMLInputElement) || (el.type !== "radio" && el.type !== "checkbox")) return [];
   const members = groupMembers(el);
   if (members.length < 2) return [];
   const question = fieldLabel(el, members, fieldWrapper(el));

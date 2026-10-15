@@ -1,9 +1,11 @@
 /**
  * Per-tab log of what the pipeline did on that page: the compressed tree, the meta
- * tree, the analysis, the model request and response, the plan, the steps. The
- * service worker appends; the sidebar's Logs tab reads. Every entry is kept whole,
- * with no cap on their number or size: they live in the extension's own IndexedDB
- * (with unlimited storage), never leave the machine, and go when the tab closes.
+ * tree, the analysis, every backend call with its request and answer, the decisions
+ * the run took and why, the plan, the steps. The service worker appends; the
+ * sidebar's Logs tab reads. Every entry is kept whole: they live in the extension's
+ * own IndexedDB (with unlimited storage), leave the machine only when the person
+ * submits a support report, and go when the tab closes. Each tab keeps its last
+ * LOG_KEEP_RUNS runs and at most LOG_TAB_MAX_CHARS of text, oldest runs first out.
  */
 
 export const LOG_KIND = {
@@ -15,11 +17,36 @@ export const LOG_KIND = {
   aiResponse: "ai-response",
   plan: "plan",
   event: "event",
+  /** One backend call: what was sent, what came back, how long it took. */
+  api: "api",
+  /** A choice the run made (or refused to make) and the evidence for it. */
+  decision: "decision",
+  /** Something that failed and was caught: the run went on, the log says what. */
+  error: "error",
 } as const;
 
 export type LogKind = (typeof LOG_KIND)[keyof typeof LOG_KIND];
 
-export type TabLogEntry = {
+export const LOG_LEVEL = { info: "info", warn: "warn", error: "error" } as const;
+
+export type LogLevel = (typeof LOG_LEVEL)[keyof typeof LOG_LEVEL];
+
+/** What ties an entry to the rest of the story; all optional. */
+export type LogMeta = {
+  level?: LogLevel;
+  /** The Run it belongs to; stamped from the tab's current run when the caller omits it. */
+  runId?: string;
+  /** The Run's step counter when it was written. */
+  step?: number;
+  /** The Run's page counter when it was written. */
+  page?: number;
+  /** How long the thing logged took, in milliseconds. */
+  ms?: number;
+  /** Entries that are one story (a call's request, answer, and the decision it led to) share a group. */
+  group?: string;
+};
+
+export type TabLogEntry = LogMeta & {
   id: string;
   t: number;
   kind: LogKind;
@@ -29,11 +56,14 @@ export type TabLogEntry = {
 };
 
 /** What a caller hands over; the store stamps `id` and `t`. */
-export type TabLogInput = Pick<TabLogEntry, "kind" | "title" | "text">;
+export type TabLogInput = Pick<TabLogEntry, "kind" | "title" | "text"> & LogMeta;
 
 /** What one write tells the sidebar: the entries a tab gained, or that its log was cleared. */
 export type TabLogChange =
-  { tabId: number; added: TabLogEntry[] } | { tabId: number; cleared: true };
+  | { tabId: number; added: TabLogEntry[] }
+  | { tabId: number; cleared: true }
+  /** A batch could not be written: how many entries were lost. */
+  | { tabId: number; lost: number };
 
 const DB_NAME = "acorn-tab-log";
 const DB_VERSION = 1;
@@ -44,6 +74,14 @@ const BY_TAB = "byTab";
 const CHANGE_CHANNEL = "acorn-tab-log";
 /** Entries wait this long to be written together, so a burst of step events is one write. */
 const LOG_FLUSH_MS = 250;
+/** A failed write is tried once more after this long before its entries are given up. */
+const LOG_RETRY_MS = 500;
+/** The runs a tab's log keeps; older runs' entries are dropped. */
+const LOG_KEEP_RUNS = 5;
+/** The most text a tab's log keeps, counted in characters; oldest runs first out. */
+const LOG_TAB_MAX_CHARS = 50 * 1024 * 1024;
+/** A tab's log is checked against those limits after this many written batches. */
+const LOG_PRUNE_EVERY_BATCHES = 40;
 /** Where the log lived before (session storage): its leftovers are removed once. */
 const LEGACY_SESSION_PREFIX = "acornTabLog:";
 
@@ -116,43 +154,110 @@ type PendingEntry = Omit<TabLogEntry, "text"> & { text: () => string };
 const pending = new Map<number, PendingEntry[]>();
 let timer: ReturnType<typeof setTimeout> | null = null;
 let sequence = 0;
+const batchesSincePrune = new Map<number, number>();
+
+/**
+ * The Run in progress on each tab: every entry written for the tab while it runs
+ * (the page's own traces, backend calls, the trees) is stamped with it, so the log
+ * reads as one story per run.
+ */
+const runContexts = new Map<number, Pick<LogMeta, "runId" | "step" | "page">>();
+
+/** Set (or, with null, end) the run whose entries a tab's log is stamping. */
+export function setRunContext(
+  tabId: number,
+  context: Pick<LogMeta, "runId" | "step" | "page"> | null,
+): void {
+  if (context) runContexts.set(tabId, { ...runContexts.get(tabId), ...context });
+  else runContexts.delete(tabId);
+}
+
+/** Tabs a run is on now, for entries that belong to no tab in particular. */
+export function tabsWithRunContext(): number[] {
+  return [...runContexts.keys()];
+}
 
 function built(entry: PendingEntry): TabLogEntry {
   return { ...entry, text: entry.text() };
 }
 
-async function flushTab(tabId: number, queued: PendingEntry[]): Promise<void> {
-  const added = queued.map(built);
+async function writeBatch(tabId: number, added: TabLogEntry[]): Promise<void> {
   const db = await openDatabase();
   const write = db.transaction(ENTRY_STORE, "readwrite");
   const store = write.objectStore(ENTRY_STORE);
   for (const entry of added) store.add({ ...entry, tabId } satisfies StoredEntry);
   await done(write);
-  announce({ tabId, added });
 }
 
-function flushAll(): void {
-  timer = null;
-  const batches = [...pending];
-  pending.clear();
-  for (const [tabId, added] of batches) {
-    // Best effort: a failed write drops this batch and never stops a run.
-    void flushTab(tabId, added).catch(() => undefined);
+async function flushTab(tabId: number, queued: PendingEntry[]): Promise<void> {
+  const added = queued.map(built);
+  try {
+    await writeBatch(tabId, added);
+  } catch {
+    // Once more, shortly after: a transient storage error should not cost the batch.
+    await new Promise((resolve) => setTimeout(resolve, LOG_RETRY_MS));
+    try {
+      await writeBatch(tabId, added);
+    } catch {
+      // Never stops a run, but the sidebar is told entries were lost.
+      announce({ tabId, lost: added.length });
+      return;
+    }
+  }
+  announce({ tabId, added });
+  const batches = (batchesSincePrune.get(tabId) ?? 0) + 1;
+  batchesSincePrune.set(tabId, batches);
+  if (batches >= LOG_PRUNE_EVERY_BATCHES) {
+    batchesSincePrune.set(tabId, 0);
+    void pruneTabLog(tabId).catch(() => undefined);
   }
 }
 
-function queue(tabId: number, kind: LogKind, title: string, text: () => string): void {
+function flushAll(): Promise<unknown> {
+  timer = null;
+  const batches = [...pending];
+  pending.clear();
+  // Best effort: a failed write never stops a run.
+  return Promise.all(
+    batches.map(([tabId, added]) => flushTab(tabId, added).catch(() => undefined)),
+  );
+}
+
+/** Write what is queued now (the service worker is about to be suspended, or a report is filed). */
+export async function flushTabLogs(): Promise<void> {
+  if (timer) clearTimeout(timer);
+  await flushAll();
+}
+
+function queue(
+  tabId: number,
+  kind: LogKind,
+  title: string,
+  text: () => string,
+  meta: LogMeta = {},
+): void {
   const t = Date.now();
   sequence += 1;
-  const entry: PendingEntry = { kind, title, text, id: `${t}-${sequence}`, t };
+  const context = runContexts.get(tabId);
+  const entry: PendingEntry = {
+    ...context,
+    level: LOG_LEVEL.info,
+    ...meta,
+    kind,
+    title,
+    text,
+    id: `${t}-${sequence}`,
+    t,
+  };
   pending.set(tabId, [...(pending.get(tabId) ?? []), entry]);
-  timer ??= setTimeout(flushAll, LOG_FLUSH_MS);
+  timer ??= setTimeout(() => void flushAll(), LOG_FLUSH_MS);
 }
 
 /** Queue one entry for a tab's log. */
 export function appendTabLog(tabId: number | undefined, input: TabLogInput): void {
   if (tabId == null) return;
-  queue(tabId, input.kind, input.title, () => input.text);
+  const { kind, title, text, ...meta } = input;
+  queue(tabId, kind, title, () => text, meta);
 }
 
 /**
@@ -164,19 +269,87 @@ export function logTab(
   kind: LogKind,
   title: string,
   build: () => unknown,
+  meta?: LogMeta,
 ): void {
   if (tabId == null) return;
-  queue(tabId, kind, title, () => {
-    try {
-      return toLogText(build());
-    } catch (err) {
-      return `(could not render: ${String(err)})`;
+  queue(
+    tabId,
+    kind,
+    title,
+    () => {
+      try {
+        return toLogText(build());
+      } catch (err) {
+        return `(could not render: ${String(err)})`;
+      }
+    },
+    meta,
+  );
+}
+
+/**
+ * Keep a tab's log inside its limits: the last LOG_KEEP_RUNS runs, and at most
+ * LOG_TAB_MAX_CHARS of text. Entries of no run (before the first one) are the oldest.
+ */
+export async function pruneTabLog(tabId: number): Promise<void> {
+  const entries = await getTabLog(tabId);
+  const doomed = entriesToPrune(entries, LOG_KEEP_RUNS, LOG_TAB_MAX_CHARS);
+  if (!doomed.size) return;
+  const db = await openDatabase();
+  const write = db.transaction(ENTRY_STORE, "readwrite");
+  const store = write.objectStore(ENTRY_STORE);
+  const cursor = store.index(BY_TAB).openCursor(IDBKeyRange.only(tabId));
+  cursor.onsuccess = () => {
+    const at = cursor.result;
+    if (!at) return;
+    if (doomed.has((at.value as StoredEntry).id)) at.delete();
+    at.continue();
+  };
+  await done(write);
+  announce({ tabId, cleared: true });
+  announce({ tabId, added: entries.filter((entry) => !doomed.has(entry.id)) });
+}
+
+/**
+ * Which entries to drop: whole runs, oldest first, until at most `keepRuns` runs
+ * remain and the rest fits `maxChars`. The newest run is never dropped.
+ */
+export function entriesToPrune(
+  entries: readonly TabLogEntry[],
+  keepRuns: number,
+  maxChars: number,
+): Set<string> {
+  const runs: { id: string | undefined; ids: string[]; chars: number; last: number }[] = [];
+  const byRun = new Map<string | undefined, (typeof runs)[number]>();
+  for (const entry of entries) {
+    let run = byRun.get(entry.runId);
+    if (!run) {
+      run = { id: entry.runId, ids: [], chars: 0, last: 0 };
+      byRun.set(entry.runId, run);
+      runs.push(run);
     }
-  });
+    run.ids.push(entry.id);
+    run.chars += entry.text.length + entry.title.length;
+    run.last = Math.max(run.last, entry.t);
+  }
+  runs.sort((a, b) => a.last - b.last);
+  const doomed = new Set<string>();
+  let total = runs.reduce((sum, run) => sum + run.chars, 0);
+  let kept = runs.length;
+  for (const run of runs) {
+    if (kept <= 1) break;
+    if (kept <= keepRuns && total <= maxChars) break;
+    for (const id of run.ids) doomed.add(id);
+    total -= run.chars;
+    kept -= 1;
+  }
+  return doomed;
 }
 
 export async function clearTabLog(tabId: number): Promise<void> {
   pending.delete(tabId);
+  runContexts.delete(tabId);
+  batchesSincePrune.delete(tabId);
   const db = await openDatabase();
   const write = db.transaction(ENTRY_STORE, "readwrite");
   const index = write.objectStore(ENTRY_STORE).index(BY_TAB);
@@ -198,6 +371,11 @@ export async function clearTabLog(tabId: number): Promise<void> {
  */
 export async function moveTabLog(from: number, to: number): Promise<void> {
   if (from === to) return;
+  const context = runContexts.get(from);
+  if (context) {
+    runContexts.delete(from);
+    runContexts.set(to, context);
+  }
   const queued = pending.get(from);
   if (queued) {
     pending.delete(from);

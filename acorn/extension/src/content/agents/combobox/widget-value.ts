@@ -1,3 +1,5 @@
+import { isA } from "../../realm";
+
 import { looksLikePlaceholderInk } from "./text-contrast";
 
 /**
@@ -75,6 +77,9 @@ export function comboboxWidgetRoot(control: Element): Element {
   let node = control.parentElement;
   for (let depth = 0; node && depth < WIDGET_ROOT_MAX_DEPTH; depth += 1) {
     if (node === node.ownerDocument.body || node.tagName === "FORM") break;
+    // A label that wraps the control is the field's caption, never its widget chrome: reading
+    // from inside it, every word of the value would sit under a caption and be taken for one.
+    if (node.matches(FIELD_CAPTION_SELECTOR)) break;
     if (node.querySelector(FIELD_CAPTION_SELECTOR)) break;
     if (labels.some((label) => node!.contains(label))) break;
     if (holdsForeignControl(node, control)) break;
@@ -86,13 +91,13 @@ export function comboboxWidgetRoot(control: Element): Element {
 
 function isValueTextHost(el: Element, control: Element, excluded: Element[]): boolean {
   if (excluded.some((skip) => skip === el)) return false;
-  if (el instanceof HTMLSelectElement || el instanceof HTMLTemplateElement) return false;
+  if (isA(el, HTMLSelectElement) || isA(el, HTMLTemplateElement)) return false;
   if (el.matches(FIELD_CAPTION_SELECTOR)) return false;
   if (el.hasAttribute("aria-live")) return false;
   const role = (el.getAttribute("role") || "").toLowerCase();
   if (NON_VALUE_ROLES.has(role)) return false;
   // Clear / toggle buttons beside the value; a button that *is* the control keeps its text.
-  const isButton = el instanceof HTMLButtonElement || role === "button";
+  const isButton = isA(el, HTMLButtonElement) || role === "button";
   if (isButton && el !== control && !el.contains(control)) return false;
   if (!isRendered(el)) return false;
   const rect = el.getBoundingClientRect();

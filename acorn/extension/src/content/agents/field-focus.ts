@@ -1,3 +1,4 @@
+import { isA } from "../realm";
 /**
  * Enter and leave a field the way a person does. Many forms only take a typed
  * value when the field loses focus (their required check runs then), and listen
@@ -32,10 +33,10 @@ export function leaveField(el: HTMLElement): void {
  * answer until an option is chosen.
  */
 export function isSearchBox(el: Element): boolean {
-  if (!(el instanceof HTMLElement)) return false;
+  if (!isA(el, HTMLElement)) return false;
   if ((el.getAttribute("role") || "").toLowerCase() === "searchbox") return true;
   if ((el.getAttribute("enterkeyhint") || "").toLowerCase() === "search") return true;
-  return el instanceof HTMLInputElement && el.type.toLowerCase() === "search";
+  return isA(el, HTMLInputElement) && el.type.toLowerCase() === "search";
 }
 
 /** Press Enter in the field, as a person does to run its search. */

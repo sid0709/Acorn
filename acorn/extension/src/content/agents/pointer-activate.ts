@@ -1,3 +1,5 @@
+import { isA } from "../realm";
+
 import { rememberLookBeforeClick } from "./choice-state";
 
 /** Pointer + click sequence so React/pointer handlers see an activation. */
@@ -26,16 +28,16 @@ function normalize(text: string): string {
  * wins, which silently answers "Yes" to every question the plan answered "No".
  */
 export function visibleActivateTarget(el: HTMLElement, intended?: string | null): HTMLElement {
-  if (el instanceof HTMLInputElement && (el.type === "radio" || el.type === "checkbox")) {
+  if (isA(el, HTMLInputElement) && (el.type === "radio" || el.type === "checkbox")) {
     if (hasClickableBox(el)) return el;
     const doc = el.ownerDocument;
     const labelled = el.id ? doc.querySelector(`label[for="${CSS.escape(el.id)}"]`) : null;
-    if (labelled instanceof HTMLElement && hasClickableBox(labelled)) return labelled;
+    if (isA(labelled, HTMLElement) && hasClickableBox(labelled)) return labelled;
     const wrap = el.closest("label");
-    if (wrap instanceof HTMLElement && hasClickableBox(wrap)) return wrap;
+    if (isA(wrap, HTMLElement) && hasClickableBox(wrap)) return wrap;
     const siblings = Array.from(
       el.parentElement?.querySelectorAll('button, [role="button"], [role="radio"]') ?? [],
-    ).filter((node): node is HTMLElement => node instanceof HTMLElement && hasClickableBox(node));
+    ).filter((node): node is HTMLElement => isA(node, HTMLElement) && hasClickableBox(node));
     const want = normalize(intended || "");
     const byLabel = want
       ? siblings.find((node) => normalize(node.innerText || node.textContent || "") === want)
@@ -58,7 +60,7 @@ function landingPoint(target: HTMLElement): HTMLElement {
   if (rect.width <= 0 || rect.height <= 0) return target;
   const root = target.getRootNode() as Document | ShadowRoot;
   const top = root.elementFromPoint?.(rect.left + rect.width / 2, rect.top + rect.height / 2);
-  return top instanceof HTMLElement && top !== target && target.contains(top) ? top : target;
+  return isA(top, HTMLElement) && top !== target && target.contains(top) ? top : target;
 }
 
 export function pointerActivate(el: HTMLElement, intended?: string | null): void {

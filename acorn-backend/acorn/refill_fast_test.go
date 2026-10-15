@@ -182,8 +182,10 @@ func TestRefillFlaggedLeavesHelpTextAlone(t *testing.T) {
 	if result.RefillPlanner != RefillPlannerFast || len(planActions(result.Plan)) != 0 {
 		t.Fatalf("planner %q planned %v, want nothing", result.RefillPlanner, planActions(result.Plan))
 	}
-	if strings.Contains(decider.textItems[8], answer) {
-		t.Fatalf("the decision model read the field's answer: %q", decider.textItems[8])
+	// Whether a rule's text refuses depends on the answer it is about, so the model is shown
+	// the answer the field holds (bounded), next to the text.
+	if !strings.Contains(decider.textItems[8], answer) {
+		t.Fatalf("the decision model was not shown the field's answer: %q", decider.textItems[8])
 	}
 	if len(model.calls) != 0 {
 		t.Fatalf("the text model was called %d times, want none", len(model.calls))
@@ -251,5 +253,48 @@ func TestRefillFlaggedPlansTheConversationWhenTheTextCannotBeRead(t *testing.T) 
 
 	if result.RefillPlanner != RefillPlannerConversation {
 		t.Fatalf("planner = %q, want the conversation", result.RefillPlanner)
+	}
+}
+
+// A field answered before that the page still flags is not planned again the way the
+// last round planned it: the conversation is told what was tried and how it went.
+func TestRefillFlaggedPlansAFieldAnsweredBeforeInTheConversationWithWhatFailed(t *testing.T) {
+	model := &fakeModel{replies: []string{conversationPlan}}
+	visa := func() (FormField, FieldIssue) {
+		field, issue := flagged(
+			FormField{ElementIndex: 142, Kind: "radio", Label: "Will you require sponsorship?", Required: true, Options: []string{"Yes", "No"}},
+			FieldIssue{Role: "radio", Required: true, Invalid: true, LinkedMessages: []string{"Please select one of these options."}})
+		field.Issue.Attempts = []FieldAttempt{
+			{Value: "Yes", Result: "ok"},
+			{Value: "No", Result: "ok"},
+		}
+		return field, issue
+	}
+	// The decision model could answer this field in one call; it must not be asked.
+	decider := &refillDecider{picks: map[int][]string{142: {"Yes"}}}
+	result := refill(t, model, decider, visa)
+
+	if result.RefillPlanner != RefillPlannerConversation {
+		t.Fatalf("planner = %q, want the conversation for a field answered before", result.RefillPlanner)
+	}
+	if len(model.calls) != 1 {
+		t.Fatalf("text model calls = %d, want the one conversation call", len(model.calls))
+	}
+	for _, want := range []string{"answered before", "Will you require sponsorship?", `"value": "Yes"`, `"value": "No"`, "another control"} {
+		if !strings.Contains(model.calls[0], want) {
+			t.Errorf("prompt does not contain %q:\n%s", want, model.calls[0])
+		}
+	}
+}
+
+func TestTriedFieldsListsOnlyFieldsWithEarlierAttempts(t *testing.T) {
+	fields := []FormField{
+		{ElementIndex: 1, Label: "Fresh", Issue: &FieldIssueNote{}},
+		{ElementIndex: 2, Label: "Tried", Issue: &FieldIssueNote{Attempts: []FieldAttempt{{Value: "x", Result: "ok"}}}},
+		{ElementIndex: 3, Label: "No issue"},
+	}
+	tried := triedFields(fields)
+	if len(tried) != 1 || tried[0].Field != "Tried" {
+		t.Fatalf("tried = %+v, want only the field with attempts", tried)
 	}
 }

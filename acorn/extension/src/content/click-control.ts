@@ -1,5 +1,6 @@
 import { pointerActivate } from "./agents/pointer-activate";
 import { resolveElementByNodeId } from "./element-resolver";
+import { isA } from "./realm";
 import { shadowDelegate } from "./shadow-control";
 
 /** The click lands after the reply, so a click that navigates cannot swallow the answer. */
@@ -33,7 +34,7 @@ function clickTarget(el: HTMLElement): HTMLElement {
   if (box.width <= 0 || box.height <= 0) return el;
   const root = el.getRootNode() as Document | ShadowRoot;
   const top = root.elementFromPoint?.(box.left + box.width / 2, box.top + box.height / 2);
-  if (!(top instanceof HTMLElement) || top === el || el.contains(top) || top.contains(el)) {
+  if (!isA(top, HTMLElement) || top === el || el.contains(top) || top.contains(el)) {
     return el;
   }
   const layer = top.getBoundingClientRect();
@@ -58,7 +59,7 @@ export function prepareControlClick(
   schedule: (click: () => void) => void,
 ): ClickControlResult {
   const el = resolveElementByNodeId(nodeId);
-  if (!(el instanceof HTMLElement)) {
+  if (!isA(el, HTMLElement)) {
     return { ok: false, error: "Control not found on the page" };
   }
   const text = (el.innerText || el.textContent || el.getAttribute("aria-label") || "")

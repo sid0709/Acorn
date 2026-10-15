@@ -1,3 +1,4 @@
+import { isA } from "../realm";
 /** ARIA roles whose accessible name is the option label, not a filled value. */
 const CHOICE_ROLES = ["option", "radio", "checkbox", "switch"] as const;
 
@@ -12,8 +13,8 @@ function choiceRole(el: Element): string {
  * A label match is only a filled answer when the widget is selected.
  */
 export function isChoiceWidget(el: Element): boolean {
-  if (el instanceof HTMLOptionElement || el instanceof HTMLButtonElement) return true;
-  if (el instanceof HTMLInputElement && (el.type === "checkbox" || el.type === "radio")) {
+  if (isA(el, HTMLOptionElement) || isA(el, HTMLButtonElement)) return true;
+  if (isA(el, HTMLInputElement) && (el.type === "checkbox" || el.type === "radio")) {
     return true;
   }
   const role = choiceRole(el);
@@ -41,8 +42,8 @@ export function rememberLookBeforeClick(el: Element): void {
  * (a styled button), so the caller cannot mistake "unknown" for "not chosen".
  */
 function readableState(el: Element): boolean | null {
-  if (el instanceof HTMLOptionElement) return el.selected;
-  if (el instanceof HTMLInputElement && (el.type === "checkbox" || el.type === "radio")) {
+  if (isA(el, HTMLOptionElement)) return el.selected;
+  if (isA(el, HTMLInputElement) && (el.type === "checkbox" || el.type === "radio")) {
     return el.checked;
   }
   const html = el as HTMLElement;
@@ -51,7 +52,7 @@ function readableState(el: Element): boolean | null {
     if (value === ARIA_TRUE) return true;
     if (value === "false") return false;
   }
-  if (el instanceof HTMLLabelElement && el.control) return readableState(el.control);
+  if (isA(el, HTMLLabelElement) && el.control) return readableState(el.control);
   const inner = el.querySelector?.('input[type="checkbox"], input[type="radio"]');
   return inner ? readableState(inner) : null;
 }

@@ -32,6 +32,12 @@ export interface DomTreePayload {
   scope?: OpenScope | null;
   /** Where the page's own time went while it answered this read. */
   timings?: DomReadTimings;
+  /**
+   * The other frames of the tab that answered this read, when no frame held a form: the page
+   * lives in whichever frame carries its copy, and what the others say (a banner, a message)
+   * is part of what the page says. Their node ids are their own: only text is read from them.
+   */
+  otherFrames?: { frameId: number; url: string; title: string; tree: DomNode }[];
 }
 
 /** Milliseconds a frame spent on each part of one read, logged with the read. */
@@ -89,6 +95,8 @@ export const MSG = {
   EXECUTE_ACTIONS: "acorn:execute-actions",
   PLAN_STEP: "acorn:plan-step",
   MATCH_OPTION: "acorn:match-option",
+  /** A field that refused a script's value: type it with the browser's own input events. */
+  TYPE_TRUSTED: "acorn:type-trusted",
   /** A long dropdown with no planned answer: ask the writer for one to type as a search. */
   ESTIMATE_OPTION: "acorn:estimate-option",
   FILL_LEFTOVER_COMBOS: "acorn:fill-leftover-combos",
@@ -233,6 +241,11 @@ export interface PlanStepPayload {
   ms: number | null;
   /** Refill: act even when the control already shows the value, since the page rejected it. */
   force?: boolean;
+  /**
+   * The choice group the plan named (FormField.group). The control a step resolves to,
+   * and the control it acts on, must belong to it; a step never answers another question.
+   */
+  expected_group?: string | null;
 }
 
 export interface PlanStepSocketPayload {

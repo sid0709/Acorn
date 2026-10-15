@@ -1,4 +1,5 @@
 import { PAGE_KIND, RUN_OUTCOME, RUN_STAGE, type MailRow } from "@acorn/shared/run-types";
+import { describeRunFailure } from "@acorn/shared/user-messages";
 import { Badge, Button, Card, Glyph, HStack, ProgressBar, Text, VStack } from "sid-ui";
 
 import { customTabResumeLine, hostOf } from "./custom-tab-resume";
@@ -207,6 +208,7 @@ function RunStatus({ progress }: { progress: PipelineProgress }) {
     </>
   );
   if (failure) {
+    const said = describeRunFailure(failure);
     return (
       <VStack gap={1}>
         {timer}
@@ -214,9 +216,15 @@ function RunStatus({ progress }: { progress: PipelineProgress }) {
           <Badge variant="error" label="Run stopped" />
         </HStack>
         <Text type="supporting" weight="semibold">
-          {failure.label}
+          {said.title}
         </Text>
-        {failure.detail ? <Text type="supporting">{failure.detail}</Text> : null}
+        {said.detail ? <Text type="supporting">{said.detail}</Text> : null}
+        {said.technical && said.technical !== said.title ? (
+          <details className="run-failure-details">
+            <summary>Details</summary>
+            <Text type="supporting">{said.technical}</Text>
+          </details>
+        ) : null}
         {extras}
       </VStack>
     );

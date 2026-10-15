@@ -1,6 +1,6 @@
 import { authHeaders, getAcornApiUrl } from "../../auth/acorn-auth";
 
-import { extractError, isNestMissingRoute, readId, readInputId } from "./http";
+import { apiError, isNestMissingRoute, readId, readInputId } from "./http";
 
 import type { GenerateEnqueueCheckpoint } from "@acorn/shared/generate-checkpoint";
 
@@ -45,7 +45,7 @@ export async function extractCustomJd(
     throw new Error(CUSTOM_EXTRACT_JD_UNAVAILABLE);
   }
   if (!res.ok) {
-    throw new Error(extractError(data, `JD extract failed: ${res.status}`));
+    throw apiError(res, data, `JD extract failed: ${res.status}`);
   }
   const jobDescription =
     data.jobDescription == null ? null : String(data.jobDescription).trim() || null;
@@ -101,7 +101,7 @@ export async function enqueueCustomGenerate(
     throw new Error(CUSTOM_EDITOR_UNAVAILABLE);
   }
   if (!res.ok) {
-    throw new Error(extractError(data, `Generate failed: ${res.status}`));
+    throw apiError(res, data, `Generate failed: ${res.status}`);
   }
   const inputId = readInputId(data);
   if (!inputId) throw new Error("Generate did not return an input id");
@@ -148,7 +148,7 @@ export async function continueCustomGenerate(
     };
     if (!isNestMissingRoute(res.status, data)) {
       if (!res.ok) {
-        throw new Error(extractError(data, `Continue generate failed: ${res.status}`));
+        throw apiError(res, data, `Continue generate failed: ${res.status}`);
       }
       const inputId = readInputId(data) || existingId;
       if (!inputId) throw new Error("Continue did not return an input id");
@@ -203,7 +203,7 @@ export async function pollCustomGenerate(
     throw new Error(CUSTOM_EDITOR_UNAVAILABLE);
   }
   if (!res.ok && res.status !== 202) {
-    throw new Error(extractError(data, `Generate status failed: ${res.status}`));
+    throw apiError(res, data, `Generate status failed: ${res.status}`);
   }
   const result = data.result && typeof data.result === "object" ? data.result : null;
   return {

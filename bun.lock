@@ -80,7 +80,7 @@
     },
     "acorn/extension": {
       "name": "acorn-extension",
-      "version": "1.55.0",
+      "version": "1.58.0",
       "dependencies": {
         "@acorn/app-theme": "workspace:*",
         "@acorn/face": "workspace:*",

@@ -1,4 +1,5 @@
 import { formatDuration, formatUsd } from "@acorn/shared/ai-usage";
+import { describeError } from "@acorn/shared/user-messages";
 
 import type { PipelineProgress } from "@acorn/shared/pipeline-types";
 
@@ -11,7 +12,13 @@ export function formatProgressStatus(progress: PipelineProgress): string {
     progress.usage
       ? `AI: ${formatUsd(progress.usage.costUsd)} · ${progress.usage.totalTokens || 0} tok`
       : null,
-    progress.error ? `Error: ${progress.error}` : null,
+    progress.error
+      ? describeError({
+          code: progress.errorCode,
+          status: progress.errorStatus,
+          message: progress.error,
+        }).title
+      : null,
   ]
     .filter(Boolean)
     .join(" · ");

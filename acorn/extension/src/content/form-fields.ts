@@ -22,6 +22,7 @@ import {
   ACORN_ID_ATTR,
   MAX_TEXT_CHARS,
   NAMED_GROUP_SELECTOR,
+  carriesWords,
   choiceGroupKey,
   clip,
   fieldLabel,
@@ -30,6 +31,7 @@ import {
   groupMembers,
   groupQuestion,
   isRequired,
+  questionBeforeGroup,
   isPersonFacing,
   normalize,
   queryDeep,
@@ -38,6 +40,7 @@ import {
   wrapperTexts,
 } from "./form-dom";
 import { FILLABLE_SELECTOR } from "./form-frame";
+import { isA } from "./realm";
 import { labelCandidates } from "./verify/element-labels";
 import { inferRole } from "./verify/element-role";
 
@@ -46,6 +49,8 @@ import type { FormField } from "@acorn/shared/form-fields";
 const MAX_FORM_FIELDS = 150;
 /** Texts after a text field kept as its notes (a counter, a format hint). */
 const TEXT_FIELD_NOTES = 2;
+/** The longest statement a lone box sends whole: a privacy notice runs to a paragraph. */
+const TOGGLE_STATEMENT_MAX_CHARS = 1500;
 /** Short texts beside a file input that describe what it takes. */
 const FILE_HINT_TEXTS = 3;
 /** Native input types a person types into. A password box takes the account password. */
@@ -93,9 +98,8 @@ function attr(el: Element, name: string): string | undefined {
 function textAttrs(
   el: Element,
   label: string,
-): Pick<FormField, "autocomplete" | "placeholder" | "name" | "maxLength" | "notes"> {
-  const maxLength =
-    el instanceof HTMLInputElement || el instanceof HTMLTextAreaElement ? el.maxLength : -1;
+): Pick<FormField, "autocomplete" | "placeholder" | "name" | "identifier" | "maxLength" | "notes"> {
+  const maxLength = isA(el, HTMLInputElement) || isA(el, HTMLTextAreaElement) ? el.maxLength : -1;
   const notes = wrapperTexts(
     el,
     fieldWrapper(el),
@@ -106,16 +110,33 @@ function textAttrs(
     autocomplete: attr(el, "autocomplete"),
     placeholder: attr(el, "placeholder"),
     name: attr(el, "name"),
+    identifier: attr(el, "id"),
     maxLength: maxLength > 0 ? maxLength : undefined,
     notes: notes.length ? notes : undefined,
   };
+}
+
+/**
+ * What a choice field (a select, a lone box) shows beyond its label: its own id, and the
+ * text the page puts after it in its own wrapper. A box labelled "Signature" is told apart
+ * from one that states something untrue by the line under it ("… equivalent to a
+ * handwritten signature"), and a "Month" select by an id that says it is a date's month.
+ */
+function choiceAttrs(el: Element, label: string): Pick<FormField, "identifier" | "notes"> {
+  const notes = wrapperTexts(
+    el,
+    fieldWrapper(el),
+    Node.DOCUMENT_POSITION_FOLLOWING,
+    new Set([normalize(label)]),
+  ).slice(0, TEXT_FIELD_NOTES);
+  return { identifier: attr(el, "id"), notes: notes.length ? notes : undefined };
 }
 
 /** Short visible option buttons in a field box. */
 function optionButtons(root: ParentNode): HTMLElement[] {
   return Array.from(root.querySelectorAll(BUTTON_SELECTOR)).filter(
     (el): el is HTMLElement =>
-      el instanceof HTMLElement &&
+      isA(el, HTMLElement) &&
       // Only an explicit submit is a submit: a bare <button> defaults to type=submit.
       el.getAttribute("type")?.toLowerCase() !== "submit" &&
       hasClickableBox(el) &&
@@ -161,6 +182,16 @@ function toggleLabel(control: Element, own: string): string {
   return own ? `${question} — ${own}` : question;
 }
 
+/**
+ * The whole statement of a lone box whose group names it: the label is clipped, and a
+ * consent's commitments are in the words that were cut.
+ */
+function toggleStatement(control: Element): Pick<FormField, "statement"> {
+  const whole = groupAccessibleName(control, TOGGLE_STATEMENT_MAX_CHARS);
+  const clipped = groupAccessibleName(control);
+  return whole.length > clipped.length ? { statement: whole } : {};
+}
+
 /** A radio or checkbox group (or a hidden proxy box behind visible option buttons). */
 function choiceField(control: HTMLInputElement): FormField | null {
   const members = groupMembers(control);
@@ -185,6 +216,9 @@ function choiceField(control: HTMLInputElement): FormField | null {
       kind: "toggle",
       label: toggleLabel(control, label),
       required,
+      group: choiceGroupKey(control) ?? undefined,
+      ...choiceAttrs(control, label),
+      ...toggleStatement(control),
     };
   }
   const options = members.map((member) => inputOptionLabel(member)).filter(Boolean);
@@ -195,13 +229,16 @@ function choiceField(control: HTMLInputElement): FormField | null {
     label,
     required,
     options,
+    // The group's identity on the page (not its position): a step names it, so what
+    // it acts on is checked to belong to this group and no other.
+    group: choiceGroupKey(control) ?? undefined,
   };
 }
 
 function describeControl(control: Element, seenGroups: Set<string>): FormField | null {
   const required = isRequired([control]);
   const label = () => fieldLabel(control, [control], fieldWrapper(control));
-  if (control instanceof HTMLSelectElement) {
+  if (isA(control, HTMLSelectElement)) {
     if (control.multiple) return null;
     const options = realOptions(control).map(optionLabel).filter(Boolean);
     if (!options.length) return null;
@@ -211,16 +248,22 @@ function describeControl(control: Element, seenGroups: Set<string>): FormField |
       label: withPartGroup(control, label()),
       required,
       options,
+      ...choiceAttrs(control, label()),
     };
   }
-  if (control instanceof HTMLInputElement) {
+  if (isA(control, HTMLInputElement)) {
     const type = (control.type || "text").toLowerCase();
     if (type === "file") {
       // A file input's own label is usually its button ("Attach"); the field's
       // question ("Resume/CV") is the title before it.
       const wrapper = fieldWrapper(control);
+      // The nearest words that ask for the document win over a heading further up the
+      // section, which names the section and not this upload.
       const question =
-        groupAccessibleName(control) || groupQuestion(wrapper, control, [control]) || label();
+        groupAccessibleName(control) ||
+        questionBeforeGroup([control]) ||
+        groupQuestion(wrapper, control, [control]) ||
+        label();
       // The drop zone's own words ("Import Resume", "Drop your resume here") tell a
       // parse-to-autofill zone from the résumé field.
       // The words around the input say which document it takes ("Type or paste
@@ -259,7 +302,7 @@ function describeControl(control: Element, seenGroups: Set<string>): FormField |
   }
   const role = inferRole(control);
   if (
-    control instanceof HTMLTextAreaElement ||
+    isA(control, HTMLTextAreaElement) ||
     (control as HTMLElement).isContentEditable ||
     role === "textbox"
   ) {
@@ -295,10 +338,18 @@ function fileContextTexts(control: Element, question: string): string[] {
     scope && depth < FILE_CONTEXT_DEPTH && texts.length < FILE_HINT_TEXTS;
     depth += 1
   ) {
-    for (const el of Array.from(scope.querySelectorAll("*"))) {
+    // Nearest first: what sits just before the input names it, not what opens the section.
+    const around = Array.from(scope.querySelectorAll("*"));
+    const before = around.filter(
+      (el) => control.compareDocumentPosition(el) & Node.DOCUMENT_POSITION_PRECEDING,
+    );
+    const after = around.filter(
+      (el) => control.compareDocumentPosition(el) & Node.DOCUMENT_POSITION_FOLLOWING,
+    );
+    for (const el of [...before.reverse(), ...after]) {
       if (el === control || el.contains(control)) continue;
       const text = getDirectText(el);
-      if (!text || seen.has(normalize(text))) continue;
+      if (!text || !carriesWords(text) || seen.has(normalize(text))) continue;
       seen.add(normalize(text));
       texts.push(clip(text, MAX_TEXT_CHARS));
       if (texts.length >= FILE_HINT_TEXTS) break;
@@ -313,7 +364,7 @@ function ariaButtonFields(claimed: Set<number>): FormField[] {
   const fields: FormField[] = [];
   const seenRoots = new Set<ParentNode>();
   for (const el of queryDeep(document, ARIA_CHOICE_SELECTOR)) {
-    if (!(el instanceof HTMLElement) || claimed.has(nodeId(el))) continue;
+    if (!isA(el, HTMLElement) || claimed.has(nodeId(el))) continue;
     const root = groupRoot(el);
     if (seenRoots.has(root)) continue;
     seenRoots.add(root);
@@ -346,7 +397,7 @@ function questionBefore(root: Element, first: HTMLElement, buttons: HTMLElement[
     );
     for (const el of before.reverse()) {
       const text = getDirectText(el);
-      if (text) return clip(text, MAX_TEXT_CHARS);
+      if (text && carriesWords(text)) return clip(text, MAX_TEXT_CHARS);
     }
     scope = scope.parentElement;
   }
@@ -364,10 +415,10 @@ function plainButtonFields(claimed: Set<number>): FormField[] {
   const fields: FormField[] = [];
   const seenRoots = new Set<ParentNode>();
   for (const el of queryDeep(document, PLAIN_BUTTON_SELECTOR)) {
-    if (!(el instanceof HTMLElement) || nodeId(el) <= 0 || claimed.has(nodeId(el))) continue;
+    if (!isA(el, HTMLElement) || nodeId(el) <= 0 || claimed.has(nodeId(el))) continue;
     if (el.matches(ARIA_CHOICE_SELECTOR) || !hasClickableBox(el)) continue;
     const root = groupRoot(el);
-    if (seenRoots.has(root) || !(root instanceof Element)) continue;
+    if (seenRoots.has(root) || !isA(root, Element)) continue;
     seenRoots.add(root);
     const buttons = optionButtons(root);
     if (
@@ -390,7 +441,7 @@ function plainButtonFields(claimed: Set<number>): FormField[] {
 function ariaToggleFields(claimed: Set<number>): FormField[] {
   const fields: FormField[] = [];
   for (const el of queryDeep(document, ARIA_TOGGLE_SELECTOR)) {
-    if (!(el instanceof HTMLElement) || claimed.has(nodeId(el)) || nodeId(el) <= 0) continue;
+    if (!isA(el, HTMLElement) || claimed.has(nodeId(el)) || nodeId(el) <= 0) continue;
     if (!hasClickableBox(el) || el.closest('[aria-hidden="true"]')) continue;
     const native = 'input[type="checkbox"]';
     if (el.querySelector(native) || el.closest("label")?.querySelector(native)) continue;

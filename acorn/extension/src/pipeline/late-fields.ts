@@ -1,5 +1,6 @@
 import { FAST_PLAN_MODE } from "@acorn/shared/form-fields";
 import { applyApplicantIdentityToActions } from "@acorn/shared/plan-runner/applicant-identity";
+import { annotateGroups } from "@acorn/shared/plan-runner/groups";
 import { formatPlannerTree } from "@acorn/shared/planner-tree";
 
 import { traceFromBackground } from "../background/debug-trace-sink";
@@ -79,6 +80,7 @@ export async function planLateFields(args: {
     );
     if (!plan?.actions?.length) return null;
     applyApplicantIdentityToActions(plan.actions);
+    annotateGroups(plan.actions, fields);
     return plan;
   } catch (err) {
     traceFromBackground(

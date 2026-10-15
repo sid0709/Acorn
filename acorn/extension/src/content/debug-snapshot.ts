@@ -4,8 +4,10 @@
  */
 import { shownValue } from "@acorn/shared/secret-value";
 
+import { DROPDOWN_SELECTOR } from "./agents/combobox/popup-roles";
 import { comboboxWidgetRoot, readWidgetTextParts } from "./agents/combobox/widget-value";
 import { readControlValue } from "./agents/read-control-value";
+import { isA } from "./realm";
 import { deepQueryAll } from "./shadow-control";
 
 function labelOf(el: Element): string {
@@ -35,7 +37,7 @@ export function describeEl(el: Element | null): Record<string, unknown> | null {
     role: h.getAttribute("role") || undefined,
     cls: String(h.className || "").slice(0, 80) || undefined,
     label: labelOf(el) || undefined,
-    inputValue: el instanceof HTMLInputElement ? shownValue(el, el.value) : undefined,
+    inputValue: isA(el, HTMLInputElement) ? shownValue(el, el.value) : undefined,
     rendered: el.getClientRects().length > 0,
   };
 }
@@ -51,8 +53,8 @@ export function describeWidget(el: Element): Record<string, unknown> {
 
 /** Every visible combobox / select with its current read value. */
 export function comboSnapshot(): Array<Record<string, unknown>> {
-  return deepQueryAll(document, '[role="combobox"], select')
-    .filter((el) => el.getClientRects().length > 0 || el instanceof HTMLSelectElement)
+  return deepQueryAll(document, DROPDOWN_SELECTOR)
+    .filter((el) => el.getClientRects().length > 0 || isA(el, HTMLSelectElement))
     .slice(0, 30)
     .map((el) => ({
       id: (el as HTMLElement).id || undefined,

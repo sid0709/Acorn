@@ -2,10 +2,13 @@ import { formatDuration, formatUsd } from "@acorn/shared/ai-usage";
 import { FILL_MODE, type FillMode } from "@acorn/shared/field-issues";
 import { FAST_PLAN_MODE } from "@acorn/shared/form-fields";
 import { PhaseClock } from "@acorn/shared/phase-clock";
+import { withAttempts } from "@acorn/shared/plan-history";
 import { applyApplicantIdentityToActions } from "@acorn/shared/plan-runner/applicant-identity";
 import { planCodeFill, spreadCodeAcrossBoxes } from "@acorn/shared/plan-runner/code-fill";
+import { annotateGroups } from "@acorn/shared/plan-runner/groups";
 import { runActionPlan } from "@acorn/shared/plan-runner/orchestrator";
 import { isFileUploadAction, planWantsCoverLetter } from "@acorn/shared/plan-runner/step-file";
+import { planTargetsGone } from "@acorn/shared/plan-runner/types";
 import { formatPlannerTree } from "@acorn/shared/planner-tree";
 import { redactPlan } from "@acorn/shared/secret-value";
 import { formatAnalyzeTrees } from "@acorn/shared/tree-export";
@@ -19,9 +22,11 @@ import { sendPlanStepToTab, sendTabMessage } from "../tab-messaging";
 import { MSG, type DomTreePayload, type PipelineSource } from "../types";
 
 import { requestAiAnalyze } from "./api/analyze";
+import { ApiError } from "./api/http";
 import { fetchRuntimeFile } from "./api/job-files";
 import { decideChoicesInBatch } from "./choice-batch";
 import { loadCoverLetter } from "./cover-letter";
+import { flaggedLabelsOf, noteDeliveredFiles, withoutDeliveredUploads } from "./delivered-files";
 import { repairDriftInTab } from "./drift";
 import { fetchDomFromTab } from "./fetch-dom";
 import { keepResumeIfSameSite, loadFillResume, resumeIsAssigned } from "./fill-resume";
@@ -94,6 +99,9 @@ function emptyPlan(): ActionPlan {
   };
 }
 
+/** Most lines of what the page said that a refill is shown. */
+const PAGE_NOTES_MAX = 8;
+
 export interface RunPipelineArgs {
   /** Pinned at Fill click. DOM fetch and every plan step target this tab, even if the user focuses another. */
   tabId: number;
@@ -105,6 +113,12 @@ export interface RunPipelineArgs {
   mode?: FillMode;
   /** Refill: the plans already run on this page and what came of them, oldest first. */
   history?: PlanTurn[];
+  /**
+   * Refill: what the page said in plain words after the click, with no mark on any field
+   * ("Please fill in all date fields"). Read with the page's alerts, so a refusal that marks
+   * nothing is still something to fix.
+   */
+  pageNotes?: string[];
   /** Run: a fill with no résumé file stops before touching the page. Fill page leaves it off. */
   requireResume?: boolean;
   /** Run: a code found in the applicant's mail, filled into the field that asks for it. */
@@ -145,6 +159,7 @@ export async function runFabPipeline(args: RunPipelineArgs): Promise<void> {
     history,
     requireResume = false,
     pendingOnly = false,
+    pageNotes,
     scoped = false,
     rescan = true,
     verificationCode,
@@ -208,6 +223,7 @@ export async function runFabPipeline(args: RunPipelineArgs): Promise<void> {
             customTab,
             customGenerationId: customTab?.generationId ?? null,
             apiUrl: aiServerUrl,
+            tabId,
           }),
         ),
         clock.time("runtime", () => fetchRuntimeFile(aiServerUrl).catch(() => null)),
@@ -239,6 +255,16 @@ export async function runFabPipeline(args: RunPipelineArgs): Promise<void> {
       else [resumeLoad, runtimeFile] = await filesLoad;
     }
     let { fieldIssues, formFields, timings, ...treePayload } = fetchedDom;
+    // What the page said in plain words joins its alerts: the planner reads them together.
+    if (refill && pageNotes?.length && fieldIssues) {
+      fieldIssues = {
+        ...fieldIssues,
+        pageMessages: [...new Set([...pageNotes, ...fieldIssues.pageMessages])].slice(
+          0,
+          PAGE_NOTES_MAX,
+        ),
+      };
+    }
     const usingLibrary = resumeSource === "custom" && customTab?.resumeMode === "recommend";
     const resumeFileKind = resumeSource === "custom" && !usingLibrary ? "custom" : "library";
     /** The résumé this fill attaches, from what was loaded, and how the sidebar names it. */
@@ -314,7 +340,7 @@ export async function runFabPipeline(args: RunPipelineArgs): Promise<void> {
       return;
     }
 
-    if (refill && !fieldIssues?.issues.length) {
+    if (refill && !fieldIssues?.issues.length && !pageNotes?.length) {
       const { durationMs, usage, phases } = await finishMeta();
       emit({
         phase: "done",
@@ -426,7 +452,9 @@ export async function runFabPipeline(args: RunPipelineArgs): Promise<void> {
         fieldIssues: refill ? fieldIssues : undefined,
         // A refill's flagged fields are planned on their own first; the conversation
         // (tree and history) plans the fixes only when they leave one open.
-        formFields: refill ? formFields : undefined,
+        // Each flagged field carries what earlier rounds answered it: a field answered
+        // before and flagged still is not planned the way the last round planned it.
+        formFields: refill ? withAttempts(formFields, history) : undefined,
         history: refill && history?.length ? history : undefined,
         page,
         verificationCode,
@@ -465,6 +493,7 @@ export async function runFabPipeline(args: RunPipelineArgs): Promise<void> {
 
       const plan = analyze.plan as ActionPlan;
       applyApplicantIdentityToActions(plan.actions);
+      annotateGroups(plan.actions, formFields);
       spreadCodeAcrossBoxes(plan.actions, verificationCode);
       planSnapshot = redactPlan(plan);
       // What the planner sent, for logs written later: the steps' values are rewritten next.
@@ -522,7 +551,24 @@ export async function runFabPipeline(args: RunPipelineArgs): Promise<void> {
 
       const watch = await watchFrameDocument(tabId, frameId);
       try {
-        const runPlan = async (target: ActionPlan, total: number) => {
+        const runPlan = async (given: ActionPlan, givenTotal: number) => {
+          // A document the page already took (and drew itself again around) is not sent twice.
+          const kept = withoutDeliveredUploads(
+            tabId,
+            treePayload.url,
+            given.actions ?? [],
+            flaggedLabelsOf(formFields, fieldIssues),
+          );
+          const target: ActionPlan =
+            kept.length === (given.actions ?? []).length ? given : { ...given, actions: kept };
+          const total = givenTotal - ((given.actions ?? []).length - kept.length);
+          if (kept.length !== (given.actions ?? []).length) {
+            traceFromBackground(
+              "upload:already-delivered",
+              () => ({ skipped: (given.actions ?? []).length - kept.length }),
+              tabId,
+            );
+          }
           await settleResume();
           const coverLetter = await coverLetterFor(target);
           // A refill that uploads (a résumé the page refused) loads its files only now.
@@ -531,7 +577,7 @@ export async function runFabPipeline(args: RunPipelineArgs): Promise<void> {
             [resumeLoad, runtimeFile] = await filesLoad;
             resume = bindResume(resumeLoad);
           }
-          return clock.time("steps", () =>
+          const ran = await clock.time("steps", () =>
             runActionPlan({
               plan: target,
               runtimeFile,
@@ -617,6 +663,8 @@ export async function runFabPipeline(args: RunPipelineArgs): Promise<void> {
               },
             }),
           );
+          noteDeliveredFiles(tabId, treePayload.url, target.actions ?? [], ran.steps);
+          return ran;
         };
 
         report = await runPlan(plan, stepTotal);
@@ -692,13 +740,16 @@ export async function runFabPipeline(args: RunPipelineArgs): Promise<void> {
           if (looksLate && (!refill || (leftover?.filled ?? 0) > 0)) await settleLate();
         }
 
-        if (!watch.left() || signal?.aborted) break;
+        // A plan whose every step found its element gone was made for a page that was
+        // replaced without leaving (a frame swapped for its twin): the page is read and planned again.
+        const planGone = planTargetsGone(report.steps);
+        if ((!watch.left() && !planGone) || signal?.aborted) break;
         if (reloads >= FILL_MAX_PAGE_RELOADS) {
           throw new Error(`The page reloaded ${reloads + 1} times while Acorn filled it`);
         }
         traceFromBackground("fill:page-replaced", () => ({ pass: reloads + 1, frameId }), tabId);
         emit({ phase: "fetching", message: PAGE_RELOADING, mode });
-        await watch.arrived();
+        if (watch.left()) await watch.arrived();
       } finally {
         watch.stop();
       }
@@ -778,6 +829,8 @@ export async function runFabPipeline(args: RunPipelineArgs): Promise<void> {
       phase: "error",
       message: `Failed · ${formatDuration(durationMs)} · ${formatUsd(usage?.costUsd)}`,
       error,
+      errorCode: err instanceof ApiError ? err.code : undefined,
+      errorStatus: err instanceof ApiError ? err.status : undefined,
       durationMs,
       phases: clock.summary(),
       usage,

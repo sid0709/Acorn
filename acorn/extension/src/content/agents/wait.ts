@@ -1,4 +1,5 @@
 import { pageDelay, pageTimeout } from "../page-timer";
+import { isA } from "../realm";
 
 /** Quiet window: no childList mutations. */
 export const DOM_QUIET_WINDOW_MS = 700;
@@ -37,8 +38,8 @@ function formValueFingerprint(doc: Document): string {
   );
   const parts: string[] = [`n:${fields.length}`];
   for (const node of Array.from(doc.querySelectorAll("input, select, textarea"))) {
-    if (!(node instanceof HTMLElement)) continue;
-    if (node instanceof HTMLInputElement) {
+    if (!isA(node, HTMLElement)) continue;
+    if (isA(node, HTMLInputElement)) {
       const type = (node.type || "text").toLowerCase();
       if (type === "hidden" || type === "submit" || type === "button" || type === "image") {
         continue;
@@ -58,16 +59,16 @@ function formValueFingerprint(doc: Document): string {
       parts.push(`i:${type}:${node.value.length}`);
       continue;
     }
-    if (node instanceof HTMLSelectElement) {
+    if (isA(node, HTMLSelectElement)) {
       parts.push(`s:${node.selectedIndex}:${node.value.length}`);
       continue;
     }
-    if (node instanceof HTMLTextAreaElement) {
+    if (isA(node, HTMLTextAreaElement)) {
       parts.push(`t:${node.value.length}`);
     }
   }
   for (const node of Array.from(doc.querySelectorAll('[role="combobox"]'))) {
-    if (!(node instanceof HTMLElement)) continue;
+    if (!isA(node, HTMLElement)) continue;
     const text = (node.innerText || node.textContent || "").replace(/\s+/g, " ").trim();
     parts.push(`c:${text.length}`);
   }
@@ -165,7 +166,7 @@ export async function waitForUploadComplete(doc: Document = document): Promise<{
 
   const quietMs = await waitForDomQuiet(doc);
   const passwords = Array.from(doc.querySelectorAll('input[type="password"]')).filter(
-    (node): node is HTMLInputElement => node instanceof HTMLInputElement,
+    (node): node is HTMLInputElement => isA(node, HTMLInputElement),
   );
 
   return {

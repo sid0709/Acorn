@@ -4,7 +4,9 @@ import { MSG, type PageProbe } from "../types";
 
 import { networkQuietFor } from "./network-activity";
 import {
+  RUN_NETWORK_LONG_REQUEST_MS,
   RUN_NETWORK_QUIET_MS,
+  RUN_NETWORK_STALE_REQUEST_MS,
   RUN_SETTLE_MAX_MS,
   RUN_SETTLE_MIN_MS,
   RUN_SETTLE_POLL_MS,
@@ -157,8 +159,14 @@ export async function waitForPageSettled(
       continue;
     }
     if (Date.now() - quietSince < RUN_PAGE_QUIET_MS) continue;
-    // Still on screen, still fetching: what it fetches is drawn next.
-    if (networkQuietFor(tabId) < RUN_NETWORK_QUIET_MS) {
+    // Still on screen, still fetching: what it fetches is drawn next. A request that has
+    // outlasted the page's own stillness is not what the page is waiting on.
+    const stillFor = Date.now() - quietSince;
+    const staleMs =
+      stillFor >= RUN_NETWORK_STALE_REQUEST_MS
+        ? RUN_NETWORK_STALE_REQUEST_MS
+        : RUN_NETWORK_LONG_REQUEST_MS;
+    if (networkQuietFor(tabId, Date.now(), staleMs) < RUN_NETWORK_QUIET_MS) {
       heldByNetwork = true;
       continue;
     }

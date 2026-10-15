@@ -47,3 +47,28 @@ export function isNestMissingRoute(
   const message = typeof data.message === "string" ? data.message : "";
   return /^Cannot (GET|POST|PUT|PATCH|DELETE)\b/i.test(message);
 }
+
+/**
+ * A failed call to Acorn: the text for a developer (`message`), and what the person
+ * needs (`code`, `status`) to be told something they can act on (see
+ * @acorn/shared/user-messages). The code is the backend's stable one when it sent one.
+ */
+export class ApiError extends Error {
+  constructor(
+    message: string,
+    readonly status: number,
+    readonly code?: string,
+  ) {
+    super(message);
+    this.name = "ApiError";
+  }
+}
+
+export function apiError(
+  res: { status: number },
+  data: { error?: unknown; message?: unknown; code?: unknown },
+  fallback: string,
+): ApiError {
+  const code = typeof data.code === "string" && data.code ? data.code : undefined;
+  return new ApiError(extractError(data, fallback), res.status, code);
+}

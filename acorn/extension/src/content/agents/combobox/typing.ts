@@ -1,3 +1,4 @@
+import { isA } from "../../realm";
 import { isSearchBox, pressEnter } from "../field-focus";
 import { pointerActivate } from "../pointer-activate";
 import { waitMs } from "../wait";
@@ -50,7 +51,7 @@ export async function settlePopupClosed(
 
   const widget = comboboxWidgetRoot(control);
   const active = doc.activeElement;
-  if (active instanceof HTMLElement && (active === control || widget.contains(active))) {
+  if (isA(active, HTMLElement) && (active === control || widget.contains(active))) {
     active.blur();
   }
   control.blur();
@@ -76,14 +77,14 @@ export async function focusAndOpenCombobox(el: HTMLElement): Promise<void> {
 export function resolveTypeableInput(
   el: HTMLElement,
 ): HTMLInputElement | HTMLTextAreaElement | null {
-  if (el instanceof HTMLInputElement || el instanceof HTMLTextAreaElement) return el;
+  if (isA(el, HTMLInputElement) || isA(el, HTMLTextAreaElement)) return el;
   const root = el.parentElement || el;
   const candidates = Array.from(
     root.querySelectorAll(
       'input:not([type="hidden"]):not([type="submit"]):not([type="button"]), textarea',
     ),
   ).filter((node): node is HTMLInputElement | HTMLTextAreaElement => {
-    if (!(node instanceof HTMLInputElement || node instanceof HTMLTextAreaElement)) return false;
+    if (!(isA(node, HTMLInputElement) || isA(node, HTMLTextAreaElement))) return false;
     const role = (node.getAttribute("role") || "").toLowerCase();
     return (
       role === "combobox" ||
@@ -96,11 +97,25 @@ export function resolveTypeableInput(
 }
 
 function setInputValue(el: HTMLInputElement | HTMLTextAreaElement, text: string): void {
-  const proto =
-    el instanceof HTMLTextAreaElement ? HTMLTextAreaElement.prototype : HTMLInputElement.prototype;
+  const proto = isA(el, HTMLTextAreaElement)
+    ? HTMLTextAreaElement.prototype
+    : HTMLInputElement.prototype;
   const setValue = Object.getOwnPropertyDescriptor(proto, "value")?.set;
   if (setValue) setValue.call(el, text);
   else el.value = text;
+}
+
+/**
+ * Put back the text a search box held before a search that found nothing. Searching empties
+ * the box and types queries into it; a failed search must not leave its last query behind
+ * as the field's answer.
+ */
+export function restoreTypedValue(el: HTMLElement, text: string): void {
+  const input = resolveTypeableInput(el);
+  if (!input || input.value === text) return;
+  setInputValue(input, text);
+  input.dispatchEvent(new InputEvent("input", { bubbles: true, inputType: "insertText" }));
+  input.dispatchEvent(new Event("change", { bubbles: true }));
 }
 
 export function typeaheadFilterWaitMs(doc: Document): number {

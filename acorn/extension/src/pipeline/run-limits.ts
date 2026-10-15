@@ -57,6 +57,12 @@ export const RUN_PERSON_WAIT_MAX_MS = 10 * 60_000;
 /** How often the run looks whether the applicant has moved the page on. */
 export const RUN_PERSON_POLL_MS = 1_500;
 /**
+ * While the run waits for the applicant it reads the page again this often: a page
+ * that no longer asks for anything (the first read was wrong, or it moved on) is
+ * carried on, not waited out.
+ */
+export const RUN_PERSON_REREAD_MS = 20_000;
+/**
  * How often the run looks at the applicant's newest emails for a code or link a
  * site sent. A look whose emails did not change costs no model call.
  */
@@ -95,6 +101,8 @@ export const RUN_MAX_ALERT_PASSES = 1;
 export const RUN_MAX_BUSY_WAITS = 5;
 /** New page lines one page read hands the decision model, newest answer first in line. */
 export const RUN_NEW_TEXT_LINES_MAX = 20;
+/** Passes over required fields still blank, before a step's first forward click. */
+export const RUN_MAX_BLANK_PASSES = 1;
 /** Codes or links one run takes from the applicant's mail before it stops. */
 export const RUN_MAX_MAIL_VERIFICATIONS = 4;
 /** Page messages kept with a rejected account step, for the next decision. */
@@ -121,6 +129,13 @@ export const RUN_NETWORK_QUIET_MS = 700;
  * not the page loading: it no longer holds the page from counting as settled.
  */
 export const RUN_NETWORK_LONG_REQUEST_MS = 10_000;
+/**
+ * A request still open after this long, while the page itself has been still for as
+ * long, is not what the page is waiting on: had its answer been going to draw something,
+ * the page would have changed by now. It stops holding the page from counting as settled
+ * (a request that never ends otherwise costs the full long-request wait on every page).
+ */
+export const RUN_NETWORK_STALE_REQUEST_MS = 3_000;
 /** Fresh looks at a page that read as not an application or blocked, before the run stops. */
 export const RUN_UNCLEAR_REREADS = 3;
 /** The wait before each of those looks. */
@@ -148,8 +163,3 @@ export const RUN_EVIDENCE_LINE_MAX_CHARS = 200;
 export const RUN_EVIDENCE_MAX_LINES = 20;
 /** Embedded frames listed with a page snapshot. */
 export const RUN_FRAMES_MAX = 6;
-
-/** Run log events per request to the backend. */
-export const RUN_LOG_BATCH_MAX = 50;
-/** Events wait this long for company before they are sent. */
-export const RUN_LOG_FLUSH_MS = 300;

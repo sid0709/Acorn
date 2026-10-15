@@ -1,12 +1,15 @@
 import { traceFromPage } from "../../debug-trace";
-import { fieldWrapper, groupQuestion, partGroupName, sectionTitle } from "../form-dom";
+import { fieldWrapper, groupQuestion, isRequired, partGroupName, sectionTitle } from "../form-dom";
+import { isA } from "../realm";
 import { deepQueryAll } from "../shadow-control";
-import { forLabelOf, uniqueById } from "../verify/element-labels";
+import { forLabelOf, labelCandidates, normalize, uniqueById } from "../verify/element-labels";
 
-import { JEV_LIST_MAX } from "./combobox/choose-option";
+import { JEV_LIST_MAX, PARTIAL_LIST_MIN } from "./combobox/choose-option";
 import { estimateOptionAnswer } from "./combobox/estimate-client";
+import { isListOpener, markListOpeners } from "./combobox/list-opener";
 import { optionText } from "./combobox/options-dom";
 import { openAndCollectOptions } from "./combobox/options-wait";
+import { DROPDOWN_SELECTOR } from "./combobox/popup-roles";
 import { dismissOpenOverlays, resolveTypeableInput } from "./combobox/typing";
 import { resolveDropdownInteractionTarget } from "./enhanced-select";
 import { fillElement } from "./fill";
@@ -17,6 +20,12 @@ import { readControlValue } from "./read-control-value";
 
 /** Planner-less leftover controls: matcher AI answers from the applicant profile. */
 const PROFILE_ANSWER = "Answer from the applicant profile";
+/**
+ * What the matcher is asked when the profile did not settle a dropdown the page requires:
+ * the option most applicants select. Asked only after the profile answer found none.
+ */
+const COMMON_SELECTION =
+  "The profile does not settle this question. Pick the option most applicants select for it.";
 /** Dropdowns the plan did not answer (in fast fill: every custom dropdown). */
 const MAX_LEFTOVER = 40;
 /** Look-again rounds for dropdowns that earlier answers revealed. */
@@ -39,8 +48,9 @@ function isCombobox(el: HTMLElement): boolean {
   const role = (el.getAttribute("role") || "").toLowerCase();
   return (
     role === "combobox" ||
-    el instanceof HTMLSelectElement ||
-    el.getAttribute("aria-haspopup") === "listbox"
+    isA(el, HTMLSelectElement) ||
+    el.getAttribute("aria-haspopup") === "listbox" ||
+    isListOpener(el)
   );
 }
 
@@ -71,6 +81,14 @@ function fieldLabel(el: HTMLElement): string {
 }
 
 function ownLabel(el: HTMLElement): string {
+  // A button over a shut list sits in its widget's shadow root: its question is the
+  // label the page ties to the widget, found beside it, never the placeholder it shows.
+  if (isListOpener(el)) {
+    const asked = labelCandidates(el).find(
+      (text) => normalize(text) !== normalize(el.textContent ?? ""),
+    );
+    if (asked) return asked;
+  }
   const labelled = el.getAttribute("aria-labelledby");
   if (labelled) {
     const parts = labelled
@@ -87,7 +105,12 @@ function ownLabel(el: HTMLElement): string {
   if (wrap) return wrap.slice(0, 200);
   // No label points at the control itself (a typeahead with no id): the field's
   // question is the title before it inside its own wrapper.
-  return groupQuestion(fieldWrapper(el), el, [el]);
+  const nearby = groupQuestion(fieldWrapper(el), el, [el]);
+  if (nearby || !isListOpener(el)) return nearby;
+  // A button over a shut list sits in its widget's shadow root: the question is beside the widget.
+  return (
+    labelCandidates(el).find((text) => normalize(text) !== normalize(el.textContent ?? "")) ?? ""
+  );
 }
 
 /**
@@ -114,6 +137,8 @@ export async function fillLeftoverComboboxes(
   stopped?: boolean;
 }> {
   const late = () => Date.now() > deadline;
+  // A dropdown drawn as a button over a shut list is found by its shape, not its role.
+  markListOpeners();
   // Answers reveal follow-up dropdowns (a race list after "Hispanic or Latino?"),
   // so look again after each round for empty ones not tried yet.
   const tried = new Set<HTMLElement>();
@@ -124,6 +149,7 @@ export async function fillLeftoverComboboxes(
   const contradicted = checkPrefilled ? await prefilledAgainstProfile(within) : [];
   for (let round = 0; round < MAX_LEFTOVER_ROUNDS && found < MAX_LEFTOVER; round += 1) {
     if (late()) return stopAtDeadline(found, filled);
+    markListOpeners();
     const { all, leftovers } = leftoverCandidates(tried, within);
     const fresh = round === 0 ? contradicted.filter((el) => !leftovers.includes(el)) : [];
     const batch = [...fresh, ...leftovers].slice(0, MAX_LEFTOVER - found);
@@ -146,7 +172,9 @@ export async function fillLeftoverComboboxes(
         el,
         label,
         // A decision that fails is the one-by-one path, never a failed pass.
-        answer: decideLeftover(label, listed).catch((): LeftoverAnswer => ({ kind: "live" })),
+        answer: decideLeftover(label, listed, isRequired([el])).catch((): LeftoverAnswer => ({
+          kind: "live",
+        })),
       });
     }
     const unanswered: HTMLElement[] = [];
@@ -190,7 +218,7 @@ type LeftoverAnswer =
 
 async function readListedOptions(el: HTMLElement): Promise<ListedOptions> {
   const target = resolveDropdownInteractionTarget(el);
-  if (target instanceof HTMLSelectElement) {
+  if (isA(target, HTMLSelectElement)) {
     return { labels: realOptions(target).map(optionLabel).filter(Boolean), searchable: false };
   }
   const doc = target.ownerDocument || document;
@@ -209,7 +237,11 @@ async function readListedOptions(el: HTMLElement): Promise<ListedOptions> {
 }
 
 /** Starts the decision now; the promise resolves while later dropdowns are being read. */
-async function decideLeftover(label: string, listed: ListedOptions): Promise<LeftoverAnswer> {
+async function decideLeftover(
+  label: string,
+  listed: ListedOptions,
+  required: boolean,
+): Promise<LeftoverAnswer> {
   const whole =
     listed.labels.length > 0 && (listed.labels.length <= JEV_LIST_MAX || !listed.searchable);
   if (whole) {
@@ -225,12 +257,38 @@ async function decideLeftover(label: string, listed: ListedOptions): Promise<Lef
       listComplete: true,
     });
     if (ai.matched_option) return { kind: "option", label: ai.matched_option };
-    return ai.ok ? { kind: "none" } : { kind: "live" };
+    if (!ai.ok) return { kind: "live" };
+    // A long list a search box can still add to may be a partial window: search it.
+    if (listed.searchable && listed.labels.length > PARTIAL_LIST_MIN && label) {
+      return { kind: "search", estimate: estimateOptionAnswer(label) };
+    }
+    return required ? await commonOrAny(label, listed.labels) : { kind: "none" };
   }
   if (listed.searchable && label) {
     return { kind: "search", estimate: estimateOptionAnswer(label) };
   }
   return { kind: "live" };
+}
+
+/**
+ * A dropdown the page requires, whose list holds no option the profile points at: the
+ * most common selection, then any option. A required dropdown left empty only stops the
+ * form, and only a model that answered gets here (a failed call is the one-by-one path).
+ */
+async function commonOrAny(label: string, options: string[]): Promise<LeftoverAnswer> {
+  const common = await askAiMatchOption({
+    intendedValue: COMMON_SELECTION,
+    options,
+    fieldLabel: label || null,
+    typedQuery: null,
+    allowNotListed: false,
+    listComplete: true,
+  });
+  if (common.matched_option) return { kind: "option", label: common.matched_option };
+  if (!common.ok) return { kind: "live" };
+  const any = options[Math.floor(Math.random() * options.length)];
+  traceFromPage("leftover:any-option", () => ({ label, options: options.length }));
+  return { kind: "option", label: any };
 }
 
 async function fillLeftover(
@@ -299,8 +357,8 @@ async function applyLeftoverAnswer(
 /** Shown, enabled dropdowns the applicant can still change. */
 function isOpenToAnswer(el: HTMLElement): boolean {
   if (!isCombobox(el) || !isDisplayed(el)) return false;
-  if (el instanceof HTMLInputElement && (el.disabled || el.readOnly)) return false;
-  if (el instanceof HTMLSelectElement && el.disabled) return false;
+  if (isA(el, HTMLInputElement) && (el.disabled || el.readOnly)) return false;
+  if (isA(el, HTMLSelectElement) && el.disabled) return false;
   return el.getAttribute("aria-disabled") !== "true";
 }
 
@@ -314,8 +372,8 @@ function isOpenToAnswer(el: HTMLElement): boolean {
 async function prefilledAgainstProfile(
   within: ((el: Element) => boolean) | null,
 ): Promise<HTMLElement[]> {
-  const prefilled = deepQueryAll(document, '[role="combobox"], select, [aria-haspopup="listbox"]')
-    .filter((node): node is HTMLElement => node instanceof HTMLElement)
+  const prefilled = deepQueryAll(document, DROPDOWN_SELECTOR)
+    .filter((node): node is HTMLElement => isA(node, HTMLElement))
     .filter((el) => !within || within(el))
     .filter((el) => isOpenToAnswer(el) && !wasPlanFilled(el) && readControlValue(el) !== "")
     // Found to agree with the profile on an earlier pass, and still showing that value.
@@ -357,8 +415,8 @@ function leftoverCandidates(
   within: ((el: Element) => boolean) | null,
 ): { all: number; leftovers: HTMLElement[] } {
   // Custom elements keep their dropdown inputs in shadow roots: search those too.
-  const nodes = deepQueryAll(document, '[role="combobox"], select, [aria-haspopup="listbox"]')
-    .filter((node): node is HTMLElement => node instanceof HTMLElement)
+  const nodes = deepQueryAll(document, DROPDOWN_SELECTOR)
+    .filter((node): node is HTMLElement => isA(node, HTMLElement))
     .filter((el) => !within || within(el));
   const leftovers = nodes.filter((el) => {
     if (tried.has(el) || !isOpenToAnswer(el)) return false;

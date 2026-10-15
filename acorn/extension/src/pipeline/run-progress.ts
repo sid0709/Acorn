@@ -6,7 +6,7 @@
  * between (an entry form opened and closed again reads as a change, not progress).
  */
 
-import type { FieldIssueScan } from "@acorn/shared/field-issues";
+import { hasNewLinkedMessage, type FieldIssueScan } from "@acorn/shared/field-issues";
 
 function normalize(text: string): string {
   return text.replace(/\s+/g, " ").trim().toLowerCase();
@@ -17,14 +17,22 @@ function normalize(text: string): string {
  * empty, and the requirement the decision model named. Help text and page-level
  * notices are left out: a page shows them whatever the run does.
  */
-export function pageNeeds(scan: FieldIssueScan, requirement?: string | null): string[] {
+export function pageNeeds(
+  scan: FieldIssueScan,
+  requirement?: string | null,
+  before: FieldIssueScan | null = null,
+): string[] {
   const needs = new Map<string, string>();
   const add = (name: string) => {
     const key = normalize(name);
     if (key && !needs.has(key)) needs.set(key, name.replace(/\s+/g, " ").trim());
   };
   for (const issue of scan.issues) {
-    const flagged = issue.invalid || issue.linkedMessages.length > 0;
+    // With the page as it stood before the run's work, help text it always links to a field
+    // is not a need; without it, any linked message counts.
+    const flagged =
+      issue.invalid ||
+      (before ? hasNewLinkedMessage(before, issue) : issue.linkedMessages.length > 0);
     if (flagged || (issue.required && !issue.value.trim())) add(issue.label);
   }
   if (requirement) add(requirement);

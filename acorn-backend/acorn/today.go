@@ -42,10 +42,16 @@ var dateFormats = []dateFormat{
 	{"month_day_short_year_slash", "01/02/06", "month/day/two-digit year"},
 	{"month_name_day_year", "January 2, 2006", "month name, day, year"},
 	{"day_month_name_year", "2 January 2006", "day, month name, year"},
+	// A date of a job or a school is often asked as a month and a year only.
+	{"month_year_slash", "01/2006", "month/year"},
+	{"month_year_dash", "2006-01", "year-month"},
+	{"month_name_year", "January 2006", "month name, year"},
+	{"month_short_name_year", "Jan 2006", "abbreviated month name, year"},
+	{"year_only", "2006", "year only"},
 }
 
-// dateFormatInstructions ask, per date field, how it wants today's date written.
-const dateFormatInstructions = "In which format does this job-application field want today's date? Read its " +
+// dateFormatInstructions ask, per date field, how it wants a date written.
+const dateFormatInstructions = "In which format does this job-application field want the date? Read its " +
 	"placeholder, the text under it, and any example it shows. When it shows none, pick the order usual for the " +
 	"language and country of the form."
 
@@ -59,7 +65,7 @@ func pageToday(page map[string]any) time.Time {
 	return time.Now()
 }
 
-// dateFormatKinds describe each format by today's date written that way.
+// dateFormatKinds describe each format by a date written that way.
 func dateFormatKinds(today time.Time) map[string]string {
 	kinds := make(map[string]string, len(dateFormats))
 	for _, format := range dateFormats {
@@ -77,31 +83,77 @@ func dateLayout(key string) string {
 	return isoDate
 }
 
-// todayValues writes today's date for every field that asks for it, each in the
-// format that field wants: a native date input in its own layout, any other by
-// the decision model's reading of the field.
-func (s *Service) todayValues(ctx context.Context, fields []FormField, kinds map[int]string, today time.Time) map[int]string {
+// dateFacts are the facts whose value is a date from the applicant's history: they are
+// written the way each field wants, like today's date.
+var dateFacts = map[string]bool{
+	"job_start_date": true, "job_end_date": true, "school_start_date": true, "school_end_date": true,
+}
+
+// isDateKind says a field's fact is a date to write in the field's own format.
+func isDateKind(kind string) bool { return kind == FactToday || dateFacts[kind] }
+
+// profileDateLayouts are the ways a profile may have stored a date, most exact first.
+var profileDateLayouts = []string{
+	"2006-01-02", "2006-01", "01/02/2006", "1/2/2006", "01/2006", "1/2006",
+	"January 2, 2006", "Jan 2, 2006", "January 2006", "Jan 2006", "2006",
+}
+
+// parseProfileDate reads a stored date; a month without a day is its first.
+func parseProfileDate(raw string) (time.Time, bool) {
+	raw = strings.TrimSpace(raw)
+	for _, layout := range profileDateLayouts {
+		if day, err := time.Parse(layout, raw); err == nil {
+			return day, true
+		}
+	}
+	return time.Time{}, false
+}
+
+// dateOf is the date a date field is to hold: today's for a signature date, the profile's
+// for a date of a job or a school. False when the profile holds none that can be read.
+func dateOf(profile applicantFacts, kind string) (time.Time, bool) {
+	if kind == FactToday {
+		return profile.today, !profile.today.IsZero()
+	}
+	return parseProfileDate(factValue(profile, kind))
+}
+
+// dateValues writes the date of every date field in the format that field wants: a native
+// date input in its own layout, any other by the decision model's reading of the field
+// (its placeholder, the text under it). Fields wanting the same date are asked together.
+func (s *Service) dateValues(ctx context.Context, fields []FormField, kinds map[int]string, profile applicantFacts) map[int]string {
 	values := map[int]string{}
-	ask := map[int]string{}
+	asked := map[string]map[int]string{}
+	dates := map[string]time.Time{}
 	for _, field := range fields {
-		if kinds[field.ElementIndex] != FactToday {
+		kind := kinds[field.ElementIndex]
+		if !isDateKind(kind) {
+			continue
+		}
+		date, ok := dateOf(profile, kind)
+		if !ok {
 			continue
 		}
 		if layout, native := nativeDateLayouts[strings.ToLower(field.InputType)]; native {
-			values[field.ElementIndex] = today.Format(layout)
+			values[field.ElementIndex] = date.Format(layout)
 			continue
 		}
-		ask[field.ElementIndex] = describe(field)
+		key := date.Format(isoDate)
+		if asked[key] == nil {
+			asked[key] = map[int]string{}
+			dates[key] = date
+		}
+		asked[key][field.ElementIndex] = describe(field)
 	}
-	if len(ask) == 0 {
-		return values
-	}
-	picked, err := s.classifier.ClassifyEach(ctx, dateFormatInstructions, dateFormatKinds(today), ask)
-	if err != nil {
-		slog.Warn("acorn fast plan: date formats unread, writing year-month-day", "error", err)
-	}
-	for index := range ask {
-		values[index] = today.Format(dateLayout(picked[index]))
+	for key, ask := range asked {
+		date := dates[key]
+		picked, err := s.classifier.ClassifyEach(ctx, dateFormatInstructions, dateFormatKinds(date), ask)
+		if err != nil {
+			slog.Warn("acorn fast plan: date formats unread, writing year-month-day", "error", err)
+		}
+		for index := range ask {
+			values[index] = date.Format(dateLayout(picked[index]))
+		}
 	}
 	return values
 }

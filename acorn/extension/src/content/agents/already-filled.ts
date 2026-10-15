@@ -1,3 +1,6 @@
+import { fieldWrapper } from "../form-dom";
+import { isA } from "../realm";
+
 import { choiceOptionLabel, findVisibleChoiceOption, isProxyControl } from "./choice-group";
 import { isChoiceSelected, isChoiceWidget } from "./choice-state";
 import { readControlValue } from "./read-control-value";
@@ -19,7 +22,7 @@ function optionOwnLabel(el: Element): string {
   return (
     html.getAttribute("aria-label") ||
     html.getAttribute("title") ||
-    (el instanceof HTMLOptionElement ? el.label || el.text : "") ||
+    (isA(el, HTMLOptionElement) ? el.label || el.text : "") ||
     html.innerText ||
     html.textContent ||
     ""
@@ -29,7 +32,7 @@ function optionOwnLabel(el: Element): string {
 }
 
 function isSelectedOption(el: Element): boolean {
-  if (el instanceof HTMLOptionElement) return el.selected;
+  if (isA(el, HTMLOptionElement)) return el.selected;
   const html = el as HTMLElement;
   if (html.getAttribute("aria-selected") === "true") return true;
   if (html.getAttribute("aria-checked") === "true") return true;
@@ -55,6 +58,25 @@ function verdict(
   return { matched, current };
 }
 
+/**
+ * Whether the field's own box already shows `want` as an item of its own: an element whose
+ * own text is the answer (a tag the page made from it, with its remove control beside the text). Labels, the
+ * input itself and options of a list do not count.
+ */
+function shownAsItem(input: HTMLInputElement, want: string): boolean {
+  if (want.length < 2 || !["text", "search", ""].includes(input.type)) return false;
+  const wrapper = fieldWrapper(input);
+  const skip = 'label, legend, option, [role="option"], [role="listbox"], button, input, textarea';
+  const ownText = (node: Element) =>
+    Array.from(node.childNodes)
+      .filter((child) => child.nodeType === Node.TEXT_NODE)
+      .map((child) => child.textContent ?? "")
+      .join(" ");
+  return Array.from(wrapper.querySelectorAll("*")).some(
+    (node) => !node.closest(skip) && normalize(ownText(node)) === want,
+  );
+}
+
 /** True when the live control already shows the intended answer (autofill / prior fill). */
 export function controlAlreadyMatches(
   el: Element,
@@ -68,7 +90,7 @@ export function controlAlreadyMatches(
   const intendedStr = String(intended);
   const role = ((el as HTMLElement).getAttribute?.("role") || "").toLowerCase();
   // role=option always "contains" its own label — only count as filled when selected.
-  if (role === "option" || el instanceof HTMLOptionElement) {
+  if (role === "option" || isA(el, HTMLOptionElement)) {
     const label = optionOwnLabel(el);
     const want = normalize(intendedStr);
     const have = normalize(label);
@@ -87,7 +109,7 @@ export function controlAlreadyMatches(
 
   const current = readControlValue(el);
 
-  if (el instanceof HTMLInputElement && el.type === "file") {
+  if (isA(el, HTMLInputElement) && el.type === "file") {
     if (!current) {
       return verdict("A", "file-empty", false, current, intendedStr, el);
     }
@@ -100,7 +122,7 @@ export function controlAlreadyMatches(
     return verdict("A", "file-name", matched, current, intendedStr, el);
   }
 
-  if (el instanceof HTMLInputElement && (el.type === "checkbox" || el.type === "radio")) {
+  if (isA(el, HTMLInputElement) && (el.type === "checkbox" || el.type === "radio")) {
     const booleanLike = /^(true|yes|1|on|checked|false|no|0|off|unchecked)$/i.test(
       intendedStr.trim(),
     );
@@ -183,6 +205,11 @@ export function controlAlreadyMatches(
   const want = normalize(intendedStr);
   const have = normalize(current);
   if (!have) {
+    // A box that turns what is typed into an item beside it (a tag, a chip) reads empty
+    // once the item is made: the answer is the item the field already shows.
+    if (isA(el, HTMLInputElement) && shownAsItem(el, want)) {
+      return verdict("B", "item-shown", true, intendedStr, intendedStr, el);
+    }
     return verdict("A", "generic-empty", false, current, intendedStr, el);
   }
   if (have === want) {

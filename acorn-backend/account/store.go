@@ -362,20 +362,6 @@ func (s *Store) SavedJobIDs(ctx context.Context, userID string) ([]string, error
 	return doc.SavedJobIDs, nil
 }
 
-// droppedAppliedField is where accounts once kept the jobs they applied to. Acorn
-// applies to the page in front of it and keeps no record of earlier applications.
-const droppedAppliedField = "appliedJobIds"
-
-// DropAppliedJobs erases the applied-jobs list from every account that still has
-// one. It runs at startup and does nothing once no account holds the field.
-func (s *Store) DropAppliedJobs(ctx context.Context) error {
-	_, err := s.accounts.UpdateMany(ctx,
-		bson.D{{Key: droppedAppliedField, Value: bson.D{{Key: "$exists", Value: true}}}},
-		bson.D{{Key: "$unset", Value: bson.D{{Key: droppedAppliedField, Value: ""}}}},
-	)
-	return err
-}
-
 // GetAccount loads one account by id.
 func (s *Store) GetAccount(ctx context.Context, id string) (AccountRow, error) {
 	if s == nil || s.accounts == nil || id == "" {

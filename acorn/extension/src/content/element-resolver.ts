@@ -1,8 +1,9 @@
 import { ACORN_ID_ATTR } from "./acorn-id";
 import { childDocument } from "./frame-reach";
+import { isA } from "./realm";
 
 function isDisplayed(el: Element): boolean {
-  if (!(el instanceof HTMLElement)) return false;
+  if (!isA(el, HTMLElement)) return false;
   if (el.getClientRects().length === 0) return false;
   const style = el.ownerDocument?.defaultView?.getComputedStyle(el);
   if (!style) return Boolean(el.offsetParent);
@@ -10,11 +11,7 @@ function isDisplayed(el: Element): boolean {
 }
 
 function isFormControl(el: Element): boolean {
-  return (
-    el instanceof HTMLInputElement ||
-    el instanceof HTMLSelectElement ||
-    el instanceof HTMLTextAreaElement
-  );
+  return isA(el, HTMLInputElement) || isA(el, HTMLSelectElement) || isA(el, HTMLTextAreaElement);
 }
 
 /** When the page clones a stamped node, prefer the live form control. */

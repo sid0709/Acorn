@@ -4,6 +4,7 @@ import {
   mergePipelineProgress,
   type PipelineProgress,
 } from "@acorn/shared/pipeline-types";
+import { describeError } from "@acorn/shared/user-messages";
 import { useCallback, useEffect, useState } from "react";
 
 import { fetchStoredJobDescription } from "../pipeline/api/job-files";
@@ -24,6 +25,10 @@ type TabSession = ReturnType<typeof useTabSession>;
 
 /** A notice about work on one Chrome tab. It stays hidden while another tab is focused. */
 function notify(tabId: number | null | undefined, notice: AcornNoticePayload): void {
+  // An error a person can act on is said in plain words; the raw text stays in the log.
+  const said =
+    notice.kind === "error" && notice.detail ? describeError({ message: notice.detail }) : null;
+  if (said?.known) notice = { ...notice, title: said.title, detail: said.detail };
   pushAcornNotice(typeof tabId === "number" ? { ...notice, tabId } : notice);
 }
 

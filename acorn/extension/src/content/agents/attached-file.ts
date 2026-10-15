@@ -1,4 +1,5 @@
 import { fieldWrapper } from "../form-dom";
+import { isA } from "../realm";
 
 import type { RuntimeAttachedFile } from "../../types";
 
@@ -22,7 +23,7 @@ export function fieldHoldsFile(
   if (!file) return false;
   const names = fileNames(file);
   if (!names.length) return false;
-  if (control instanceof HTMLInputElement && control.type === "file") {
+  if (isA(control, HTMLInputElement) && control.type === "file") {
     const held = Array.from(control.files ?? []).map((attached) => attached.name.toLowerCase());
     if (held.some((name) => names.includes(name))) return true;
   }

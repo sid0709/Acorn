@@ -19,14 +19,39 @@ import { rekeyPipelineUsage } from "./pipeline/usage-tracker";
 import { rekeyCustomTab, refreshCustomTabMeta, unbindCustomTab } from "./tab-custom-session";
 import { rekeyTabJob, unbindTabJob } from "./tab-job-session";
 import {
+  LOG_KIND,
+  LOG_LEVEL,
   clearTabLog,
   dropClosedTabLogs,
   dropLegacySessionLogs,
+  flushTabLogs,
+  logTab,
   moveTabLog,
+  tabsWithRunContext,
 } from "./tab-log-session";
 import { clearTabPipeline, rekeyTabPipeline } from "./tab-pipeline-session";
 import { rekeyUsageTab } from "./tab-usage-key";
 import { MSG, ACORN_SIDEBAR_PORT } from "./types";
+
+/**
+ * A failure nobody caught lands in the log of every tab a run is on, so it shows
+ * beside the run it hit instead of only in the service worker's console.
+ */
+function logUncaught(kind: string, reason: unknown): void {
+  const message =
+    reason instanceof Error
+      ? { message: reason.message, stack: reason.stack }
+      : { message: String(reason) };
+  for (const tabId of tabsWithRunContext()) {
+    logTab(tabId, LOG_KIND.error, `Uncaught ${kind} in the service worker`, () => message, {
+      level: LOG_LEVEL.error,
+    });
+  }
+}
+self.addEventListener("unhandledrejection", (event) => logUncaught("rejection", event.reason));
+self.addEventListener("error", (event) => logUncaught("error", event.error ?? event.message));
+// Entries still waiting for their write go out before the worker is suspended.
+chrome.runtime.onSuspend.addListener(() => void flushTabLogs());
 
 function enableSidePanelOnActionClick(): void {
   void chrome.sidePanel.setPanelBehavior({ openPanelOnActionClick: true }).catch(() => undefined);

@@ -70,9 +70,9 @@ Acorn HTTP in `acorn-backend/acornapi` should compose the existing My Resume Edi
 
 ---
 
-## 7. Process capture
+## 7. The run log
 
-Every tab session's process (step traces with the addresses clicks started from, the compact page tree, model prompts and answers, SelectorGateway decisions, Gmail looks) is captured to the API, kept 3 days per tab (`debugtrace.SessionRetention`), and copied onto a support claim when the person reports. The page's HTML never leaves the browser. A password never enters capture: the extension redacts it from traces (`content/debug-snapshot.ts`, `plan-step-runner.ts`), plans are redacted, and emailed codes or links are kept only masked. Capture is best effort and never stops or slows a run: its uploads wait a moment and go at low priority behind the run's own requests, and log entries are built when they are written, not when the run logs them.
+Every run is recorded in the tab's **local log** (Logs tab): step traces with the addresses clicks started from, the compact page tree, the page text and controls sent to the decision model and its full answer, every backend call with status and latency, and the decisions the run took and why. **The log stays in the browser.** It is not uploaded while a run goes on; it goes to Acorn only when the person submits a support report, attached to that report. The page's HTML never leaves the browser. A password or emailed code never enters the log: calls are written with passwords, tokens, keys and codes replaced, and plans are redacted. The log keeps each tab's last five runs and at most 50 MB. Writing it never stops or slows a run: entries are built when they are written, not when the run logs them.
 
 ---
 

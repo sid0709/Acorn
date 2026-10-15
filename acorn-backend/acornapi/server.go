@@ -201,6 +201,7 @@ func New(accounts Accounts, listings *jobs.Store, brain *acorn.Service, opts Opt
 	mux.HandleFunc("GET /acorn/support/claims", s.listMyClaims)
 	mux.HandleFunc("GET /acorn/support/claims/{id}", s.getMyClaim)
 	mux.HandleFunc("POST /acorn/support/claims/{id}/messages", s.postMyClaimMessage)
+	mux.HandleFunc("POST /acorn/support/claims/{id}/log", s.claimLog)
 	mux.HandleFunc("POST /acorn/support/claims/{id}/read", s.readMyClaim)
 	mux.HandleFunc("POST /acorn/support/claims/{id}/reopen", s.reopenMyClaim)
 	mux.HandleFunc("GET /acorn/support/claims/{id}/attachments/{attachmentId}", s.myClaimAttachment)
@@ -300,7 +301,7 @@ func (s *Server) token(r *http.Request) string {
 func (s *Server) session(w http.ResponseWriter, r *http.Request) (account.Session, bool) {
 	session, err := s.accounts.Session(r.Context(), s.token(r), time.Now())
 	if errors.Is(err, account.ErrInvalidLogin) {
-		writeError(w, http.StatusUnauthorized, "Sign in to Acorn required")
+		writeCodedError(w, http.StatusUnauthorized, CodeSignedOut, "Sign in to Acorn required")
 		return account.Session{}, false
 	}
 	if err != nil {
@@ -318,7 +319,7 @@ func (s *Server) session(w http.ResponseWriter, r *http.Request) (account.Sessio
 func (s *Server) requireAI(next http.HandlerFunc) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		if !killswitch.On(s.switches, r.Context(), killswitch.AcornAI) {
-			writeError(w, http.StatusServiceUnavailable, killswitch.Message(killswitch.AcornAI))
+			writeCodedError(w, http.StatusServiceUnavailable, CodeKillSwitch, killswitch.Message(killswitch.AcornAI))
 			return
 		}
 		next(w, r)

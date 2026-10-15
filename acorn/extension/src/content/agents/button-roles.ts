@@ -1,3 +1,4 @@
+import { isA } from "../realm";
 /**
  * Buttons that answer and buttons that act. An answer is one of a few peers (Yes /
  * No, a title, a degree): the applicant picks one and the form keeps its shape. A
@@ -32,7 +33,7 @@ function roleOf(el: Element): string {
 
 /** The control carries a chosen state of its own (a native box, ARIA): an option by definition. */
 export function holdsChoiceState(el: Element): boolean {
-  if (el instanceof HTMLInputElement && (el.type === "radio" || el.type === "checkbox")) {
+  if (isA(el, HTMLInputElement) && (el.type === "radio" || el.type === "checkbox")) {
     return true;
   }
   if (CHOICE_ROLES.has(roleOf(el))) return true;
@@ -41,7 +42,7 @@ export function holdsChoiceState(el: Element): boolean {
 
 /** A plain button: it shows no state of its own, so only a press says what it does. */
 export function isStatelessButton(el: Element): boolean {
-  const plain = el instanceof HTMLButtonElement || roleOf(el) === "button";
+  const plain = isA(el, HTMLButtonElement) || roleOf(el) === "button";
   return plain && !holdsChoiceState(el);
 }
 

@@ -1,7 +1,7 @@
 import { authHeaders, getAcornApiUrl } from "../../auth/acorn-auth";
-import { LOG_KIND, logTab } from "../../tab-log-session";
 
-import { extractError } from "./http";
+import { loggedFetch } from "./api-log";
+import { apiError } from "./http";
 
 import type { AiUsageSummary } from "@acorn/shared/ai-usage";
 import type { FieldIssueScan, FillMode } from "@acorn/shared/field-issues";
@@ -59,33 +59,38 @@ export async function requestAiAnalyze(
   tabId?: number | null,
 ): Promise<AiAnalyzeResponse> {
   const base = (_apiUrl || (await getAcornApiUrl())).replace(/\/$/, "");
-  const startedAt = Date.now();
-  const tabKey = tabId ?? undefined;
-  // The tree rides in its own entry; the one-time code stays out.
-  logTab(tabKey, LOG_KIND.aiRequest, `POST /acorn/ai-analyze · ${payload.mode ?? "fill"}`, () => ({
-    ...payload,
-    pureTree: `(${payload.pureTree.length} characters, see the Pure tree entry)`,
-    verificationCode: payload.verificationCode ? "(hidden)" : undefined,
-  }));
-  const res = await fetch(`${base}/acorn/ai-analyze`, {
-    method: "POST",
-    headers: await authHeaders(tabId),
-    body: JSON.stringify(payload),
-  });
+  const res = await loggedFetch(
+    tabId,
+    `ai-analyze · ${payload.mode ?? "fill"}`,
+    `${base}/acorn/ai-analyze`,
+    {
+      method: "POST",
+      headers: await authHeaders(tabId),
+      body: JSON.stringify(payload),
+    },
+    {
+      // The tree and the plan each have an entry of their own.
+      shapeRequest: (request) => ({
+        ...(request as object),
+        pureTree: `(${payload.pureTree.length} characters, see the Compressed tree entry)`,
+      }),
+      shapeResponse: (body) => {
+        const answer = body as { plan?: { actions?: unknown[] } };
+        return answer?.plan
+          ? {
+              ...answer,
+              plan: `(${answer.plan.actions?.length ?? 0} actions, see the Action plan entry)`,
+            }
+          : body;
+      },
+    },
+  );
 
   const data = (await res.json().catch(() => ({}))) as AiAnalyzeResponse & {
     message?: string;
     success?: boolean;
   };
-  const ms = Date.now() - startedAt;
-  if (!res.ok || !data.plan) {
-    logTab(tabKey, LOG_KIND.aiResponse, `ai-analyze failed · ${res.status} · ${ms} ms`, () => data);
-    if (!res.ok) throw new Error(extractError(data, `AI analyze failed: ${res.status}`));
-    throw new Error(extractError(data, "AI backend returned no plan"));
-  }
-  logTab(tabKey, LOG_KIND.aiResponse, `ai-analyze ${res.status} · ${ms} ms`, () => ({
-    ...data,
-    plan: `(${data.plan?.actions?.length ?? 0} actions, see the Action plan entry)`,
-  }));
+  if (!res.ok) throw apiError(res, data, `AI analyze failed: ${res.status}`);
+  if (!data.plan) throw apiError(res, data, "AI backend returned no plan");
   return data;
 }

@@ -143,19 +143,27 @@ export const RUN_FAILURE_REASON = {
   noAccountPassword: "no_account_password",
   /** The person pressed Stop. */
   stoppedByUser: "stopped_by_user",
-  /** This job was applied to already (by an earlier run, or the site says so). */
-  alreadyApplied: "already_applied",
   /** Round after round, the page kept needing the same things: the run went in circles. */
   noProgress: "no_progress",
   /** What a requirement's click opened (an entry form) was refused each time it was saved. */
   scopeRefused: "scope_refused",
   /** The tab the application was in closed, and it opened no other to go on in. */
   tabClosed: "tab_closed",
+  /** A required field's question is not on the page, so the run cannot answer it and does not send the form. */
+  needsAnswer: "needs_answer",
+  /** No content script of Acorn answered in the page, though it was injected again: the page is unreadable to the run. */
+  pageUnreachable: "page_unreachable",
+  /** The page is filled but no control on it could be found that moves the application forward. */
+  noForwardControl: "no_forward_control",
+  /** The AI could not answer (no key, no credits, rate limit, provider down): see RunFailure.code. */
+  aiUnavailable: "ai_unavailable",
 } as const;
 
 /** Why a run could not finish, in the decision model's words (mirrors the backend's reasons). */
 export interface RunFailure {
   reason: string;
+  /** The backend's stable error code, when the failure came from a refused call (user-messages.ts). */
+  code?: string;
   label: string;
   /** The page's own words behind the reason: flagged fields, alerts, failed steps. */
   detail: string;

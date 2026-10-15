@@ -311,3 +311,73 @@ func TestSplitAcrossBoxesLeavesAWholeFieldAlone(t *testing.T) {
 		t.Fatalf("parts = %v, want none for fields with no length limit", parts)
 	}
 }
+
+func TestUnreadableIsOnlyAMachineNameOrNoWords(t *testing.T) {
+	cases := []struct {
+		label, name string
+		want        bool
+	}{
+		{"Email", "email", false},
+		{"Phone", "Phone", false},
+		{"question_68861197", "question_68861197", true},
+		{"PersonProfileFields.Email", "PersonProfileFields.Email", true},
+		{"firstName", "firstName", true},
+		{"*", "email", true},
+		{"Email", "", false},
+	}
+	for _, c := range cases {
+		if got := unreadable(FormField{Label: c.label, Name: c.name}); got != c.want {
+			t.Errorf("unreadable(label %q, name %q) = %v, want %v", c.label, c.name, got, c.want)
+		}
+	}
+}
+
+func TestRequiredBoxLeftUncheckedIsNamedNotSkipped(t *testing.T) {
+	plan := newPlan()
+	field := FormField{ElementIndex: 7, Kind: fieldToggle, Label: "I Accept", Required: true}
+	addChoiceFills(plan, []FormField{field}, map[int][]string{7: {toggleLeaveHeld}})
+	if got := len(plan["actions"].([]any)); got != 0 {
+		t.Fatalf("a declined required box planned %d steps, want none", got)
+	}
+	rows, _ := plan["unanswerable"].([]any)
+	if len(rows) != 1 {
+		t.Fatalf("unanswerable rows = %d, want 1", len(rows))
+	}
+	checked := newPlan()
+	addChoiceFills(checked, []FormField{field}, map[int][]string{7: {toggleCheck}})
+	if got := len(checked["actions"].([]any)); got != 1 {
+		t.Fatalf("a checked box planned %d steps, want 1", got)
+	}
+}
+
+func TestDropPartialAnswersLeavesADateWholeOrEmpty(t *testing.T) {
+	month := FormField{ElementIndex: 1, Kind: fieldSelect, Label: "End Date", Section: "Work History 1", Options: []string{"Jan", "Dec"}}
+	day := FormField{ElementIndex: 2, Kind: fieldSelect, Label: "End Date", Section: "Work History 1", Options: []string{"1", "12"}}
+	year := FormField{ElementIndex: 3, Kind: fieldText, Label: "End Date", Section: "Work History 1"}
+	fields := []FormField{month, day, year}
+
+	partial := newPlan()
+	addAction(partial, "select_radio", month, "select", "Dec", nil)
+	addAction(partial, "select_radio", day, "select", "12", nil)
+	dropPartialAnswers(partial, fields)
+	if got := len(planActions(partial)); got != 0 {
+		t.Fatalf("a date with its year missing kept %d steps, want none", got)
+	}
+
+	whole := newPlan()
+	addAction(whole, "select_radio", month, "select", "Dec", nil)
+	addAction(whole, "select_radio", day, "select", "12", nil)
+	addAction(whole, "fill", year, "textbox", "2024", nil)
+	dropPartialAnswers(whole, fields)
+	if got := len(planActions(whole)); got != 3 {
+		t.Fatalf("a whole date kept %d steps, want 3", got)
+	}
+
+	other := FormField{ElementIndex: 9, Kind: fieldText, Label: "Employer", Section: "Work History 1"}
+	one := newPlan()
+	addAction(one, "fill", other, "textbox", "Uber", nil)
+	dropPartialAnswers(one, []FormField{other})
+	if got := len(planActions(one)); got != 1 {
+		t.Fatalf("a lone field lost its step")
+	}
+}

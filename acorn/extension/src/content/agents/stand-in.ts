@@ -1,3 +1,5 @@
+import { isA } from "../realm";
+
 import { isDisplayed } from "./combobox/options-dom";
 import { POPUP_OWNER_SELECTOR } from "./combobox/popup-roles";
 import { comboboxWidgetRoot } from "./combobox/widget-value";
@@ -9,10 +11,10 @@ import { comboboxWidgetRoot } from "./combobox/widget-value";
  * a list, the step acts on it; otherwise on the element it named.
  */
 export function visibleStandIn(el: Element): Element {
-  if (!(el instanceof HTMLElement) || isDisplayed(el)) return el;
+  if (!isA(el, HTMLElement) || isDisplayed(el)) return el;
   const field = comboboxWidgetRoot(el);
   const owners = Array.from(field.querySelectorAll(POPUP_OWNER_SELECTOR)).filter(
-    (node): node is HTMLElement => node instanceof HTMLElement && node !== el && isDisplayed(node),
+    (node): node is HTMLElement => isA(node, HTMLElement) && node !== el && isDisplayed(node),
   );
   return owners.length === 1 ? owners[0] : el;
 }

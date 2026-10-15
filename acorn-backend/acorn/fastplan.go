@@ -4,9 +4,11 @@ import (
 	"context"
 	"fmt"
 	"log/slog"
+	"slices"
 	"strconv"
 	"strings"
 	"sync"
+	"unicode"
 )
 
 // ModeFast is the decision-model planner: Jev classifies and picks, the text
@@ -54,14 +56,19 @@ type FormField struct {
 	Autocomplete string `json:"autocomplete"`
 	Placeholder  string `json:"placeholder"`
 	Name         string `json:"name"`
+	// Identifier is the control's own id as the page names it ("workHistory.startDate.0"):
+	// plain data that often says which entry or part of the form the field belongs to.
+	Identifier string `json:"identifier"`
 	// Accept is a file input's own list of file types it takes (".pdf,application/pdf").
 	Accept string `json:"accept,omitempty"`
 	// MaxLength is the control's native maxlength; 0 when it sets none.
 	MaxLength int `json:"maxLength,omitempty"`
 	// Notes is short text the page shows after a text field: a counter ("0/300"), a format hint.
-	Notes    []string `json:"notes,omitempty"`
-	Required bool     `json:"required"`
-	Options  []string `json:"options"`
+	Notes []string `json:"notes,omitempty"`
+	// Statement is a lone box's whole text when its label was clipped: what a consent commits to.
+	Statement string   `json:"statement,omitempty"`
+	Required  bool     `json:"required"`
+	Options   []string `json:"options"`
 	// OptionIndexes are the node ids of Options, in the same order, when known: a
 	// step then targets the chosen option itself.
 	OptionIndexes []int `json:"optionIndexes,omitempty"`
@@ -128,8 +135,40 @@ var fileKinds = map[string]string{
 	fileResume:      "The application's résumé or CV document.",
 	fileAutofill:    "A drop zone that parses a résumé to pre-fill the form — not the résumé field itself.",
 	fileCoverLetter: "A cover letter.",
-	fileOther:       "Any other document: transcript, portfolio, certificate, or additional files.",
+	fileOther:       "Any other document that is neither the résumé nor a cover letter.",
 }
+
+// What an upload field that names neither a résumé nor a cover letter gets. The
+// applicant's own documents are all the run has, so the decision is which of them
+// goes in. A field that asks for a specific document the applicant does not have gets
+// none: a required one is handed to the person, since
+// the wrong document is worse than a stop, and an optional one is left alone. The
+// résumé is only the document to give when the decision cannot be made.
+const (
+	fileOtherResume  = "other_resume"
+	fileOtherLetter  = "other_cover_letter"
+	fileOtherMissing = "other_missing"
+	fileSkipped      = "skipped"
+)
+
+const documentInstructions = "Which of the applicant's own documents goes in this job-application file upload field? Read the form section and the text around it. The applicant has a résumé and may have a cover letter, and no other document."
+
+const (
+	documentResume      = "resume"
+	documentCoverLetter = "cover_letter"
+	documentMissing     = "not_held"
+)
+
+var documentKinds = map[string]string{
+	documentResume: "The applicant's résumé: the field asks for a résumé, or for documents in general, " +
+		"so a résumé is a fair answer to it.",
+	documentCoverLetter: "The applicant's cover letter: a letter or statement addressed to the employer.",
+	documentMissing: "A specific document that is neither the résumé nor a cover letter, which the applicant would have " +
+		"to produce or obtain themselves. Giving the résumé there would be the wrong document.",
+}
+
+// documentNotHeld is why a required upload is handed to the person instead of filled.
+const documentNotHeld = "it asks for a document Acorn does not have"
 
 // resumeFieldInstructions pick the one résumé field among several résumé-like
 // uploads. Judged one at a time, a parse-to-prefill drop zone reads like a
@@ -157,8 +196,15 @@ func (s *Service) FastPlan(ctx context.Context, applicant string, fields []FormF
 		return AnalyzeResult{}, fmt.Errorf("%w: formFields are required", ErrInvalid)
 	}
 	texts, files, choices := splitFields(fields)
+	// A text field whose question the page never gave (its label is only its own name,
+	// or says nothing) is never answered: whatever the writer put there would be
+	// invented. A required one is named in the plan for the run to say so.
+	texts, unreadable := withoutUnreadable(texts)
 	profile := s.facts(applicant)
 	profile.today = pageToday(page)
+	// A choice that is one part of a date (a month, a day) is answered from today's date, which
+	// the applicant's profile does not hold.
+	choiceState := applicant + "\n\nToday's date, the applicant's own: " + profile.today.Format(isoDate)
 
 	var (
 		wg                   sync.WaitGroup
@@ -232,12 +278,13 @@ func (s *Service) FastPlan(ctx context.Context, applicant string, fields []FormF
 		fileTypes, fileErr = s.classifier.ClassifyEach(ctx, fileFieldInstructions, fileKinds, describeAll(files))
 		if fileErr == nil {
 			s.settleResumeField(ctx, files, fileTypes)
+			s.settleOtherUploads(ctx, files, fileTypes)
 			fileFormats = s.uploadFormats(ctx, files, fileTypes)
 		}
 	}()
 	go func() {
 		defer wg.Done()
-		picks, pickErr = s.picker.PickChoices(ctx, applicant, choiceQuestions(choices))
+		picks, pickErr = s.picker.PickChoices(ctx, choiceState, choiceQuestions(choices))
 	}()
 	wg.Wait()
 	if textErr != nil && len(texts) > 0 {
@@ -250,22 +297,105 @@ func (s *Service) FastPlan(ctx context.Context, applicant string, fields []FormF
 		slog.Warn("acorn fast plan: choice fields left to the runtime", "error", pickErr)
 	}
 
+	// A required choice the decision model left blank is still answered: see settleChoices.
+	picks = s.settleChoices(ctx, choiceState, choices, picks, pickErr)
+
 	plan := newPlan()
+	addUnanswerable(plan, unreadable, questionUnread)
 	addResumeUpload(plan, files, fileTypes, fileFormats)
 	addCoverLetterUpload(plan, files, fileTypes, fileFormats)
+	addOtherUploads(plan, files, fileTypes, fileFormats)
 	written := make(map[int]string, len(early)+len(late))
 	for _, answers := range []map[int]string{early, late} {
 		for index, answer := range answers {
 			written[index] = answer
 		}
 	}
-	// Today's date, written the way each field that asks for it wants.
-	for index, value := range s.todayValues(ctx, texts, textKinds, profile.today) {
+	// Dates (today's, and those of a job or school), written the way each field that asks for one wants.
+	for index, value := range s.dateValues(ctx, texts, textKinds, profile) {
 		written[index] = value
 	}
 	s.addTextFills(ctx, plan, texts, textKinds, written, applicant, page)
 	addChoiceFills(plan, choices, picks)
+	dropPartialAnswers(plan, fields)
 	return AnalyzeResult{OK: true, Plan: plan, Model: s.model.Model(), Mode: ModeFast}, nil
+}
+
+// boxDeclined is why a required box is left unchecked: checking it would commit the
+// applicant to something their profile does not support.
+const boxDeclined = "it is a required box whose statement the applicant's profile does not support checking"
+
+// questionUnread is why a field is left unanswered when its question is not on the page.
+const questionUnread = "its question could not be read from the page"
+
+// hasWords says text has a letter or a digit: a lone required mark or colon names nothing.
+func hasWords(text string) bool {
+	for _, r := range text {
+		if unicode.IsLetter(r) || unicode.IsNumber(r) {
+			return true
+		}
+	}
+	return false
+}
+
+// unreadable says a text field has no question: its label has no words, or is only
+// the machine name of the input (an identifier such as "question_123" or "a.b[0]"),
+// which says how the page refers to the field and not what it asks. A plain word that
+// happens to match the input's name ("Email" on an input named "email") is a question.
+func unreadable(field FormField) bool {
+	label := strings.TrimSpace(field.Label)
+	if !hasWords(label) {
+		return true
+	}
+	return strings.TrimSpace(field.Name) != "" && strings.EqualFold(label, strings.TrimSpace(field.Name)) && identifierLike(label)
+}
+
+// identifierLike says text reads as a code identifier and not as words a person wrote:
+// one token holding a digit, a separator (_ . - [ ] :), or a lower-to-upper case change.
+func identifierLike(text string) bool {
+	if strings.ContainsAny(text, " \t\n") {
+		return false
+	}
+	var previous rune
+	for _, r := range text {
+		if unicode.IsDigit(r) || strings.ContainsRune("_.-[]:", r) {
+			return true
+		}
+		if unicode.IsUpper(r) && unicode.IsLower(previous) {
+			return true
+		}
+		previous = r
+	}
+	return false
+}
+
+// withoutUnreadable splits off the text fields that have no question to answer.
+func withoutUnreadable(fields []FormField) (readable, unread []FormField) {
+	for _, field := range fields {
+		if unreadable(field) {
+			unread = append(unread, field)
+		} else {
+			readable = append(readable, field)
+		}
+	}
+	return readable, unread
+}
+
+// addUnanswerable names the required fields the run cannot answer, so it stops and
+// says which and why instead of sending the form with those left empty or invented.
+func addUnanswerable(plan Plan, fields []FormField, reason string) {
+	rows, _ := plan["unanswerable"].([]any)
+	for _, field := range fields {
+		if !field.Required {
+			continue
+		}
+		rows = append(rows, map[string]any{
+			"element_index": float64(field.ElementIndex), "label": field.Label, "reason": reason,
+		})
+	}
+	if len(rows) > 0 {
+		plan["unanswerable"] = rows
+	}
 }
 
 func splitFields(fields []FormField) (texts, files, choices []FormField) {
@@ -294,7 +424,7 @@ func describe(field FormField) string {
 	parts = append(parts, fmt.Sprintf("Field label: %q", strings.TrimSpace(field.Label)))
 	for _, attr := range [][2]string{
 		{"input type", field.InputType}, {"autocomplete", field.Autocomplete},
-		{"placeholder", field.Placeholder}, {"name", field.Name}, {"accepts", field.Accept},
+		{"placeholder", field.Placeholder}, {"name", field.Name}, {"id", field.Identifier}, {"accepts", field.Accept},
 	} {
 		if strings.TrimSpace(attr[1]) != "" {
 			parts = append(parts, fmt.Sprintf("%s: %q", attr[0], strings.TrimSpace(attr[1])))
@@ -417,6 +547,76 @@ func (s *Service) settleResumeField(ctx context.Context, files []FormField, kind
 	kinds[picked] = fileResume
 }
 
+// settleOtherUploads decides what goes in every upload field that is neither the
+// résumé nor a cover letter: the decision model picks among the applicant's own
+// documents. A field asking for a specific document the applicant does not have is
+// left to the person when required (skipped when optional), and a decision that
+// cannot be made gives a required field the résumé.
+func (s *Service) settleOtherUploads(ctx context.Context, files []FormField, kinds map[int]string) {
+	ask := map[int]string{}
+	for _, field := range files {
+		switch kinds[field.ElementIndex] {
+		case fileResume, fileAutofill, fileCoverLetter:
+		default:
+			note := " (optional)"
+			if field.Required {
+				note = " (required: the form cannot be submitted without it)"
+			}
+			ask[field.ElementIndex] = describe(field) + note
+		}
+	}
+	if len(ask) == 0 {
+		return
+	}
+	picked, err := s.classifier.ClassifyEach(ctx, documentInstructions, documentKinds, ask)
+	if err != nil {
+		slog.Warn("acorn fast plan: documents for uploads not decided", "error", err)
+		picked = map[int]string{}
+	}
+	for _, field := range files {
+		if _, asked := ask[field.ElementIndex]; !asked {
+			continue
+		}
+		switch picked[field.ElementIndex] {
+		case documentCoverLetter:
+			kinds[field.ElementIndex] = fileOtherLetter
+		case documentResume:
+			kinds[field.ElementIndex] = fileOtherResume
+		case documentMissing:
+			if field.Required {
+				kinds[field.ElementIndex] = fileOtherMissing
+			} else {
+				kinds[field.ElementIndex] = fileSkipped
+			}
+		default:
+			if field.Required {
+				kinds[field.ElementIndex] = fileOtherResume
+			} else {
+				kinds[field.ElementIndex] = fileSkipped
+			}
+		}
+	}
+}
+
+// addOtherUploads attaches the document decided for each other upload field, and
+// names the required ones that need a document the applicant has to bring.
+func addOtherUploads(plan Plan, files []FormField, kinds, formats map[int]string) {
+	resume, letter := fileKeyResume, fileKeyCoverLetter
+	var missing []FormField
+	for _, field := range files {
+		switch kinds[field.ElementIndex] {
+		case fileOtherMissing:
+			missing = append(missing, field)
+		case fileOtherResume:
+			addAction(plan, "resume_upload", field, "file", formats[field.ElementIndex], &resume)
+		case fileOtherLetter:
+			addAction(plan, "upload", field, "file", formats[field.ElementIndex], &letter)
+			giveResumeIfRequired(plan, field)
+		}
+	}
+	addUnanswerable(plan, missing, documentNotHeld)
+}
+
 // addResumeUpload attaches the résumé to every résumé field, or to the autofill
 // drop zone only when the form has no résumé field. Uploads run before any other
 // step, so a parse zone's prefill is overwritten by the planned answers.
@@ -447,6 +647,16 @@ const blockingNote = " — the page keeps its submit control disabled until the 
 // choiceField is what the decision model reads about a choice field.
 func choiceField(field FormField) string {
 	text := fieldWithSection(field)
+	// What the page calls the control, and the line under it, say what a bare label cannot.
+	if id := strings.TrimSpace(field.Identifier); id != "" {
+		text += fmt.Sprintf("; id: %q", id)
+	}
+	if statement := strings.TrimSpace(field.Statement); statement != "" {
+		text += fmt.Sprintf("; the box's whole statement: %q", statement)
+	}
+	if notes := fieldNotes(field); notes != "" {
+		text += fmt.Sprintf("; text under the field: %q", notes)
+	}
 	if field.Required {
 		text += requiredNote
 	}
@@ -465,7 +675,7 @@ func fieldWithSection(field FormField) string {
 }
 
 // blankKinds leave a field empty (or, when it is required, have the writer answer it).
-var blankKinds = map[string]bool{FactSkip: true, FactOtherPerson: true, FactUnknownDetail: true, FactPersonOnly: true}
+var blankKinds = map[string]bool{FactDocumentText: true, FactSkip: true, FactOtherPerson: true, FactUnknownDetail: true, FactPersonOnly: true}
 
 func textRole(field FormField) string {
 	if field.Kind == fieldTextarea {
@@ -544,8 +754,8 @@ func (s *Service) addTextFills(ctx context.Context, plan Plan, fields []FormFiel
 		if part, split := parts[field.ElementIndex]; split {
 			fact = part
 		}
-		// Today's date is already written in the field's own format.
-		if dated := written[field.ElementIndex]; kinds[field.ElementIndex] == FactToday && dated != "" {
+		// A date is already written in the field's own format.
+		if dated := written[field.ElementIndex]; isDateKind(kinds[field.ElementIndex]) && dated != "" {
 			fact = dated
 		}
 		if fact != "" {
@@ -631,6 +841,12 @@ func addChoiceFills(plan Plan, fields []FormField, picks map[int][]string) {
 		if addOptionSteps(plan, field, chosen) {
 			continue
 		}
+		// A box the form requires, left unchecked on purpose, is the applicant's to decide:
+		// the run says so and stops, instead of sending a form the page refuses.
+		if field.Kind == fieldToggle && field.Required && chosen[0] != toggleCheck {
+			addUnanswerable(plan, []FormField{field}, boxDeclined)
+			continue
+		}
 		value, role := strings.Join(chosen, ", "), field.Kind
 		if field.Kind == fieldToggle {
 			value = map[bool]string{true: "true", false: "false"}[chosen[0] == toggleCheck]
@@ -695,8 +911,20 @@ func addCoverLetterUpload(plan Plan, files []FormField, kinds, formats map[int]s
 	for _, field := range files {
 		if kinds[field.ElementIndex] == fileCoverLetter {
 			addAction(plan, "upload", field, "file", formats[field.ElementIndex], &key)
+			giveResumeIfRequired(plan, field)
 		}
 	}
+}
+
+// giveResumeIfRequired marks the last action: when the cover letter it uploads is not
+// in the Library, a required field gets the résumé instead of staying empty, and an
+// optional one is left to the page.
+func giveResumeIfRequired(plan Plan, field FormField) {
+	if !field.Required {
+		return
+	}
+	actions := plan["actions"].([]any)
+	actions[len(actions)-1].(map[string]any)["fallback_file"] = fileKeyResume
 }
 
 // Formats an upload field can insist on. The step's value carries it; the
@@ -723,7 +951,8 @@ func (s *Service) uploadFormats(ctx context.Context, files []FormField, kinds ma
 	ask := map[int]string{}
 	for _, field := range files {
 		kind := kinds[field.ElementIndex]
-		if (kind == fileResume || kind == fileCoverLetter) && strings.TrimSpace(field.Accept) == "" {
+		if (kind == fileResume || kind == fileCoverLetter || kind == fileOtherResume || kind == fileOtherLetter) &&
+			strings.TrimSpace(field.Accept) == "" {
 			ask[field.ElementIndex] = describe(field)
 		}
 	}
@@ -742,4 +971,64 @@ func (s *Service) uploadFormats(ctx context.Context, files []FormField, kinds ma
 		}
 	}
 	return formats
+}
+
+// partGroupMax is the most controls one multi-part answer is made of.
+const partGroupMax = 4
+
+// dropPartialAnswers leaves a multi-part answer whole or empty. Several optional controls
+// that share one question in one section (a date's month, day and year) are one answer: a
+// page refuses the parts it was given when another part is missing, and an answer made of
+// some of its parts is wrong however each part reads. When some parts have a step and
+// some have none, the steps go and the whole answer stays blank.
+func dropPartialAnswers(plan Plan, fields []FormField) {
+	groups := map[string][]FormField{}
+	for _, field := range fields {
+		label := strings.ToLower(strings.Join(strings.Fields(field.Label), " "))
+		if label == "" || field.Required || field.Blocking {
+			continue
+		}
+		switch field.Kind {
+		case fieldText, fieldSelect, fieldButtons:
+		default:
+			continue
+		}
+		key := strings.ToLower(strings.TrimSpace(field.Section)) + "\x00" + label
+		groups[key] = append(groups[key], field)
+	}
+	planned := plannedIndexes(plan)
+	drop := map[int]bool{}
+	for _, parts := range groups {
+		// A date's parts are a few controls with at least one dropdown among them; repeated
+		// plain text boxes of one label (two phone numbers) are separate answers.
+		if len(parts) < 2 || len(parts) > partGroupMax || !slices.ContainsFunc(parts, func(f FormField) bool { return f.Kind != fieldText }) {
+			continue
+		}
+		answered := 0
+		for _, part := range parts {
+			if fieldPlanned(part, planned) {
+				answered++
+			}
+		}
+		if answered == 0 || answered == len(parts) {
+			continue
+		}
+		for _, part := range parts {
+			drop[part.ElementIndex] = true
+			for _, index := range part.OptionIndexes {
+				drop[index] = true
+			}
+		}
+	}
+	if len(drop) == 0 {
+		return
+	}
+	kept := make([]any, 0)
+	for _, row := range planActions(plan) {
+		if index, ok := elementIndex(row); ok && drop[index] {
+			continue
+		}
+		kept = append(kept, row)
+	}
+	plan["actions"] = kept
 }

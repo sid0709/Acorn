@@ -31,6 +31,14 @@ export interface PlanAction {
   file: string | null;
   reason: string | null;
   ms: number | null;
+  /** The choice group the action answers (FormField.group), set by the run from its field list. */
+  expected_group?: string | null;
+  /**
+   * An upload for a field the form requires: the file to give instead when the one
+   * named in `file` is not available (a required cover-letter field and no letter in
+   * the Library gets the résumé). Absent on an optional field, which is left alone.
+   */
+  fallback_file?: string | null;
 }
 
 export interface ActionPlan {
@@ -42,6 +50,8 @@ export interface ActionPlan {
     stop_before_submit: boolean;
   };
   unresolved_items: string[];
+  /** Required fields the run could not answer (their question was never on the page). */
+  unanswerable?: { element_index: number; label: string; reason: string }[];
 }
 
 export interface RuntimeAttachedFile {
@@ -77,6 +87,8 @@ export interface PlanStepPayload {
   ms: number | null;
   /** Refill: act even when the control already shows the value, since the page rejected it. */
   force?: boolean;
+  /** The choice group the plan named: the step never answers another group's question. */
+  expected_group?: string | null;
 }
 
 export interface PlanStepResult {
@@ -95,6 +107,18 @@ export interface PlanStepResult {
 }
 
 export type PauseDecision = "continue" | "skip" | "abort";
+
+/** What a step says when the page no longer holds the element the plan named. */
+export const ELEMENT_NOT_FOUND = "Element not found for index";
+
+/**
+ * Whether the plan was made for a page that is gone: every step failed because its
+ * element is no longer there. The page was replaced under the plan; planning it again on
+ * the page that is there is not a retry of the same answers.
+ */
+export function planTargetsGone(steps: ReadonlyArray<{ message?: string }>): boolean {
+  return steps.length > 0 && steps.every((step) => step.message?.startsWith(ELEMENT_NOT_FOUND));
+}
 
 export type RunStepStatus =
   "pending" | "running" | "ok" | "paused" | "skipped" | "blocked" | "failed" | "aborted";

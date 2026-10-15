@@ -1,4 +1,6 @@
-import { drawnText } from "../shadow-control";
+import { isListOpener } from "../agents/combobox/list-opener";
+import { isA } from "../realm";
+import { composedParent, drawnText } from "../shadow-control";
 
 export function normalize(text: string): string {
   return text.replace(/\s+/g, " ").trim().toLowerCase();
@@ -23,7 +25,7 @@ function pushFieldTitle(labels: string[], raw: string | null | undefined): void 
 
 /** Native labeled control when the planned node is a <label>, not the input. */
 export function associatedControl(el: Element): Element | null {
-  if (!(el instanceof HTMLLabelElement)) return null;
+  if (!isA(el, HTMLLabelElement)) return null;
   if (el.control) return el.control;
   return el.querySelector("input, select, textarea, button");
 }
@@ -31,7 +33,9 @@ export function associatedControl(el: Element): Element | null {
 /** Field titles often live on siblings/ancestors, not on the control itself (e.g. file "Attach"). */
 function ancestorFieldLabels(el: Element): string[] {
   const labels: string[] = [];
-  let node: Element | null = el.parentElement;
+  // Drawn ancestors: a control inside a custom element's shadow root is named by the
+  // question beside the element itself, which only its host's own siblings hold.
+  let node: Element | null = composedParent(el);
   let depth = 0;
 
   while (node && depth < 7) {
@@ -52,7 +56,7 @@ function ancestorFieldLabels(el: Element): string[] {
       pushFieldTitle(labels, (prev as HTMLElement).innerText || prev.textContent);
     }
 
-    node = node.parentElement;
+    node = composedParent(node);
     depth += 1;
   }
 
@@ -73,13 +77,19 @@ export function uniqueById(el: Element, id: string): Element | null {
  * when the id names this control alone.
  */
 export function forLabelOf(el: Element): string | null | undefined {
+  const label = forLabelElementOf(el);
+  return label ? drawnText(label) : null;
+}
+
+/** The label element a `for` attribute ties to this control (see forLabelOf). */
+export function forLabelElementOf(el: Element): Element | null {
   if (!el.id) return null;
   const root = el.getRootNode() as Document | ShadowRoot;
   if (typeof root.querySelectorAll !== "function") return null;
   const selector = `label[for="${CSS.escape(el.id)}"]`;
-  const label =
-    uniqueById(el, el.id) === el ? root.querySelector(selector) : nearestSharedLabel(el, selector);
-  return label ? drawnText(label) : null;
+  return uniqueById(el, el.id) === el
+    ? root.querySelector(selector)
+    : nearestSharedLabel(el, selector);
 }
 
 /**
@@ -98,10 +108,38 @@ function nearestSharedLabel(el: Element, selector: string): Element | null {
   return null;
 }
 
+/** Levels above a dropdown button whose custom element host is looked for. */
+const OPENER_HOST_DEPTH = 10;
+
+/**
+ * The label the page ties to the custom element a dropdown button belongs to
+ * (`<label for>` naming the element): the button itself sits inside the element's
+ * shadow root, where no label points at it.
+ */
+function hostLabelOf(opener: Element): string | null {
+  const label = hostLabelElementOf(opener);
+  return label ? drawnText(label) : null;
+}
+
+/** The label element the page ties to the custom element a dropdown button belongs to. */
+export function hostLabelElementOf(opener: Element): Element | null {
+  let node = composedParent(opener);
+  for (let depth = 0; node && depth < OPENER_HOST_DEPTH; depth += 1) {
+    if (node.id && !isA(node.getRootNode(), ShadowRoot)) {
+      const label = forLabelElementOf(node);
+      if (label) return label;
+    }
+    node = composedParent(node);
+  }
+  return null;
+}
+
 export function labelCandidates(el: Element): string[] {
   const html = el as HTMLElement;
   const primary: string[] = [];
   const own: string[] = [];
+  const opener = isListOpener(el);
+  if (opener) pushLabel(primary, hostLabelOf(el));
 
   pushLabel(primary, html.getAttribute?.("aria-label"));
 
@@ -122,7 +160,10 @@ export function labelCandidates(el: Element): string[] {
   }
 
   pushLabel(primary, html.getAttribute?.("placeholder"));
-  pushLabel(primary, html.getAttribute?.("name"));
+  // How the page refers to the control, not what it asks: the last resort, after every text a
+  // person reads (a real label that happens to read like the name, "Email" over id=email, keeps its place).
+  const named: string[] = [];
+  pushLabel(named, html.getAttribute?.("name"));
 
   const fieldset = html.closest?.("fieldset");
   pushLabel(primary, fieldset?.querySelector?.("legend")?.textContent);
@@ -140,5 +181,13 @@ export function labelCandidates(el: Element): string[] {
   if (ownText && ownText.length < 200) own.push(ownText);
 
   // Keep control chrome text ("Attach", "Select...") last so field titles win.
-  return [...new Set([...primary, ...own].filter(Boolean))];
+  let all = [...new Set([...primary, ...own, ...named].filter(Boolean))];
+  // What a dropdown button shows (its placeholder or the chosen answer) is its value:
+  // a name that only repeats it (aria-labelledby pointing at the placeholder) asks nothing.
+  if (opener) {
+    const shown = normalize(ownText);
+    const asking = all.filter((label) => normalize(label) !== shown);
+    if (asking.length) all = asking;
+  }
+  return all;
 }

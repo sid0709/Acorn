@@ -5,10 +5,18 @@
  * Structural only — no host class names or copy.
  */
 
+import { isListOpener } from "./agents/combobox/list-opener";
 import { getDirectText } from "./dom-serializer";
 import { FILLABLE_SELECTOR } from "./form-frame";
+import { queryDeep } from "./query-deep";
+import { isA } from "./realm";
 import { composedClosest, drawnText } from "./shadow-control";
-import { labelCandidates, uniqueById } from "./verify/element-labels";
+import {
+  forLabelElementOf,
+  hostLabelElementOf,
+  labelCandidates,
+  uniqueById,
+} from "./verify/element-labels";
 import { inferRole } from "./verify/element-role";
 
 export { ACORN_ID_ATTR } from "./acorn-id";
@@ -80,18 +88,18 @@ export const NAMED_GROUP_SELECTOR = 'fieldset, [role="group"], [role="radiogroup
  * "Caribbean"), so the name alone does not group them.
  */
 function checkboxSetGroup(el: Element): Element | null {
-  if (!(el instanceof HTMLInputElement) || el.type !== "checkbox") return null;
+  if (!isA(el, HTMLInputElement) || el.type !== "checkbox") return null;
   const group = el.closest(NAMED_GROUP_SELECTOR);
   if (!group) return null;
   const controls = Array.from(group.querySelectorAll(FILLABLE_SELECTOR));
   const onlyBoxes = controls.every(
-    (control) => control instanceof HTMLInputElement && control.type === "checkbox",
+    (control) => isA(control, HTMLInputElement) && control.type === "checkbox",
   );
   return onlyBoxes && controls.length > 1 ? group : null;
 }
 
 function isNamelessRadio(el: Element): el is HTMLInputElement {
-  return el instanceof HTMLInputElement && el.type === "radio" && !el.name;
+  return isA(el, HTMLInputElement) && el.type === "radio" && !el.name;
 }
 
 /**
@@ -131,7 +139,7 @@ function choiceSetKey(group: Element): string {
 }
 
 export function choiceGroupKey(el: Element): string | null {
-  if (!(el instanceof HTMLInputElement) || !CHOICE_TYPES.has(el.type)) return null;
+  if (!isA(el, HTMLInputElement) || !CHOICE_TYPES.has(el.type)) return null;
   const set = choiceSetGroup(el);
   if (set) return choiceSetKey(set);
   return el.name ? `${el.type}:${el.form?.id ?? ""}:${el.name}` : null;
@@ -164,6 +172,14 @@ export function fieldWrapper(control: Element): Element {
   return wrapper;
 }
 
+/**
+ * Whether text says anything: it has a letter or a digit. A lone required mark ("✱",
+ * "*") or a colon sits beside a question and is never the question.
+ */
+export function carriesWords(text: string): boolean {
+  return /[\p{L}\p{N}]/u.test(text);
+}
+
 /** Visible wrapper text before or after the control, outside any control part. */
 export function wrapperTexts(
   control: Element,
@@ -178,11 +194,45 @@ export function wrapperTexts(
     if (!(control.compareDocumentPosition(el) & position)) continue;
     if (matchesSafe(el, FILLABLE_SELECTOR) || el.closest(CONTROL_PART_SELECTOR)) continue;
     const text = getDirectText(el);
-    if (!text || skip.has(normalize(text)) || !isVisible(el)) continue;
+    if (!text || !carriesWords(text) || skip.has(normalize(text)) || !isVisible(el)) continue;
     skip.add(normalize(text));
     texts.push(clip(text, MAX_TEXT_CHARS));
   }
   return texts;
+}
+
+/** How far up from a group the text that asks its question is looked for. */
+const QUESTION_CLIMB_LEVELS = 4;
+/** Elements that are a field's controls or options, never the words that ask its question. */
+const CONTROL_HOLDER_SELECTOR = "input, select, textarea, button";
+
+/**
+ * The words that ask a group's question when they are not a label, legend, or heading:
+ * the nearest element before the group that holds no control (a group's options and
+ * other questions' options all do), looked for from the group's first option outward.
+ * Its own text is the question; a required mark inside it is not part of it.
+ */
+export function questionBeforeGroup(members: Element[]): string {
+  const element = questionElementBeforeGroup(members);
+  if (!element) return "";
+  return clip(getDirectText(element) || (element.textContent ?? ""), MAX_TEXT_CHARS);
+}
+
+/** The element questionBeforeGroup reads: the nearest words before the group that hold no control. */
+function questionElementBeforeGroup(members: Element[]): Element | null {
+  const first = members[0];
+  let node: Element | null = first;
+  for (let level = 0; node && level < QUESTION_CLIMB_LEVELS; level += 1) {
+    for (let prev = node.previousElementSibling; prev; prev = prev.previousElementSibling) {
+      if (prev.matches(CONTROL_HOLDER_SELECTOR) || prev.querySelector(CONTROL_HOLDER_SELECTOR)) {
+        continue;
+      }
+      const text = getDirectText(prev) || (prev.textContent ?? "");
+      if (carriesWords(text) && isVisible(prev)) return prev;
+    }
+    node = node.parentElement;
+  }
+  return null;
 }
 
 /**
@@ -194,7 +244,8 @@ export function fieldLabel(control: Element, members: Element[], wrapper: Elemen
     const question =
       groupAccessibleName(control) ||
       groupQuestion(wrapper, control, members) ||
-      wrapperTexts(control, wrapper, Node.DOCUMENT_POSITION_PRECEDING, new Set()).at(-1);
+      wrapperTexts(control, wrapper, Node.DOCUMENT_POSITION_PRECEDING, new Set()).at(-1) ||
+      questionBeforeGroup(members);
     if (question) return question;
   }
   return clip(labelCandidates(control)[0] ?? "", MAX_TEXT_CHARS);
@@ -204,7 +255,7 @@ export function fieldLabel(control: Element, members: Element[], wrapper: Elemen
  * The accessible name of the group a control sits in (ARIA): aria-labelledby,
  * aria-label, or a fieldset's legend. "" when the control is in no named group.
  */
-export function groupAccessibleName(control: Element): string {
+export function groupAccessibleName(control: Element, max: number = MAX_TEXT_CHARS): string {
   // Drawn ancestors: a custom element's group can project its options through a slot.
   const group = composedClosest(control, NAMED_GROUP_SELECTOR);
   if (!group) return "";
@@ -215,9 +266,10 @@ export function groupAccessibleName(control: Element): string {
       return named ? drawnText(named) : "";
     })
     .join(" ");
-  const legend =
-    group instanceof HTMLFieldSetElement ? group.querySelector(":scope > legend")?.textContent : "";
-  return clip(byIds || group.getAttribute("aria-label") || legend || "", MAX_TEXT_CHARS);
+  const legend = isA(group, HTMLFieldSetElement)
+    ? group.querySelector(":scope > legend")?.textContent
+    : "";
+  return clip(byIds || group.getAttribute("aria-label") || legend || "", max);
 }
 
 /** How far up from a field the small group it is one part of is looked for. */
@@ -229,8 +281,9 @@ const PART_GROUP_MAX_FIELDS = 4;
 function containerName(node: Element): string {
   const ids = (node.getAttribute("aria-labelledby") || "").split(/\s+/).filter(Boolean);
   const byIds = ids.map((id) => uniqueById(node, id)?.textContent ?? "").join(" ");
-  const legend =
-    node instanceof HTMLFieldSetElement ? node.querySelector(":scope > legend")?.textContent : "";
+  const legend = isA(node, HTMLFieldSetElement)
+    ? node.querySelector(":scope > legend")?.textContent
+    : "";
   return clip(node.getAttribute("aria-label") || byIds || legend || "", MAX_TEXT_CHARS);
 }
 
@@ -268,6 +321,67 @@ const SECTION_TITLE_SELECTOR = 'h1, h2, h3, h4, h5, h6, [role="heading"], legend
  * label apart in different sections ("First Name" under References).
  */
 export function sectionTitle(control: Element): string {
+  return headingSection(control) || drawnSection(control);
+}
+
+/** Title text this short is a title; anything longer is copy. */
+const TITLE_BLOCK_MAX_CHARS = 60;
+/** How much larger than the text people type a title is drawn. */
+const TITLE_SIZE_RATIO = 1.25;
+/** The size taken for typed text when the page has no field to measure. */
+const DEFAULT_TEXT_PX = 16;
+/** A page redraws itself: the title blocks found are kept this long. */
+const TITLE_BLOCKS_TTL_MS = 500;
+
+type TitleBlock = { el: Element; text: string };
+const titleBlockCache = new WeakMap<Document, { at: number; blocks: TitleBlock[] }>();
+
+function pixels(value: string | undefined): number {
+  const n = Number.parseFloat(value ?? "");
+  return Number.isFinite(n) ? n : 0;
+}
+
+/**
+ * The blocks of a document drawn as titles: a short run of words with no control inside,
+ * set larger than the text people type into its fields. A page that titles its sections
+ * with plain boxes (no heading tag, no legend, no role) is read by how it draws them.
+ */
+function titleBlocksOf(doc: Document): TitleBlock[] {
+  const cached = titleBlockCache.get(doc);
+  if (cached && Date.now() - cached.at < TITLE_BLOCKS_TTL_MS) return cached.blocks;
+  const view = doc.defaultView;
+  const sizes = queryDeep(doc, "input, textarea, select")
+    .map((field) => pixels(view?.getComputedStyle(field).fontSize))
+    .filter((size) => size > 0)
+    .sort((a, b) => a - b);
+  const base = sizes[Math.floor(sizes.length / 2)] || DEFAULT_TEXT_PX;
+  const blocks: TitleBlock[] = [];
+  for (const el of queryDeep(doc, "div, span, p, strong, b")) {
+    const text = getDirectText(el, TITLE_BLOCK_MAX_CHARS + 1);
+    if (!text || text.length > TITLE_BLOCK_MAX_CHARS || !carriesWords(text)) continue;
+    if (el.querySelector(CONTROL_HOLDER_SELECTOR) || !isVisible(el)) continue;
+    if (pixels(view?.getComputedStyle(el).fontSize) < base * TITLE_SIZE_RATIO) continue;
+    blocks.push({ el, text });
+  }
+  titleBlockCache.set(doc, { at: Date.now(), blocks });
+  return blocks;
+}
+
+/** The nearest block drawn as a title before the control, in the control's own document. */
+function drawnSection(control: Element): string {
+  const blocks = titleBlocksOf(control.ownerDocument);
+  for (let i = blocks.length - 1; i >= 0; i -= 1) {
+    const { el, text } = blocks[i];
+    if (el.ownerDocument !== control.ownerDocument || el.contains(control)) continue;
+    if (control.compareDocumentPosition(el) & Node.DOCUMENT_POSITION_PRECEDING) {
+      return clip(text, MAX_TEXT_CHARS);
+    }
+  }
+  return "";
+}
+
+/** The nearest heading element (h1-h6, role=heading, legend) before the control. */
+function headingSection(control: Element): string {
   let node = control.parentElement;
   for (let depth = 0; node && depth < MAX_SECTION_DEPTH; depth += 1) {
     const headings = Array.from(node.querySelectorAll(SECTION_TITLE_SELECTOR)).filter(
@@ -292,15 +406,27 @@ const QUESTION_SELECTOR = 'legend, label, h1, h2, h3, h4, h5, h6, [role="heading
  * one of the options themselves.
  */
 export function groupQuestion(wrapper: Element, first: Element, members: Element[]): string {
+  const nearest = groupQuestionElement(wrapper, first, members);
+  return nearest ? clip(nearest.textContent || "", MAX_TEXT_CHARS) : "";
+}
+
+/** The element groupQuestion reads. */
+function groupQuestionElement(
+  wrapper: Element,
+  first: Element,
+  members: Element[],
+): Element | null {
   const memberSet = new Set(members);
   const titles = Array.from(wrapper.querySelectorAll(QUESTION_SELECTOR)).filter((el) => {
     if (!(first.compareDocumentPosition(el) & Node.DOCUMENT_POSITION_PRECEDING)) return false;
     if (el.contains(first)) return false;
-    const control = el instanceof HTMLLabelElement ? el.control : null;
-    return !(control && memberSet.has(control)) && isVisible(el);
+    const control = isA(el, HTMLLabelElement) ? el.control : null;
+    // A title that is only a required mark names no question.
+    return (
+      !(control && memberSet.has(control)) && carriesWords(el.textContent || "") && isVisible(el)
+    );
   });
-  const nearest = titles.at(-1);
-  return nearest ? clip(nearest.textContent || "", MAX_TEXT_CHARS) : "";
+  return titles.at(-1) ?? null;
 }
 
 export function groupMembers(control: Element): Element[] {
@@ -316,9 +442,39 @@ export function groupMembers(control: Element): Element[] {
   );
 }
 
+/**
+ * The mark a page draws beside a question to say it must be answered: a lone asterisk
+ * (or a look-alike) closing the question's text. Typography, not wording.
+ */
+const REQUIRED_MARK_END = /[*∗✱✲⁎＊﹡]\s*$/u;
+
+/** Whether the words that ask a question end in the required mark. */
+function endsWithRequiredMark(question: Element | null): boolean {
+  return question != null && REQUIRED_MARK_END.test(question.textContent ?? "");
+}
+
+/** The elements that ask a control's (or a group's) question, whichever way the page ties them. */
+function questionElementsOf(members: Element[]): Element[] {
+  const first = members[0];
+  if (!first) return [];
+  const asking: (Element | null)[] = [forLabelElementOf(first)];
+  if (isListOpener(first)) asking.push(hostLabelElementOf(first));
+  if (members.length > 1 || choiceGroupKey(first)) {
+    asking.push(groupQuestionElement(fieldWrapper(first), first, members));
+    asking.push(questionElementBeforeGroup(members));
+  }
+  return asking.filter((element): element is Element => element != null);
+}
+
+/**
+ * The page requires this control's answer: it says so in markup (required,
+ * aria-required) or draws the required mark beside the question that asks it.
+ */
 export function isRequired(members: Element[]): boolean {
-  return members.some(
-    (el) =>
-      (el as HTMLInputElement).required === true || el.getAttribute("aria-required") === "true",
+  return (
+    members.some(
+      (el) =>
+        (el as HTMLInputElement).required === true || el.getAttribute("aria-required") === "true",
+    ) || questionElementsOf(members).some(endsWithRequiredMark)
   );
 }

@@ -19,6 +19,35 @@ type FieldIssueNote struct {
 	Invalid        bool     `json:"invalid"`
 	LinkedMessages []string `json:"linkedMessages,omitempty"`
 	NearbyMessages []string `json:"nearbyMessages,omitempty"`
+	// Attempts are the answers an earlier round gave this field that the page still
+	// flags, with how each step went: the field was answered before and did not take.
+	Attempts []FieldAttempt `json:"attempts,omitempty"`
+}
+
+// FieldAttempt is one earlier answer to a flagged field and how its step went.
+type FieldAttempt struct {
+	Value  string `json:"value"`
+	Result string `json:"result"`
+}
+
+// TriedField is a flagged field an earlier round already answered, as the
+// conversation is told: its question and every answer that did not take.
+type TriedField struct {
+	Field    string         `json:"field"`
+	Attempts []FieldAttempt `json:"attempts"`
+}
+
+// triedFields lists the flagged fields that were answered before and are flagged
+// still. Planning them again the way the first round did would give the same answer
+// to the same step, so they are planned by the conversation, which sees what failed.
+func triedFields(fields []FormField) []TriedField {
+	var tried []TriedField
+	for _, field := range fields {
+		if field.Issue != nil && len(field.Issue.Attempts) > 0 {
+			tried = append(tried, TriedField{Field: field.Label, Attempts: field.Issue.Attempts})
+		}
+	}
+	return tried
 }
 
 // Refill planners, echoed with a Refill plan so a run's log says which one planned it.
@@ -39,8 +68,10 @@ const roleCombobox = "combobox"
 const invalidNote = "The page marked this answer as not accepted."
 
 // textInstructions and textKinds ask the decision model what the page's text with
-// a flagged field does: much of it is help the field shows to everyone.
-const textInstructions = "After the applicant pressed the form's forward control, the page shows this text with a job-application field. Judge what the text does, whatever its wording."
+// a flagged field does to the answer the field holds: much of it is help the field
+// shows to everyone, and a rule ("must be on or after…") refuses an answer only when
+// the answer breaks it, which the model can only tell by seeing the answer.
+const textInstructions = "After the applicant pressed the form's forward control, the page shows this text with a job-application field. Judge what the text does to the answer the field holds now, whatever its wording."
 
 const (
 	textRefuses = "refuses"
@@ -48,8 +79,19 @@ const (
 )
 
 var textKinds = map[string]string{
-	textRefuses: "It says the field's answer is missing, was not accepted, or must change before the form can go on.",
-	textHelps:   "It only helps: a format, a limit, a counter, an example, or other guidance the field shows to anyone.",
+	textRefuses: "It says the field's answer is missing, was not accepted, or must change before the form can go on — or it states a rule (a format, a range, a limit) that the answer the field holds breaks.",
+	textHelps:   "It only helps: a format, a limit, a counter, an example, or other guidance the field shows to anyone, which the answer the field holds already satisfies.",
+}
+
+// maxHeldAnswerChars bounds the answer shown to the decision model with a field's text.
+const maxHeldAnswerChars = 120
+
+// clipRunes keeps the first max characters of text.
+func clipRunes(text string, max int) string {
+	if runes := []rune(text); len(runes) > max {
+		return string(runes[:max]) + "…"
+	}
+	return text
 }
 
 // RefillFlagged plans the fixes for what the page flagged from the flagged fields
@@ -58,7 +100,20 @@ var textKinds = map[string]string{
 // view. When that leaves an issue that needs an answer without a step, the
 // conversational Refill plans the fixes instead, from the tree and the page's plans.
 func (s *Service) RefillFlagged(ctx context.Context, applicant, pureTree string, scan FieldIssueScan, fields []FormField, page map[string]any, history []PlanTurn) (AnalyzeResult, error) {
+	// A field answered before that the page still flags is never replanned the way the
+	// last round planned it: the conversation sees what was tried and how it went.
+	if tried := triedFields(fields); len(tried) > 0 {
+		slog.Info("acorn refill: a flagged field was answered before, planning the conversation", "fields", len(tried))
+		return s.refillConversation(ctx, applicant, pureTree, scan, page, history, tried)
+	}
 	result, open, err := s.fastRefill(ctx, applicant, scan, fields, page)
+	// The flagged fields asked for nothing, yet the page says something is wrong in words
+	// tied to no field ("Education - End Date: fill in all date fields"): the conversation
+	// reads those messages against the page, which the field-by-field plan never sees.
+	if err == nil && len(open) == 0 && len(planActions(result.Plan)) == 0 && len(scan.PageMessages) > 0 {
+		slog.Info("acorn refill: the flagged fields asked for nothing but the page left messages, planning the conversation", "messages", len(scan.PageMessages))
+		return s.Refill(ctx, applicant, pureTree, scan, page, history)
+	}
 	if err == nil && len(open) == 0 {
 		return result, nil
 	}
@@ -127,7 +182,7 @@ func issueMarked(issue FieldIssue) bool {
 // refusedByText asks, in one decision, which issues carry text that turns their
 // field's answer down (or says one is missing) rather than text that only helps.
 // Issues the page already marks need no reading. The decision model reads each
-// field's label and text, never the answer it holds.
+// field's label, the answer it holds, and its text.
 func (s *Service) refusedByText(ctx context.Context, issues []FieldIssue) (map[int]bool, error) {
 	items := map[int]string{}
 	for _, issue := range issues {
@@ -155,13 +210,14 @@ func (s *Service) refusedByText(ctx context.Context, issues []FieldIssue) (map[i
 }
 
 // textQuestion is what the decision model reads about one issue's text: the field's
-// label, whether it is blank, and the text, never the answer it holds.
+// label, the answer it holds (as the extension shows it, so a password is never in
+// it), and the text. Whether a rule's text refuses depends on the answer it is about.
 func textQuestion(issue FieldIssue, text string) string {
 	parts := []string{fmt.Sprintf("Field label: %q", strings.TrimSpace(issue.Label))}
-	if strings.TrimSpace(issue.Value) == "" {
+	if held := strings.TrimSpace(issue.Value); held == "" {
 		parts = append(parts, "the field is blank")
 	} else {
-		parts = append(parts, "the field holds an answer")
+		parts = append(parts, fmt.Sprintf("the field holds %q", clipRunes(held, maxHeldAnswerChars)))
 	}
 	if issue.Required {
 		parts = append(parts, "required")

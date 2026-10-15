@@ -1,13 +1,20 @@
+import { traceFromPage } from "../../../debug-trace";
+import { isA } from "../../realm";
+import { deepQueryAll } from "../../shadow-control";
 import { waitMs } from "../wait";
 
 import {
   collectOptionsInRoot,
   displayedListboxes,
+  isDisplayed,
   normalize,
   optionSignature,
   optionText,
+  ownedPopupOpen,
   pickScopedOptions,
 } from "./options-dom";
+import { newPopupRows, visibleElements } from "./popup-diff";
+import { POPUP_SELECTOR } from "./popup-roles";
 import { focusAndOpenCombobox } from "./typing";
 
 const OPTION_WAIT_MS = 3000;
@@ -17,6 +24,12 @@ const OPTION_WAIT_MS = 3000;
  * a menu that is still empty after both gestures gets the full OPTION_WAIT_MS.
  */
 const OPEN_ATTEMPT_MS = 700;
+/**
+ * How long typing may show no popup at all before it is taken that none will come: a
+ * suggestion box with nothing to suggest (an address search with no service behind it)
+ * shows no list, and waiting out the full filter window for each word is seconds lost.
+ */
+const NO_POPUP_GIVE_UP_MS = 1500;
 
 /** Wait until the visible list is no longer the pre-type snapshot, then settle. */
 export async function waitForFilteredOptions(
@@ -31,6 +44,13 @@ export async function waitForFilteredOptions(
   let last: HTMLElement[] = pickScopedOptions(control, doc);
   while (Date.now() - started < maxMs) {
     const options = pickScopedOptions(control, doc);
+    if (
+      !options.length &&
+      Date.now() - started >= NO_POPUP_GIVE_UP_MS &&
+      !popupShown(control, doc)
+    ) {
+      return [];
+    }
     const sig = optionSignature(options);
     if (sig !== lastSig) {
       lastSig = sig;
@@ -88,7 +108,7 @@ async function collectOptionsByScrolling(
   for (const box of boxes) {
     if (box.scrollHeight > box.clientHeight + 8) scrollTargets.add(box);
     for (const child of Array.from(box.children)) {
-      if (child instanceof HTMLElement && child.scrollHeight > child.clientHeight + 8) {
+      if (isA(child, HTMLElement) && child.scrollHeight > child.clientHeight + 8) {
         scrollTargets.add(child);
       }
     }
@@ -144,10 +164,21 @@ export async function findLiveOption(
   return null;
 }
 
+/** Whether anything that holds options (a list, a menu, a grid, a tree) is on screen after the control was opened. */
+export function popupShown(control: HTMLElement, doc: Document): boolean {
+  if (ownedPopupOpen(control)) return true;
+  return deepQueryAll(doc, `${POPUP_SELECTOR}, [role="menu"]`).some(
+    (node) => isA(node, HTMLElement) && isDisplayed(node),
+  );
+}
+
 export async function openAndCollectOptions(
   html: HTMLElement,
   doc: Document,
 ): Promise<HTMLElement[]> {
+  // What the page shows before the control is opened: a list drawn with no ARIA roles is
+  // found afterwards as what is new (see popup-diff.ts).
+  const before = visibleElements(doc);
   await focusAndOpenCombobox(html);
   let options = await waitForStableOptions(html, doc, OPEN_ATTEMPT_MS);
   if (!options.length) {
@@ -157,7 +188,18 @@ export async function openAndCollectOptions(
     options = await waitForStableOptions(html, doc, OPEN_ATTEMPT_MS);
   }
   if (!options.length) {
-    // Remote-search menus fill in slowly: one full wait before giving up.
+    const drawn = newPopupRows(html, before, doc);
+    if (drawn.length) {
+      traceFromPage("combo:popup-diff", () => ({
+        count: drawn.length,
+        sample: drawn.slice(0, 8).map(optionText),
+      }));
+      return drawn;
+    }
+  }
+  if (!options.length && popupShown(html, doc)) {
+    // Remote-search menus fill in slowly: one full wait before giving up. A control that
+    // opened no popup at all after both gestures is no dropdown: nothing is waited for.
     options = await waitForStableOptions(html, doc, OPTION_WAIT_MS);
   }
   const scrolled = await collectOptionsByScrolling(html, doc);

@@ -1,5 +1,6 @@
 import { resolveElementByNodeId } from "./element-resolver";
 import { pageDelay } from "./page-timer";
+import { isA } from "./realm";
 
 export interface ActionStep {
   type: "focus" | "click" | "type" | "wait" | "keydown" | "keyup";
@@ -25,11 +26,10 @@ function dispatchKey(el: HTMLElement, type: "keydown" | "keyup", key: string): v
 function typeText(el: HTMLElement, text: string): void {
   el.focus();
 
-  if (el instanceof HTMLInputElement || el instanceof HTMLTextAreaElement) {
-    const proto =
-      el instanceof HTMLTextAreaElement
-        ? HTMLTextAreaElement.prototype
-        : HTMLInputElement.prototype;
+  if (isA(el, HTMLInputElement) || isA(el, HTMLTextAreaElement)) {
+    const proto = isA(el, HTMLTextAreaElement)
+      ? HTMLTextAreaElement.prototype
+      : HTMLInputElement.prototype;
     const descriptor = Object.getOwnPropertyDescriptor(proto, "value");
     const setValue = descriptor?.set;
     if (setValue) {

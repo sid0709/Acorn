@@ -1,3 +1,5 @@
+import { LAYER_ATTR } from "@acorn/shared/page-controls";
+
 import { sendTabMessage } from "../tab-messaging";
 import { MSG, type DomNode, type DomTreePayload } from "../types";
 
@@ -6,7 +8,9 @@ const POSTING_FRAME_TIMEOUT_MS = 1_500;
 
 type FrameReply = DomTreePayload & { error?: string; skipped?: boolean };
 
-function treeTextLength(node: DomNode): number {
+/** Characters of copy a person can see in a tree: a hidden subtree (a closed menu) says nothing. */
+export function treeTextLength(node: DomNode): number {
+  if (node.attrs?.[LAYER_ATTR.hidden] === "true") return 0;
   return (
     (node.text?.length ?? 0) + node.children.reduce((sum, child) => sum + treeTextLength(child), 0)
   );
@@ -52,7 +56,16 @@ export async function fetchPostingDomFromTab(
   opts: { fieldIssues?: boolean } = {},
 ): Promise<DomTreePayload> {
   const trees = await fetchPostingFramesFromTab(tabId, opts);
-  return trees.reduce((best, next) =>
-    treeTextLength(next.tree) > treeTextLength(best.tree) ? next : best,
+  const best = trees.reduce((chosen, next) =>
+    treeTextLength(next.tree) > treeTextLength(chosen.tree) ? next : chosen,
   );
+  const others = trees
+    .filter((other) => other !== best && treeTextLength(other.tree) > 0)
+    .map((other) => ({
+      frameId: other.frameId ?? 0,
+      url: other.url,
+      title: other.title,
+      tree: other.tree,
+    }));
+  return others.length ? { ...best, otherFrames: others } : best;
 }

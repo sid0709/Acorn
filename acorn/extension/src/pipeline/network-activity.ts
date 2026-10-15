@@ -32,19 +32,27 @@ const tabs = new Map<number, TabNetwork>();
  * milliseconds. A tab the run does not watch (no debugger on it) is always quiet:
  * the page's own signals decide alone, as before.
  */
-export function networkQuietFor(tabId: number, now = Date.now()): number {
+export function networkQuietFor(
+  tabId: number,
+  now = Date.now(),
+  longRequestMs = RUN_NETWORK_LONG_REQUEST_MS,
+): number {
   const state = tabs.get(tabId);
-  return state ? quietFor(state, now) : Number.POSITIVE_INFINITY;
+  return state ? quietFor(state, now, longRequestMs) : Number.POSITIVE_INFINITY;
 }
 
 /** How long one tab's network has been quiet; drops requests that turned long-lived. */
-export function quietFor(state: TabNetwork, now: number): number {
+export function quietFor(
+  state: TabNetwork,
+  now: number,
+  longRequestMs = RUN_NETWORK_LONG_REQUEST_MS,
+): number {
   let quietSince = state.lastActivity;
   for (const [requestId, started] of state.inFlight) {
-    if (now - started < RUN_NETWORK_LONG_REQUEST_MS) return 0;
+    if (now - started < longRequestMs) return 0;
     // Long-lived: it stops counting from the moment it became so.
     state.inFlight.delete(requestId);
-    quietSince = Math.max(quietSince, started + RUN_NETWORK_LONG_REQUEST_MS);
+    quietSince = Math.max(quietSince, started + longRequestMs);
   }
   return Math.max(0, now - quietSince);
 }

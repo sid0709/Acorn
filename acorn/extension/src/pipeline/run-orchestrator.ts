@@ -8,7 +8,12 @@ import {
   type FillMode,
 } from "@acorn/shared/field-issues";
 import { PhaseClock } from "@acorn/shared/phase-clock";
-import { appendPlanTurn, type PlanTurn } from "@acorn/shared/plan-history";
+import {
+  appendPlanTurn,
+  describeNeeds,
+  requiredUnanswerable,
+  type PlanTurn,
+} from "@acorn/shared/plan-history";
 import {
   ACCOUNT_MODE,
   CONTROL_ROLE,
@@ -31,6 +36,7 @@ import {
   type RunStage,
   type Verification,
 } from "@acorn/shared/run-types";
+import { describeError, knowsErrorCode } from "@acorn/shared/user-messages";
 
 import { markTabUsage, usageSince, type UsageMark } from "../background/tab-usage-store";
 import { rekeyCustomTab } from "../tab-custom-session";
@@ -59,8 +65,9 @@ import {
   READ_INTENT,
   type ReadIntent,
 } from "./api/run";
+import { forgetDeliveredAt, forgetDeliveredFiles } from "./delivered-files";
 import { repairDriftInTab } from "./drift";
-import { fetchDomFromTab } from "./fetch-dom";
+import { PageUnreachableError, fetchDomFromTab } from "./fetch-dom";
 import { prefetchFillResume } from "./fill-resume";
 import { watchNetwork } from "./network-activity";
 import { RESUME_NOT_CHOSEN, type ResumeGate } from "./resume-gate";
@@ -83,6 +90,7 @@ import {
   watchOpenedTabs,
   type SettleHow,
 } from "./run-click";
+import { codeLabelsOf, codeRefused } from "./run-code";
 import { watchPageDialogs } from "./run-dialogs";
 import { failureEvidence } from "./run-evidence";
 import {
@@ -90,6 +98,7 @@ import {
   RUN_MAIL_MAX_FAILED_LOOKS,
   RUN_MAIL_POLL_MS,
   RUN_MAIL_REREAD_MS,
+  RUN_PERSON_REREAD_MS,
   RUN_MAIL_WAIT_MAX_MS,
   RUN_MAX_ACCOUNT_ATTEMPTS,
   RUN_MAX_AI_CALLS,
@@ -112,10 +121,12 @@ import {
   RUN_MAX_SCOPE_SAVES,
   RUN_MAX_STALLED_ROUNDS,
   RUN_MAX_STEPS,
+  RUN_MAX_BLANK_PASSES,
   RUN_NEW_TEXT_LINES_MAX,
 } from "./run-limits";
 import { logUrl, RunLog } from "./run-log";
 import { snapshotPage, type PageSnapshot } from "./run-page";
+import { shouldWaitForPerson, stillAsksForPerson } from "./run-person";
 import { NO_RESUME_FILE, runFabPipeline } from "./run-pipeline";
 import { ProgressLedger, pageNeeds } from "./run-progress";
 import { ensureRecommendedResume } from "./run-resume";
@@ -176,9 +187,15 @@ export interface RunOrchestratorArgs {
 
 /** Where the run is on one page. */
 interface PageState {
+  /** Labels of the boxes the emailed code went into: a flag on one of them is a refused code. */
+  codeLabels?: string[];
   /** The page as the run last saw it; its own edits update this, they never make a new step. */
   signature: string;
   url: string;
+  /** Which fields the page asked for when the run last saw it (see PageSnapshot.fieldsKey). */
+  fieldsKey: string;
+  /** The page's whole text right before the first forward click on this step: what it says anew afterwards is its answer. */
+  textBeforeClick: string;
   filled: boolean;
   /** Clicks of a Next / Submit / Apply control on this page. */
   clicks: number;
@@ -211,6 +228,8 @@ interface PageState {
   busyWaits: number;
   /** Passes over what was still blank, made because the page answered a click with an alert. */
   alertPasses: number;
+  /** Passes over required fields still blank, made before the step's first forward click. */
+  blankPasses: number;
   /** Clicks on a control that does what the page still requires (an assessment, a document). */
   resolves: number;
   /**
@@ -326,10 +345,14 @@ const SCOPE_REFUSED = "The page would not take what Acorn filled in";
 const NEEDS_SHOWN_MAX = 6;
 /** The connected Gmail could not be read, look after look. */
 const MAIL_UNREADABLE = "Acorn could not read your Gmail";
+/** No content script of Acorn answers in the page, however often it was put there. */
+const PAGE_UNREACHABLE = "Acorn could not reach this page";
+/** The page is filled and nothing on it moves the application forward. */
+const NO_FORWARD_CONTROL = "The button that moves the application forward could not be found";
+/** A required field was left for the person: its question was unreadable, or it asks for a document Acorn lacks. */
+const NEEDS_ANSWER = "A required field on this form needs you";
 /** The site kept refusing the account step. */
 const ACCOUNT_REJECTED = "The site kept rejecting the sign-in or sign-up";
-/** The page itself says this job was applied to already. */
-const ALREADY_APPLIED = "You already applied to this job";
 /** What each account step is called when the run says it tried it. */
 const ACCOUNT_TRIED: Partial<Record<AccountMode, string>> = {
   [ACCOUNT_MODE.signIn]: "signing in",
@@ -447,6 +470,8 @@ export async function runOrchestrator(args: RunOrchestratorArgs): Promise<RunRep
   let startUrl = restored.startUrl;
   /** On Continue, the page already filled before the stop is not filled again. */
   let resumeFilledSignature = restored.filledSignature;
+  /** Required fields the run stopped to hand to the person: Continue means they are done. */
+  const handedToPerson = new Set(restored.handedToPerson);
   let refillsTotal = 0;
   let refillsOnPage = 0;
   let current: PageState | null = null;
@@ -520,6 +545,7 @@ export async function runOrchestrator(args: RunOrchestratorArgs): Promise<RunRep
   const clock = new PhaseClock();
   /** What each address still needed after each round of work (see run-progress). */
   const progressLedger = new ProgressLedger();
+  forgetDeliveredFiles(tabId);
   /** The run filled or clicked since the ledger last looked: the next look is a round's outcome. */
   let workedSinceLook = false;
 
@@ -561,7 +587,11 @@ export async function runOrchestrator(args: RunOrchestratorArgs): Promise<RunRep
     );
     // The chosen file loads while the run clicks Apply and the form draws.
     const on = tabId;
-    void recommending.then(() => prefetchFillResume(on, apiUrl)).catch(() => undefined);
+    void recommending
+      .then(() => prefetchFillResume(on, apiUrl))
+      .catch((err: unknown) =>
+        log.event("prefetch:failed", { error: err instanceof Error ? err.message : String(err) }),
+      );
   };
   /** Wait for the recommend before the run touches the page or moves tabs. */
   const settleRecommend = async () => {
@@ -726,6 +756,8 @@ export async function runOrchestrator(args: RunOrchestratorArgs): Promise<RunRep
       history?: PlanTurn[];
       /** Only what a requirement's click opened; bounded by the requirements, not the fill cap. */
       scoped?: boolean;
+      /** Refill: what the page said in plain words after the click, with no mark on any field. */
+      pageNotes?: string[];
     } = {},
   ) => {
     await checkBudget(within);
@@ -744,6 +776,7 @@ export async function runOrchestrator(args: RunOrchestratorArgs): Promise<RunRep
         history: opts.history,
         requireResume: true,
         pendingOnly: opts.pendingOnly,
+        pageNotes: opts.pageNotes,
         scoped: opts.scoped,
         // The run reads the page itself right after; a refill does not scan it again.
         rescan: false,
@@ -777,12 +810,13 @@ export async function runOrchestrator(args: RunOrchestratorArgs): Promise<RunRep
   };
 
   /** A forward click the page ignored; past the limit the run stops. */
-  const countNoEffect = (state: PageState, page: PageSnapshot) => {
+  const countNoEffect = (state: PageState, page: PageSnapshot, said: string[] = []) => {
     state.noEffect += 1;
     log.event("no-effect", { count: state.noEffect, limit: RUN_MAX_NO_EFFECT });
     if (state.noEffect > RUN_MAX_NO_EFFECT) {
       throw new RunStop(RUN_STAGE.advancing, page, [
         `Clicking "${control ?? "the control"}" ${state.noEffect} times changed nothing and the page flagged no field`,
+        ...said.slice(0, NEEDS_SHOWN_MAX).map((line) => `The page says: ${line}`),
       ]);
     }
   };
@@ -830,6 +864,12 @@ export async function runOrchestrator(args: RunOrchestratorArgs): Promise<RunRep
             title: within.title,
             text: within.text,
             controls: scopeFirst(within.controls, scope?.controlIds),
+            fields: within.formFields.map((field) => ({
+              label: field.label,
+              kind: field.kind,
+              required: field.required,
+              options: field.options?.length ?? 0,
+            })),
             scope: scope ? { controls: scope.controlIds, title: scope.title } : undefined,
             flagged: within.flagged,
             pageMessages: within.scan.pageMessages,
@@ -852,9 +892,18 @@ export async function runOrchestrator(args: RunOrchestratorArgs): Promise<RunRep
       ),
     );
     if (!res.ok || !res.kind) {
-      throw new RunStop(RUN_STAGE.reading, within, [
-        `Page read failed: ${res.error ?? "no answer"}`,
-      ]);
+      const raw = `Page read failed: ${res.error ?? "no answer"}`;
+      // The AI could not answer (no key, no credits, rate limit, provider down): say that.
+      if (knowsErrorCode(res.code)) {
+        const said = describeError({ code: res.code, message: raw });
+        throw new RunStop(RUN_STAGE.reading, within, [raw], undefined, {
+          reason: RUN_FAILURE_REASON.aiUnavailable,
+          code: res.code,
+          label: said.title,
+          detail: said.detail,
+        });
+      }
+      throw new RunStop(RUN_STAGE.reading, within, [raw]);
     }
     kind = res.kind;
     pageAccountMode = res.accountMode ?? null;
@@ -938,8 +987,8 @@ export async function runOrchestrator(args: RunOrchestratorArgs): Promise<RunRep
       commitPicked,
       needsPerson: res.needsPerson === true,
       verification: res.verification ?? VERIFICATION.none,
-      /** The site says this applicant has already applied to this job. */
-      alreadyApplied: res.alreadyApplied === true,
+      kindProbabilities: res.kindProbabilities ?? null,
+      verificationProbabilities: res.verificationProbabilities ?? null,
       accountMode: res.accountMode ?? ACCOUNT_MODE.none,
       /** False only when the backend says the profile has no default account password. */
       accountPassword: res.accountPassword !== false,
@@ -977,6 +1026,20 @@ export async function runOrchestrator(args: RunOrchestratorArgs): Promise<RunRep
     const watcher = watchOpenedTabs(tabId);
     try {
       checkStop();
+      log.decision(
+        `Click "${label}"`,
+        `The decision model read this page as ${kind || "a page"} and chose this control as the ${picked.role} (confidence ${picked.confidence}).`,
+        {
+          role: picked.role,
+          confidence: picked.confidence,
+          controlId: picked.id,
+          url: logUrl(on.url),
+          pageKind: kind,
+          fields: on.scan.pageMessages.length,
+          flagged: on.flagged,
+          lastClick: lastClicked?.text ?? null,
+        },
+      );
       const result = await until(clickControl(tabId, on.frameId, picked.id));
       // The address the click started from: with the trace, it is the run's record of the page.
       log.event("click", {
@@ -1031,10 +1094,67 @@ export async function runOrchestrator(args: RunOrchestratorArgs): Promise<RunRep
    * The page waits on something only the applicant can give: do nothing to it and
    * spend nothing, look again once they have moved it on.
    */
-  const awaitPerson = async (page: PageSnapshot) => {
+  const awaitPerson = async (
+    page: PageSnapshot,
+    why = "The page asks for something only the applicant can do.",
+    evidence?: Record<string, unknown>,
+  ) => {
     log.event("wait:person", { url: logUrl(page.url) });
+    log.decision(
+      "Wait for the applicant",
+      why,
+      {
+        url: logUrl(page.url),
+        title: page.title,
+        controls: page.controls.length,
+        pageMessages: page.scan.pageMessages,
+        pageText: page.text,
+        ...evidence,
+      },
+      "warn",
+    );
     progress(WAITING_FOR_PERSON);
-    const moved = await until(clock.time("wait", () => waitForPerson(tabId, page.frameId, signal)));
+    // The wait is not blind: the page is read again every RUN_PERSON_REREAD_MS, and a
+    // page that asks for nothing any more ends the wait.
+    const waiting = new AbortController();
+    const abortWithRun = () => waiting.abort();
+    signal?.addEventListener("abort", abortWithRun, { once: true });
+    let carriedOn: PageSnapshot | null = null;
+    const rereading = (async () => {
+      for (;;) {
+        await sleep(RUN_PERSON_REREAD_MS);
+        if (waiting.signal.aborted) return;
+        const look = await snap({ form: true, frameId: page.frameId });
+        const again = await read(READ_INTENT.advance, look);
+        if (
+          stillAsksForPerson({
+            needsPerson: again.needsPerson,
+            mailVerification: MAIL_VERIFICATIONS.has(again.verification),
+          })
+        ) {
+          continue;
+        }
+        log.decision(
+          "Stop waiting for the applicant",
+          "The page was read again and no longer asks for anything only the applicant can do.",
+          {
+            verification: again.verification,
+            verificationProbabilities: again.verificationProbabilities,
+          },
+        );
+        carriedOn = look;
+        waiting.abort();
+        return;
+      }
+    })().catch(() => undefined);
+    const moved = await until(
+      clock.time("wait", () => waitForPerson(tabId, page.frameId, waiting.signal)),
+    ).finally(() => {
+      waiting.abort();
+      signal?.removeEventListener("abort", abortWithRun);
+    });
+    await rereading;
+    if (carriedOn) return { snapshot: carriedOn as PageSnapshot, how: "changed" as SettleHow };
     if (!moved) {
       throw new RunStop(stage, page, [WAITED_FOR_PERSON], undefined, {
         reason: RUN_FAILURE_REASON.waitedForPerson,
@@ -1209,16 +1329,16 @@ export async function runOrchestrator(args: RunOrchestratorArgs): Promise<RunRep
     log.event("account:send", { mode });
   };
 
-  const alreadyApplied = (page: PageSnapshot, detail: string) =>
-    new RunStop(RUN_STAGE.reading, page, [ALREADY_APPLIED, detail], undefined, {
-      reason: RUN_FAILURE_REASON.alreadyApplied,
-      label: ALREADY_APPLIED,
-      detail,
-    });
-
   /** Rounds of work left everything the page needs standing: say what it still wants. */
-  const noProgress = (page: PageSnapshot, needs: string[], stalls: number) => {
-    const detail = `Still needed after ${stalls + 1} rounds: ${needs.slice(0, NEEDS_SHOWN_MAX).join(", ")}`;
+  const noProgress = (
+    page: PageSnapshot,
+    needs: string[],
+    stalls: number,
+    turns: PlanTurn[] = [],
+  ) => {
+    // Each need with what was tried on it, so the stop says what the run did.
+    const shown = describeNeeds(needs.slice(0, NEEDS_SHOWN_MAX), turns);
+    const detail = `Still needed after ${stalls + 1} rounds: ${shown.join(", ")}`;
     return new RunStop(RUN_STAGE.advancing, page, [NO_PROGRESS, detail], undefined, {
       reason: RUN_FAILURE_REASON.noProgress,
       label: NO_PROGRESS,
@@ -1228,9 +1348,8 @@ export async function runOrchestrator(args: RunOrchestratorArgs): Promise<RunRep
 
   /**
    * A new page: the first one is the posting the run applies from (and returns to).
-   * Acorn keeps no record of earlier applications: every run applies to the page in
-   * front of it, and stops as applied only when the page itself says so. On
-   * Continue, the page filled before the stop is not filled again.
+   * Every run applies to the page in front of it. On Continue, the page filled
+   * before the stop is not filled again.
    */
   const enterNewPage = (page: PageSnapshot, state: PageState) => {
     if (!startUrl) startUrl = page.url;
@@ -1239,11 +1358,6 @@ export async function runOrchestrator(args: RunOrchestratorArgs): Promise<RunRep
       log.event("continue:filled-page", {});
     }
     resumeFilledSignature = null;
-  };
-
-  /** The site says this job was applied to already: stop before touching it. */
-  const stopIfApplied = (r: { alreadyApplied: boolean }, page: PageSnapshot) => {
-    if (r.alreadyApplied) throw alreadyApplied(page, "The site says this job was applied to");
   };
 
   /** An account step the run cannot sign in to or sign up on: the profile has no password. */
@@ -1430,6 +1544,7 @@ export async function runOrchestrator(args: RunOrchestratorArgs): Promise<RunRep
     }
     log.event("mail:code-entered", {});
     state.verified = true;
+    state.codeLabels = codeLabelsOf(filled.plan?.actions ?? [], value);
     state.filled = true;
     // The next look is a fresh read of this page, not the outcome of a click.
     state.retryClick = true;
@@ -1505,6 +1620,7 @@ export async function runOrchestrator(args: RunOrchestratorArgs): Promise<RunRep
       snapshot = page;
       state.signature = page.signature;
       state.url = page.url;
+      state.fieldsKey = page.fieldsKey;
       first = await read(READ_INTENT.start, page);
     }
     return { first, page };
@@ -1560,8 +1676,54 @@ export async function runOrchestrator(args: RunOrchestratorArgs): Promise<RunRep
       return chooseEmail(page, state);
     }
     const mailed = await verifyByMail(r, page, state);
-    if (mailed === "wait" || (mailed == null && r.needsPerson && !state.verified)) {
-      return { pending: await awaitPerson(page) };
+    if (mailed === "wait") {
+      return {
+        pending: await awaitPerson(
+          page,
+          "The page asks for an emailed code or link and no Gmail is connected, so only the applicant can give it.",
+          { verification: r.verification },
+        ),
+      };
+    }
+    if (mailed == null && r.needsPerson && !state.verified) {
+      // A form with fields to fill is filled first, and sent: whatever the page asks
+      // beyond that (a bot check) shows when the send is refused. Only a page the run
+      // has already tried to send, or one with nothing to fill, waits for a person.
+      if (
+        !shouldWaitForPerson({
+          needsPerson: true,
+          fields: page.fields,
+          clicks: state.clicks,
+        })
+      ) {
+        log.decision(
+          "Fill the form first",
+          `The decision model answered verification: ${r.verification}, but this page has ${page.fields} fields the run can fill; it fills them and sends the form, and waits for the applicant only if the page refuses the send.`,
+          {
+            verification: r.verification,
+            verificationProbabilities: r.verificationProbabilities,
+            kindProbabilities: r.kindProbabilities,
+            fields: page.fields,
+          },
+        );
+        return null;
+      }
+      return {
+        pending: await awaitPerson(
+          page,
+          `The decision model answered that this page is waiting on something only the applicant can give (verification: ${r.verification}); nothing on the page was filled.`,
+          {
+            verification: r.verification,
+            verificationProbabilities: r.verificationProbabilities,
+            kindProbabilities: r.kindProbabilities,
+            pageKind: r.kind,
+            nextControl: r.control
+              ? { role: r.control.role, confidence: r.control.confidence }
+              : null,
+            attempted: "no field was filled before waiting",
+          },
+        ),
+      };
     }
     return mailed;
   };
@@ -1921,6 +2083,7 @@ export async function runOrchestrator(args: RunOrchestratorArgs): Promise<RunRep
       filledSignature: current?.filled ? current.signature : null,
       startUrl,
       pages: pageCount,
+      handedToPerson: [...handedToPerson],
     });
     const run: RunProgress = { ...runState(), endedAt: Date.now(), report: result, canContinue };
     args.emit(tabs, {
@@ -1978,10 +2141,16 @@ export async function runOrchestrator(args: RunOrchestratorArgs): Promise<RunRep
           snapshot = page;
         }
 
-        const moved = isNewStep({ previous: current, page, settled, role: clickedRole });
+        const moved = isNewStep({
+          previous: current ? { ...current, flagged: page.flagged } : null,
+          page,
+          settled,
+          role: clickedRole,
+        });
         if (!moved && current) {
           current.signature = page.signature;
           current.url = page.url;
+          current.fieldsKey = page.fieldsKey;
         }
         if (moved) {
           pageAccountMode = null;
@@ -1995,6 +2164,8 @@ export async function runOrchestrator(args: RunOrchestratorArgs): Promise<RunRep
           current = {
             signature: page.signature,
             url: page.url,
+            fieldsKey: page.fieldsKey,
+            textBeforeClick: "",
             filled: false,
             clicks: 0,
             refills: 0,
@@ -2011,12 +2182,14 @@ export async function runOrchestrator(args: RunOrchestratorArgs): Promise<RunRep
             landedAt: 0,
             busyWaits: 0,
             alertPasses: 0,
+            blankPasses: 0,
             resolves: 0,
             resolved: new Set(),
           };
           refillsOnPage = 0;
           // A new step at the same address (a single-page application) needs what it needs.
           progressLedger.forget(addressOf(page.url));
+          forgetDeliveredAt(tabId, page.url);
           log.event("page", { page: pageCount, url: logUrl(page.url), flagged: page.flagged });
           enterNewPage(page, current);
         }
@@ -2041,18 +2214,50 @@ export async function runOrchestrator(args: RunOrchestratorArgs): Promise<RunRep
           const missing = countRequiredEmpty(page.scan);
           // A page with no ARIA rejects an answer in plain copy beside the field.
           const noted = countNotedSince(state.scanBeforeFill ?? state.scanBeforeClick, page.scan);
-          log.event("after-click", { flagged, missing, noted, shown: page.flagged });
+          // A page drawn again by the click that says something it did not before refused in
+          // plain words, with no mark on any field and no ARIA to say so.
+          const said =
+            settled === "navigated"
+              ? newLines(state.textBeforeClick, page.fullText).slice(0, RUN_NEW_TEXT_LINES_MAX)
+              : [];
+          log.event("after-click", {
+            flagged,
+            missing,
+            noted,
+            said: said.length,
+            shown: page.flagged,
+          });
           const onlyNoted = flagged === 0 && missing === 0;
-          if (flagged > 0 || missing > 0 || noted > 0) {
+          if (flagged > 0 || missing > 0 || noted > 0 || said.length > 0) {
+            // A page that took the click may still be drawing the next step: the read just taken
+            // can be the one it is leaving. What it flags is looked at again on the page that is
+            // there; a different step is a new step, never a refill of this one.
+            const again = await snap({ form: true, frameId: page.frameId });
+            if (
+              again.fieldsKey !== page.fieldsKey ||
+              addressOf(again.url) !== addressOf(page.url)
+            ) {
+              log.event("after-click:page-moved", {
+                from: logUrl(page.url),
+                to: logUrl(again.url),
+              });
+              pending = { snapshot: again, how: "navigated" as SettleHow };
+              continue;
+            }
             // The emailed code was typed and the page refused it: a refill has no other
             // code to give, so it would only spend the run's budget on empty passes.
-            if (state.verified && (flagged > 0 || missing > 0)) {
+            if (
+              state.verified &&
+              (flagged > 0 || missing > 0) &&
+              codeRefused(state.codeLabels, page.scan)
+            ) {
               log.event("verify:code-rejected", { flagged, missing });
               throw verificationNotFound(page, CODE_REJECTED);
             }
             if (state.refills >= RUN_MAX_REFILLS_PER_PAGE) {
               throw new RunStop(RUN_STAGE.refilling, page, [
                 `Still flagged after ${state.refills} refills (limit ${RUN_MAX_REFILLS_PER_PAGE})`,
+                ...said.slice(0, NEEDS_SHOWN_MAX).map((line) => `The page says: ${line}`),
               ]);
             }
             state.refills += 1;
@@ -2063,7 +2268,10 @@ export async function runOrchestrator(args: RunOrchestratorArgs): Promise<RunRep
               `Refill ${state.refills}/${RUN_MAX_REFILLS_PER_PAGE} · ${flagged + missing + noted} to fix`,
             );
             const flaggedScan = page.scan;
-            const refilled = await fill(FILL_MODE.refill, page, { history: state.turns });
+            const refilled = await fill(FILL_MODE.refill, page, {
+              history: state.turns,
+              pageNotes: said,
+            });
             if (refilled.failed) {
               throw new RunStop(
                 RUN_STAGE.refilling,
@@ -2078,7 +2286,7 @@ export async function runOrchestrator(args: RunOrchestratorArgs): Promise<RunRep
             if (onlyNoted && !refilled.steps?.length) {
               state.scanBeforeFill = flaggedScan;
               log.event("refill:nothing-to-fix", { noted });
-              countNoEffect(state, page);
+              countNoEffect(state, page, said);
             }
           } else if (
             newAlerts(state.scanBeforeClick, page.scan) > 0 &&
@@ -2089,8 +2297,8 @@ export async function runOrchestrator(args: RunOrchestratorArgs): Promise<RunRep
             // its address changes): read the page first, a moment's decision, before any
             // pass over the form.
             const look = await read(READ_INTENT.advance, page);
-            if (look.kind === PAGE_KIND.confirmation || look.alreadyApplied) {
-              log.event("alert:sent", { kind: look.kind, applied: look.alreadyApplied });
+            if (look.kind === PAGE_KIND.confirmation) {
+              log.event("alert:sent", { kind: look.kind });
               return await finish(report(RUN_OUTCOME.completed));
             }
             // Otherwise it says something is still missing ("the above information is
@@ -2122,7 +2330,6 @@ export async function runOrchestrator(args: RunOrchestratorArgs): Promise<RunRep
           if (first.kind === PAGE_KIND.confirmation) {
             return await finish(report(RUN_OUTCOME.completed));
           }
-          stopIfApplied(first, page);
           // A click led off the application (a talent-community form, a site page):
           // go back to the posting the run started on and apply from there.
           if (first.kind === PAGE_KIND.other && canReturnToStart(page)) {
@@ -2237,6 +2444,22 @@ export async function runOrchestrator(args: RunOrchestratorArgs): Promise<RunRep
             snapshot = page;
           }
         }
+        // A step with required fields still blank is not sent: they are asked for first, once,
+        // so a form that only checks on its last page is not carried there incomplete.
+        const blank = onAccountStep() ? 0 : countRequiredEmpty(page.scan);
+        if (blank > 0 && state.clicks === 0 && state.blankPasses < RUN_MAX_BLANK_PASSES) {
+          state.blankPasses += 1;
+          log.event("blank:required", { blank, pass: state.blankPasses });
+          enter(
+            RUN_STAGE.refilling,
+            `Answering ${blank} required field${blank === 1 ? "" : "s"} still blank…`,
+          );
+          const flaggedScan = page.scan;
+          const completed = await fill(FILL_MODE.refill, page, { history: state.turns });
+          if (!completed.failed) remember(state, FILL_MODE.refill, completed, flaggedScan);
+          page = await snap({ form: true, frameId: page.frameId });
+          snapshot = page;
+        }
         const next = await read(READ_INTENT.advance, page);
         if (detour && DETOUR_END_KINDS.has(next.kind)) {
           pending = await endDetour(page, next.kind);
@@ -2245,7 +2468,6 @@ export async function runOrchestrator(args: RunOrchestratorArgs): Promise<RunRep
         if (next.kind === PAGE_KIND.confirmation) {
           return await finish(report(RUN_OUTCOME.completed));
         }
-        stopIfApplied(next, page);
         const handed = await verifyOrWait(next, page, state);
         if (handed) {
           pending = handed.pending;
@@ -2264,12 +2486,13 @@ export async function runOrchestrator(args: RunOrchestratorArgs): Promise<RunRep
           const needs = pageNeeds(
             page.scan,
             next.requirementPicked ? controlName(next.requirementPicked) : null,
+            state.scanBeforeFill,
           );
           const stalls = progressLedger.note(addressOf(page.url), needs);
           if (stalls > 0) {
             log.event("progress:stalled", { stalls, limit: RUN_MAX_STALLED_ROUNDS, needs });
           }
-          if (stalls >= RUN_MAX_STALLED_ROUNDS) throw noProgress(page, needs, stalls);
+          if (stalls >= RUN_MAX_STALLED_ROUNDS) throw noProgress(page, needs, stalls, state.turns);
         }
         // The best next step: what the page still requires comes before moving on.
         const requirement = guest || sendsAccount ? null : requirementOf(next, state);
@@ -2314,7 +2537,41 @@ export async function runOrchestrator(args: RunOrchestratorArgs): Promise<RunRep
                   `"${control}" was clicked ${state.clicks} time${state.clicks === 1 ? "" : "s"}; the page stayed on this step and no longer offers a control that moves it forward`,
                 ]
               : ["No control on the page moves the application forward"];
-          throw new RunStop(RUN_STAGE.advancing, page, notes);
+          // A form that was filled and offers no way on says so plainly: the person knows the button.
+          const unseen = state.clicks === 0 && next.kind === PAGE_KIND.form;
+          throw new RunStop(
+            RUN_STAGE.advancing,
+            page,
+            notes,
+            undefined,
+            unseen
+              ? {
+                  reason: RUN_FAILURE_REASON.noForwardControl,
+                  label: NO_FORWARD_CONTROL,
+                  detail: "Click it on the page yourself, then press Continue",
+                }
+              : undefined,
+          );
+        }
+        // A required field whose question the page never gave, or that asks for a document
+        // Acorn does not have, was left to the person, not invented or filled with the
+        // wrong file: the form is not sent with it empty.
+        const unanswered =
+          guest || sendsAccount
+            ? []
+            : requiredUnanswerable(state.turns).filter((field) => !handedToPerson.has(field.label));
+        if (unanswered.length) {
+          for (const field of unanswered) handedToPerson.add(field.label);
+          const named = unanswered
+            .slice(0, NEEDS_SHOWN_MAX)
+            .map((field) => `${field.label} (${field.reason})`)
+            .join("; ");
+          const detail = `${named}. Do it on the page yourself, then press Continue`;
+          throw new RunStop(RUN_STAGE.advancing, page, [NEEDS_ANSWER, detail], undefined, {
+            reason: RUN_FAILURE_REASON.needsAnswer,
+            label: NEEDS_ANSWER,
+            detail,
+          });
         }
         state.clicks += 1;
         state.scanBeforeClick = page.scan;
@@ -2322,6 +2579,11 @@ export async function runOrchestrator(args: RunOrchestratorArgs): Promise<RunRep
         // changes a page's fields (rows added, follow-ups revealed).
         state.signature = page.signature;
         state.url = page.url;
+        state.fieldsKey = page.fieldsKey;
+        // The page as it stood before the first click on this step: what it says afterwards
+        // that it did not say then stays "new" for every click that follows, so a message that
+        // comes back each time is read each time.
+        if (state.clicks === 1) state.textBeforeClick = page.fullText;
         const label = target.picked.text || target.picked.label;
         if (target.fallback) {
           log.event("click:fallback", { text: label, disabled: target.picked.disabled });
@@ -2392,8 +2654,32 @@ export async function runOrchestrator(args: RunOrchestratorArgs): Promise<RunRep
       const stop =
         err instanceof RunStop
           ? err
-          : new RunStop(stage, snapshot, [err instanceof Error ? err.message : String(err)]);
+          : new RunStop(
+              stage,
+              snapshot,
+              [err instanceof Error ? err.message : String(err)],
+              undefined,
+              err instanceof PageUnreachableError
+                ? {
+                    reason: RUN_FAILURE_REASON.pageUnreachable,
+                    label: PAGE_UNREACHABLE,
+                    detail: "Reload the page, then press Continue",
+                  }
+                : undefined,
+            );
       log.event("run:stop", { stage: stop.stage, notes: stop.notes });
+      log.decision(
+        signal?.aborted ? "The applicant stopped the run" : "The run stopped",
+        signal?.aborted ? "Stop was pressed." : (stop.notes[0] ?? "The run could not go on."),
+        {
+          stage: stop.stage,
+          notes: stop.notes,
+          page: logUrl(stop.snapshot?.url ?? ""),
+          known: stop.known ?? null,
+          clicks: clickFailures,
+        },
+        signal?.aborted ? "info" : "error",
+      );
       if (signal?.aborted) {
         return finish(report(RUN_OUTCOME.stopped, { ...STOPPED_FAILURE, stage: stop.stage }));
       }

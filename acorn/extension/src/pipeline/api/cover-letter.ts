@@ -1,6 +1,7 @@
 import { authHeaders, getAcornApiUrl } from "../../auth/acorn-auth";
 
-import { extractError } from "./http";
+import { loggedFetch } from "./api-log";
+import { apiError } from "./http";
 
 import type { RuntimeAttachedFile } from "@acorn/shared/plan-runner/types";
 
@@ -27,7 +28,7 @@ export async function requestCoverLetter(
   tabId: number,
 ): Promise<CoverLetterChoice> {
   const base = (apiUrl || (await getAcornApiUrl())).replace(/\/$/, "");
-  const res = await fetch(`${base}/acorn/custom/cover-letter`, {
+  const res = await loggedFetch(tabId, "custom/cover-letter", `${base}/acorn/custom/cover-letter`, {
     method: "POST",
     headers: await authHeaders(tabId),
     body: JSON.stringify({ jobDescription, idOnly: true }),
@@ -40,7 +41,7 @@ export async function requestCoverLetter(
     error?: string;
     message?: string;
   };
-  if (!res.ok) throw new Error(extractError(data, `Cover letter failed: ${res.status}`));
+  if (!res.ok) throw apiError(res, data, `Cover letter failed: ${res.status}`);
   const file = data.file?.base64 ? data.file : null;
   const resumeId = String(data.resumeId || file?.resumeId || "").trim() || null;
   return { file, resumeId, stack: data.stack ?? null, reason: data.reason ?? null };

@@ -4,6 +4,7 @@
  */
 
 import { waitMs } from "./agents/wait";
+import { childDocument } from "./frame-reach";
 
 /** Minimum fillable controls for a child frame to participate in Acorn. */
 export const MIN_CHILD_FORM_CONTROLS = 2;
@@ -12,6 +13,12 @@ export const MIN_CHILD_FORM_CONTROLS = 2;
  * where the application is: an email-first sign-in asks for one field only.
  */
 export const MIN_PAGE_FIELDS = 1;
+/**
+ * Visible copy that makes a frame a page of its own: a careers portal drawn in a frame of
+ * its shell says everything in the frame, form or not. A helper frame (a captcha, a
+ * widget) says a few words.
+ */
+export const MIN_FRAME_COPY_CHARS = 120;
 /** How often to re-count controls while an SPA hydrates. */
 export const FORM_SURFACE_POLL_MS = 200;
 /** Cap waiting for fillable controls before serializing anyway. */
@@ -28,7 +35,12 @@ export const FILLABLE_SELECTOR = [
   '[role="listbox"]',
 ].join(",");
 
-/** Count fillable controls, including those inside open shadow roots. */
+/**
+ * Count fillable controls, including those inside open shadow roots and in the child
+ * frames this frame reads as its own page (the same reach as the serializer): a form
+ * drawn inside such a frame is the form of this one, and not counting it made the
+ * frame wait out its whole hydration window for a form that was already there.
+ */
 export function formControlScore(doc: ParentNode = document): number {
   const seen = new Set<ParentNode>();
   const visit = (node: ParentNode): number => {
@@ -39,6 +51,8 @@ export function formControlScore(doc: ParentNode = document): number {
       n += node.querySelectorAll(FILLABLE_SELECTOR).length;
       for (const el of Array.from(node.querySelectorAll("*"))) {
         if (el.shadowRoot) n += visit(el.shadowRoot);
+        const inner = childDocument(el);
+        if (inner) n += visit(inner);
       }
     } catch {
       /* closed tree */
@@ -66,6 +80,10 @@ export async function waitForFormSurface(
  * Frames that may serialize DOM / run plan steps.
  * Top frame always can; child frames only when they look like a form surface.
  */
+export function carriesPageCopy(): boolean {
+  return (document.body?.innerText?.trim().length ?? 0) >= MIN_FRAME_COPY_CHARS;
+}
+
 export function isAcornDomFrame(): boolean {
   if (window === window.top) return true;
   return formControlScore() >= MIN_CHILD_FORM_CONTROLS;

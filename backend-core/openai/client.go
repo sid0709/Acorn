@@ -249,9 +249,9 @@ func (c *Client) complete(ctx context.Context, body []byte) (completion, error) 
 
 func statusError(status int, message string) error {
 	if strings.TrimSpace(message) != "" && !strings.HasPrefix(strings.TrimSpace(message), "{") {
-		return fmt.Errorf("model request failed: %s", strings.TrimSpace(message))
+		return &StatusError{Status: status, Text: fmt.Sprintf("model request failed: %s", strings.TrimSpace(message))}
 	}
-	return fmt.Errorf("model request failed (%d)", status)
+	return &StatusError{Status: status, Text: fmt.Sprintf("model request failed (%d)", status)}
 }
 
 type chatRequest struct {

@@ -139,7 +139,7 @@ func (s *Server) runMailVerification(w http.ResponseWriter, r *http.Request) {
 			writeJSON(w, http.StatusOK, map[string]any{"ok": true, "status": statusNoMailbox, "error": err.Error()})
 			return
 		}
-		writeJSON(w, http.StatusOK, map[string]any{"ok": false, "error": err.Error()})
+		writeJSON(w, http.StatusOK, errorBody(err))
 		return
 	}
 	log.Info("acorn run mail-verification", "status", result.Status, "unchanged", result.Unchanged, "opened", len(result.Opened),

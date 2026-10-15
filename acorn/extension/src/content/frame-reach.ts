@@ -15,6 +15,20 @@ export function claimOwnDocument(doc: Document = document): void {
   doc.documentElement?.setAttribute(OWN_SCRIPT_ATTR, "");
 }
 
+/**
+ * A page can write its frame's document anew after the script started (document.open
+ * and write, which gives it a fresh root element): the claim goes with the old root, and
+ * the parent would then read the frame's elements itself. The claim is made again
+ * whenever the root is replaced.
+ */
+export function keepOwnDocumentClaimed(doc: Document = document): void {
+  new MutationObserver(() => {
+    if (doc.documentElement && !doc.documentElement.hasAttribute(OWN_SCRIPT_ATTR)) {
+      claimOwnDocument(doc);
+    }
+  }).observe(doc, { childList: true });
+}
+
 /** The document inside a frame element that this frame reads as part of its page; null otherwise. */
 export function childDocument(frame: Element): Document | null {
   if (frame.tagName !== "IFRAME") return null;

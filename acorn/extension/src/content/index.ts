@@ -3,6 +3,7 @@ import { MSG, PLAN_STEP_PAGE_TIMEOUT_MS, type PlanStepPayload } from "../types";
 
 import { holdsAcornIds } from "./acorn-id";
 import { executeActions, getElementContent } from "./action-runner";
+import { markListOpeners } from "./agents/combobox/list-opener";
 import { fillLeftoverComboboxes } from "./agents/leftover-combobox";
 import { waitForDomQuiet } from "./agents/wait";
 import { collectChoiceItems, type ChoiceBatchStep } from "./choice-batch";
@@ -11,15 +12,16 @@ import { comboSnapshot } from "./debug-snapshot";
 import { serializeDom } from "./dom-serializer";
 import { repairDrift } from "./drift-repair";
 import { resolveElementByNodeId } from "./element-resolver";
-import { pageWantsAnswer, scanFieldIssues } from "./field-errors";
+import { noteInvalidBaseline, pageWantsAnswer, scanFieldIssues } from "./field-errors";
 import {
   MIN_CHILD_FORM_CONTROLS,
   MIN_PAGE_FIELDS,
+  carriesPageCopy,
   formControlScore,
   isAcornDomFrame,
   waitForFormSurface,
 } from "./form-frame";
-import { claimOwnDocument } from "./frame-reach";
+import { claimOwnDocument, keepOwnDocumentClaimed } from "./frame-reach";
 import { clearHighlight, highlightElement } from "./highlighter";
 import { pageFieldScore } from "./page-fields";
 import { probePage } from "./page-probe";
@@ -30,10 +32,53 @@ import { endScope, readScope, scopeState, scopeTest, takeCensus } from "./scope"
 import { initSelectionQa } from "./selection-qa";
 import { initSupportHandoff } from "./support-handoff";
 
+// A failure in the extension's own page code is written to the tab's log. The page's
+// own script errors (other origins) are the site's business, not ours.
+window.addEventListener("error", (event) => {
+  if (!event.filename.startsWith("chrome-extension://")) return;
+  traceFromPage("page:error", () => ({
+    message: event.message,
+    file: event.filename,
+    line: event.lineno,
+  }));
+});
+window.addEventListener("unhandledrejection", (event) => {
+  const reason: unknown = event.reason;
+  if (!(reason instanceof Error) || !reason.stack?.includes("chrome-extension://")) return;
+  traceFromPage("page:error", () => ({ message: reason.message, stack: reason.stack }));
+});
+
 const CONTENT_BOOT = "__acornContentBoot";
 
-type AcornContentWindow = Window & { [CONTENT_BOOT]?: boolean };
+/**
+ * What a started script leaves on its window: a check that it still works. After the
+ * extension reloads or updates, a script already in a page is cut off from it (its
+ * context is gone) but stays in the page, and a flag that only said "started" would keep
+ * the new script from starting there.
+ */
+type AcornContentWindow = Window & { [CONTENT_BOOT]?: () => boolean };
 const contentWindow = window as AcornContentWindow;
+
+function contentScriptAlive(): boolean {
+  const alive = contentWindow[CONTENT_BOOT];
+  return typeof alive === "function" && alive();
+}
+
+/**
+ * Startup work that is not the run's own (the selection chip, the support handoff, the
+ * document claim). One of them failing, say a page's content policy refusing what a chip
+ * draws, must not leave the frame without the listener the run reads and fills through.
+ */
+function startSafely(name: string, start: () => void): void {
+  try {
+    start();
+  } catch (err) {
+    traceFromPage("boot:error", () => ({
+      step: name,
+      message: err instanceof Error ? err.message : String(err),
+    }));
+  }
+}
 
 /**
  * A frame that holds an application form: the top frame, a frame with enough
@@ -63,11 +108,8 @@ function runExclusive<T>(work: () => Promise<T>): Promise<T> {
   return run;
 }
 
-if (!contentWindow[CONTENT_BOOT]) {
-  contentWindow[CONTENT_BOOT] = true;
-  claimOwnDocument();
-  initSelectionQa();
-  initSupportHandoff();
+if (!contentScriptAlive()) {
+  contentWindow[CONTENT_BOOT] = () => Boolean(chrome.runtime?.id);
 
   chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
     if (message.type === MSG.FETCH_DOM) {
@@ -82,8 +124,14 @@ if (!contentWindow[CONTENT_BOOT]) {
         const formWaitMs = Date.now() - waitStarted;
         // Fields of the page itself, not of a layer laid over it, read once the form drew.
         const pageScore = posting ? ownFields : pageFieldScore();
+        // A frame with no form still answers when it carries the page's copy (a portal's frame
+        // saying "submitted successfully"): the read takes the page from the frame that says it.
         const acornFrame =
-          posting || isTop || score >= MIN_CHILD_FORM_CONTROLS || pageScore >= MIN_PAGE_FIELDS;
+          posting ||
+          isTop ||
+          score >= MIN_CHILD_FORM_CONTROLS ||
+          pageScore >= MIN_PAGE_FIELDS ||
+          carriesPageCopy();
         if (!acornFrame) {
           sendResponse({
             skipped: true,
@@ -99,7 +147,10 @@ if (!contentWindow[CONTENT_BOOT]) {
 
         try {
           let started = Date.now();
+          // A dropdown drawn as a button over a shut list is stamped before the page is read.
+          markListOpeners();
           const tree = serializeDom(undefined, { posting });
+          noteInvalidBaseline();
           const serializeMs = Date.now() - started;
           // What an opening click drew is read first: its fields are then the scope's.
           const scope = message.scope === true ? readScope() : undefined;
@@ -387,4 +438,10 @@ if (!contentWindow[CONTENT_BOOT]) {
 
     return false;
   });
+
+  // After the listener, so nothing below can leave this frame without it.
+  startSafely("claim", claimOwnDocument);
+  startSafely("keep-claim", keepOwnDocumentClaimed);
+  startSafely("selection-qa", initSelectionQa);
+  startSafely("support-handoff", initSupportHandoff);
 }
