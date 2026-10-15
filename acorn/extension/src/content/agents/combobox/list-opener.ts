@@ -1,3 +1,4 @@
+import { isA } from "../../realm";
 import { composedContains, composedParent, deepQueryAll } from "../../shadow-control";
 
 import { LIST_OPENER_ATTR, POPUP_OWNER_SELECTOR } from "./popup-roles";
@@ -64,7 +65,7 @@ function namedByShownControl(list: HTMLElement): boolean {
   return deepQueryAll(
     list.ownerDocument,
     `[aria-controls~="${quoted}"], [aria-owns~="${quoted}"], [list="${quoted}"]`,
-  ).some((node) => node instanceof HTMLElement && isDisplayed(node) && !list.contains(node));
+  ).some((node) => isA(node, HTMLElement) && isDisplayed(node) && !list.contains(node));
 }
 
 function insideAnyList(el: Element, lists: Element[]): boolean {
@@ -83,7 +84,7 @@ function openerOf(
     if (allLists.some((other) => other !== list && composedContains(box!, other))) return null;
     const sameTree = list.getRootNode();
     const candidates = deepQueryAll(box, OPENER_CANDIDATE_SELECTOR).filter((node) => {
-      if (!(node instanceof HTMLElement) || !isDisplayed(node)) return false;
+      if (!isA(node, HTMLElement) || !isDisplayed(node)) return false;
       if (!POPUP_DECLARATIONS.some((name) => node.hasAttribute(name))) return false;
       if (node.hasAttribute("disabled") || node.getAttribute("aria-disabled") === "true")
         return false;
@@ -100,7 +101,7 @@ function openerOf(
       // press (a header's menus and links around a hidden list) is a region of the page.
       const others = deepQueryAll(box, BOX_CONTROL_SELECTOR).filter(
         (node) =>
-          node instanceof HTMLElement &&
+          isA(node, HTMLElement) &&
           node !== opener &&
           isDisplayed(node) &&
           !opener.contains(node) &&
@@ -119,8 +120,8 @@ function openerOf(
  * run before each scan: a page with no such list costs one query.
  */
 export function markListOpeners(): void {
-  const lists = deepQueryAll(document, LISTBOX_SELECTOR).filter(
-    (node): node is HTMLElement => node instanceof HTMLElement,
+  const lists = deepQueryAll(document, LISTBOX_SELECTOR).filter((node): node is HTMLElement =>
+    isA(node, HTMLElement),
   );
   for (const list of lists) {
     // A list on screen is a control of its own, never a popup; one a control names has its dropdown.
@@ -129,7 +130,7 @@ export function markListOpeners(): void {
     if (!found) continue;
     // A box that already has an on-screen dropdown of the usual kind needs no stamp.
     const owners = deepQueryAll(found.box, POPUP_OWNER_SELECTOR).filter(
-      (node) => node !== found.opener && node instanceof HTMLElement && isDisplayed(node),
+      (node) => node !== found.opener && isA(node, HTMLElement) && isDisplayed(node),
     );
     if (owners.length) continue;
     found.opener.setAttribute(LIST_OPENER_ATTR, "");

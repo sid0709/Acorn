@@ -21,6 +21,23 @@ function frameHost(url?: string): string {
   }
 }
 
+/**
+ * No frame of the tab has a content script that answers: the page is not unreadable, Acorn
+ * is not in it. A run that meets this says so, instead of blaming the site.
+ */
+export class PageUnreachableError extends Error {}
+
+function noScriptAnswered(attempts: DomFrameAttempt[]): boolean {
+  return (
+    attempts.length > 0 &&
+    attempts.every(
+      (row) =>
+        row.outcome === "error" &&
+        /could not establish connection|receiving end does not exist/i.test(row.error || ""),
+    )
+  );
+}
+
 function formatDomFetchFailure(tabId: number, attempts: DomFrameAttempt[]): string {
   const lines = [
     `Could not fetch DOM from any frame (tab ${tabId}, ${attempts.length} frame${
@@ -37,13 +54,8 @@ function formatDomFetchFailure(tabId: number, attempts: DomFrameAttempt[]): stri
   if (attempts.length > shown.length) {
     lines.push(`… ${attempts.length - shown.length} more frames`);
   }
-  const unreachable = attempts.every(
-    (row) =>
-      row.outcome === "error" &&
-      /could not establish connection|receiving end does not exist/i.test(row.error || ""),
-  );
   lines.push(
-    unreachable
+    noScriptAnswered(attempts)
       ? "No content script answered. Reload the Acorn extension, then refresh this page."
       : "Reload the Acorn extension and refresh the page.",
   );
@@ -174,7 +186,8 @@ export async function fetchDomFromTab(
   }
 
   if (!candidates.length) {
-    throw new Error(formatDomFetchFailure(tabId, attempts));
+    const message = formatDomFetchFailure(tabId, attempts);
+    throw noScriptAnswered(attempts) ? new PageUnreachableError(message) : new Error(message);
   }
 
   candidates.sort((a, b) => {

@@ -1,3 +1,4 @@
+import { isA } from "../../realm";
 import { deepQueryAll } from "../../shadow-control";
 import { waitMs } from "../wait";
 
@@ -92,7 +93,7 @@ async function collectOptionsByScrolling(
   for (const box of boxes) {
     if (box.scrollHeight > box.clientHeight + 8) scrollTargets.add(box);
     for (const child of Array.from(box.children)) {
-      if (child instanceof HTMLElement && child.scrollHeight > child.clientHeight + 8) {
+      if (isA(child, HTMLElement) && child.scrollHeight > child.clientHeight + 8) {
         scrollTargets.add(child);
       }
     }
@@ -152,7 +153,7 @@ export async function findLiveOption(
 function popupShown(control: HTMLElement, doc: Document): boolean {
   if (ownedPopupOpen(control)) return true;
   return deepQueryAll(doc, `${POPUP_SELECTOR}, [role="menu"]`).some(
-    (node) => node instanceof HTMLElement && isDisplayed(node),
+    (node) => isA(node, HTMLElement) && isDisplayed(node),
   );
 }
 

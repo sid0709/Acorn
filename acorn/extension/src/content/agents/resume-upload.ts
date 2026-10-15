@@ -5,12 +5,14 @@ import {
 } from "@acorn/shared/plan-runner/resume-field";
 import { isCustomResumeFile } from "@acorn/shared/plan-runner/step-file";
 
+import { isA } from "../realm";
+
 import { uploadFileToElement } from "./upload";
 
 import type { RuntimeAttachedFile } from "../../types";
 
 function isFileInput(el: Element): el is HTMLInputElement {
-  return el instanceof HTMLInputElement && el.type === "file";
+  return isA(el, HTMLInputElement) && el.type === "file";
 }
 
 function inputHaystack(input: HTMLInputElement): string {
@@ -128,7 +130,7 @@ function resumeFileInputOnPage(
 
 function listPageFileInputs(doc: Document): HTMLInputElement[] {
   return Array.from(doc.querySelectorAll('input[type="file"]')).filter(
-    (node): node is HTMLInputElement => node instanceof HTMLInputElement,
+    (node): node is HTMLInputElement => isA(node, HTMLInputElement),
   );
 }
 

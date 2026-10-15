@@ -1,3 +1,5 @@
+import { isA } from "../realm";
+
 import { isChoiceSelected, isChoiceWidget } from "./choice-state";
 import { comboboxWidgetRoot, readWidgetTextParts } from "./combobox/widget-value";
 import { isSearchBox } from "./field-focus";
@@ -63,7 +65,7 @@ function pickedInField(el: HTMLElement): string {
 export function readControlValue(el: Element | null): string {
   if (!el) return "";
 
-  if (el instanceof HTMLInputElement) {
+  if (isA(el, HTMLInputElement)) {
     if (el.type === "checkbox" || el.type === "radio") return String(el.checked);
     if (el.type === "file") {
       return Array.from(el.files ?? [])
@@ -83,7 +85,7 @@ export function readControlValue(el: Element | null): string {
     return el.value;
   }
 
-  if (el instanceof HTMLSelectElement) {
+  if (isA(el, HTMLSelectElement)) {
     const selected = el.selectedOptions?.[0];
     const label = (selected?.textContent || selected?.label || el.value || "").trim();
     if (label && !isPlaceholder(label)) return label;
@@ -100,18 +102,17 @@ export function readControlValue(el: Element | null): string {
     return "";
   }
 
-  if (el instanceof HTMLTextAreaElement) return el.value;
+  if (isA(el, HTMLTextAreaElement)) return el.value;
 
   const role = ((el as HTMLElement).getAttribute("role") || "").toLowerCase();
-  if (role === "option" || el instanceof HTMLOptionElement) {
-    const selected =
-      el instanceof HTMLOptionElement
-        ? el.selected
-        : (el as HTMLElement).getAttribute("aria-selected") === "true";
+  if (role === "option" || isA(el, HTMLOptionElement)) {
+    const selected = isA(el, HTMLOptionElement)
+      ? el.selected
+      : (el as HTMLElement).getAttribute("aria-selected") === "true";
     if (!selected) return "";
     const text = (
       (el as HTMLElement).getAttribute("aria-label") ||
-      (el instanceof HTMLOptionElement ? el.label || el.text : "") ||
+      (isA(el, HTMLOptionElement) ? el.label || el.text : "") ||
       (el as HTMLElement).innerText ||
       (el as HTMLElement).textContent ||
       ""

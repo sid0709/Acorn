@@ -15,6 +15,7 @@ import { uploadedAny } from "./agents/upload-registry";
 import { resolveElementByNodeId } from "./element-resolver";
 import { choiceGroupKey, fieldWrapper, groupMembers, isVisible } from "./form-dom";
 import { BUTTON_SELECTOR, scanFormFields } from "./form-fields";
+import { isA } from "./realm";
 import { scopeTest } from "./scope";
 
 import type { FormField } from "@acorn/shared/form-fields";
@@ -41,7 +42,7 @@ function answered(field: FormField, control: Element): boolean {
 
 /** A single box that is off now, whoever left it so. */
 function toggleOff(control: Element): boolean {
-  if (control instanceof HTMLInputElement) return !control.checked;
+  if (isA(control, HTMLInputElement)) return !control.checked;
   return control.getAttribute("aria-checked") !== "true";
 }
 

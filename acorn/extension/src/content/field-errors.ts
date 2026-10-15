@@ -30,6 +30,7 @@ import {
   wrapperTexts,
 } from "./form-dom";
 import { FILLABLE_SELECTOR } from "./form-frame";
+import { isA } from "./realm";
 import { inferRole } from "./verify/element-role";
 
 import type { FieldIssue, FieldIssueScan } from "@acorn/shared/field-issues";
@@ -134,7 +135,7 @@ function nearbyMessages(control: Element, wrapper: Element, skip: Set<string>): 
  * nothing still answers "checked", never empty.
  */
 function checkedAnswer(el: Element): string {
-  const words = el instanceof HTMLInputElement ? inputOptionLabel(el) : choiceOptionLabel(el);
+  const words = isA(el, HTMLInputElement) ? inputOptionLabel(el) : choiceOptionLabel(el);
   return words || CHECKED_ANSWER;
 }
 

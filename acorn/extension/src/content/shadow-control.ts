@@ -1,3 +1,4 @@
+import { isA } from "./realm";
 /**
  * Custom-element controls. Many design systems build a button as a custom element
  * whose open shadow root holds a native button or link around a <slot>: the
@@ -17,7 +18,7 @@ export function shadowDelegate(el: Element): HTMLElement | null {
   const root = el.shadowRoot;
   if (!root) return null;
   for (const candidate of Array.from(root.querySelectorAll(NATIVE_CONTROL_SELECTOR))) {
-    if (candidate instanceof HTMLElement && candidate.querySelector("slot")) return candidate;
+    if (isA(candidate, HTMLElement) && candidate.querySelector("slot")) return candidate;
   }
   return null;
 }
@@ -44,7 +45,7 @@ function shadowRootsUnder(root: ParentNode): ShadowRoot[] {
   const roots: ShadowRoot[] = [];
   const visit = (scope: ParentNode) => {
     const hosts = Array.from(scope.querySelectorAll("*"));
-    if (scope instanceof Element) hosts.unshift(scope);
+    if (isA(scope, Element)) hosts.unshift(scope);
     for (const el of hosts) {
       if (!el.shadowRoot) continue;
       roots.push(el.shadowRoot);
@@ -68,7 +69,7 @@ export function deepQueryAll(root: ParentNode, selector: string): Element[] {
 /** The element with this id in el's own shadow root, else in its document. */
 export function byIdNear(el: Element, id: string): Element | null {
   const root = el.getRootNode();
-  const near = root instanceof ShadowRoot ? root.getElementById(id) : null;
+  const near = isA(root, ShadowRoot) ? root.getElementById(id) : null;
   return near ?? el.ownerDocument.getElementById(id);
 }
 
@@ -81,7 +82,7 @@ export function composedParent(el: Element): Element | null {
   if (el.assignedSlot) return el.assignedSlot;
   if (el.parentElement) return el.parentElement;
   const root = el.getRootNode();
-  return root instanceof ShadowRoot ? root.host : null;
+  return isA(root, ShadowRoot) ? root.host : null;
 }
 
 /** Whether ancestor holds el, looking through shadow roots. */
@@ -107,8 +108,8 @@ export function drawnText(el: Element): string {
       parts.push(node.textContent ?? "");
       return;
     }
-    if (!(node instanceof Element) || NO_TEXT_TAGS.has(node.tagName)) return;
-    if (node instanceof HTMLSlotElement) {
+    if (!isA(node, Element) || NO_TEXT_TAGS.has(node.tagName)) return;
+    if (isA(node, HTMLSlotElement)) {
       const assigned = node.assignedNodes({ flatten: true });
       for (const child of assigned.length ? assigned : Array.from(node.childNodes)) walk(child);
       return;

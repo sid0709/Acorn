@@ -1,3 +1,5 @@
+import { isA } from "../realm";
+
 import { associatedControl, labelCandidates, normalize } from "./element-labels";
 import { inferRole, roleMatches } from "./element-role";
 import { labelMatches } from "./label-match";
@@ -39,7 +41,7 @@ function pickRelocateMatch(
       const text = normalize(
         el.getAttribute("aria-label") ||
           el.innerText ||
-          (el instanceof HTMLInputElement ? el.value : "") ||
+          (isA(el, HTMLInputElement) ? el.value : "") ||
           "",
       );
       return Boolean(text) && (text === want || text.includes(want) || want.includes(text));
@@ -65,12 +67,10 @@ function pickRelocateMatch(
 
   const expRole = normalize(expectedRole || "");
   if (next.length > 1 && (expRole === "password" || expRole === "textbox")) {
-    const passwords = next.filter((el) => el instanceof HTMLInputElement && el.type === "password");
+    const passwords = next.filter((el) => isA(el, HTMLInputElement) && el.type === "password");
     if (passwords.length === 1) return passwords;
     if (passwords.length) next = passwords;
-    const typed = next.filter(
-      (el) => el instanceof HTMLInputElement || el instanceof HTMLTextAreaElement,
-    );
+    const typed = next.filter((el) => isA(el, HTMLInputElement) || isA(el, HTMLTextAreaElement));
     if (typed.length === 1) return typed;
     if (typed.length) next = typed;
   }
@@ -98,7 +98,7 @@ export function relocateElementByPlan(
   const seen = new Set<Element>();
   const matches: HTMLElement[] = [];
   for (const node of Array.from(document.querySelectorAll(RELOCATE_SELECTOR))) {
-    if (!(node instanceof HTMLElement)) continue;
+    if (!isA(node, HTMLElement)) continue;
     const el = (associatedControl(node) ?? node) as HTMLElement;
     if (seen.has(el)) continue;
     seen.add(el);

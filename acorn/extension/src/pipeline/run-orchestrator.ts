@@ -66,7 +66,7 @@ import {
   type ReadIntent,
 } from "./api/run";
 import { repairDriftInTab } from "./drift";
-import { fetchDomFromTab } from "./fetch-dom";
+import { PageUnreachableError, fetchDomFromTab } from "./fetch-dom";
 import { prefetchFillResume } from "./fill-resume";
 import { watchNetwork } from "./network-activity";
 import { RESUME_NOT_CHOSEN, type ResumeGate } from "./resume-gate";
@@ -334,6 +334,8 @@ const SCOPE_REFUSED = "The page would not take what Acorn filled in";
 const NEEDS_SHOWN_MAX = 6;
 /** The connected Gmail could not be read, look after look. */
 const MAIL_UNREADABLE = "Acorn could not read your Gmail";
+/** No content script of Acorn answers in the page, however often it was put there. */
+const PAGE_UNREACHABLE = "Acorn could not reach this page";
 /** The page is filled and nothing on it moves the application forward. */
 const NO_FORWARD_CONTROL = "The button that moves the application forward could not be found";
 /** A required field was left for the person: its question was unreadable, or it asks for a document Acorn lacks. */
@@ -2587,7 +2589,19 @@ export async function runOrchestrator(args: RunOrchestratorArgs): Promise<RunRep
       const stop =
         err instanceof RunStop
           ? err
-          : new RunStop(stage, snapshot, [err instanceof Error ? err.message : String(err)]);
+          : new RunStop(
+              stage,
+              snapshot,
+              [err instanceof Error ? err.message : String(err)],
+              undefined,
+              err instanceof PageUnreachableError
+                ? {
+                    reason: RUN_FAILURE_REASON.pageUnreachable,
+                    label: PAGE_UNREACHABLE,
+                    detail: "Reload the page, then press Continue",
+                  }
+                : undefined,
+            );
       log.event("run:stop", { stage: stop.stage, notes: stop.notes });
       log.decision(
         signal?.aborted ? "The applicant stopped the run" : "The run stopped",

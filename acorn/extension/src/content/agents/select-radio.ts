@@ -1,4 +1,5 @@
 import { fieldWrapper } from "../form-dom";
+import { isA } from "../realm";
 import { inferElementRole } from "../verify-element";
 
 import { isKnownCommand, isStatelessButton, rememberCommand } from "./button-roles";
@@ -25,7 +26,7 @@ function normalize(text: string): string {
 function labelsEqual(option: Element, value: string): boolean {
   const n = normalize(value);
   if (!n) return false;
-  const rawValue = option instanceof HTMLInputElement ? normalize(option.value) : "";
+  const rawValue = isA(option, HTMLInputElement) ? normalize(option.value) : "";
   return normalize(inputOptionLabel(option)) === n || rawValue === n;
 }
 
@@ -63,7 +64,7 @@ function isDisplayed(el: HTMLElement): boolean {
 function findDisplayedOption(listbox: Element | null, value: string): HTMLElement | null {
   if (!listbox) return null;
   const nodes = Array.from(listbox.querySelectorAll('[role="option"]')).filter(
-    (node): node is HTMLElement => node instanceof HTMLElement && isDisplayed(node),
+    (node): node is HTMLElement => isA(node, HTMLElement) && isDisplayed(node),
   );
   return pickByLabel(nodes, value);
 }
@@ -88,7 +89,7 @@ const OPTION_SET_MAX_DEPTH = 4;
  * when no grouping container names them.
  */
 function optionSetRoot(el: HTMLElement): HTMLElement | null {
-  if (el instanceof HTMLInputElement || !el.matches(OPTION_BUTTON_SELECTOR)) return null;
+  if (isA(el, HTMLInputElement) || !el.matches(OPTION_BUTTON_SELECTOR)) return null;
   let node = el.parentElement;
   for (let depth = 0; node && depth < OPTION_SET_MAX_DEPTH; depth += 1) {
     if (node.querySelectorAll(OPTION_BUTTON_SELECTOR).length > 1) return node;
@@ -102,12 +103,12 @@ function optionSetRoot(el: HTMLElement): HTMLElement | null {
  * shares its name in the same form. Null when it shares its name with no other.
  */
 function sameNameGroup(el: HTMLElement): HTMLInputElement[] | null {
-  if (!(el instanceof HTMLInputElement) || !el.name) return null;
+  if (!isA(el, HTMLInputElement) || !el.name) return null;
   if (el.type !== "radio" && el.type !== "checkbox") return null;
   const scope: ParentNode = el.form ?? (el.getRootNode() as Document | ShadowRoot);
   const members = Array.from(
     scope.querySelectorAll(`input[type="${el.type}"][name="${CSS.escape(el.name)}"]`),
-  ).filter((node): node is HTMLInputElement => node instanceof HTMLInputElement);
+  ).filter((node): node is HTMLInputElement => isA(node, HTMLInputElement));
   return members.length > 1 ? members : null;
 }
 
@@ -130,7 +131,7 @@ export function groupRoot(el: HTMLElement): ParentNode {
   if (namedRoot) return namedRoot;
   // A native box or radio with no named group answers one question: its own field
   // wrapper, never a wider container where another question's option shares its label.
-  if (el instanceof HTMLInputElement && (el.type === "radio" || el.type === "checkbox")) {
+  if (isA(el, HTMLInputElement) && (el.type === "radio" || el.type === "checkbox")) {
     return fieldWrapper(el);
   }
   const container = el.closest(GROUP_CONTAINER_SELECTOR);
@@ -148,7 +149,7 @@ function findChoiceInGroup(
   owner?: HTMLElement,
 ): HTMLInputElement | null {
   const inRoot = Array.from(root.querySelectorAll(`input[type="${kind}"]`)).filter(
-    (node): node is HTMLInputElement => node instanceof HTMLInputElement,
+    (node): node is HTMLInputElement => isA(node, HTMLInputElement),
   );
   // Where a group's options meet can hold another question's options too (two questions
   // whose options are siblings in one section): the browser's own group, by name, is
@@ -161,7 +162,7 @@ function findChoiceInGroup(
 
 function findAriaChoice(root: ParentNode, value: string): HTMLElement | null {
   const nodes = Array.from(root.querySelectorAll('[role="checkbox"], [role="radio"]')).filter(
-    (node): node is HTMLElement => node instanceof HTMLElement,
+    (node): node is HTMLElement => isA(node, HTMLElement),
   );
   return pickByLabel(nodes, value);
 }
@@ -169,7 +170,7 @@ function findAriaChoice(root: ParentNode, value: string): HTMLElement | null {
 function findButtonChoice(root: ParentNode, value: string): HTMLElement | null {
   const nodes = Array.from(
     root.querySelectorAll('button, [role="button"], [role="radio"], [aria-pressed]'),
-  ).filter((node): node is HTMLElement => node instanceof HTMLElement && isDisplayed(node));
+  ).filter((node): node is HTMLElement => isA(node, HTMLElement) && isDisplayed(node));
   return pickByLabel(nodes, value);
 }
 
@@ -197,7 +198,7 @@ class ActedOnForm extends Error {}
 /** The option buttons of the set `el` belongs to, displayed or not. */
 function optionPeers(el: HTMLElement): HTMLElement[] {
   return Array.from(groupRoot(el).querySelectorAll(OPTION_BUTTON_SELECTOR)).filter(
-    (node): node is HTMLElement => node instanceof HTMLElement,
+    (node): node is HTMLElement => isA(node, HTMLElement),
   );
 }
 
@@ -205,7 +206,7 @@ function optionPeers(el: HTMLElement): HTMLElement[] {
 function shownWithLabels(doc: Document, labels: string[]): Map<string, number> {
   const counts = new Map(labels.map((label) => [label, 0]));
   for (const node of Array.from(doc.querySelectorAll(OPTION_BUTTON_SELECTOR))) {
-    if (!(node instanceof HTMLElement) || !isDisplayed(node)) continue;
+    if (!isA(node, HTMLElement) || !isDisplayed(node)) continue;
     const label = normalize(choiceOptionLabel(node));
     const count = counts.get(label);
     if (count != null) counts.set(label, count + 1);
@@ -245,7 +246,7 @@ async function pressOption(button: HTMLElement): Promise<void> {
  * and no ARIA state behind any of them. Such a set is never answered on a guess.
  */
 export function answersByPlainButtons(el: Element): boolean {
-  if (!(el instanceof HTMLElement) || !isStatelessButton(el)) return false;
+  if (!isA(el, HTMLElement) || !isStatelessButton(el)) return false;
   const root = groupRoot(el);
   if (root.querySelector('input[type="radio"], input[type="checkbox"]')) return false;
   return optionPeers(el).every(isStatelessButton);
@@ -257,13 +258,13 @@ export function answersByPlainButtons(el: Element): boolean {
  * when none reads as chosen or `el` is no option.
  */
 export function chosenOptionLabel(el: Element): string {
-  if (!(el instanceof HTMLElement) || !isChoiceOption(el)) return "";
+  if (!isA(el, HTMLElement) || !isChoiceOption(el)) return "";
   const chosen = optionPeers(el).find((option) => choiceState(option) === true);
   return chosen ? inputOptionLabel(chosen) : "";
 }
 
 function isChoiceOption(el: HTMLElement): boolean {
-  return el.matches(OPTION_BUTTON_SELECTOR) && !(el instanceof HTMLInputElement);
+  return el.matches(OPTION_BUTTON_SELECTOR) && !isA(el, HTMLInputElement);
 }
 
 /**
@@ -327,8 +328,8 @@ export async function selectRadioElement(
 function isDropdownTarget(el: Element): boolean {
   const role = inferElementRole(el);
   return (
-    el instanceof HTMLSelectElement ||
-    el instanceof HTMLOptionElement ||
+    isA(el, HTMLSelectElement) ||
+    isA(el, HTMLOptionElement) ||
     role === "combobox" ||
     role === "option" ||
     (el as HTMLElement).getAttribute("aria-haspopup") === "listbox"
@@ -399,7 +400,7 @@ async function selectChoiceLocally(el: Element, value: string | null): Promise<s
   html.scrollIntoView({ block: "center", behavior: "auto" });
 
   const role = inferElementRole(el);
-  if (el instanceof HTMLSelectElement && value) {
+  if (isA(el, HTMLSelectElement) && value) {
     const combo = findAssociatedCombobox(el);
     if (combo && combo !== el) return selectComboboxOption(combo, value);
     return fillNativeSelect(el, value);
@@ -412,12 +413,12 @@ async function selectChoiceLocally(el: Element, value: string | null): Promise<s
 
   // Planner often targets role=option nodes for custom dropdowns — drive the parent combobox.
   const explicitAriaRole = (html.getAttribute("role") || "").toLowerCase();
-  if (explicitAriaRole === "option" || el instanceof HTMLOptionElement) {
+  if (explicitAriaRole === "option" || isA(el, HTMLOptionElement)) {
     const label = intended || inputOptionLabel(html);
 
-    if (el instanceof HTMLOptionElement) {
+    if (isA(el, HTMLOptionElement)) {
       const select = el.closest("select");
-      if (select instanceof HTMLSelectElement) {
+      if (isA(select, HTMLSelectElement)) {
         const combo = findAssociatedCombobox(select);
         if (combo && label) return selectComboboxOption(combo, label);
         select.value = el.value;
@@ -446,7 +447,7 @@ async function selectChoiceLocally(el: Element, value: string | null): Promise<s
   // Toggling it cannot express a negative answer (unchecked is the resting
   // state), so activate the visible option carrying the intended label instead.
   if (
-    el instanceof HTMLInputElement &&
+    isA(el, HTMLInputElement) &&
     (el.type === "radio" || el.type === "checkbox") &&
     intended &&
     isProxyControl(el)
@@ -459,7 +460,7 @@ async function selectChoiceLocally(el: Element, value: string | null): Promise<s
     }
   }
 
-  if (el instanceof HTMLInputElement && (el.type === "radio" || el.type === "checkbox")) {
+  if (isA(el, HTMLInputElement) && (el.type === "radio" || el.type === "checkbox")) {
     return selectNativeChoice(el, intended);
   }
 
@@ -470,7 +471,7 @@ async function selectChoiceLocally(el: Element, value: string | null): Promise<s
   }
 
   // Custom choice buttons: the planned node is the option to activate.
-  if (el instanceof HTMLButtonElement && intended && labelsMatch(html, intended)) {
+  if (isA(el, HTMLButtonElement) && intended && labelsMatch(html, intended)) {
     await pressOption(html);
     return inputOptionLabel(html) || intended;
   }

@@ -5,6 +5,7 @@ import { ACORN_ID_ATTR } from "./acorn-id";
 import { childDocument } from "./frame-reach";
 import { pageLayers, type PageLayers } from "./page-layers";
 import { queryDeep } from "./query-deep";
+import { isA } from "./realm";
 import { delegatedRole, shadowDelegate } from "./shadow-control";
 
 import type { DomNode } from "../types";
@@ -204,7 +205,7 @@ function isInteractive(el: Element): boolean {
   if (isPointerTarget(el)) return true;
   if (el.getAttribute("role") === "button" || el.getAttribute("role") === "link") return true;
   if (el.hasAttribute("onclick")) return true;
-  if (el instanceof HTMLElement && el.isContentEditable) return true;
+  if (isA(el, HTMLElement) && el.isContentEditable) return true;
   const tabIndex = el.getAttribute("tabindex");
   if (tabIndex !== null && tabIndex !== "-1") return true;
   return false;

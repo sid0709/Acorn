@@ -20,7 +20,7 @@ import {
   isAcornDomFrame,
   waitForFormSurface,
 } from "./form-frame";
-import { claimOwnDocument } from "./frame-reach";
+import { claimOwnDocument, keepOwnDocumentClaimed } from "./frame-reach";
 import { clearHighlight, highlightElement } from "./highlighter";
 import { pageFieldScore } from "./page-fields";
 import { probePage } from "./page-probe";
@@ -49,8 +49,35 @@ window.addEventListener("unhandledrejection", (event) => {
 
 const CONTENT_BOOT = "__acornContentBoot";
 
-type AcornContentWindow = Window & { [CONTENT_BOOT]?: boolean };
+/**
+ * What a started script leaves on its window: a check that it still works. After the
+ * extension reloads or updates, a script already in a page is cut off from it (its
+ * context is gone) but stays in the page, and a flag that only said "started" would keep
+ * the new script from starting there.
+ */
+type AcornContentWindow = Window & { [CONTENT_BOOT]?: () => boolean };
 const contentWindow = window as AcornContentWindow;
+
+function contentScriptAlive(): boolean {
+  const alive = contentWindow[CONTENT_BOOT];
+  return typeof alive === "function" && alive();
+}
+
+/**
+ * Startup work that is not the run's own (the selection chip, the support handoff, the
+ * document claim). One of them failing, say a page's content policy refusing what a chip
+ * draws, must not leave the frame without the listener the run reads and fills through.
+ */
+function startSafely(name: string, start: () => void): void {
+  try {
+    start();
+  } catch (err) {
+    traceFromPage("boot:error", () => ({
+      step: name,
+      message: err instanceof Error ? err.message : String(err),
+    }));
+  }
+}
 
 /**
  * A frame that holds an application form: the top frame, a frame with enough
@@ -80,11 +107,8 @@ function runExclusive<T>(work: () => Promise<T>): Promise<T> {
   return run;
 }
 
-if (!contentWindow[CONTENT_BOOT]) {
-  contentWindow[CONTENT_BOOT] = true;
-  claimOwnDocument();
-  initSelectionQa();
-  initSupportHandoff();
+if (!contentScriptAlive()) {
+  contentWindow[CONTENT_BOOT] = () => Boolean(chrome.runtime?.id);
 
   chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
     if (message.type === MSG.FETCH_DOM) {
@@ -407,4 +431,10 @@ if (!contentWindow[CONTENT_BOOT]) {
 
     return false;
   });
+
+  // After the listener, so nothing below can leave this frame without it.
+  startSafely("claim", claimOwnDocument);
+  startSafely("keep-claim", keepOwnDocumentClaimed);
+  startSafely("selection-qa", initSelectionQa);
+  startSafely("support-handoff", initSupportHandoff);
 }

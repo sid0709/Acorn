@@ -11,6 +11,7 @@
  */
 
 import { fieldWrapper } from "../form-dom";
+import { isA } from "../realm";
 import { drawnText } from "../shadow-control";
 
 const GROUP_SELECTOR = [
@@ -62,12 +63,12 @@ function isDisplayed(el: HTMLElement): boolean {
 
 /** Big enough for a person to aim at, not a 0×0 or off-screen proxy. */
 export function hasClickableBox(el: Element): boolean {
-  if (!(el instanceof HTMLElement)) return false;
+  if (!isA(el, HTMLElement)) return false;
   const rect = el.getBoundingClientRect();
   if (rect.width > 2 && rect.height > 2 && isDisplayed(el)) return true;
   // A custom element can draw nothing itself and everything from its shadow root.
   return Array.from(el.shadowRoot?.querySelectorAll("*") ?? []).some(
-    (inner) => inner instanceof HTMLElement && inner !== el && hasClickableBox(inner),
+    (inner) => isA(inner, HTMLElement) && inner !== el && hasClickableBox(inner),
   );
 }
 
@@ -90,7 +91,7 @@ export function inputOptionLabel(el: Element): string {
     byFor ||
     wrapping ||
     html.getAttribute("value") ||
-    (html instanceof HTMLInputElement ? html.value : "") ||
+    (isA(html, HTMLInputElement) ? html.value : "") ||
     html.innerText ||
     drawnText(el) ||
     ""
@@ -132,7 +133,7 @@ function labelIsValue(el: Element, value: string): boolean {
  * grouping container.
  */
 function groupRoot(el: Element): ParentNode {
-  if (el instanceof HTMLInputElement && (el.type === "radio" || el.type === "checkbox")) {
+  if (isA(el, HTMLInputElement) && (el.type === "radio" || el.type === "checkbox")) {
     return fieldWrapper(el);
   }
   return el.closest(GROUP_SELECTOR) || el.parentElement || el.ownerDocument || document;
@@ -150,7 +151,7 @@ export function findVisibleChoiceOption(el: Element, value: string): HTMLElement
   const nodes = [
     ...memberLabels(el, root),
     ...Array.from(root.querySelectorAll(CHOICE_SELECTOR)),
-  ].filter((node): node is HTMLElement => node instanceof HTMLElement && hasClickableBox(node));
+  ].filter((node): node is HTMLElement => isA(node, HTMLElement) && hasClickableBox(node));
   const want = normalize(value);
   const exact = nodes.find((node) => normalize(choiceOptionLabel(node)) === want);
   return exact || nodes.find((node) => labelIsValue(node, value)) || null;
@@ -161,7 +162,7 @@ export function findVisibleChoiceOption(el: Element, value: string): HTMLElement
  * checkbox is often shown only through its own label, which a person clicks.
  */
 function memberLabels(el: Element, root: ParentNode): HTMLLabelElement[] {
-  if (!(el instanceof HTMLInputElement) || !el.name) return [];
+  if (!isA(el, HTMLInputElement) || !el.name) return [];
   const members = Array.from(
     root.querySelectorAll(`input[type="${el.type}"][name="${CSS.escape(el.name)}"]`),
   );

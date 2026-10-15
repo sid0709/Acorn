@@ -1,4 +1,5 @@
 import { traceFromPage } from "../../debug-trace";
+import { isA } from "../realm";
 
 import { chooseOption } from "./combobox/choose-option";
 import { decideAmongOptions, findExactOption } from "./combobox/match";
@@ -104,11 +105,11 @@ export async function selectComboboxOption(
   { allowTypeahead = true, estimateQuery = false, estimate, searchFirst }: ComboboxFillOptions = {},
 ): Promise<string> {
   const requested = el as HTMLElement;
-  if (requested instanceof HTMLSelectElement) {
+  if (isA(requested, HTMLSelectElement)) {
     return fillNativeSelect(requested, value);
   }
   const html = resolveDropdownInteractionTarget(requested);
-  if (html instanceof HTMLSelectElement) {
+  if (isA(html, HTMLSelectElement)) {
     return fillNativeSelect(html, value);
   }
   const doc = html.ownerDocument || document;
@@ -171,11 +172,11 @@ export async function selectComboboxOption(
     label,
     closed,
     displayed,
-    inputValue: html instanceof HTMLInputElement ? html.value : undefined,
+    inputValue: isA(html, HTMLInputElement) ? html.value : undefined,
   }));
   const selected =
     displayed ||
-    (html instanceof HTMLInputElement && html.value) ||
+    (isA(html, HTMLInputElement) && html.value) ||
     html.getAttribute("data-value") ||
     optionText(deepest ?? match);
 

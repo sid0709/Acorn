@@ -1,3 +1,5 @@
+import { isA } from "../../realm";
+
 import { looksLikePlaceholderInk } from "./text-contrast";
 
 /**
@@ -86,13 +88,13 @@ export function comboboxWidgetRoot(control: Element): Element {
 
 function isValueTextHost(el: Element, control: Element, excluded: Element[]): boolean {
   if (excluded.some((skip) => skip === el)) return false;
-  if (el instanceof HTMLSelectElement || el instanceof HTMLTemplateElement) return false;
+  if (isA(el, HTMLSelectElement) || isA(el, HTMLTemplateElement)) return false;
   if (el.matches(FIELD_CAPTION_SELECTOR)) return false;
   if (el.hasAttribute("aria-live")) return false;
   const role = (el.getAttribute("role") || "").toLowerCase();
   if (NON_VALUE_ROLES.has(role)) return false;
   // Clear / toggle buttons beside the value; a button that *is* the control keeps its text.
-  const isButton = el instanceof HTMLButtonElement || role === "button";
+  const isButton = isA(el, HTMLButtonElement) || role === "button";
   if (isButton && el !== control && !el.contains(control)) return false;
   if (!isRendered(el)) return false;
   const rect = el.getBoundingClientRect();

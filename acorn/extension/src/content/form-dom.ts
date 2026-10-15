@@ -8,6 +8,7 @@
 import { isListOpener } from "./agents/combobox/list-opener";
 import { getDirectText } from "./dom-serializer";
 import { FILLABLE_SELECTOR } from "./form-frame";
+import { isA } from "./realm";
 import { composedClosest, drawnText } from "./shadow-control";
 import {
   forLabelElementOf,
@@ -86,18 +87,18 @@ export const NAMED_GROUP_SELECTOR = 'fieldset, [role="group"], [role="radiogroup
  * "Caribbean"), so the name alone does not group them.
  */
 function checkboxSetGroup(el: Element): Element | null {
-  if (!(el instanceof HTMLInputElement) || el.type !== "checkbox") return null;
+  if (!isA(el, HTMLInputElement) || el.type !== "checkbox") return null;
   const group = el.closest(NAMED_GROUP_SELECTOR);
   if (!group) return null;
   const controls = Array.from(group.querySelectorAll(FILLABLE_SELECTOR));
   const onlyBoxes = controls.every(
-    (control) => control instanceof HTMLInputElement && control.type === "checkbox",
+    (control) => isA(control, HTMLInputElement) && control.type === "checkbox",
   );
   return onlyBoxes && controls.length > 1 ? group : null;
 }
 
 function isNamelessRadio(el: Element): el is HTMLInputElement {
-  return el instanceof HTMLInputElement && el.type === "radio" && !el.name;
+  return isA(el, HTMLInputElement) && el.type === "radio" && !el.name;
 }
 
 /**
@@ -137,7 +138,7 @@ function choiceSetKey(group: Element): string {
 }
 
 export function choiceGroupKey(el: Element): string | null {
-  if (!(el instanceof HTMLInputElement) || !CHOICE_TYPES.has(el.type)) return null;
+  if (!isA(el, HTMLInputElement) || !CHOICE_TYPES.has(el.type)) return null;
   const set = choiceSetGroup(el);
   if (set) return choiceSetKey(set);
   return el.name ? `${el.type}:${el.form?.id ?? ""}:${el.name}` : null;
@@ -264,8 +265,9 @@ export function groupAccessibleName(control: Element): string {
       return named ? drawnText(named) : "";
     })
     .join(" ");
-  const legend =
-    group instanceof HTMLFieldSetElement ? group.querySelector(":scope > legend")?.textContent : "";
+  const legend = isA(group, HTMLFieldSetElement)
+    ? group.querySelector(":scope > legend")?.textContent
+    : "";
   return clip(byIds || group.getAttribute("aria-label") || legend || "", MAX_TEXT_CHARS);
 }
 
@@ -278,8 +280,9 @@ const PART_GROUP_MAX_FIELDS = 4;
 function containerName(node: Element): string {
   const ids = (node.getAttribute("aria-labelledby") || "").split(/\s+/).filter(Boolean);
   const byIds = ids.map((id) => uniqueById(node, id)?.textContent ?? "").join(" ");
-  const legend =
-    node instanceof HTMLFieldSetElement ? node.querySelector(":scope > legend")?.textContent : "";
+  const legend = isA(node, HTMLFieldSetElement)
+    ? node.querySelector(":scope > legend")?.textContent
+    : "";
   return clip(node.getAttribute("aria-label") || byIds || legend || "", MAX_TEXT_CHARS);
 }
 
@@ -355,7 +358,7 @@ function groupQuestionElement(
   const titles = Array.from(wrapper.querySelectorAll(QUESTION_SELECTOR)).filter((el) => {
     if (!(first.compareDocumentPosition(el) & Node.DOCUMENT_POSITION_PRECEDING)) return false;
     if (el.contains(first)) return false;
-    const control = el instanceof HTMLLabelElement ? el.control : null;
+    const control = isA(el, HTMLLabelElement) ? el.control : null;
     // A title that is only a required mark names no question.
     return (
       !(control && memberSet.has(control)) && carriesWords(el.textContent || "") && isVisible(el)

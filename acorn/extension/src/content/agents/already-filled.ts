@@ -1,3 +1,5 @@
+import { isA } from "../realm";
+
 import { choiceOptionLabel, findVisibleChoiceOption, isProxyControl } from "./choice-group";
 import { isChoiceSelected, isChoiceWidget } from "./choice-state";
 import { readControlValue } from "./read-control-value";
@@ -19,7 +21,7 @@ function optionOwnLabel(el: Element): string {
   return (
     html.getAttribute("aria-label") ||
     html.getAttribute("title") ||
-    (el instanceof HTMLOptionElement ? el.label || el.text : "") ||
+    (isA(el, HTMLOptionElement) ? el.label || el.text : "") ||
     html.innerText ||
     html.textContent ||
     ""
@@ -29,7 +31,7 @@ function optionOwnLabel(el: Element): string {
 }
 
 function isSelectedOption(el: Element): boolean {
-  if (el instanceof HTMLOptionElement) return el.selected;
+  if (isA(el, HTMLOptionElement)) return el.selected;
   const html = el as HTMLElement;
   if (html.getAttribute("aria-selected") === "true") return true;
   if (html.getAttribute("aria-checked") === "true") return true;
@@ -68,7 +70,7 @@ export function controlAlreadyMatches(
   const intendedStr = String(intended);
   const role = ((el as HTMLElement).getAttribute?.("role") || "").toLowerCase();
   // role=option always "contains" its own label — only count as filled when selected.
-  if (role === "option" || el instanceof HTMLOptionElement) {
+  if (role === "option" || isA(el, HTMLOptionElement)) {
     const label = optionOwnLabel(el);
     const want = normalize(intendedStr);
     const have = normalize(label);
@@ -87,7 +89,7 @@ export function controlAlreadyMatches(
 
   const current = readControlValue(el);
 
-  if (el instanceof HTMLInputElement && el.type === "file") {
+  if (isA(el, HTMLInputElement) && el.type === "file") {
     if (!current) {
       return verdict("A", "file-empty", false, current, intendedStr, el);
     }
@@ -100,7 +102,7 @@ export function controlAlreadyMatches(
     return verdict("A", "file-name", matched, current, intendedStr, el);
   }
 
-  if (el instanceof HTMLInputElement && (el.type === "checkbox" || el.type === "radio")) {
+  if (isA(el, HTMLInputElement) && (el.type === "checkbox" || el.type === "radio")) {
     const booleanLike = /^(true|yes|1|on|checked|false|no|0|off|unchecked)$/i.test(
       intendedStr.trim(),
     );

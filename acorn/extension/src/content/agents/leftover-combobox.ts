@@ -1,5 +1,6 @@
 import { traceFromPage } from "../../debug-trace";
 import { fieldWrapper, groupQuestion, isRequired, partGroupName, sectionTitle } from "../form-dom";
+import { isA } from "../realm";
 import { deepQueryAll } from "../shadow-control";
 import { forLabelOf, labelCandidates, normalize, uniqueById } from "../verify/element-labels";
 
@@ -47,7 +48,7 @@ function isCombobox(el: HTMLElement): boolean {
   const role = (el.getAttribute("role") || "").toLowerCase();
   return (
     role === "combobox" ||
-    el instanceof HTMLSelectElement ||
+    isA(el, HTMLSelectElement) ||
     el.getAttribute("aria-haspopup") === "listbox" ||
     isListOpener(el)
   );
@@ -217,7 +218,7 @@ type LeftoverAnswer =
 
 async function readListedOptions(el: HTMLElement): Promise<ListedOptions> {
   const target = resolveDropdownInteractionTarget(el);
-  if (target instanceof HTMLSelectElement) {
+  if (isA(target, HTMLSelectElement)) {
     return { labels: realOptions(target).map(optionLabel).filter(Boolean), searchable: false };
   }
   const doc = target.ownerDocument || document;
@@ -352,8 +353,8 @@ async function applyLeftoverAnswer(
 /** Shown, enabled dropdowns the applicant can still change. */
 function isOpenToAnswer(el: HTMLElement): boolean {
   if (!isCombobox(el) || !isDisplayed(el)) return false;
-  if (el instanceof HTMLInputElement && (el.disabled || el.readOnly)) return false;
-  if (el instanceof HTMLSelectElement && el.disabled) return false;
+  if (isA(el, HTMLInputElement) && (el.disabled || el.readOnly)) return false;
+  if (isA(el, HTMLSelectElement) && el.disabled) return false;
   return el.getAttribute("aria-disabled") !== "true";
 }
 
@@ -368,7 +369,7 @@ async function prefilledAgainstProfile(
   within: ((el: Element) => boolean) | null,
 ): Promise<HTMLElement[]> {
   const prefilled = deepQueryAll(document, DROPDOWN_SELECTOR)
-    .filter((node): node is HTMLElement => node instanceof HTMLElement)
+    .filter((node): node is HTMLElement => isA(node, HTMLElement))
     .filter((el) => !within || within(el))
     .filter((el) => isOpenToAnswer(el) && !wasPlanFilled(el) && readControlValue(el) !== "")
     // Found to agree with the profile on an earlier pass, and still showing that value.
@@ -411,7 +412,7 @@ function leftoverCandidates(
 ): { all: number; leftovers: HTMLElement[] } {
   // Custom elements keep their dropdown inputs in shadow roots: search those too.
   const nodes = deepQueryAll(document, DROPDOWN_SELECTOR)
-    .filter((node): node is HTMLElement => node instanceof HTMLElement)
+    .filter((node): node is HTMLElement => isA(node, HTMLElement))
     .filter((el) => !within || within(el));
   const leftovers = nodes.filter((el) => {
     if (tried.has(el) || !isOpenToAnswer(el)) return false;

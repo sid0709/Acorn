@@ -1,3 +1,5 @@
+import { isA } from "../realm";
+
 import { isListOpener } from "./combobox/list-opener";
 import {
   findAssociatedCombobox,
@@ -27,8 +29,9 @@ export async function setNativeValue(
   text: string,
 ): Promise<void> {
   enterField(el);
-  const proto =
-    el instanceof HTMLTextAreaElement ? HTMLTextAreaElement.prototype : HTMLInputElement.prototype;
+  const proto = isA(el, HTMLTextAreaElement)
+    ? HTMLTextAreaElement.prototype
+    : HTMLInputElement.prototype;
   const protoDesc = Object.getOwnPropertyDescriptor(proto, "value");
   const setValue = protoDesc?.set;
   if (setValue) setValue.call(el, text);
@@ -80,7 +83,7 @@ export async function fillElement(
   html.scrollIntoView({ block: "center", behavior: "auto" });
   html.focus?.();
 
-  if (el instanceof HTMLSelectElement) {
+  if (isA(el, HTMLSelectElement)) {
     const enhanced = isEnhancedSelect(el);
     const combo = findAssociatedCombobox(el);
     if (enhanced && combo && combo !== el) {
@@ -89,7 +92,7 @@ export async function fillElement(
     return fillSelect(el, value);
   }
 
-  if (el instanceof HTMLInputElement) {
+  if (isA(el, HTMLInputElement)) {
     const type = (el.type || "text").toLowerCase();
     if (type === "checkbox" || type === "radio") {
       // Option labels ("None/Not applicable") must resolve via group matching —
@@ -113,7 +116,7 @@ export async function fillElement(
     return el.value;
   }
 
-  if (el instanceof HTMLTextAreaElement) {
+  if (isA(el, HTMLTextAreaElement)) {
     await setNativeValue(el, value);
     return el.value;
   }
@@ -137,8 +140,8 @@ export async function fillElement(
     return selectComboboxOption(target, value, fieldHint, comboboxOptions);
   }
   if (
-    el instanceof HTMLButtonElement ||
-    el instanceof HTMLFieldSetElement ||
+    isA(el, HTMLButtonElement) ||
+    isA(el, HTMLFieldSetElement) ||
     role === "radio" ||
     role === "checkbox" ||
     role === "radiogroup" ||

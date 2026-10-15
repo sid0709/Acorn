@@ -1,3 +1,4 @@
+import { isA } from "../../realm";
 import {
   byIdNear,
   composedClosest,
@@ -53,7 +54,7 @@ function listboxRootsForControl(control: HTMLElement): HTMLElement[] {
       if (seen.has(id)) continue;
       seen.add(id);
       const node = byIdNear(from, id);
-      if (node instanceof HTMLElement) roots.push(node);
+      if (isA(node, HTMLElement)) roots.push(node);
     }
   };
 
@@ -65,9 +66,9 @@ function listboxRootsForControl(control: HTMLElement): HTMLElement[] {
   // Custom widgets often put aria-owns on a sibling/ancestor container, not the trigger.
   let node: Element | null = composedParent(control);
   for (let depth = 0; depth < 5 && node; depth++) {
-    if (node instanceof HTMLElement) addIds(node, collectRefIds(node));
+    if (isA(node, HTMLElement)) addIds(node, collectRefIds(node));
     for (const child of Array.from(node.children)) {
-      if (child instanceof HTMLElement) addIds(child, collectRefIds(child));
+      if (isA(child, HTMLElement)) addIds(child, collectRefIds(child));
     }
     node = composedParent(node);
   }
@@ -106,7 +107,7 @@ function scoreListbox(listbox: HTMLElement, control: HTMLElement): number {
 
 function nearestComboboxTo(listbox: HTMLElement, doc: Document): HTMLElement | null {
   const combos = deepQueryAll(doc, POPUP_OWNER_SELECTOR).filter(
-    (node): node is HTMLElement => node instanceof HTMLElement && isDisplayed(node),
+    (node): node is HTMLElement => isA(node, HTMLElement) && isDisplayed(node),
   );
   if (!combos.length) return null;
   let best: HTMLElement | null = null;
@@ -167,7 +168,7 @@ function collectScopedOptions(control: HTMLElement, doc: Document): HTMLElement[
 
   const listboxes = deepQueryAll(doc, POPUP_SELECTOR).filter(
     (node): node is HTMLElement =>
-      node instanceof HTMLElement && isDisplayed(node) && listboxServesControl(node, control, doc),
+      isA(node, HTMLElement) && isDisplayed(node) && listboxServesControl(node, control, doc),
   );
   listboxes.sort((a, b) => scoreListbox(a, control) - scoreListbox(b, control));
   for (const listbox of listboxes) {
@@ -214,6 +215,6 @@ export function displayedListboxes(control: HTMLElement, doc: Document): HTMLEle
   );
   if (owned.length) return owned;
   return deepQueryAll(doc, POPUP_SELECTOR).filter(
-    (node): node is HTMLElement => node instanceof HTMLElement && isDisplayed(node),
+    (node): node is HTMLElement => isA(node, HTMLElement) && isDisplayed(node),
   );
 }

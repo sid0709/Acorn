@@ -9,10 +9,11 @@
 import { inputOptionLabel } from "./agents/choice-group";
 import { choiceGroupKey, groupMembers, normalize } from "./form-dom";
 import { queryDeep } from "./query-deep";
+import { isA } from "./realm";
 
 /** A choice input (native radio or checkbox). */
 function isChoiceInput(el: Element | null): el is HTMLInputElement {
-  return el instanceof HTMLInputElement && (el.type === "radio" || el.type === "checkbox");
+  return isA(el, HTMLInputElement) && (el.type === "radio" || el.type === "checkbox");
 }
 
 /** The group a control is in, or null when it is not a native choice control. */

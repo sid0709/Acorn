@@ -1,4 +1,5 @@
 import { isListOpener } from "../agents/combobox/list-opener";
+import { isA } from "../realm";
 import { composedParent, drawnText } from "../shadow-control";
 
 export function normalize(text: string): string {
@@ -24,7 +25,7 @@ function pushFieldTitle(labels: string[], raw: string | null | undefined): void 
 
 /** Native labeled control when the planned node is a <label>, not the input. */
 export function associatedControl(el: Element): Element | null {
-  if (!(el instanceof HTMLLabelElement)) return null;
+  if (!isA(el, HTMLLabelElement)) return null;
   if (el.control) return el.control;
   return el.querySelector("input, select, textarea, button");
 }
@@ -124,7 +125,7 @@ function hostLabelOf(opener: Element): string | null {
 export function hostLabelElementOf(opener: Element): Element | null {
   let node = composedParent(opener);
   for (let depth = 0; node && depth < OPENER_HOST_DEPTH; depth += 1) {
-    if (node.id && !(node.getRootNode() instanceof ShadowRoot)) {
+    if (node.id && !isA(node.getRootNode(), ShadowRoot)) {
       const label = forLabelElementOf(node);
       if (label) return label;
     }
@@ -159,7 +160,10 @@ export function labelCandidates(el: Element): string[] {
   }
 
   pushLabel(primary, html.getAttribute?.("placeholder"));
-  pushLabel(primary, html.getAttribute?.("name"));
+  // How the page refers to the control, not what it asks: the last resort, after every text a
+  // person reads (a real label that happens to read like the name, "Email" over id=email, keeps its place).
+  const named: string[] = [];
+  pushLabel(named, html.getAttribute?.("name"));
 
   const fieldset = html.closest?.("fieldset");
   pushLabel(primary, fieldset?.querySelector?.("legend")?.textContent);
@@ -177,7 +181,7 @@ export function labelCandidates(el: Element): string[] {
   if (ownText && ownText.length < 200) own.push(ownText);
 
   // Keep control chrome text ("Attach", "Select...") last so field titles win.
-  let all = [...new Set([...primary, ...own].filter(Boolean))];
+  let all = [...new Set([...primary, ...own, ...named].filter(Boolean))];
   // What a dropdown button shows (its placeholder or the chosen answer) is its value:
   // a name that only repeats it (aria-labelledby pointing at the placeholder) asks nothing.
   if (opener) {
@@ -185,14 +189,5 @@ export function labelCandidates(el: Element): string[] {
     const asking = all.filter((label) => normalize(label) !== shown);
     if (asking.length) all = asking;
   }
-  // The control's own name or id is how the page refers to it, not what it asks: it
-  // comes after every text a person reads, so a question drawn beside the control wins.
-  const identifiers = new Set(
-    [html.getAttribute?.("name"), html.id].filter(Boolean).map((id) => normalize(String(id))),
-  );
-  if (!identifiers.size) return all;
-  return [
-    ...all.filter((label) => !identifiers.has(normalize(label))),
-    ...all.filter((label) => identifiers.has(normalize(label))),
-  ];
+  return all;
 }

@@ -1,3 +1,4 @@
+import { isA } from "../realm";
 import { verifyElementByPlan } from "../verify-element";
 
 import { readControlValue } from "./read-control-value";
@@ -44,7 +45,7 @@ export function validateElementIndexes(indexes: number[]): {
     }
 
     const valueAfter = readControlValue(verified.element);
-    const isFile = verified.element instanceof HTMLInputElement && verified.element.type === "file";
+    const isFile = isA(verified.element, HTMLInputElement) && verified.element.type === "file";
 
     if (isFile && !valueAfter) {
       const asUpload = validateMissingAsUpload(nodeId);

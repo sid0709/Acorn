@@ -40,6 +40,7 @@ import {
   wrapperTexts,
 } from "./form-dom";
 import { FILLABLE_SELECTOR } from "./form-frame";
+import { isA } from "./realm";
 import { labelCandidates } from "./verify/element-labels";
 import { inferRole } from "./verify/element-role";
 
@@ -96,8 +97,7 @@ function textAttrs(
   el: Element,
   label: string,
 ): Pick<FormField, "autocomplete" | "placeholder" | "name" | "maxLength" | "notes"> {
-  const maxLength =
-    el instanceof HTMLInputElement || el instanceof HTMLTextAreaElement ? el.maxLength : -1;
+  const maxLength = isA(el, HTMLInputElement) || isA(el, HTMLTextAreaElement) ? el.maxLength : -1;
   const notes = wrapperTexts(
     el,
     fieldWrapper(el),
@@ -117,7 +117,7 @@ function textAttrs(
 function optionButtons(root: ParentNode): HTMLElement[] {
   return Array.from(root.querySelectorAll(BUTTON_SELECTOR)).filter(
     (el): el is HTMLElement =>
-      el instanceof HTMLElement &&
+      isA(el, HTMLElement) &&
       // Only an explicit submit is a submit: a bare <button> defaults to type=submit.
       el.getAttribute("type")?.toLowerCase() !== "submit" &&
       hasClickableBox(el) &&
@@ -207,7 +207,7 @@ function choiceField(control: HTMLInputElement): FormField | null {
 function describeControl(control: Element, seenGroups: Set<string>): FormField | null {
   const required = isRequired([control]);
   const label = () => fieldLabel(control, [control], fieldWrapper(control));
-  if (control instanceof HTMLSelectElement) {
+  if (isA(control, HTMLSelectElement)) {
     if (control.multiple) return null;
     const options = realOptions(control).map(optionLabel).filter(Boolean);
     if (!options.length) return null;
@@ -219,7 +219,7 @@ function describeControl(control: Element, seenGroups: Set<string>): FormField |
       options,
     };
   }
-  if (control instanceof HTMLInputElement) {
+  if (isA(control, HTMLInputElement)) {
     const type = (control.type || "text").toLowerCase();
     if (type === "file") {
       // A file input's own label is usually its button ("Attach"); the field's
@@ -270,7 +270,7 @@ function describeControl(control: Element, seenGroups: Set<string>): FormField |
   }
   const role = inferRole(control);
   if (
-    control instanceof HTMLTextAreaElement ||
+    isA(control, HTMLTextAreaElement) ||
     (control as HTMLElement).isContentEditable ||
     role === "textbox"
   ) {
@@ -332,7 +332,7 @@ function ariaButtonFields(claimed: Set<number>): FormField[] {
   const fields: FormField[] = [];
   const seenRoots = new Set<ParentNode>();
   for (const el of queryDeep(document, ARIA_CHOICE_SELECTOR)) {
-    if (!(el instanceof HTMLElement) || claimed.has(nodeId(el))) continue;
+    if (!isA(el, HTMLElement) || claimed.has(nodeId(el))) continue;
     const root = groupRoot(el);
     if (seenRoots.has(root)) continue;
     seenRoots.add(root);
@@ -383,10 +383,10 @@ function plainButtonFields(claimed: Set<number>): FormField[] {
   const fields: FormField[] = [];
   const seenRoots = new Set<ParentNode>();
   for (const el of queryDeep(document, PLAIN_BUTTON_SELECTOR)) {
-    if (!(el instanceof HTMLElement) || nodeId(el) <= 0 || claimed.has(nodeId(el))) continue;
+    if (!isA(el, HTMLElement) || nodeId(el) <= 0 || claimed.has(nodeId(el))) continue;
     if (el.matches(ARIA_CHOICE_SELECTOR) || !hasClickableBox(el)) continue;
     const root = groupRoot(el);
-    if (seenRoots.has(root) || !(root instanceof Element)) continue;
+    if (seenRoots.has(root) || !isA(root, Element)) continue;
     seenRoots.add(root);
     const buttons = optionButtons(root);
     if (
@@ -409,7 +409,7 @@ function plainButtonFields(claimed: Set<number>): FormField[] {
 function ariaToggleFields(claimed: Set<number>): FormField[] {
   const fields: FormField[] = [];
   for (const el of queryDeep(document, ARIA_TOGGLE_SELECTOR)) {
-    if (!(el instanceof HTMLElement) || claimed.has(nodeId(el)) || nodeId(el) <= 0) continue;
+    if (!isA(el, HTMLElement) || claimed.has(nodeId(el)) || nodeId(el) <= 0) continue;
     if (!hasClickableBox(el) || el.closest('[aria-hidden="true"]')) continue;
     const native = 'input[type="checkbox"]';
     if (el.querySelector(native) || el.closest("label")?.querySelector(native)) continue;

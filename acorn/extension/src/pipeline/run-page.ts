@@ -85,8 +85,16 @@ export async function snapshotPage(
       await new Promise((resolve) => setTimeout(resolve, RUN_PAGE_READ_RETRY_MS));
       const tab = await chrome.tabs.get(tabId).catch(() => null);
       if (!tab) throw err;
-      if (tab.status === "complete" && canInjectIntoUrl(tab.url)) {
-        await injectContentScripts(tabId).catch(() => undefined);
+      // Whatever the tab's loading state says: a page that never finishes loading (a request
+      // that hangs) is still a page whose script must be there. An address the extension
+      // may not read (tab.url unknown) is tried too; the result is in the log either way.
+      if (tab.url == null || canInjectIntoUrl(tab.url)) {
+        const injected = await injectContentScripts(tabId);
+        traceFromBackground(
+          "run:reinject",
+          () => ({ attempt, status: tab.status, ...injected }),
+          tabId,
+        );
       }
     }
   }

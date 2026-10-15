@@ -1,3 +1,5 @@
+import { isA } from "../realm";
+
 import { setNativeValue } from "./fill";
 
 /** Input types that hold typed text; choice, file, and button inputs are never cleared. */
@@ -24,11 +26,11 @@ export async function clearElement(el: Element): Promise<string> {
   const html = el as HTMLElement;
   html.scrollIntoView({ block: "center", behavior: "auto" });
 
-  if (el instanceof HTMLTextAreaElement) {
+  if (isA(el, HTMLTextAreaElement)) {
     await setNativeValue(el, "");
     return el.value;
   }
-  if (el instanceof HTMLInputElement && TEXT_INPUT_TYPES.has((el.type || "text").toLowerCase())) {
+  if (isA(el, HTMLInputElement) && TEXT_INPUT_TYPES.has((el.type || "text").toLowerCase())) {
     await setNativeValue(el, "");
     return el.value;
   }
