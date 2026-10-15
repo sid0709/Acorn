@@ -1,3 +1,4 @@
+import { traceFromPage } from "../../../debug-trace";
 import { isA } from "../../realm";
 import { deepQueryAll } from "../../shadow-control";
 import { waitMs } from "../wait";
@@ -12,6 +13,7 @@ import {
   ownedPopupOpen,
   pickScopedOptions,
 } from "./options-dom";
+import { newPopupRows, visibleElements } from "./popup-diff";
 import { POPUP_SELECTOR } from "./popup-roles";
 import { focusAndOpenCombobox } from "./typing";
 
@@ -174,6 +176,9 @@ export async function openAndCollectOptions(
   html: HTMLElement,
   doc: Document,
 ): Promise<HTMLElement[]> {
+  // What the page shows before the control is opened: a list drawn with no ARIA roles is
+  // found afterwards as what is new (see popup-diff.ts).
+  const before = visibleElements(doc);
   await focusAndOpenCombobox(html);
   let options = await waitForStableOptions(html, doc, OPEN_ATTEMPT_MS);
   if (!options.length) {
@@ -181,6 +186,16 @@ export async function openAndCollectOptions(
       new KeyboardEvent("keydown", { key: "ArrowDown", bubbles: true, cancelable: true }),
     );
     options = await waitForStableOptions(html, doc, OPEN_ATTEMPT_MS);
+  }
+  if (!options.length) {
+    const drawn = newPopupRows(html, before, doc);
+    if (drawn.length) {
+      traceFromPage("combo:popup-diff", () => ({
+        count: drawn.length,
+        sample: drawn.slice(0, 8).map(optionText),
+      }));
+      return drawn;
+    }
   }
   if (!options.length && popupShown(html, doc)) {
     // Remote-search menus fill in slowly: one full wait before giving up. A control that

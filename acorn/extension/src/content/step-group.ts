@@ -52,5 +52,9 @@ export function optionOfGroup(
 /** Whether any option of the control's own group is chosen (a native radio group). */
 export function groupHasAnswer(el: Element): boolean {
   if (!isChoiceInput(el)) return true;
-  return groupMembers(el).some((member) => (member as HTMLInputElement).checked);
+  const members = groupMembers(el);
+  // A lone box is a toggle: unchecked is one of its two answers (an entry that is not the
+  // current job stays unchecked), never a question left unanswered.
+  if (el.type === "checkbox" && members.length === 1) return true;
+  return members.some((member) => (member as HTMLInputElement).checked);
 }

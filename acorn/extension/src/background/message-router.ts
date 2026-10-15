@@ -25,6 +25,7 @@ import { handleStartRun, handleStopRun } from "./messages/run";
 import { handleSelectionQa } from "./messages/selection-qa";
 import { handleSubmitSupportClaim } from "./messages/support-claim";
 import { handleSupportHandoff } from "./messages/support-session";
+import { handleTypeTrusted } from "./messages/type-trusted";
 import { handleGetTabJob, handleOpenWorkerJob } from "./messages/worker-jobs";
 import { refreshTabUsage } from "./tab-usage-store";
 
@@ -137,6 +138,11 @@ export function routeMessage(
 
   if (message.type === MSG.START_PIPELINE) {
     handleStartPipeline(message, sender, sendResponse);
+    return true;
+  }
+
+  if (message.type === MSG.TYPE_TRUSTED) {
+    handleTypeTrusted(message, sender, sendResponse);
     return true;
   }
 

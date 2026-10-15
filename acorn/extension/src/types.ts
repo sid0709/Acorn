@@ -95,6 +95,8 @@ export const MSG = {
   EXECUTE_ACTIONS: "acorn:execute-actions",
   PLAN_STEP: "acorn:plan-step",
   MATCH_OPTION: "acorn:match-option",
+  /** A field that refused a script's value: type it with the browser's own input events. */
+  TYPE_TRUSTED: "acorn:type-trusted",
   /** A long dropdown with no planned answer: ask the writer for one to type as a search. */
   ESTIMATE_OPTION: "acorn:estimate-option",
   FILL_LEFTOVER_COMBOS: "acorn:fill-leftover-combos",

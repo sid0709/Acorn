@@ -19,7 +19,7 @@ export function optionText(el: Element): string {
   return ((el as HTMLElement).innerText || drawnText(el)).replace(/\s+/g, " ").trim();
 }
 
-function isPlaceholderOption(text: string): boolean {
+export function isPlaceholderOption(text: string): boolean {
   const n = normalize(text);
   if (!n) return true;
   const stripped = n.replace(/^[—\-–•·.|]+|[—\-–•·.|]+$/g, "").trim();

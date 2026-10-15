@@ -11,6 +11,7 @@ import { formatForInputType } from "./input-format";
 import { fillNativeSelect } from "./native-select";
 import { selectComboboxOption, type ComboboxFillOptions } from "./select-combobox";
 import { selectRadioElement } from "./select-radio";
+import { typeTrusted } from "./trusted-typing";
 import { waitMs } from "./wait";
 
 /** ARIA / structural combobox signals (no vendor class allowlists). */
@@ -109,9 +110,12 @@ export async function fillElement(
     }
     const formatted = formatForInputType(type, value);
     await setNativeValue(el, formatted);
-    // The browser drops a value its input type cannot hold; that is a failed fill, not a blank answer.
+    // A field that keeps its own state (a masked date, a box that builds tags) drops a value
+    // a script sets: typed with the browser's own input events it takes it. A value the input
+    // type itself cannot hold is still a failed fill, not a blank answer.
     if (formatted.trim() && !el.value) {
-      throw new Error(`The ${type} field rejected "${value}"`);
+      await typeTrusted(el, formatted);
+      if (!el.value) throw new Error(`The ${type} field rejected "${value}"`);
     }
     return el.value;
   }
