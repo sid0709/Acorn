@@ -143,8 +143,6 @@ export const RUN_FAILURE_REASON = {
   noAccountPassword: "no_account_password",
   /** The person pressed Stop. */
   stoppedByUser: "stopped_by_user",
-  /** This job was applied to already (by an earlier run, or the site says so). */
-  alreadyApplied: "already_applied",
   /** Round after round, the page kept needing the same things: the run went in circles. */
   noProgress: "no_progress",
   /** What a requirement's click opened (an entry form) was refused each time it was saved. */

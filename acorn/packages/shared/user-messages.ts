@@ -250,7 +250,6 @@ const FAILURE_NEXT_STEP: Record<string, string> = {
   [RUN_FAILURE_REASON.accountRejected]: "Check the account on the site, then run again.",
   [RUN_FAILURE_REASON.noAccountPassword]:
     "Add a default account password in your Acorn profile, then run again.",
-  [RUN_FAILURE_REASON.alreadyApplied]: "Nothing more to do for this job.",
   [RUN_FAILURE_REASON.noProgress]:
     "Look at what the page is asking for, fix it, then press Continue.",
   [RUN_FAILURE_REASON.scopeRefused]: "Fill that section yourself, then press Continue.",

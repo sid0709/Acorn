@@ -95,10 +95,6 @@ func main() {
 		slog.Error("acorn accounts", "error", err)
 		os.Exit(1)
 	}
-	if err := accounts.DropAppliedJobs(context.Background()); err != nil {
-		slog.Error("acorn accounts: drop applied jobs", "error", err)
-		os.Exit(1)
-	}
 	resumes := resume.New(resume.NewStore(p.Mongo(), db.DestDB), nil)
 	profiles := profile.NewStore(p.Mongo(), db.DestDB, nil)
 	usage := aiusage.NewStore(p.Mongo(), db.DestDB)

@@ -95,8 +95,6 @@ export interface ReadPageResponse {
   accountPassword?: boolean;
   /** On an account step: the account steps it offers (its own form, or a control that opens one). */
   accountOffers?: AccountMode[];
-  /** The site says this applicant has already applied to this job. */
-  alreadyApplied?: boolean;
   usage?: AiUsageSummary;
 }
 

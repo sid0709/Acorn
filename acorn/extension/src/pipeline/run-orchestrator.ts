@@ -342,8 +342,6 @@ const NO_FORWARD_CONTROL = "The button that moves the application forward could 
 const NEEDS_ANSWER = "A required field on this form needs you";
 /** The site kept refusing the account step. */
 const ACCOUNT_REJECTED = "The site kept rejecting the sign-in or sign-up";
-/** The page itself says this job was applied to already. */
-const ALREADY_APPLIED = "You already applied to this job";
 /** What each account step is called when the run says it tried it. */
 const ACCOUNT_TRIED: Partial<Record<AccountMode, string>> = {
   [ACCOUNT_MODE.signIn]: "signing in",
@@ -975,8 +973,6 @@ export async function runOrchestrator(args: RunOrchestratorArgs): Promise<RunRep
       verification: res.verification ?? VERIFICATION.none,
       kindProbabilities: res.kindProbabilities ?? null,
       verificationProbabilities: res.verificationProbabilities ?? null,
-      /** The site says this applicant has already applied to this job. */
-      alreadyApplied: res.alreadyApplied === true,
       accountMode: res.accountMode ?? ACCOUNT_MODE.none,
       /** False only when the backend says the profile has no default account password. */
       accountPassword: res.accountPassword !== false,
@@ -1317,13 +1313,6 @@ export async function runOrchestrator(args: RunOrchestratorArgs): Promise<RunRep
     log.event("account:send", { mode });
   };
 
-  const alreadyApplied = (page: PageSnapshot, detail: string) =>
-    new RunStop(RUN_STAGE.reading, page, [ALREADY_APPLIED, detail], undefined, {
-      reason: RUN_FAILURE_REASON.alreadyApplied,
-      label: ALREADY_APPLIED,
-      detail,
-    });
-
   /** Rounds of work left everything the page needs standing: say what it still wants. */
   const noProgress = (
     page: PageSnapshot,
@@ -1343,9 +1332,8 @@ export async function runOrchestrator(args: RunOrchestratorArgs): Promise<RunRep
 
   /**
    * A new page: the first one is the posting the run applies from (and returns to).
-   * Acorn keeps no record of earlier applications: every run applies to the page in
-   * front of it, and stops as applied only when the page itself says so. On
-   * Continue, the page filled before the stop is not filled again.
+   * Every run applies to the page in front of it. On Continue, the page filled
+   * before the stop is not filled again.
    */
   const enterNewPage = (page: PageSnapshot, state: PageState) => {
     if (!startUrl) startUrl = page.url;
@@ -1354,11 +1342,6 @@ export async function runOrchestrator(args: RunOrchestratorArgs): Promise<RunRep
       log.event("continue:filled-page", {});
     }
     resumeFilledSignature = null;
-  };
-
-  /** The site says this job was applied to already: stop before touching it. */
-  const stopIfApplied = (r: { alreadyApplied: boolean }, page: PageSnapshot) => {
-    if (r.alreadyApplied) throw alreadyApplied(page, "The site says this job was applied to");
   };
 
   /** An account step the run cannot sign in to or sign up on: the profile has no password. */
@@ -2252,8 +2235,8 @@ export async function runOrchestrator(args: RunOrchestratorArgs): Promise<RunRep
             // its address changes): read the page first, a moment's decision, before any
             // pass over the form.
             const look = await read(READ_INTENT.advance, page);
-            if (look.kind === PAGE_KIND.confirmation || look.alreadyApplied) {
-              log.event("alert:sent", { kind: look.kind, applied: look.alreadyApplied });
+            if (look.kind === PAGE_KIND.confirmation) {
+              log.event("alert:sent", { kind: look.kind });
               return await finish(report(RUN_OUTCOME.completed));
             }
             // Otherwise it says something is still missing ("the above information is
@@ -2285,7 +2268,6 @@ export async function runOrchestrator(args: RunOrchestratorArgs): Promise<RunRep
           if (first.kind === PAGE_KIND.confirmation) {
             return await finish(report(RUN_OUTCOME.completed));
           }
-          stopIfApplied(first, page);
           // A click led off the application (a talent-community form, a site page):
           // go back to the posting the run started on and apply from there.
           if (first.kind === PAGE_KIND.other && canReturnToStart(page)) {
@@ -2408,7 +2390,6 @@ export async function runOrchestrator(args: RunOrchestratorArgs): Promise<RunRep
         if (next.kind === PAGE_KIND.confirmation) {
           return await finish(report(RUN_OUTCOME.completed));
         }
-        stopIfApplied(next, page);
         const handed = await verifyOrWait(next, page, state);
         if (handed) {
           pending = handed.pending;

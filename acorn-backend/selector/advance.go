@@ -162,7 +162,6 @@ const (
 	commitQuestion       = "save_opened_form"
 	diagnoseQuestion     = "failure"
 	verifyQuestion       = "verification"
-	appliedQuestion      = "already_applied"
 	accountQuestion      = "account_mode"
 	offersQuestionPrefix = "offers_"
 
@@ -294,8 +293,6 @@ type PageRead struct {
 	// Offers are the account goals an account step makes possible: its own form, or
 	// a control on it that opens one. Empty off account steps.
 	Offers []string
-	// AlreadyApplied is true when the site says this applicant already applied to this job.
-	AlreadyApplied bool
 	// Requirement is the control that does what the page still reports as required
 	// before it can go on (role RoleResolve): the best next step ahead of Control.
 	// Nil when nothing outstanding is done through a control, or on a first look.
@@ -396,16 +393,6 @@ func (g *Gateway) ReadPage(ctx context.Context, q PageQuery) (PageRead, error) {
 				dialogSteps + "Choose none when no control does.",
 			Criteria: guestCriteria,
 		},
-		appliedQuestion: {
-			Type: jev.TypeNoul,
-			Instructions: "Does this page say the applicant has already applied to this job: an application to this role " +
-				"that was already submitted before, as opposed to one being filled in now or just completed? A candidate home or " +
-				"dashboard that lists this job as submitted or in progress, seen before the run sent anything, says so.",
-			Criteria: map[string]string{
-				"true":  "The site says an application to this job was already submitted earlier.",
-				"false": "Nothing on the page says this job was applied to before.",
-			},
-		},
 		verifyQuestion: {
 			Type:         jev.TypeChoice,
 			Instructions: "Does this page ask the applicant to verify something before it can go on, and how?",
@@ -474,9 +461,6 @@ func (g *Gateway) ReadPage(ctx context.Context, q PageQuery) (PageRead, error) {
 
 	if guest := res.Answers[guestQuestion]; guest.Noul != nil {
 		read.Guest = *guest.Noul > checkThreshold
-	}
-	if applied := res.Answers[appliedQuestion]; applied.Noul != nil {
-		read.AlreadyApplied = *applied.Noul > checkThreshold
 	}
 	read.Verification = listedChoice(res.Answers[verifyQuestion], verifications, VerifyNone)
 	read.VerifyProbs = res.Answers[verifyQuestion].Probabilities

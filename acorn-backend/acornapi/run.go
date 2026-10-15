@@ -201,8 +201,7 @@ func (s *Server) runReadPage(w http.ResponseWriter, r *http.Request) {
 	out := map[string]any{
 		"ok": true, "kind": read.Kind, "kindConfidence": read.KindConfidence, "control": nil, "guest": read.Guest,
 		"needsPerson": read.NeedsPerson, "verification": read.Verification, "accountMode": read.AccountMode,
-		"alreadyApplied": read.AlreadyApplied,
-		"model":          gateway.Model(), "usage": decisionUsage(gateway.Model(), read.Usage),
+		"model": gateway.Model(), "usage": decisionUsage(gateway.Model(), read.Usage),
 		// What the extension's log needs to explain the decision on its own: how sure
 		// each answer was, and how long the server took. No prompt text.
 		"kindProbabilities": read.KindProbs, "verificationProbabilities": read.VerifyProbs,
