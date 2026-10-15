@@ -5,7 +5,6 @@
  */
 
 import { clickAt, moveMouse, pressKeys, typeText, wheelAt } from "./input";
-import { CURSOR_GLIDE_MS } from "./overlay";
 import { uploadAt, type ResumeFile } from "./upload";
 
 import type { Cdp } from "./cdp";
@@ -38,10 +37,9 @@ function point(action: AgentAction, scale: number): { x: number; y: number } {
   return { x: action.x / scale, y: action.y / scale };
 }
 
-/** Moves the visible cursor to the point, and waits for it to arrive, so a person can follow. */
+/** Glides the visible cursor to the point and waits for it to arrive, so a person can follow. */
 async function glideTo(ctx: ExecutorContext, x: number, y: number): Promise<void> {
   await ctx.overlay.moveTo(x, y);
-  await ctx.sleep(CURSOR_GLIDE_MS);
 }
 
 type Done = { detail?: string };
@@ -64,6 +62,7 @@ async function perform(ctx: ExecutorContext, action: AgentAction): Promise<Done>
     case "hover": {
       const { x, y } = point(action, ctx.scale());
       await glideTo(ctx, x, y);
+      void ctx.overlay.hover(true);
       await moveMouse(cdp, x, y);
       await ctx.sleep(SETTLE_MS);
       return {};

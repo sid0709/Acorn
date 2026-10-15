@@ -168,6 +168,12 @@ export interface RunFailure {
   /** The page's own words behind the reason: flagged fields, alerts, failed steps. */
   detail: string;
   stage: RunStage;
+  /**
+   * Set when the agent ended the run itself: why (an AGENT_STOP_REASON), what the page
+   * needs or what went wrong, and what the person should do. The sidebar shows it as a
+   * "needs you" or "couldn't finish" notice.
+   */
+  agentStop?: { reason: string; problem: string; action: string };
 }
 
 export interface RunReport {

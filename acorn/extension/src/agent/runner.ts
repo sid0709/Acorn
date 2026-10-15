@@ -316,7 +316,9 @@ export async function runAgent(args: AgentRunArgs): Promise<RunReport> {
             report(args.stopBeforeSubmit ? RUN_OUTCOME.readyToSubmit : RUN_OUTCOME.completed),
           );
         }
-        return finish(report(RUN_OUTCOME.failed, failureFromStatus(step.status, step.message)));
+        return finish(
+          report(RUN_OUTCOME.failed, failureFromStatus(step.status, step.message, step.stop)),
+        );
       }
 
       results = await runActions(executor, actions);

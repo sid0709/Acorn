@@ -4,7 +4,12 @@
  * as they do for any Run.
  */
 
-import { AGENT_ERROR_CODE, AGENT_STATUS, type AgentUsage } from "@acorn/shared/agent-contract";
+import {
+  AGENT_ERROR_CODE,
+  AGENT_STATUS,
+  type AgentStop,
+  type AgentUsage,
+} from "@acorn/shared/agent-contract";
 import { formatUsd } from "@acorn/shared/ai-usage";
 import {
   RUN_FAILURE_REASON,
@@ -80,13 +85,23 @@ export function failureFromError(
 export function failureFromStatus(
   status: string,
   message: string,
+  stop?: AgentStop,
   stage: RunFailure["stage"] = RUN_STAGE.filling,
 ): RunFailure {
   const reason =
     status === AGENT_STATUS.needPerson
       ? RUN_FAILURE_REASON.waitedForPerson
       : RUN_FAILURE_REASON.noProgress;
-  return { reason, label: message || "The run stopped", detail: message, stage };
+  const label = stop?.problem || message || "The run stopped";
+  return {
+    reason,
+    label,
+    detail: stop?.action || (message !== label ? message : ""),
+    stage,
+    agentStop: stop
+      ? { reason: stop.reason, problem: stop.problem || label, action: stop.action }
+      : undefined,
+  };
 }
 
 /** The words on the Now card when the run ends. */

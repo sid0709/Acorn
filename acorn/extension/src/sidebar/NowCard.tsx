@@ -2,6 +2,7 @@ import { PAGE_KIND, RUN_OUTCOME, RUN_STAGE, type MailRow } from "@acorn/shared/r
 import { describeRunFailure } from "@acorn/shared/user-messages";
 import { Badge, Button, Card, Glyph, HStack, ProgressBar, Text, VStack } from "sid-ui";
 
+import { AgentStopNotice } from "./AgentStopNotice";
 import { customTabResumeLine, hostOf } from "./custom-tab-resume";
 import { GenerateProgressBar } from "./GenerateProgressBar";
 import { RunCelebration } from "./RunCelebration";
@@ -207,6 +208,15 @@ function RunStatus({ progress }: { progress: PipelineProgress }) {
       {run.mail?.length ? <MailList mail={run.mail} /> : null}
     </>
   );
+  if (failure?.agentStop) {
+    return (
+      <VStack gap={1}>
+        {timer}
+        <AgentStopNotice failure={failure} />
+        {extras}
+      </VStack>
+    );
+  }
   if (failure) {
     const said = describeRunFailure(failure);
     return (

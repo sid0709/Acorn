@@ -19,13 +19,28 @@ const replySchemaName = "agent_step"
 var replySchema = json.RawMessage(`{
   "type": "object",
   "additionalProperties": false,
-  "required": ["observation", "memo", "job", "status", "message", "actions"],
+  "required": ["observation", "memo", "job", "status", "message", "stop", "actions"],
   "properties": {
     "observation": {"type": "string"},
     "memo": {"type": ["string", "null"]},
     "job": {"type": "string"},
     "status": {"type": "string", "enum": ["working", "done", "need_person", "stuck"]},
     "message": {"type": "string"},
+    "stop": {
+      "anyOf": [
+        {"type": "null"},
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["reason", "problem", "action"],
+          "properties": {
+            "reason": {"type": "string", "enum": ["captcha", "verification", "identity", "document", "sign_in", "page_problem", "other"]},
+            "problem": {"type": "string"},
+            "action": {"type": "string"}
+          }
+        }
+      ]
+    },
     "actions": {
       "type": "array",
       "items": {
@@ -57,6 +72,7 @@ type reply struct {
 	Job         string        `json:"job"`
 	Status      string        `json:"status"`
 	Message     string        `json:"message"`
+	Stop        *StopInfo     `json:"stop"`
 	Actions     []modelAction `json:"actions"`
 }
 

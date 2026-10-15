@@ -44,6 +44,29 @@ export const AGENT_STATUS = {
 
 export type AgentStatus = (typeof AGENT_STATUS)[keyof typeof AGENT_STATUS];
 
+/** Why a run ended without being done (mirrors acorn-agent's Stop* values). */
+export const AGENT_STOP_REASON = {
+  captcha: "captcha",
+  verification: "verification",
+  identity: "identity",
+  document: "document",
+  signIn: "sign_in",
+  pageProblem: "page_problem",
+  other: "other",
+  noChange: "no_change",
+  stepLimit: "step_limit",
+} as const;
+export type AgentStopReason = (typeof AGENT_STOP_REASON)[keyof typeof AGENT_STOP_REASON];
+
+/** What the person is told when a run ends as need_person or stuck. */
+export interface AgentStop {
+  reason: AgentStopReason;
+  /** What the page needs, or what went wrong, in plain words. */
+  problem: string;
+  /** What the person should do about it. */
+  action: string;
+}
+
 /** The screenshot's size and the page behind it; every action coordinate is in screenshot pixels. */
 export interface AgentViewport {
   width: number;
@@ -117,6 +140,8 @@ export interface AgentUsage {
 export interface AgentStep {
   status: AgentStatus;
   message: string;
+  /** Set when the run ended as need_person or stuck. */
+  stop?: AgentStop;
   actions: AgentAction[] | null;
   number: number;
   usage: AgentUsage;

@@ -214,7 +214,11 @@ func (a *Agent) Step(ctx context.Context, id string, obs Observation) (Step, err
 		return Step{}, err
 	}
 	if s.step >= a.cfg.MaxSteps {
-		return a.endWithTrace(s, obs, 0, StatusStuck, fmt.Sprintf("The run reached its limit of %d steps.", a.cfg.MaxSteps)), nil
+		return a.endWithTrace(s, obs, 0, StatusStuck, fmt.Sprintf("The run reached its limit of %d steps.", a.cfg.MaxSteps), &StopInfo{
+			Reason:  StopStepLimit,
+			Problem: fmt.Sprintf("This application took more than %d steps, so Acorn stopped.", a.cfg.MaxSteps),
+			Action:  "Finish the rest on the page yourself, or press Run again.",
+		}), nil
 	}
 	// A page that did not move after actions is evidence the model needs, and a run that
 	// never moves is not worth more model calls.
@@ -223,7 +227,11 @@ func (a *Agent) Step(ctx context.Context, id string, obs Observation) (Step, err
 		stale = s.stale + 1
 	}
 	if stale >= a.cfg.MaxStale {
-		return a.endWithTrace(s, obs, stale, StatusStuck, fmt.Sprintf("The page did not change for %d steps in a row.", stale)), nil
+		return a.endWithTrace(s, obs, stale, StatusStuck, fmt.Sprintf("The page did not change for %d steps in a row.", stale), &StopInfo{
+			Reason:  StopNoChange,
+			Problem: "The page stopped responding to Acorn's clicks and typing.",
+			Action:  "Check the page for anything in the way, then press Continue.",
+		}), nil
 	}
 
 	// What happened to every action sent since the model last looked, which may be several
@@ -298,11 +306,12 @@ func (a *Agent) Step(ctx context.Context, id string, obs Observation) (Step, err
 		summary: summaryLine(number, answer, planned),
 	})
 	step := Step{
-		Status: status, Message: strings.TrimSpace(answer.Message), Actions: actions,
+		Status: status, Message: strings.TrimSpace(answer.Message), Stop: stopFor(status, answer), Actions: actions,
 		Number: number, Usage: s.usage, Dropped: dropped,
 	}
 	entry.Observation, entry.Memo, entry.Job = answer.Observation, s.memo, s.job
 	entry.Status, entry.Message, entry.Actions, entry.Dropped = status, step.Message, actions, dropped
+	entry.Stop = step.Stop
 	a.record(s, entry, obs.Screenshot, calls)
 	if status != StatusWorking {
 		s.finished = true
@@ -334,14 +343,37 @@ func (a *Agent) record(s *session, entry stepTrace, screenshot string, calls []m
 }
 
 // endWithTrace finishes a run the agent itself gave up on, and records why.
-func (a *Agent) endWithTrace(s *session, obs Observation, stale int, status, message string) Step {
+func (a *Agent) endWithTrace(s *session, obs Observation, stale int, status, message string, stop *StopInfo) Step {
 	s.finished = true
 	a.record(s, stepTrace{
 		Seq: s.seq, Step: s.step + 1, At: a.now(), URL: obs.URL, Title: obs.Title, Viewport: obs.Viewport,
 		Focus: obs.Focus, Notes: obs.Notes, Results: obs.Results, Stale: stale, Memo: s.memo, Job: s.job,
-		Status: status, Message: message, Usage: s.usage,
+		Status: status, Message: message, Stop: stop, Usage: s.usage,
 	}, obs.Screenshot, nil)
-	return Step{Status: status, Message: message, Number: s.step, Usage: s.usage}
+	return Step{Status: status, Message: message, Stop: stop, Number: s.step, Usage: s.usage}
+}
+
+// stopFor is why a run that the model ended is over, for the person. Only need_person and
+// stuck carry one; when the model left it out, its message stands in.
+func stopFor(status string, answer reply) *StopInfo {
+	if status != StatusNeedPerson && status != StatusStuck {
+		return nil
+	}
+	stop := StopInfo{Reason: StopOther, Problem: strings.TrimSpace(answer.Message)}
+	if answer.Stop != nil {
+		stop.Reason = strings.TrimSpace(answer.Stop.Reason)
+		stop.Problem = strings.TrimSpace(answer.Stop.Problem)
+		stop.Action = strings.TrimSpace(answer.Stop.Action)
+	}
+	switch stop.Reason {
+	case StopCaptcha, StopVerification, StopIdentity, StopDocument, StopSignIn, StopPageProblem, StopOther:
+	default:
+		stop.Reason = StopOther
+	}
+	if stop.Problem == "" {
+		stop.Problem = strings.TrimSpace(answer.Message)
+	}
+	return &stop
 }
 
 // ask sends the request and reads the answer. An answer that is not the requested JSON is

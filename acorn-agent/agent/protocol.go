@@ -33,6 +33,28 @@ const (
 	StatusStuck = "stuck"
 )
 
+// Why a run ended without being done: what the page needs from the person, or why the
+// agent could not go on. The model names the first seven; the agent itself the last two.
+const (
+	StopCaptcha      = "captcha"
+	StopVerification = "verification"
+	StopIdentity     = "identity"
+	StopDocument     = "document"
+	StopSignIn       = "sign_in"
+	StopPageProblem  = "page_problem"
+	StopOther        = "other"
+	StopNoChange     = "no_change"
+	StopStepLimit    = "step_limit"
+)
+
+// StopInfo says, for the person, why the run ended without being done: Reason is one of the
+// Stop* values, Problem what the page needs or what went wrong, Action what to do about it.
+type StopInfo struct {
+	Reason  string `json:"reason"`
+	Problem string `json:"problem"`
+	Action  string `json:"action"`
+}
+
 // Viewport describes the screenshot and the page behind it. Every coordinate in an
 // action is in the screenshot's own pixels, with (0, 0) at its top left.
 type Viewport struct {
@@ -115,6 +137,8 @@ type Step struct {
 	Status string `json:"status"`
 	// Message is one line for the person: what the agent is doing, or why it stopped.
 	Message string `json:"message"`
+	// Stop says why the run ended, when it ended as need_person or stuck.
+	Stop *StopInfo `json:"stop,omitempty"`
 	// Actions run in order, then the extension sends a new screenshot.
 	Actions []Action `json:"actions"`
 	// Number is this step's place in the run, from 1.

@@ -16,6 +16,7 @@ function context(options: { scale?: number; stopAfter?: number } = {}) {
     overlay: {
       moveTo: async (x: number, y: number) => void moves.push([x, y]),
       click: async () => {},
+      hover: async () => {},
     } as unknown as Overlay,
     scale: () => options.scale ?? 1,
     resume: async () => ({ fileName: "r.pdf", contentType: "application/pdf", base64: "QQ==" }),

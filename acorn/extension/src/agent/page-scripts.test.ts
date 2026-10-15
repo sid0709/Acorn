@@ -212,7 +212,36 @@ describe("OVERLAY_SCRIPT", () => {
     assert.deepEqual(calls, ["stop"]);
   });
 
-  it("uses no hex or rgb color and no innerHTML, which a page may forbid", () => {
-    assert.doesNotMatch(OVERLAY_SCRIPT, /#[0-9a-fA-F]{3,8}\b|rgba?\(|hsla?\(|innerHTML/);
+  it("uses no innerHTML, which a page may forbid", () => {
+    assert.doesNotMatch(OVERLAY_SCRIPT, /innerHTML/);
+  });
+
+  it("draws the demo's Acorn cursor: its outline, swoosh and gradient stops", () => {
+    for (const part of [
+      "M 50 14 C 62 14, 76 36, 83 62 C 89 82, 79 88, 66 84 C 56 80, 53 66, 50 66 C 47 66, 44 80, 34 84 C 21 88, 11 82, 17 62 C 24 36, 38 14, 50 14 Z",
+      "M 39 63 C 44 51, 56 51, 61 63",
+      '"stop-color": "#ffe37a"',
+      '"stop-color": "#ff4800"',
+      "drop-shadow(0 0 16px rgba(255, 170, 0, 0.95))",
+      "animation: pulseAura 2.2s infinite alternate ease-in-out",
+      "virtual.x += (mouse.x - virtual.x) * 0.2",
+      "spawnParticles(virtual.x, virtual.y, 45, true)",
+    ]) {
+      assert.ok(
+        OVERLAY_SCRIPT.includes(part) || OVERLAY_SCRIPT.includes(JSON.stringify(part).slice(1, -1)),
+        part,
+      );
+    }
+  });
+
+  it("resolves a move even when the page draws no frames", async () => {
+    const { window, run } = environment();
+    run();
+    const controller = window.__acornAgentOverlay as {
+      moveTo(x: number, y: number): Promise<void>;
+    };
+    const started = Date.now();
+    await controller.moveTo(100, 100);
+    assert.ok(Date.now() - started < 2000);
   });
 });

@@ -45,6 +45,7 @@ export function answer(fields: Record<string, unknown>) {
     memo: "filling it in",
     job: "Data Engineer",
     message: "Working",
+    stop: null,
     actions: [],
     ...fields,
   };

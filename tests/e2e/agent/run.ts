@@ -149,7 +149,14 @@ type Progress = {
   message: string;
   run?: {
     step?: number;
-    report?: { outcome: string; failure?: { reason: string; label: string } };
+    report?: {
+      outcome: string;
+      failure?: {
+        reason: string;
+        label: string;
+        agentStop?: { reason: string; problem: string; action: string };
+      };
+    };
   };
 };
 
@@ -509,6 +516,28 @@ try {
     refusedRun.at(-1),
   );
   verdict = { matches: 0.98, blocked: 0.01, loading: 0.01 };
+
+  // 1d. A page only the person can get past: the run ends with a reason the sidebar can show.
+  script = () =>
+    answer({
+      status: "need_person",
+      message: "Solve the CAPTCHA",
+      stop: {
+        reason: "captcha",
+        problem: "The page asks you to prove you're not a robot.",
+        action: "Tick the box and solve the picture puzzle.",
+      },
+    });
+  const human = await newForm();
+  const humanRun = await run(human.tabId);
+  const humanFailure = humanRun.at(-1)?.run?.report?.failure;
+  check(
+    humanFailure?.reason === "waited_for_person" &&
+      humanFailure.agentStop?.reason === "captcha" &&
+      humanFailure.agentStop.action === "Tick the box and solve the picture puzzle.",
+    "a run that needs the person ends with the reason, the problem and what to do",
+    humanFailure,
+  );
 
   // 2. Stop works, at once, and leaves the page as it is.
   script = (step, at) =>

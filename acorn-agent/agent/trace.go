@@ -58,6 +58,7 @@ type stepTrace struct {
 	Job         string         `json:"job"`
 	Status      string         `json:"status"`
 	Message     string         `json:"message"`
+	Stop        *StopInfo      `json:"stop,omitempty"`
 	Actions     []Action       `json:"actions"`
 	Dropped     []string       `json:"dropped,omitempty"`
 	// Error is why the step produced no answer (the model failed, the observation was refused).
