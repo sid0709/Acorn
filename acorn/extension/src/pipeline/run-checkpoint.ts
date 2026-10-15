@@ -25,6 +25,8 @@ export interface RunCheckpoint {
   startUrl: string;
   /** Pages the run moved through before it stopped. */
   pages: number;
+  /** Required fields the run stopped to hand to the person; Continue does not stop on them again. */
+  handedToPerson: string[];
 }
 
 type CheckpointMap = Record<string, RunCheckpoint>;
@@ -61,5 +63,6 @@ export function restoredRun(checkpoint: RunCheckpoint | null | undefined): RunCh
     filledSignature: checkpoint?.filledSignature ?? null,
     startUrl: checkpoint?.startUrl ?? "",
     pages: checkpoint?.pages ?? 0,
+    handedToPerson: [...(checkpoint?.handedToPerson ?? [])],
   };
 }

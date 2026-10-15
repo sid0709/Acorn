@@ -129,35 +129,40 @@ var fileKinds = map[string]string{
 	fileResume:      "The application's résumé or CV document.",
 	fileAutofill:    "A drop zone that parses a résumé to pre-fill the form — not the résumé field itself.",
 	fileCoverLetter: "A cover letter.",
-	fileOther:       "Any other document: transcript, portfolio, certificate, or additional files.",
+	fileOther:       "Any other document that is neither the résumé nor a cover letter.",
 }
 
 // What an upload field that names neither a résumé nor a cover letter gets. The
 // applicant's own documents are all the run has, so the decision is which of them
-// goes in: a required field never stays empty (the résumé is the document to give
-// when nothing fits), and an optional one asking for something neither document is
-// is left alone.
+// goes in. A field that asks for a specific document the applicant does not have gets
+// none: a required one is handed to the person, since
+// the wrong document is worse than a stop, and an optional one is left alone. The
+// résumé is only the document to give when the decision cannot be made.
 const (
-	fileOtherResume = "other_resume"
-	fileOtherLetter = "other_cover_letter"
-	fileSkipped     = "skipped"
+	fileOtherResume  = "other_resume"
+	fileOtherLetter  = "other_cover_letter"
+	fileOtherMissing = "other_missing"
+	fileSkipped      = "skipped"
 )
 
-const documentInstructions = "Which of the applicant's own documents goes in this job-application file upload field? Read the form section and the text around it. The applicant has a résumé and may have a cover letter."
+const documentInstructions = "Which of the applicant's own documents goes in this job-application file upload field? Read the form section and the text around it. The applicant has a résumé and may have a cover letter, and no other document."
 
 const (
 	documentResume      = "resume"
 	documentCoverLetter = "cover_letter"
-	documentNone        = "none"
+	documentMissing     = "not_held"
 )
 
 var documentKinds = map[string]string{
-	documentResume: "The applicant's résumé. It is the document to give when the field asks for a document and nothing " +
-		"else the applicant has fits better — including one the field names that the applicant would have to produce " +
-		"themselves (an assessment, a completed form, a transcript, work samples).",
+	documentResume: "The applicant's résumé: the field asks for a résumé, or for documents in general, " +
+		"so a résumé is a fair answer to it.",
 	documentCoverLetter: "The applicant's cover letter: a letter or statement addressed to the employer.",
-	documentNone:        "No document: the field is optional and neither the résumé nor a cover letter answers it.",
+	documentMissing: "A specific document that is neither the résumé nor a cover letter, which the applicant would have " +
+		"to produce or obtain themselves. Giving the résumé there would be the wrong document.",
 }
+
+// documentNotHeld is why a required upload is handed to the person instead of filled.
+const documentNotHeld = "it asks for a document Acorn does not have"
 
 // resumeFieldInstructions pick the one résumé field among several résumé-like
 // uploads. Judged one at a time, a parse-to-prefill drop zone reads like a
@@ -284,7 +289,7 @@ func (s *Service) FastPlan(ctx context.Context, applicant string, fields []FormF
 	}
 
 	plan := newPlan()
-	addUnanswerable(plan, unreadable)
+	addUnanswerable(plan, unreadable, questionUnread)
 	addResumeUpload(plan, files, fileTypes, fileFormats)
 	addCoverLetterUpload(plan, files, fileTypes, fileFormats)
 	addOtherUploads(plan, files, fileTypes, fileFormats)
@@ -339,15 +344,15 @@ func withoutUnreadable(fields []FormField) (readable, unread []FormField) {
 }
 
 // addUnanswerable names the required fields the run cannot answer, so it stops and
-// says which instead of sending the form with those left empty or invented.
-func addUnanswerable(plan Plan, fields []FormField) {
-	rows := []any{}
+// says which and why instead of sending the form with those left empty or invented.
+func addUnanswerable(plan Plan, fields []FormField, reason string) {
+	rows, _ := plan["unanswerable"].([]any)
 	for _, field := range fields {
 		if !field.Required {
 			continue
 		}
 		rows = append(rows, map[string]any{
-			"element_index": float64(field.ElementIndex), "label": field.Label, "reason": questionUnread,
+			"element_index": float64(field.ElementIndex), "label": field.Label, "reason": reason,
 		})
 	}
 	if len(rows) > 0 {
@@ -506,8 +511,9 @@ func (s *Service) settleResumeField(ctx context.Context, files []FormField, kind
 
 // settleOtherUploads decides what goes in every upload field that is neither the
 // résumé nor a cover letter: the decision model picks among the applicant's own
-// documents, and a required field always gets one (the résumé when the decision is
-// none or cannot be made), so no required upload is left for the person to find.
+// documents. A field asking for a specific document the applicant does not have is
+// left to the person when required (skipped when optional), and a decision that
+// cannot be made gives a required field the résumé.
 func (s *Service) settleOtherUploads(ctx context.Context, files []FormField, kinds map[int]string) {
 	ask := map[int]string{}
 	for _, field := range files {
@@ -538,6 +544,12 @@ func (s *Service) settleOtherUploads(ctx context.Context, files []FormField, kin
 			kinds[field.ElementIndex] = fileOtherLetter
 		case documentResume:
 			kinds[field.ElementIndex] = fileOtherResume
+		case documentMissing:
+			if field.Required {
+				kinds[field.ElementIndex] = fileOtherMissing
+			} else {
+				kinds[field.ElementIndex] = fileSkipped
+			}
 		default:
 			if field.Required {
 				kinds[field.ElementIndex] = fileOtherResume
@@ -548,11 +560,15 @@ func (s *Service) settleOtherUploads(ctx context.Context, files []FormField, kin
 	}
 }
 
-// addOtherUploads attaches the document decided for each other upload field.
+// addOtherUploads attaches the document decided for each other upload field, and
+// names the required ones that need a document the applicant has to bring.
 func addOtherUploads(plan Plan, files []FormField, kinds, formats map[int]string) {
 	resume, letter := fileKeyResume, fileKeyCoverLetter
+	var missing []FormField
 	for _, field := range files {
 		switch kinds[field.ElementIndex] {
+		case fileOtherMissing:
+			missing = append(missing, field)
 		case fileOtherResume:
 			addAction(plan, "resume_upload", field, "file", formats[field.ElementIndex], &resume)
 		case fileOtherLetter:
@@ -560,6 +576,7 @@ func addOtherUploads(plan Plan, files []FormField, kinds, formats map[int]string
 			giveResumeIfRequired(plan, field)
 		}
 	}
+	addUnanswerable(plan, missing, documentNotHeld)
 }
 
 // addResumeUpload attaches the résumé to every résumé field, or to the autofill

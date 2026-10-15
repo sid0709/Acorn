@@ -1,12 +1,14 @@
 import { traceFromPage } from "../../debug-trace";
 import { fieldWrapper, groupQuestion, partGroupName, sectionTitle } from "../form-dom";
 import { deepQueryAll } from "../shadow-control";
-import { forLabelOf, uniqueById } from "../verify/element-labels";
+import { forLabelOf, labelCandidates, normalize, uniqueById } from "../verify/element-labels";
 
 import { JEV_LIST_MAX } from "./combobox/choose-option";
 import { estimateOptionAnswer } from "./combobox/estimate-client";
+import { isListOpener, markListOpeners } from "./combobox/list-opener";
 import { optionText } from "./combobox/options-dom";
 import { openAndCollectOptions } from "./combobox/options-wait";
+import { DROPDOWN_SELECTOR } from "./combobox/popup-roles";
 import { dismissOpenOverlays, resolveTypeableInput } from "./combobox/typing";
 import { resolveDropdownInteractionTarget } from "./enhanced-select";
 import { fillElement } from "./fill";
@@ -40,7 +42,8 @@ function isCombobox(el: HTMLElement): boolean {
   return (
     role === "combobox" ||
     el instanceof HTMLSelectElement ||
-    el.getAttribute("aria-haspopup") === "listbox"
+    el.getAttribute("aria-haspopup") === "listbox" ||
+    isListOpener(el)
   );
 }
 
@@ -71,6 +74,14 @@ function fieldLabel(el: HTMLElement): string {
 }
 
 function ownLabel(el: HTMLElement): string {
+  // A button over a shut list sits in its widget's shadow root: its question is the
+  // label the page ties to the widget, found beside it, never the placeholder it shows.
+  if (isListOpener(el)) {
+    const asked = labelCandidates(el).find(
+      (text) => normalize(text) !== normalize(el.textContent ?? ""),
+    );
+    if (asked) return asked;
+  }
   const labelled = el.getAttribute("aria-labelledby");
   if (labelled) {
     const parts = labelled
@@ -87,7 +98,12 @@ function ownLabel(el: HTMLElement): string {
   if (wrap) return wrap.slice(0, 200);
   // No label points at the control itself (a typeahead with no id): the field's
   // question is the title before it inside its own wrapper.
-  return groupQuestion(fieldWrapper(el), el, [el]);
+  const nearby = groupQuestion(fieldWrapper(el), el, [el]);
+  if (nearby || !isListOpener(el)) return nearby;
+  // A button over a shut list sits in its widget's shadow root: the question is beside the widget.
+  return (
+    labelCandidates(el).find((text) => normalize(text) !== normalize(el.textContent ?? "")) ?? ""
+  );
 }
 
 /**
@@ -114,6 +130,8 @@ export async function fillLeftoverComboboxes(
   stopped?: boolean;
 }> {
   const late = () => Date.now() > deadline;
+  // A dropdown drawn as a button over a shut list is found by its shape, not its role.
+  markListOpeners();
   // Answers reveal follow-up dropdowns (a race list after "Hispanic or Latino?"),
   // so look again after each round for empty ones not tried yet.
   const tried = new Set<HTMLElement>();
@@ -124,6 +142,7 @@ export async function fillLeftoverComboboxes(
   const contradicted = checkPrefilled ? await prefilledAgainstProfile(within) : [];
   for (let round = 0; round < MAX_LEFTOVER_ROUNDS && found < MAX_LEFTOVER; round += 1) {
     if (late()) return stopAtDeadline(found, filled);
+    markListOpeners();
     const { all, leftovers } = leftoverCandidates(tried, within);
     const fresh = round === 0 ? contradicted.filter((el) => !leftovers.includes(el)) : [];
     const batch = [...fresh, ...leftovers].slice(0, MAX_LEFTOVER - found);
@@ -314,7 +333,7 @@ function isOpenToAnswer(el: HTMLElement): boolean {
 async function prefilledAgainstProfile(
   within: ((el: Element) => boolean) | null,
 ): Promise<HTMLElement[]> {
-  const prefilled = deepQueryAll(document, '[role="combobox"], select, [aria-haspopup="listbox"]')
+  const prefilled = deepQueryAll(document, DROPDOWN_SELECTOR)
     .filter((node): node is HTMLElement => node instanceof HTMLElement)
     .filter((el) => !within || within(el))
     .filter((el) => isOpenToAnswer(el) && !wasPlanFilled(el) && readControlValue(el) !== "")
@@ -357,7 +376,7 @@ function leftoverCandidates(
   within: ((el: Element) => boolean) | null,
 ): { all: number; leftovers: HTMLElement[] } {
   // Custom elements keep their dropdown inputs in shadow roots: search those too.
-  const nodes = deepQueryAll(document, '[role="combobox"], select, [aria-haspopup="listbox"]')
+  const nodes = deepQueryAll(document, DROPDOWN_SELECTOR)
     .filter((node): node is HTMLElement => node instanceof HTMLElement)
     .filter((el) => !within || within(el));
   const leftovers = nodes.filter((el) => {

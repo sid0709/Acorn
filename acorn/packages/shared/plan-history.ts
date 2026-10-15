@@ -105,16 +105,22 @@ export function describeNeeds(needs: readonly string[], turns: readonly PlanTurn
   });
 }
 
+/** A required field the fill could not answer, and the reason it was left to the person. */
+export type UnansweredField = { label: string; reason: string };
+
 /**
- * The required fields the page's fill could not answer because their question was never
- * on the page: sending the form would leave them empty or invented, so the run stops.
- * Read from the fill rounds' plans; a refill does not make a field answerable.
+ * The required fields the page's fill could not answer: their question was never on the
+ * page, or they ask for a document the applicant does not have. Sending the form would
+ * leave them empty or wrong, so the run stops and says which and why. Read from the fill
+ * rounds' plans; a refill does not make a field answerable.
  */
-export function requiredUnanswerable(turns: readonly PlanTurn[]): string[] {
-  const labels = new Set<string>();
+export function requiredUnanswerable(turns: readonly PlanTurn[]): UnansweredField[] {
+  const found = new Map<string, UnansweredField>();
   for (const turn of turns) {
     if (turn.mode !== "fill") continue;
-    for (const field of turn.plan.unanswerable ?? []) labels.add(field.label);
+    for (const field of turn.plan.unanswerable ?? []) {
+      found.set(field.label, { label: field.label, reason: field.reason });
+    }
   }
-  return [...labels];
+  return [...found.values()];
 }

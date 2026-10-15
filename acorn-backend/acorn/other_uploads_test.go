@@ -34,19 +34,32 @@ func TestFastPlanUploadsTheDecidedDocumentToAnOtherRequiredField(t *testing.T) {
 	}
 }
 
-// The résumé is the document to give when the decision is none and the field is required.
-func TestFastPlanFallsBackToTheResumeForARequiredUploadNothingFits(t *testing.T) {
-	actions := planUploads(t, map[string]map[int]string{
+// A required upload that asks for a specific document the applicant does not have is
+// not given the wrong one: no step, and the plan names it so the run asks the person.
+func TestFastPlanAsksForARequiredDocumentTheApplicantDoesNotHave(t *testing.T) {
+	service := New(&fakeModel{}).WithClassifier(&scriptedClassifier{answers: map[string]map[int]string{
 		fileFieldInstructions: {1: fileResume, 2: fileOther},
-		documentInstructions:  {2: documentNone},
-	}, mainResume, assessment)
-	if got := actions[2]; got["action"] != "resume_upload" {
-		t.Fatalf("action = %v, want the résumé for a required field", got)
+		documentInstructions:  {2: documentMissing},
+	}}).WithPicker(noChoices{})
+	result, err := service.FastPlan(context.Background(), "", []FormField{mainResume, assessment}, map[string]any{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got, has := actionsByIndex(t, result.Plan)[2]; has {
+		t.Fatalf("a document the applicant lacks must not be filled, got %v", got)
+	}
+	rows, _ := result.Plan["unanswerable"].([]any)
+	if len(rows) != 1 {
+		t.Fatalf("unanswerable = %v, want the assessment field", result.Plan["unanswerable"])
+	}
+	row := rows[0].(map[string]any)
+	if row["element_index"] != float64(2) || row["reason"] != documentNotHeld {
+		t.Fatalf("unanswerable row = %v", row)
 	}
 }
 
-// A decision that cannot be made still leaves a required upload with the résumé, and an
-// optional one that nothing fits alone.
+// A decision that cannot be made still leaves a required upload with the résumé (a guess
+// is better than a blocked run), and an optional one alone.
 func TestFastPlanFallsBackWhenTheDocumentCannotBeDecided(t *testing.T) {
 	actions := planUploads(t, map[string]map[int]string{
 		fileFieldInstructions: {1: fileResume, 2: fileOther, 3: fileOther},
@@ -62,10 +75,10 @@ func TestFastPlanFallsBackWhenTheDocumentCannotBeDecided(t *testing.T) {
 func TestFastPlanLeavesAnOptionalUploadNothingFits(t *testing.T) {
 	actions := planUploads(t, map[string]map[int]string{
 		fileFieldInstructions: {1: fileResume, 3: fileOther},
-		documentInstructions:  {3: documentNone},
+		documentInstructions:  {3: documentMissing},
 	}, mainResume, optionalMore)
 	if _, has := actions[3]; has {
-		t.Fatalf("an optional upload the decision answered none must get no step, got %v", actions[3])
+		t.Fatalf("an optional upload for a document the applicant lacks must get no step, got %v", actions[3])
 	}
 }
 

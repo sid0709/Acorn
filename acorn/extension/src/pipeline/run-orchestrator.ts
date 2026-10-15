@@ -334,8 +334,8 @@ const SCOPE_REFUSED = "The page would not take what Acorn filled in";
 const NEEDS_SHOWN_MAX = 6;
 /** The connected Gmail could not be read, look after look. */
 const MAIL_UNREADABLE = "Acorn could not read your Gmail";
-/** A required field's question was not on the page, so the run left it for the person. */
-const NEEDS_ANSWER = "A required question on this form could not be read";
+/** A required field was left for the person: its question was unreadable, or it asks for a document Acorn lacks. */
+const NEEDS_ANSWER = "A required field on this form needs you";
 /** The site kept refusing the account step. */
 const ACCOUNT_REJECTED = "The site kept rejecting the sign-in or sign-up";
 /** The page itself says this job was applied to already. */
@@ -457,6 +457,8 @@ export async function runOrchestrator(args: RunOrchestratorArgs): Promise<RunRep
   let startUrl = restored.startUrl;
   /** On Continue, the page already filled before the stop is not filled again. */
   let resumeFilledSignature = restored.filledSignature;
+  /** Required fields the run stopped to hand to the person: Continue means they are done. */
+  const handedToPerson = new Set(restored.handedToPerson);
   let refillsTotal = 0;
   let refillsOnPage = 0;
   let current: PageState | null = null;
@@ -2077,6 +2079,7 @@ export async function runOrchestrator(args: RunOrchestratorArgs): Promise<RunRep
       filledSignature: current?.filled ? current.signature : null,
       startUrl,
       pages: pageCount,
+      handedToPerson: [...handedToPerson],
     });
     const run: RunProgress = { ...runState(), endedAt: Date.now(), report: result, canContinue };
     args.emit(tabs, {
@@ -2472,11 +2475,20 @@ export async function runOrchestrator(args: RunOrchestratorArgs): Promise<RunRep
               : ["No control on the page moves the application forward"];
           throw new RunStop(RUN_STAGE.advancing, page, notes);
         }
-        // A required field whose question the page never gave was left unanswered, not
-        // invented: the form is not sent with it empty.
-        const unanswered = guest || sendsAccount ? [] : requiredUnanswerable(state.turns);
+        // A required field whose question the page never gave, or that asks for a document
+        // Acorn does not have, was left to the person, not invented or filled with the
+        // wrong file: the form is not sent with it empty.
+        const unanswered =
+          guest || sendsAccount
+            ? []
+            : requiredUnanswerable(state.turns).filter((field) => !handedToPerson.has(field.label));
         if (unanswered.length) {
-          const detail = `Answer ${unanswered.slice(0, NEEDS_SHOWN_MAX).join(", ")} yourself, then press Continue`;
+          for (const field of unanswered) handedToPerson.add(field.label);
+          const named = unanswered
+            .slice(0, NEEDS_SHOWN_MAX)
+            .map((field) => `${field.label} (${field.reason})`)
+            .join("; ");
+          const detail = `${named}. Do it on the page yourself, then press Continue`;
           throw new RunStop(RUN_STAGE.advancing, page, [NEEDS_ANSWER, detail], undefined, {
             reason: RUN_FAILURE_REASON.needsAnswer,
             label: NEEDS_ANSWER,

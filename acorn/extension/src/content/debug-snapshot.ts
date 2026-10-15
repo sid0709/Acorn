@@ -4,6 +4,7 @@
  */
 import { shownValue } from "@acorn/shared/secret-value";
 
+import { DROPDOWN_SELECTOR } from "./agents/combobox/popup-roles";
 import { comboboxWidgetRoot, readWidgetTextParts } from "./agents/combobox/widget-value";
 import { readControlValue } from "./agents/read-control-value";
 import { deepQueryAll } from "./shadow-control";
@@ -51,7 +52,7 @@ export function describeWidget(el: Element): Record<string, unknown> {
 
 /** Every visible combobox / select with its current read value. */
 export function comboSnapshot(): Array<Record<string, unknown>> {
-  return deepQueryAll(document, '[role="combobox"], select')
+  return deepQueryAll(document, DROPDOWN_SELECTOR)
     .filter((el) => el.getClientRects().length > 0 || el instanceof HTMLSelectElement)
     .slice(0, 30)
     .map((el) => ({

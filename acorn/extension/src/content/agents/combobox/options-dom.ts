@@ -6,6 +6,7 @@ import {
   drawnText,
 } from "../../shadow-control";
 
+import { boxOfOpener, isListOpener, listOfOpener } from "./list-opener";
 import { visibleOptions } from "./option-mirror";
 import { POPUP_ITEM_SELECTOR, POPUP_OWNER_SELECTOR, POPUP_SELECTOR } from "./popup-roles";
 
@@ -57,6 +58,9 @@ function listboxRootsForControl(control: HTMLElement): HTMLElement[] {
   };
 
   addIds(control, collectRefIds(control));
+  // A button stamped as a list's opener owns that list.
+  const opened = isListOpener(control) ? listOfOpener(control) : null;
+  if (opened) roots.push(opened);
 
   // Custom widgets often put aria-owns on a sibling/ancestor container, not the trigger.
   let node: Element | null = composedParent(control);
@@ -153,6 +157,10 @@ function collectScopedOptions(control: HTMLElement, doc: Document): HTMLElement[
       const options = collectOptionsInRoot(root);
       if (options.length) return options;
     }
+    // An opener's options may sit in its box rather than inside the list element.
+    const box = isListOpener(control) ? boxOfOpener(control) : null;
+    const inBox = box ? collectOptionsInRoot(box) : [];
+    if (inBox.length) return inBox;
     // Owned menu exists but is empty — wait rather than stealing another field's list.
     return [];
   }

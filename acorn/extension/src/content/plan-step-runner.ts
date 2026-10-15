@@ -12,6 +12,7 @@ import { traceFromPage } from "../debug-trace";
 import { controlAlreadyMatches } from "./agents/already-filled";
 import { fieldHoldsFile } from "./agents/attached-file";
 import { clearElement } from "./agents/clear";
+import { markListOpeners } from "./agents/combobox/list-opener";
 import { fillElement } from "./agents/fill";
 import { rememberAnsweredGroup, rememberPlanFilled } from "./agents/plan-fill-registry";
 import { readControlValue } from "./agents/read-control-value";
@@ -244,6 +245,8 @@ export async function actOnVerified(
   step: PlanStepPayload,
   verified: VerifyResult,
 ): Promise<PlanStepResult> {
+  // A page can redraw a dropdown between the read and the step: its opener is stamped again.
+  markListOpeners();
   // A step that names an invisible companion input acts on the visible control of its field.
   const el = verified.element ? visibleStandIn(verified.element) : verified.element;
   // A replayed step has no node id from this read; its control was resolved already.

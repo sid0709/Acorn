@@ -3,6 +3,8 @@
  * Vendor-agnostic: ARIA roles + id/sibling structure only.
  */
 
+import { isListOpener } from "./combobox/list-opener";
+
 function isDisplayed(el: HTMLElement): boolean {
   if (el.getClientRects().length === 0) return false;
   const style = el.ownerDocument?.defaultView?.getComputedStyle(el);
@@ -62,6 +64,8 @@ export function resolveDropdownInteractionTarget(el: HTMLElement): HTMLElement {
   if (el instanceof HTMLSelectElement) {
     return findAssociatedCombobox(el) || el;
   }
+  // A button stamped as the opener of a list is the control a person uses.
+  if (isListOpener(el)) return el;
 
   const role = (el.getAttribute("role") || "").toLowerCase();
   const isSearchLike =

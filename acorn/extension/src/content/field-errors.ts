@@ -11,6 +11,8 @@
 import { shownValue } from "@acorn/shared/secret-value";
 
 import { choiceOptionLabel } from "./agents/choice-group";
+import { isListOpener } from "./agents/combobox/list-opener";
+import { LIST_OPENER_ATTR } from "./agents/combobox/popup-roles";
 import { wasGroupAnswered } from "./agents/plan-fill-registry";
 import { readControlValue } from "./agents/read-control-value";
 import {
@@ -63,9 +65,47 @@ export function isMarkedInvalid(control: Element): boolean {
   return control.getAttribute("aria-invalid") === "true" || isUserInvalid(control);
 }
 
-/** The page asks for this control's answer: it requires it, or marks it invalid. */
+/**
+ * What the page marked invalid the first time it showed the control, before any
+ * answer: a page that marks an optional empty field invalid (which nothing can be
+ * wrong with) uses the mark as decoration on every field, not as a verdict.
+ */
+const markedAtFirstSight = new WeakSet<Element>();
+const seenControls = new WeakSet<Element>();
+let marksAreDecoration = false;
+
+/** Remember how the page marks the controls it shows now. Call it on every read of the page. */
+export function noteInvalidBaseline(): void {
+  for (const control of queryDeep(document, `:is(${FILLABLE_SELECTOR})[${ACORN_ID_ATTR}]`)) {
+    if (seenControls.has(control)) continue;
+    seenControls.add(control);
+    if (!isMarkedInvalid(control)) continue;
+    markedAtFirstSight.add(control);
+    if (!isRequired([control]) && !readControlValue(control)) marksAreDecoration = true;
+  }
+}
+
+/** A mark the page put on the control from the start, with nothing said about it: no verdict. */
+function isDecorationMark(control: Element, hasMessage: boolean): boolean {
+  return marksAreDecoration && markedAtFirstSight.has(control) && !hasMessage;
+}
+
+/** Whether the page shows words for the control: an error tied to it or text beside it. */
+function hasMessage(control: Element): boolean {
+  return (
+    linkedMessages(control).length > 0 ||
+    nearbyMessages(control, fieldWrapper(control), new Set()).length > 0
+  );
+}
+
+/**
+ * The page asks for this control's answer: it requires it, marks it invalid, or (a
+ * dropdown drawn as a button, which carries no required attribute) shows words beside it.
+ */
 export function pageWantsAnswer(control: Element): boolean {
-  return isRequired([control]) || isMarkedInvalid(control);
+  if (isRequired([control])) return true;
+  if (isMarkedInvalid(control)) return !isDecorationMark(control, hasMessage(control));
+  return isListOpener(control) && hasMessage(control);
 }
 
 function linkedMessages(control: Element): string[] {
@@ -103,12 +143,15 @@ function describeControl(control: Element): FieldIssue | null {
   const members = groupMembers(control);
   const value = clip(shownValue(control, currentValue(control, members)), MAX_VALUE_CHARS);
   const required = isRequired(members);
-  const invalid = members.some(isMarkedInvalid);
   const linked = members.flatMap(linkedMessages);
   const wrapper = fieldWrapper(control);
   const label = fieldLabel(control, members, wrapper);
   const skip = new Set([normalize(label), normalize(value), ...linked.map(normalize)]);
   const nearby = nearbyMessages(control, wrapper, skip);
+  const invalid = members.some(
+    (member) =>
+      isMarkedInvalid(member) && !isDecorationMark(member, linked.length > 0 || nearby.length > 0),
+  );
   // A choice the plan answered in this document reads empty when the page drew the
   // group again and reset its hidden inputs while keeping the answer itself. Only
   // the page marking it (invalid, or an error tied to it) says it is really unanswered.
@@ -161,7 +204,11 @@ function pageMessages(): string[] {
 export function scanFieldIssues(): FieldIssueScan {
   const seenGroups = new Set<string>();
   const issues: FieldIssue[] = [];
-  for (const control of queryDeep(document, `:is(${FILLABLE_SELECTOR})[${ACORN_ID_ATTR}]`)) {
+  const controls = queryDeep(
+    document,
+    `:is(${FILLABLE_SELECTOR}, [${LIST_OPENER_ATTR}])[${ACORN_ID_ATTR}]`,
+  );
+  for (const control of controls) {
     const group = choiceGroupKey(control);
     if (group) {
       if (seenGroups.has(group)) continue;

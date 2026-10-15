@@ -125,7 +125,9 @@ describe("requiredUnanswerable", () => {
     const fill: PlanTurn = turn([action("Q", "x")], ["ok"]);
     fill.mode = "fill";
     fill.plan.unanswerable = [{ element_index: 9, label: "cards[x][field9]", reason: "unread" }];
-    assert.deepEqual(requiredUnanswerable([fill]), ["cards[x][field9]"]);
+    assert.deepEqual(requiredUnanswerable([fill]), [
+      { label: "cards[x][field9]", reason: "unread" },
+    ]);
     const refill = turn([action("Q", "x")], ["ok"]);
     refill.plan.unanswerable = [{ element_index: 2, label: "other", reason: "unread" }];
     assert.deepEqual(requiredUnanswerable([refill]), []);

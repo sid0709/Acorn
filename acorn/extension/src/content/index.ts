@@ -3,6 +3,7 @@ import { MSG, PLAN_STEP_PAGE_TIMEOUT_MS, type PlanStepPayload } from "../types";
 
 import { holdsAcornIds } from "./acorn-id";
 import { executeActions, getElementContent } from "./action-runner";
+import { markListOpeners } from "./agents/combobox/list-opener";
 import { fillLeftoverComboboxes } from "./agents/leftover-combobox";
 import { waitForDomQuiet } from "./agents/wait";
 import { collectChoiceItems, type ChoiceBatchStep } from "./choice-batch";
@@ -11,7 +12,7 @@ import { comboSnapshot } from "./debug-snapshot";
 import { serializeDom } from "./dom-serializer";
 import { repairDrift } from "./drift-repair";
 import { resolveElementByNodeId } from "./element-resolver";
-import { pageWantsAnswer, scanFieldIssues } from "./field-errors";
+import { noteInvalidBaseline, pageWantsAnswer, scanFieldIssues } from "./field-errors";
 import {
   MIN_CHILD_FORM_CONTROLS,
   MIN_PAGE_FIELDS,
@@ -115,7 +116,10 @@ if (!contentWindow[CONTENT_BOOT]) {
 
         try {
           let started = Date.now();
+          // A dropdown drawn as a button over a shut list is stamped before the page is read.
+          markListOpeners();
           const tree = serializeDom(undefined, { posting });
+          noteInvalidBaseline();
           const serializeMs = Date.now() - started;
           // What an opening click drew is read first: its fields are then the scope's.
           const scope = message.scope === true ? readScope() : undefined;

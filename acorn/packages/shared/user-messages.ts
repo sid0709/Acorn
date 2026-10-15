@@ -254,7 +254,7 @@ const FAILURE_NEXT_STEP: Record<string, string> = {
   [RUN_FAILURE_REASON.noProgress]:
     "Look at what the page is asking for, fix it, then press Continue.",
   [RUN_FAILURE_REASON.scopeRefused]: "Fill that section yourself, then press Continue.",
-  [RUN_FAILURE_REASON.needsAnswer]: "Answer it on the page yourself, then press Continue.",
+  [RUN_FAILURE_REASON.needsAnswer]: "Do it on the page yourself, then press Continue.",
   [RUN_FAILURE_REASON.tabClosed]: "Open the application again and run once more.",
 };
 

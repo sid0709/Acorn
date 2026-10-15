@@ -1,3 +1,4 @@
+import { isListOpener } from "./combobox/list-opener";
 import {
   findAssociatedCombobox,
   isEnhancedSelect,
@@ -128,8 +129,9 @@ export async function fillElement(
   // button that opens a listbox is never one choice of a group. It keeps the field's
   // label and the caller's options (an instruction to answer, not text to search).
   if (
-    (role === "combobox" || html.getAttribute("aria-haspopup") === "listbox") &&
-    looksLikeCombobox(html)
+    isListOpener(html) ||
+    ((role === "combobox" || html.getAttribute("aria-haspopup") === "listbox") &&
+      looksLikeCombobox(html))
   ) {
     const target = resolveDropdownInteractionTarget(html);
     return selectComboboxOption(target, value, fieldHint, comboboxOptions);
