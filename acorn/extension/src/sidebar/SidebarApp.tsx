@@ -1,7 +1,7 @@
 import { FILL_MODE } from "@acorn/shared/field-issues";
 import { isFillPhaseBusy } from "@acorn/shared/pipeline-types";
 import { CLAIM_STATUS } from "@acorn/support-chat";
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 
 import { countBusyWorkers, tabInputFromProgress } from "../acorn-face/director";
 import { useCompanionFace } from "../acorn-face/use-companion-face";
@@ -56,6 +56,8 @@ export default function SidebarApp() {
   const [qaStatus, setQaStatus] = useState({ busy: false, error: false });
   const [helpOpen, setHelpOpen] = useState(false);
   const [reportOpen, setReportOpen] = useState(false);
+  // Bumped on every open so the dialog remounts and starts with no notes or picked report.
+  const [reportRun, setReportRun] = useState(0);
   const availableUpdate = useAvailableUpdate();
   const [reportSending, setReportSending] = useState(false);
 
@@ -68,6 +70,14 @@ export default function SidebarApp() {
     visible: mainTab === "support",
     connected,
   });
+  // The report names the tab it was opened on, so another tab's page must not inherit it.
+  useEffect(() => {
+    setReportOpen(false);
+  }, [activeTabId]);
+  const openReport = () => {
+    setReportRun((run) => run + 1);
+    setReportOpen(true);
+  };
   const { ui, patchTabUi } = useTabUi(activeTabId, progress);
   const { preview, setPreview, openCustomResumePreview } = useResumePreview(jobGenerates);
 
@@ -304,7 +314,7 @@ export default function SidebarApp() {
               signOutDisabled={authBusy || anyTabWorking}
               onOpenGuide={() => setHelpOpen(true)}
               onOpenSettings={() => setSettingsOpen(true)}
-              onReport={() => setReportOpen(true)}
+              onReport={openReport}
               reportDisabled={reportDisabled}
               onSignOut={() => void handleSignOut()}
             />
@@ -349,13 +359,14 @@ export default function SidebarApp() {
             <SupportPanel
               mainTab={mainTab}
               support={support}
-              onReport={() => setReportOpen(true)}
+              onReport={openReport}
               reportDisabled={reportDisabled}
             />
 
             <LogsPanel mainTab={mainTab} tabId={activeTabId} />
           </main>
           <ReportDialog
+            key={reportRun}
             isOpen={reportOpen}
             onOpenChange={setReportOpen}
             pageLabel={headerContext}
