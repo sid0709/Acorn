@@ -1,10 +1,12 @@
 import {
   SUPPORT_CLAIMS_PATH,
   messageFormData,
+  recordPushDelay,
   supportClaimMessagesPath,
   supportClaimPath,
   supportClaimReadPath,
   supportClaimReopenPath,
+  type ClaimPush,
   type ClaimThreadData,
   type MessageDraft,
   type SupportClaim,
@@ -22,8 +24,6 @@ const SUPPORT_OFFLINE_POLL_MS = 15_000;
 
 type ErrorBody = { error?: string; message?: string };
 
-/** What the server pushes when a report changes (acornapi support:message / support:claim). */
-type ClaimChange = { claim?: SupportClaim; message?: SupportMessage };
 /** What sending a message or reopening answers. */
 type Posted = { claim: SupportClaim; message?: SupportMessage };
 
@@ -38,6 +38,14 @@ async function api<T>(path: string, init?: RequestInit): Promise<T> {
   return data;
 }
 
+/** The reports with this one in its place: recent conversations first, as the server lists them. */
+function withClaim(claims: SupportClaim[], claim: SupportClaim): SupportClaim[] {
+  const others = claims.filter((row) => row.id !== claim.id);
+  return [...others, claim].sort(
+    (a, b) => Date.parse(b.lastMessageAt) - Date.parse(a.lastMessageAt),
+  );
+}
+
 /** The thread with the pushed claim and, when new, the pushed message. The open thread is read. */
 function withChange(thread: ClaimThreadData, claim: SupportClaim, message?: SupportMessage) {
   const known = !message || thread.messages.some((m) => m.id === message.id);
@@ -49,8 +57,8 @@ function withChange(thread: ClaimThreadData, claim: SupportClaim, message?: Supp
 
 /**
  * The person's reports and the open one's conversation. A change the server pushes
- * (a message from either side, opened, closed) lands in the open thread at once;
- * the list reloads behind it. Every SUPPORT_OFFLINE_POLL_MS while the socket is down
+ * (a message from either side, opened, closed) lands in the open thread and in the list at
+ * once, with no request. Every SUPPORT_OFFLINE_POLL_MS while the socket is down
  * and the tab is shown, and once when it comes back, everything reloads.
  */
 export function useSupportClaims({
@@ -63,7 +71,6 @@ export function useSupportClaims({
   connected: boolean;
 }) {
   const [claims, setClaims] = useState<SupportClaim[]>([]);
-  const [unread, setUnread] = useState(0);
   const [openId, setOpenId] = useState<string | null>(null);
   const [thread, setThread] = useState<ClaimThreadData | null>(null);
   const [loading, setLoading] = useState(false);
@@ -75,7 +82,6 @@ export function useSupportClaims({
     try {
       const body = await api<{ claims: SupportClaim[]; unread: number }>(SUPPORT_CLAIMS_PATH);
       setClaims(body.claims ?? []);
-      setUnread(body.unread ?? 0);
       setError("");
     } catch (err) {
       setError(err instanceof Error ? err.message : String(err));
@@ -93,41 +99,48 @@ export function useSupportClaims({
   }, []);
 
   const refresh = useCallback(async () => {
-    await loadList();
-    if (openId) await loadThread(openId).catch(() => undefined);
+    await Promise.all([loadList(), openId ? loadThread(openId).catch(() => undefined) : null]);
   }, [loadList, loadThread, openId]);
 
   useEffect(() => {
     void loadList();
   }, [loadList]);
 
+  // Showing the tab reloads once. Opening a claim changes `refresh`, which must not reload again:
+  // open() already loads that thread.
+  const refreshRef = useRef(refresh);
   useEffect(() => {
-    if (visible) void refresh();
-  }, [visible, refresh]);
+    refreshRef.current = refresh;
+  }, [refresh]);
+  useEffect(() => {
+    if (visible) void refreshRef.current();
+  }, [visible]);
 
   useEffect(() => {
-    const onMessage = (message: { type?: string; payload?: ClaimChange }) => {
+    const onMessage = (message: { type?: string; payload?: ClaimPush }) => {
       if (message?.type !== MSG.SUPPORT_CLAIMS_CHANGED) return;
-      const claim = message.payload?.claim;
+      const push = message.payload ?? {};
+      const claim = push.claim;
       if (!claim?.id) {
         void refresh();
         return;
       }
-      if (claim.id === openId) {
+      recordPushDelay(push, push.message ? "support:message" : "support:claim");
+      const isOpen = claim.id === openId;
+      if (isOpen) {
         setThread((current) =>
-          current?.claim.id === claim.id
-            ? withChange(current, claim, message.payload?.message)
-            : current,
+          current?.claim.id === claim.id ? withChange(current, claim, push.message) : current,
         );
         if (claim.unread) {
           void api(supportClaimReadPath(claim.id), { method: "POST" }).catch(() => undefined);
         }
       }
-      void loadList();
+      // The open conversation is being read, whatever the push says.
+      setClaims((current) => withClaim(current, isOpen ? { ...claim, unread: false } : claim));
     };
     chrome.runtime.onMessage.addListener(onMessage);
     return () => chrome.runtime.onMessage.removeListener(onMessage);
-  }, [refresh, loadList, openId]);
+  }, [refresh, openId]);
 
   // Pushes sent while the socket was down are gone; reload once when it comes back.
   const link = useRef({ connected, everConnected: connected });
@@ -149,25 +162,25 @@ export function useSupportClaims({
       setThread(null);
       if (!id) return;
       try {
+        // The list is already on screen; opening only reads this claim, which clears its dot.
         await loadThread(id);
-        await loadList();
+        setClaims((current) =>
+          current.map((claim) => (claim.id === id ? { ...claim, unread: false } : claim)),
+        );
       } catch (err) {
         setError(err instanceof Error ? err.message : String(err));
       }
     },
-    [loadList, loadThread],
+    [loadThread],
   );
 
-  /** Shows what the server answered in the open thread, then reloads the list behind it. */
-  const applyPosted = useCallback(
-    (id: string, posted: Posted) => {
-      setThread((current) =>
-        current?.claim.id === id ? withChange(current, posted.claim, posted.message) : current,
-      );
-      void loadList();
-    },
-    [loadList],
-  );
+  /** Shows what the server answered in the open thread and in the list. */
+  const applyPosted = useCallback((id: string, posted: Posted) => {
+    setThread((current) =>
+      current?.claim.id === id ? withChange(current, posted.claim, posted.message) : current,
+    );
+    setClaims((current) => withClaim(current, { ...posted.claim, unread: false }));
+  }, []);
 
   const send = useCallback(
     async (draft: MessageDraft) => {
@@ -187,7 +200,8 @@ export function useSupportClaims({
     applyPosted(openId, await api<Posted>(supportClaimReopenPath(openId), { method: "POST" }));
   }, [openId, applyPosted]);
 
-  const attachmentSrc = useClaimAttachments(thread);
+  const { src: attachmentSrc, loadFull: openAttachments } = useClaimAttachments(thread);
+  const unread = claims.filter((claim) => claim.unread).length;
 
   return {
     claims,
@@ -200,6 +214,7 @@ export function useSupportClaims({
     send,
     reopen,
     attachmentSrc,
+    openAttachments,
     reload: refresh,
   };
 }
