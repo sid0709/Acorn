@@ -108,6 +108,18 @@ export interface PlanStepResult {
 
 export type PauseDecision = "continue" | "skip" | "abort";
 
+/** What a step says when the page no longer holds the element the plan named. */
+export const ELEMENT_NOT_FOUND = "Element not found for index";
+
+/**
+ * Whether the plan was made for a page that is gone: every step failed because its
+ * element is no longer there. The page was replaced under the plan; planning it again on
+ * the page that is there is not a retry of the same answers.
+ */
+export function planTargetsGone(steps: ReadonlyArray<{ message?: string }>): boolean {
+  return steps.length > 0 && steps.every((step) => step.message?.startsWith(ELEMENT_NOT_FOUND));
+}
+
 export type RunStepStatus =
   "pending" | "running" | "ok" | "paused" | "skipped" | "blocked" | "failed" | "aborted";
 

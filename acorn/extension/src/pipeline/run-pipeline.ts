@@ -8,6 +8,7 @@ import { planCodeFill, spreadCodeAcrossBoxes } from "@acorn/shared/plan-runner/c
 import { annotateGroups } from "@acorn/shared/plan-runner/groups";
 import { runActionPlan } from "@acorn/shared/plan-runner/orchestrator";
 import { isFileUploadAction, planWantsCoverLetter } from "@acorn/shared/plan-runner/step-file";
+import { planTargetsGone } from "@acorn/shared/plan-runner/types";
 import { formatPlannerTree } from "@acorn/shared/planner-tree";
 import { redactPlan } from "@acorn/shared/secret-value";
 import { formatAnalyzeTrees } from "@acorn/shared/tree-export";
@@ -25,6 +26,7 @@ import { ApiError } from "./api/http";
 import { fetchRuntimeFile } from "./api/job-files";
 import { decideChoicesInBatch } from "./choice-batch";
 import { loadCoverLetter } from "./cover-letter";
+import { flaggedLabelsOf, noteDeliveredFiles, withoutDeliveredUploads } from "./delivered-files";
 import { repairDriftInTab } from "./drift";
 import { fetchDomFromTab } from "./fetch-dom";
 import { keepResumeIfSameSite, loadFillResume, resumeIsAssigned } from "./fill-resume";
@@ -549,7 +551,24 @@ export async function runFabPipeline(args: RunPipelineArgs): Promise<void> {
 
       const watch = await watchFrameDocument(tabId, frameId);
       try {
-        const runPlan = async (target: ActionPlan, total: number) => {
+        const runPlan = async (given: ActionPlan, givenTotal: number) => {
+          // A document the page already took (and drew itself again around) is not sent twice.
+          const kept = withoutDeliveredUploads(
+            tabId,
+            treePayload.url,
+            given.actions ?? [],
+            flaggedLabelsOf(formFields, fieldIssues),
+          );
+          const target: ActionPlan =
+            kept.length === (given.actions ?? []).length ? given : { ...given, actions: kept };
+          const total = givenTotal - ((given.actions ?? []).length - kept.length);
+          if (kept.length !== (given.actions ?? []).length) {
+            traceFromBackground(
+              "upload:already-delivered",
+              () => ({ skipped: (given.actions ?? []).length - kept.length }),
+              tabId,
+            );
+          }
           await settleResume();
           const coverLetter = await coverLetterFor(target);
           // A refill that uploads (a résumé the page refused) loads its files only now.
@@ -558,7 +577,7 @@ export async function runFabPipeline(args: RunPipelineArgs): Promise<void> {
             [resumeLoad, runtimeFile] = await filesLoad;
             resume = bindResume(resumeLoad);
           }
-          return clock.time("steps", () =>
+          const ran = await clock.time("steps", () =>
             runActionPlan({
               plan: target,
               runtimeFile,
@@ -644,6 +663,8 @@ export async function runFabPipeline(args: RunPipelineArgs): Promise<void> {
               },
             }),
           );
+          noteDeliveredFiles(tabId, treePayload.url, target.actions ?? [], ran.steps);
+          return ran;
         };
 
         report = await runPlan(plan, stepTotal);
@@ -719,13 +740,16 @@ export async function runFabPipeline(args: RunPipelineArgs): Promise<void> {
           if (looksLate && (!refill || (leftover?.filled ?? 0) > 0)) await settleLate();
         }
 
-        if (!watch.left() || signal?.aborted) break;
+        // A plan whose every step found its element gone was made for a page that was
+        // replaced without leaving (a frame swapped for its twin): the page is read and planned again.
+        const planGone = planTargetsGone(report.steps);
+        if ((!watch.left() && !planGone) || signal?.aborted) break;
         if (reloads >= FILL_MAX_PAGE_RELOADS) {
           throw new Error(`The page reloaded ${reloads + 1} times while Acorn filled it`);
         }
         traceFromBackground("fill:page-replaced", () => ({ pass: reloads + 1, frameId }), tabId);
         emit({ phase: "fetching", message: PAGE_RELOADING, mode });
-        await watch.arrived();
+        if (watch.left()) await watch.arrived();
       } finally {
         watch.stop();
       }

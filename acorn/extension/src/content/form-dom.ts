@@ -255,7 +255,7 @@ export function fieldLabel(control: Element, members: Element[], wrapper: Elemen
  * The accessible name of the group a control sits in (ARIA): aria-labelledby,
  * aria-label, or a fieldset's legend. "" when the control is in no named group.
  */
-export function groupAccessibleName(control: Element): string {
+export function groupAccessibleName(control: Element, max: number = MAX_TEXT_CHARS): string {
   // Drawn ancestors: a custom element's group can project its options through a slot.
   const group = composedClosest(control, NAMED_GROUP_SELECTOR);
   if (!group) return "";
@@ -269,7 +269,7 @@ export function groupAccessibleName(control: Element): string {
   const legend = isA(group, HTMLFieldSetElement)
     ? group.querySelector(":scope > legend")?.textContent
     : "";
-  return clip(byIds || group.getAttribute("aria-label") || legend || "", MAX_TEXT_CHARS);
+  return clip(byIds || group.getAttribute("aria-label") || legend || "", max);
 }
 
 /** How far up from a field the small group it is one part of is looked for. */

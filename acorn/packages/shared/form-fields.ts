@@ -33,6 +33,11 @@ export interface FormField {
   maxLength?: number;
   /** Short text the page shows after a text field: a character counter, a format hint. */
   notes?: string[];
+  /**
+   * A lone box's whole statement when its label had to be clipped: a consent or an
+   * acknowledgement says what it commits the applicant to only in its full text.
+   */
+  statement?: string;
   required: boolean;
   /**
    * A choice field's identity on the page (the radio group's name, scoped to its form),

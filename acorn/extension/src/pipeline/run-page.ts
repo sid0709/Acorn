@@ -23,6 +23,7 @@ import { traceFromBackground } from "../background/debug-trace-sink";
 import { canInjectIntoUrl, injectContentScripts } from "../inject-content";
 import { LOG_KIND, logTab } from "../tab-log-session";
 
+import { scanWithoutDelivered } from "./delivered-files";
 import { fetchDomFromTab } from "./fetch-dom";
 import { fetchPostingDomFromTab } from "./fetch-posting";
 import { embeddedFrames } from "./run-frames";
@@ -158,9 +159,15 @@ async function readPage(
   });
   const fullText = payload.otherFrames?.length ? pageTextOfFrames(payload, ownText) : ownText;
   const text = clipEnds(fullText, RUN_PAGE_TEXT_MAX_CHARS);
-  const scan = payload.fieldIssues ?? EMPTY_FIELD_ISSUE_SCAN;
   const frameId = payload.frameId ?? null;
   const formFields = payload.formFields ?? [];
+  // A file input the run delivered a file to reads empty whatever the page did with it.
+  const scan = scanWithoutDelivered(
+    tabId,
+    url,
+    payload.fieldIssues ?? EMPTY_FIELD_ISSUE_SCAN,
+    formFields,
+  );
   // What this read was made from, so a decision the model made on it can be explained
   // from the log alone: the compressed tree and the fields it was shown.
   logTab(

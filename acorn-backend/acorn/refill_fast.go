@@ -107,6 +107,13 @@ func (s *Service) RefillFlagged(ctx context.Context, applicant, pureTree string,
 		return s.refillConversation(ctx, applicant, pureTree, scan, page, history, tried)
 	}
 	result, open, err := s.fastRefill(ctx, applicant, scan, fields, page)
+	// The flagged fields asked for nothing, yet the page says something is wrong in words
+	// tied to no field ("Education - End Date: fill in all date fields"): the conversation
+	// reads those messages against the page, which the field-by-field plan never sees.
+	if err == nil && len(open) == 0 && len(planActions(result.Plan)) == 0 && len(scan.PageMessages) > 0 {
+		slog.Info("acorn refill: the flagged fields asked for nothing but the page left messages, planning the conversation", "messages", len(scan.PageMessages))
+		return s.Refill(ctx, applicant, pureTree, scan, page, history)
+	}
 	if err == nil && len(open) == 0 {
 		return result, nil
 	}

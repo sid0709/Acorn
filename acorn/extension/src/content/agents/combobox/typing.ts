@@ -105,6 +105,19 @@ function setInputValue(el: HTMLInputElement | HTMLTextAreaElement, text: string)
   else el.value = text;
 }
 
+/**
+ * Put back the text a search box held before a search that found nothing. Searching empties
+ * the box and types queries into it; a failed search must not leave its last query behind
+ * as the field's answer.
+ */
+export function restoreTypedValue(el: HTMLElement, text: string): void {
+  const input = resolveTypeableInput(el);
+  if (!input || input.value === text) return;
+  setInputValue(input, text);
+  input.dispatchEvent(new InputEvent("input", { bubbles: true, inputType: "insertText" }));
+  input.dispatchEvent(new Event("change", { bubbles: true }));
+}
+
 export function typeaheadFilterWaitMs(doc: Document): number {
   return doc.hidden ? 8000 : 4000;
 }

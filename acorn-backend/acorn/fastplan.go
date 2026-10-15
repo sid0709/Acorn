@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"log/slog"
+	"slices"
 	"strconv"
 	"strings"
 	"sync"
@@ -63,9 +64,11 @@ type FormField struct {
 	// MaxLength is the control's native maxlength; 0 when it sets none.
 	MaxLength int `json:"maxLength,omitempty"`
 	// Notes is short text the page shows after a text field: a counter ("0/300"), a format hint.
-	Notes    []string `json:"notes,omitempty"`
-	Required bool     `json:"required"`
-	Options  []string `json:"options"`
+	Notes []string `json:"notes,omitempty"`
+	// Statement is a lone box's whole text when its label was clipped: what a consent commits to.
+	Statement string   `json:"statement,omitempty"`
+	Required  bool     `json:"required"`
+	Options   []string `json:"options"`
 	// OptionIndexes are the node ids of Options, in the same order, when known: a
 	// step then targets the chosen option itself.
 	OptionIndexes []int `json:"optionIndexes,omitempty"`
@@ -314,8 +317,13 @@ func (s *Service) FastPlan(ctx context.Context, applicant string, fields []FormF
 	}
 	s.addTextFills(ctx, plan, texts, textKinds, written, applicant, page)
 	addChoiceFills(plan, choices, picks)
+	dropPartialAnswers(plan, fields)
 	return AnalyzeResult{OK: true, Plan: plan, Model: s.model.Model(), Mode: ModeFast}, nil
 }
+
+// boxDeclined is why a required box is left unchecked: checking it would commit the
+// applicant to something their profile does not support.
+const boxDeclined = "it is a required box whose statement the applicant's profile does not support checking"
 
 // questionUnread is why a field is left unanswered when its question is not on the page.
 const questionUnread = "its question could not be read from the page"
@@ -330,14 +338,35 @@ func hasWords(text string) bool {
 	return false
 }
 
-// unreadable says a text field has no question: its label is only its own name (how
-// the page refers to it, not what it asks) or has no words.
+// unreadable says a text field has no question: its label has no words, or is only
+// the machine name of the input (an identifier such as "question_123" or "a.b[0]"),
+// which says how the page refers to the field and not what it asks. A plain word that
+// happens to match the input's name ("Email" on an input named "email") is a question.
 func unreadable(field FormField) bool {
 	label := strings.TrimSpace(field.Label)
 	if !hasWords(label) {
 		return true
 	}
-	return strings.TrimSpace(field.Name) != "" && strings.EqualFold(label, strings.TrimSpace(field.Name))
+	return strings.TrimSpace(field.Name) != "" && strings.EqualFold(label, strings.TrimSpace(field.Name)) && identifierLike(label)
+}
+
+// identifierLike says text reads as a code identifier and not as words a person wrote:
+// one token holding a digit, a separator (_ . - [ ] :), or a lower-to-upper case change.
+func identifierLike(text string) bool {
+	if strings.ContainsAny(text, " \t\n") {
+		return false
+	}
+	var previous rune
+	for _, r := range text {
+		if unicode.IsDigit(r) || strings.ContainsRune("_.-[]:", r) {
+			return true
+		}
+		if unicode.IsUpper(r) && unicode.IsLower(previous) {
+			return true
+		}
+		previous = r
+	}
+	return false
 }
 
 // withoutUnreadable splits off the text fields that have no question to answer.
@@ -622,6 +651,9 @@ func choiceField(field FormField) string {
 	if id := strings.TrimSpace(field.Identifier); id != "" {
 		text += fmt.Sprintf("; id: %q", id)
 	}
+	if statement := strings.TrimSpace(field.Statement); statement != "" {
+		text += fmt.Sprintf("; the box's whole statement: %q", statement)
+	}
 	if notes := fieldNotes(field); notes != "" {
 		text += fmt.Sprintf("; text under the field: %q", notes)
 	}
@@ -643,7 +675,7 @@ func fieldWithSection(field FormField) string {
 }
 
 // blankKinds leave a field empty (or, when it is required, have the writer answer it).
-var blankKinds = map[string]bool{FactSkip: true, FactOtherPerson: true, FactUnknownDetail: true, FactPersonOnly: true}
+var blankKinds = map[string]bool{FactDocumentText: true, FactSkip: true, FactOtherPerson: true, FactUnknownDetail: true, FactPersonOnly: true}
 
 func textRole(field FormField) string {
 	if field.Kind == fieldTextarea {
@@ -809,6 +841,12 @@ func addChoiceFills(plan Plan, fields []FormField, picks map[int][]string) {
 		if addOptionSteps(plan, field, chosen) {
 			continue
 		}
+		// A box the form requires, left unchecked on purpose, is the applicant's to decide:
+		// the run says so and stops, instead of sending a form the page refuses.
+		if field.Kind == fieldToggle && field.Required && chosen[0] != toggleCheck {
+			addUnanswerable(plan, []FormField{field}, boxDeclined)
+			continue
+		}
 		value, role := strings.Join(chosen, ", "), field.Kind
 		if field.Kind == fieldToggle {
 			value = map[bool]string{true: "true", false: "false"}[chosen[0] == toggleCheck]
@@ -933,4 +971,64 @@ func (s *Service) uploadFormats(ctx context.Context, files []FormField, kinds ma
 		}
 	}
 	return formats
+}
+
+// partGroupMax is the most controls one multi-part answer is made of.
+const partGroupMax = 4
+
+// dropPartialAnswers leaves a multi-part answer whole or empty. Several optional controls
+// that share one question in one section (a date's month, day and year) are one answer: a
+// page refuses the parts it was given when another part is missing, and an answer made of
+// some of its parts is wrong however each part reads. When some parts have a step and
+// some have none, the steps go and the whole answer stays blank.
+func dropPartialAnswers(plan Plan, fields []FormField) {
+	groups := map[string][]FormField{}
+	for _, field := range fields {
+		label := strings.ToLower(strings.Join(strings.Fields(field.Label), " "))
+		if label == "" || field.Required || field.Blocking {
+			continue
+		}
+		switch field.Kind {
+		case fieldText, fieldSelect, fieldButtons:
+		default:
+			continue
+		}
+		key := strings.ToLower(strings.TrimSpace(field.Section)) + "\x00" + label
+		groups[key] = append(groups[key], field)
+	}
+	planned := plannedIndexes(plan)
+	drop := map[int]bool{}
+	for _, parts := range groups {
+		// A date's parts are a few controls with at least one dropdown among them; repeated
+		// plain text boxes of one label (two phone numbers) are separate answers.
+		if len(parts) < 2 || len(parts) > partGroupMax || !slices.ContainsFunc(parts, func(f FormField) bool { return f.Kind != fieldText }) {
+			continue
+		}
+		answered := 0
+		for _, part := range parts {
+			if fieldPlanned(part, planned) {
+				answered++
+			}
+		}
+		if answered == 0 || answered == len(parts) {
+			continue
+		}
+		for _, part := range parts {
+			drop[part.ElementIndex] = true
+			for _, index := range part.OptionIndexes {
+				drop[index] = true
+			}
+		}
+	}
+	if len(drop) == 0 {
+		return
+	}
+	kept := make([]any, 0)
+	for _, row := range planActions(plan) {
+		if index, ok := elementIndex(row); ok && drop[index] {
+			continue
+		}
+		kept = append(kept, row)
+	}
+	plan["actions"] = kept
 }

@@ -1,3 +1,5 @@
+import { ELEMENT_NOT_FOUND } from "@acorn/shared/plan-runner/types";
+
 import { resolveElementByNodeId } from "./element-resolver";
 import { fieldLabel, fieldWrapper, groupMembers } from "./form-dom";
 import { isA } from "./realm";
@@ -23,7 +25,7 @@ export function verifyElementByPlan(
     return {
       ok: false,
       element: null,
-      error: `Element not found for index ${elementIndex}`,
+      error: `${ELEMENT_NOT_FOUND} ${elementIndex}`,
     };
   }
 

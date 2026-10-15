@@ -65,6 +65,7 @@ import {
   READ_INTENT,
   type ReadIntent,
 } from "./api/run";
+import { forgetDeliveredAt, forgetDeliveredFiles } from "./delivered-files";
 import { repairDriftInTab } from "./drift";
 import { PageUnreachableError, fetchDomFromTab } from "./fetch-dom";
 import { prefetchFillResume } from "./fill-resume";
@@ -89,6 +90,7 @@ import {
   watchOpenedTabs,
   type SettleHow,
 } from "./run-click";
+import { codeLabelsOf, codeRefused } from "./run-code";
 import { watchPageDialogs } from "./run-dialogs";
 import { failureEvidence } from "./run-evidence";
 import {
@@ -185,6 +187,8 @@ export interface RunOrchestratorArgs {
 
 /** Where the run is on one page. */
 interface PageState {
+  /** Labels of the boxes the emailed code went into: a flag on one of them is a refused code. */
+  codeLabels?: string[];
   /** The page as the run last saw it; its own edits update this, they never make a new step. */
   signature: string;
   url: string;
@@ -541,6 +545,7 @@ export async function runOrchestrator(args: RunOrchestratorArgs): Promise<RunRep
   const clock = new PhaseClock();
   /** What each address still needed after each round of work (see run-progress). */
   const progressLedger = new ProgressLedger();
+  forgetDeliveredFiles(tabId);
   /** The run filled or clicked since the ledger last looked: the next look is a round's outcome. */
   let workedSinceLook = false;
 
@@ -1539,6 +1544,7 @@ export async function runOrchestrator(args: RunOrchestratorArgs): Promise<RunRep
     }
     log.event("mail:code-entered", {});
     state.verified = true;
+    state.codeLabels = codeLabelsOf(filled.plan?.actions ?? [], value);
     state.filled = true;
     // The next look is a fresh read of this page, not the outcome of a click.
     state.retryClick = true;
@@ -1686,14 +1692,13 @@ export async function runOrchestrator(args: RunOrchestratorArgs): Promise<RunRep
       if (
         !shouldWaitForPerson({
           needsPerson: true,
-          isForm: r.kind === PAGE_KIND.form,
           fields: page.fields,
           clicks: state.clicks,
         })
       ) {
         log.decision(
           "Fill the form first",
-          `The decision model answered verification: ${r.verification}, but this page is an application form with ${page.fields} fields the run can fill; it fills them and sends the form, and waits for the applicant only if the page refuses the send.`,
+          `The decision model answered verification: ${r.verification}, but this page has ${page.fields} fields the run can fill; it fills them and sends the form, and waits for the applicant only if the page refuses the send.`,
           {
             verification: r.verification,
             verificationProbabilities: r.verificationProbabilities,
@@ -2184,6 +2189,7 @@ export async function runOrchestrator(args: RunOrchestratorArgs): Promise<RunRep
           refillsOnPage = 0;
           // A new step at the same address (a single-page application) needs what it needs.
           progressLedger.forget(addressOf(page.url));
+          forgetDeliveredAt(tabId, page.url);
           log.event("page", { page: pageCount, url: logUrl(page.url), flagged: page.flagged });
           enterNewPage(page, current);
         }
@@ -2223,9 +2229,28 @@ export async function runOrchestrator(args: RunOrchestratorArgs): Promise<RunRep
           });
           const onlyNoted = flagged === 0 && missing === 0;
           if (flagged > 0 || missing > 0 || noted > 0 || said.length > 0) {
+            // A page that took the click may still be drawing the next step: the read just taken
+            // can be the one it is leaving. What it flags is looked at again on the page that is
+            // there; a different step is a new step, never a refill of this one.
+            const again = await snap({ form: true, frameId: page.frameId });
+            if (
+              again.fieldsKey !== page.fieldsKey ||
+              addressOf(again.url) !== addressOf(page.url)
+            ) {
+              log.event("after-click:page-moved", {
+                from: logUrl(page.url),
+                to: logUrl(again.url),
+              });
+              pending = { snapshot: again, how: "navigated" as SettleHow };
+              continue;
+            }
             // The emailed code was typed and the page refused it: a refill has no other
             // code to give, so it would only spend the run's budget on empty passes.
-            if (state.verified && (flagged > 0 || missing > 0)) {
+            if (
+              state.verified &&
+              (flagged > 0 || missing > 0) &&
+              codeRefused(state.codeLabels, page.scan)
+            ) {
               log.event("verify:code-rejected", { flagged, missing });
               throw verificationNotFound(page, CODE_REJECTED);
             }
@@ -2461,6 +2486,7 @@ export async function runOrchestrator(args: RunOrchestratorArgs): Promise<RunRep
           const needs = pageNeeds(
             page.scan,
             next.requirementPicked ? controlName(next.requirementPicked) : null,
+            state.scanBeforeFill,
           );
           const stalls = progressLedger.note(addressOf(page.url), needs);
           if (stalls > 0) {

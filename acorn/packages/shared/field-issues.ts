@@ -49,6 +49,15 @@ function issueKey(issue: FieldIssue): string {
 }
 
 /**
+ * Whether the page links this field to a message it did not link before: help text the
+ * page always shows with a field (aria-describedby) is not a rejection of its answer.
+ */
+export function hasNewLinkedMessage(before: FieldIssueScan | null, issue: FieldIssue): boolean {
+  if (issue.linkedMessages.length === 0) return false;
+  return !(before?.issues ?? []).some((earlier) => issueKey(earlier) === issueKey(issue));
+}
+
+/**
  * Fields a click flagged: marked invalid, or carrying a linked message the page
  * did not show before the click. A hint the page always links to a field
  * (aria-describedby help text) is not an answer the page rejected.

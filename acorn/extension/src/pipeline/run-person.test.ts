@@ -5,35 +5,24 @@ import { shouldWaitForPerson, stillAsksForPerson } from "./run-person.ts";
 
 describe("shouldWaitForPerson", () => {
   it("does not wait when the model asked for nothing", () => {
-    assert.equal(
-      shouldWaitForPerson({ needsPerson: false, isForm: true, fields: 0, clicks: 0 }),
-      false,
-    );
+    assert.equal(shouldWaitForPerson({ needsPerson: false, fields: 0, clicks: 0 }), false);
+  });
+
+  it("fills an account step with fields first too", () => {
+    assert.equal(shouldWaitForPerson({ needsPerson: true, fields: 2, clicks: 0 }), false);
   });
 
   it("fills a form with fields first, whatever the model said", () => {
-    assert.equal(
-      shouldWaitForPerson({ needsPerson: true, isForm: true, fields: 19, clicks: 0 }),
-      false,
-    );
+    assert.equal(shouldWaitForPerson({ needsPerson: true, fields: 19, clicks: 0 }), false);
   });
 
   it("waits once the form was sent and the page still asks", () => {
-    assert.equal(
-      shouldWaitForPerson({ needsPerson: true, isForm: true, fields: 19, clicks: 1 }),
-      true,
-    );
+    assert.equal(shouldWaitForPerson({ needsPerson: true, fields: 19, clicks: 1 }), true);
   });
 
   it("waits on a page with nothing to fill", () => {
-    assert.equal(
-      shouldWaitForPerson({ needsPerson: true, isForm: true, fields: 0, clicks: 0 }),
-      true,
-    );
-    assert.equal(
-      shouldWaitForPerson({ needsPerson: true, isForm: false, fields: 5, clicks: 0 }),
-      true,
-    );
+    assert.equal(shouldWaitForPerson({ needsPerson: true, fields: 0, clicks: 0 }), true);
+    assert.equal(shouldWaitForPerson({ needsPerson: true, fields: 5, clicks: 1 }), true);
   });
 });
 

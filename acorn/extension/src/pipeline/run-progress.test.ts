@@ -42,6 +42,19 @@ describe("pageNeeds", () => {
   });
 });
 
+describe("pageNeeds with the page as it stood before the run", () => {
+  const help = issue("Pronouns", { value: "he/him", linkedMessages: ["We do not discriminate"] });
+
+  it("leaves out help text the page always linked to a field", () => {
+    assert.deepEqual(pageNeeds(scan(help), null, scan(help)), []);
+  });
+
+  it("still counts a message the page linked after the run's answer", () => {
+    const refused = issue("Pronouns", { value: "he/him", linkedMessages: ["Must be shorter"] });
+    assert.deepEqual(pageNeeds(scan(refused), null, scan(issue("Pronouns"))), ["Pronouns"]);
+  });
+});
+
 describe("ProgressLedger", () => {
   const address = "jobs.example/apply/section/1/";
 

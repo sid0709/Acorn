@@ -10,7 +10,12 @@ import {
   pickScopedOptions,
 } from "./combobox/options-dom";
 import { findLiveOption } from "./combobox/options-wait";
-import { dismissOpenOverlays, settlePopupClosed } from "./combobox/typing";
+import {
+  dismissOpenOverlays,
+  resolveTypeableInput,
+  restoreTypedValue,
+  settlePopupClosed,
+} from "./combobox/typing";
 import { comboboxWidgetRoot } from "./combobox/widget-value";
 import { resolveDropdownInteractionTarget } from "./enhanced-select";
 import { fillNativeSelect } from "./native-select";
@@ -137,6 +142,7 @@ export async function selectComboboxOption(
       )
       .join(" ") || null;
 
+  const heldBefore = resolveTypeableInput(html)?.value ?? null;
   const { match, options, kept } = await chooseOption(html, doc, value, fieldLabel, {
     allowTypeahead,
     estimateQuery,
@@ -147,6 +153,9 @@ export async function selectComboboxOption(
   if (!match && kept) return kept;
   if (!match) {
     dismissOpenOverlays(doc, html);
+    // The search emptied the box and typed its queries into it: what it held before is the
+    // field's answer, not the last query.
+    if (heldBefore != null) restoreTypedValue(html, heldBefore);
     throw new Error(
       `No combobox option matching "${value}" (saw: ${options
         .slice(0, 6)

@@ -49,6 +49,8 @@ import type { FormField } from "@acorn/shared/form-fields";
 const MAX_FORM_FIELDS = 150;
 /** Texts after a text field kept as its notes (a counter, a format hint). */
 const TEXT_FIELD_NOTES = 2;
+/** The longest statement a lone box sends whole: a privacy notice runs to a paragraph. */
+const TOGGLE_STATEMENT_MAX_CHARS = 1500;
 /** Short texts beside a file input that describe what it takes. */
 const FILE_HINT_TEXTS = 3;
 /** Native input types a person types into. A password box takes the account password. */
@@ -180,6 +182,16 @@ function toggleLabel(control: Element, own: string): string {
   return own ? `${question} — ${own}` : question;
 }
 
+/**
+ * The whole statement of a lone box whose group names it: the label is clipped, and a
+ * consent's commitments are in the words that were cut.
+ */
+function toggleStatement(control: Element): Pick<FormField, "statement"> {
+  const whole = groupAccessibleName(control, TOGGLE_STATEMENT_MAX_CHARS);
+  const clipped = groupAccessibleName(control);
+  return whole.length > clipped.length ? { statement: whole } : {};
+}
+
 /** A radio or checkbox group (or a hidden proxy box behind visible option buttons). */
 function choiceField(control: HTMLInputElement): FormField | null {
   const members = groupMembers(control);
@@ -206,6 +218,7 @@ function choiceField(control: HTMLInputElement): FormField | null {
       required,
       group: choiceGroupKey(control) ?? undefined,
       ...choiceAttrs(control, label),
+      ...toggleStatement(control),
     };
   }
   const options = members.map((member) => inputOptionLabel(member)).filter(Boolean);
