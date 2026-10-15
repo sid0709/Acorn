@@ -13,6 +13,12 @@ export const MIN_CHILD_FORM_CONTROLS = 2;
  * where the application is: an email-first sign-in asks for one field only.
  */
 export const MIN_PAGE_FIELDS = 1;
+/**
+ * Visible copy that makes a frame a page of its own: a careers portal drawn in a frame of
+ * its shell says everything in the frame, form or not. A helper frame (a captcha, a
+ * widget) says a few words.
+ */
+export const MIN_FRAME_COPY_CHARS = 120;
 /** How often to re-count controls while an SPA hydrates. */
 export const FORM_SURFACE_POLL_MS = 200;
 /** Cap waiting for fillable controls before serializing anyway. */
@@ -74,6 +80,10 @@ export async function waitForFormSurface(
  * Frames that may serialize DOM / run plan steps.
  * Top frame always can; child frames only when they look like a form surface.
  */
+export function carriesPageCopy(): boolean {
+  return (document.body?.innerText?.trim().length ?? 0) >= MIN_FRAME_COPY_CHARS;
+}
+
 export function isAcornDomFrame(): boolean {
   if (window === window.top) return true;
   return formControlScore() >= MIN_CHILD_FORM_CONTROLS;

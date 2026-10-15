@@ -32,6 +32,12 @@ export interface DomTreePayload {
   scope?: OpenScope | null;
   /** Where the page's own time went while it answered this read. */
   timings?: DomReadTimings;
+  /**
+   * The other frames of the tab that answered this read, when no frame held a form: the page
+   * lives in whichever frame carries its copy, and what the others say (a banner, a message)
+   * is part of what the page says. Their node ids are their own: only text is read from them.
+   */
+  otherFrames?: { frameId: number; url: string; title: string; tree: DomNode }[];
 }
 
 /** Milliseconds a frame spent on each part of one read, logged with the read. */

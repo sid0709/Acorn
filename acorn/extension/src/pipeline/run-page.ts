@@ -10,7 +10,12 @@ import {
   shortHash,
   type PageControl,
 } from "@acorn/shared/page-controls";
-import { clipEnds, extractVisiblePageText } from "@acorn/shared/page-text";
+import {
+  clipEnds,
+  combineFrameTexts,
+  extractVisiblePageText,
+  type FrameText,
+} from "@acorn/shared/page-text";
 import { formatPlannerTree } from "@acorn/shared/planner-tree";
 import { formatAnalyzeTrees, withoutHidden } from "@acorn/shared/tree-export";
 
@@ -27,7 +32,7 @@ import {
   RUN_PAGE_TEXT_MAX_CHARS,
 } from "./run-limits";
 
-import type { OpenScope } from "../types";
+import type { DomTreePayload, OpenScope } from "../types";
 import type { FormField } from "@acorn/shared/form-fields";
 import type { DomTreeNode } from "@acorn/shared/tree-export";
 
@@ -72,6 +77,24 @@ function fieldsKeyOf(fields: FormField[]): string {
     .filter((field) => field.kind !== "file")
     .map((field) => `${field.kind}:${field.label.replace(/\s+/g, " ").trim().toLowerCase()}`);
   return rows.length ? shortHash(rows.join("|")) : "";
+}
+
+/**
+ * What the page says when it spans frames: the copy of the frame the read took and of every
+ * other frame that answered, the one with most copy first. A careers portal drawn inside a
+ * frame of its shell says "submitted successfully" in the frame, not in the shell.
+ */
+function pageTextOfFrames(payload: DomTreePayload, ownText: string): string {
+  const frames: FrameText[] = [
+    { title: payload.title, url: payload.url, text: ownText, top: payload.frameId === 0 },
+    ...(payload.otherFrames ?? []).map((other) => ({
+      title: other.title,
+      url: other.url,
+      text: extractVisiblePageText(formatAnalyzeTrees(withoutHidden(other.tree)).pure),
+      top: other.frameId === 0,
+    })),
+  ];
+  return combineFrameTexts(frames) || ownText;
 }
 
 /**
@@ -129,10 +152,11 @@ async function readPage(
   const tree = payload.tree as DomTreeNode;
   const title = payload.title || "Untitled";
   const url = payload.url || "";
-  const fullText = extractVisiblePageText(formatAnalyzeTrees(withoutHidden(tree)).pure, {
+  const ownText = extractVisiblePageText(formatAnalyzeTrees(withoutHidden(tree)).pure, {
     title,
     url,
   });
+  const fullText = payload.otherFrames?.length ? pageTextOfFrames(payload, ownText) : ownText;
   const text = clipEnds(fullText, RUN_PAGE_TEXT_MAX_CHARS);
   const scan = payload.fieldIssues ?? EMPTY_FIELD_ISSUE_SCAN;
   const frameId = payload.frameId ?? null;

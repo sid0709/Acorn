@@ -2,6 +2,8 @@ import { MIN_CHILD_FORM_CONTROLS, MIN_PAGE_FIELDS } from "../content/form-frame"
 import { sendTabMessage } from "../tab-messaging";
 import { MSG, type DomTreePayload } from "../types";
 
+import { treeTextLength } from "./fetch-posting";
+
 const DOM_FETCH_DETAIL_FRAMES = 8;
 
 type DomFrameAttempt = {
@@ -197,13 +199,30 @@ export async function fetchDomFromTab(
     if (b.formScore !== a.formScore) return b.formScore - a.formScore;
     if (a.frameId === preferredFrameId) return -1;
     if (b.frameId === preferredFrameId) return 1;
-    // No frame holds a form: the page is its main document, never a helper frame
-    // (a sign-in widget, a prefetch) that happened to answer.
-    if (a.formScore === 0) return (a.frameId ?? 0) - (b.frameId ?? 0);
+    // No frame holds a form: the page is the frame that carries its copy. That is the main
+    // document unless the page lives in an embedded frame (a careers portal's own frame),
+    // and a helper frame (a sign-in widget, a prefetch) says little beside the page it helps.
+    if (a.formScore === 0) {
+      const more = treeTextLength(b.tree) - treeTextLength(a.tree);
+      return more !== 0 ? more : (a.frameId ?? 0) - (b.frameId ?? 0);
+    }
     // Prefer nested frames over shell when scores tie.
     return (b.frameId ?? 0) - (a.frameId ?? 0);
   });
 
   const picked = candidates[0];
+  // With no form anywhere, what the other frames say is part of what the page says.
+  if (picked.formScore === 0) {
+    const others = candidates
+      .slice(1)
+      .filter((other) => treeTextLength(other.tree) > 0)
+      .map((other) => ({
+        frameId: other.frameId ?? 0,
+        url: other.url,
+        title: other.title,
+        tree: other.tree,
+      }));
+    if (others.length) return { ...picked, otherFrames: others };
+  }
   return picked;
 }

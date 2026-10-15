@@ -16,6 +16,7 @@ import { noteInvalidBaseline, pageWantsAnswer, scanFieldIssues } from "./field-e
 import {
   MIN_CHILD_FORM_CONTROLS,
   MIN_PAGE_FIELDS,
+  carriesPageCopy,
   formControlScore,
   isAcornDomFrame,
   waitForFormSurface,
@@ -123,8 +124,14 @@ if (!contentScriptAlive()) {
         const formWaitMs = Date.now() - waitStarted;
         // Fields of the page itself, not of a layer laid over it, read once the form drew.
         const pageScore = posting ? ownFields : pageFieldScore();
+        // A frame with no form still answers when it carries the page's copy (a portal's frame
+        // saying "submitted successfully"): the read takes the page from the frame that says it.
         const acornFrame =
-          posting || isTop || score >= MIN_CHILD_FORM_CONTROLS || pageScore >= MIN_PAGE_FIELDS;
+          posting ||
+          isTop ||
+          score >= MIN_CHILD_FORM_CONTROLS ||
+          pageScore >= MIN_PAGE_FIELDS ||
+          carriesPageCopy();
         if (!acornFrame) {
           sendResponse({
             skipped: true,
