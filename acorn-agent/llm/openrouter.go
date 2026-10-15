@@ -100,9 +100,13 @@ type chatResponse struct {
 		FinishReason string `json:"finish_reason"`
 	} `json:"choices"`
 	Usage struct {
-		PromptTokens     int     `json:"prompt_tokens"`
-		CompletionTokens int     `json:"completion_tokens"`
-		Cost             float64 `json:"cost"`
+		PromptTokens        int     `json:"prompt_tokens"`
+		CompletionTokens    int     `json:"completion_tokens"`
+		Cost                float64 `json:"cost"`
+		PromptTokensDetails struct {
+			CachedTokens     int `json:"cached_tokens"`
+			CacheWriteTokens int `json:"cache_write_tokens"`
+		} `json:"prompt_tokens_details"`
 	} `json:"usage"`
 	Error *struct {
 		Message string `json:"message"`
@@ -198,9 +202,11 @@ func (c *OpenRouter) once(ctx context.Context, body []byte) (Response, string, e
 	got := Response{
 		Model: decoded.Model,
 		Usage: Usage{
-			InputTokens:  decoded.Usage.PromptTokens,
-			OutputTokens: decoded.Usage.CompletionTokens,
-			Cost:         decoded.Usage.Cost,
+			InputTokens:      decoded.Usage.PromptTokens,
+			OutputTokens:     decoded.Usage.CompletionTokens,
+			CachedTokens:     decoded.Usage.PromptTokensDetails.CachedTokens,
+			CacheWriteTokens: decoded.Usage.PromptTokensDetails.CacheWriteTokens,
+			Cost:             decoded.Usage.Cost,
 		},
 	}
 	if response.StatusCode < 200 || response.StatusCode >= 300 {

@@ -10,7 +10,10 @@ import (
 // replySchemaName and replySchema are the shape the model must answer in. Every property
 // is present on every answer (the provider's strict mode needs that); the ones an action
 // does not use are null. Observation comes first so the model reads the screen before it
-// decides, and memo is its own scratchpad: the one thing carried from step to step.
+// decides, and memo is its own scratchpad: the one thing carried from step to step. It is
+// null when the notes did not change, so the model does not write them out again. An
+// action's check is what the screen should show once that action has run, null where the
+// model must look for itself.
 const replySchemaName = "agent_step"
 
 var replySchema = json.RawMessage(`{
@@ -19,7 +22,7 @@ var replySchema = json.RawMessage(`{
   "required": ["observation", "memo", "job", "status", "message", "actions"],
   "properties": {
     "observation": {"type": "string"},
-    "memo": {"type": "string"},
+    "memo": {"type": ["string", "null"]},
     "job": {"type": "string"},
     "status": {"type": "string", "enum": ["working", "done", "need_person", "stuck"]},
     "message": {"type": "string"},
@@ -28,7 +31,7 @@ var replySchema = json.RawMessage(`{
       "items": {
         "type": "object",
         "additionalProperties": false,
-        "required": ["kind", "x", "y", "text", "secret", "keys", "dx", "dy", "ms", "resume"],
+        "required": ["kind", "x", "y", "text", "secret", "keys", "dx", "dy", "ms", "resume", "check"],
         "properties": {
           "kind": {"type": "string", "enum": ["click", "double_click", "triple_click", "right_click", "hover", "type", "key", "scroll", "upload", "wait"]},
           "x": {"type": ["number", "null"]},
@@ -39,7 +42,8 @@ var replySchema = json.RawMessage(`{
           "dx": {"type": ["number", "null"]},
           "dy": {"type": ["number", "null"]},
           "ms": {"type": ["integer", "null"]},
-          "resume": {"type": ["string", "null"]}
+          "resume": {"type": ["string", "null"]},
+          "check": {"type": ["string", "null"]}
         }
       }
     }
@@ -49,7 +53,7 @@ var replySchema = json.RawMessage(`{
 // reply is the model's answer as it arrives.
 type reply struct {
 	Observation string        `json:"observation"`
-	Memo        string        `json:"memo"`
+	Memo        *string       `json:"memo"`
 	Job         string        `json:"job"`
 	Status      string        `json:"status"`
 	Message     string        `json:"message"`
@@ -67,16 +71,22 @@ type modelAction struct {
 	DY     *float64 `json:"dy"`
 	Ms     *int     `json:"ms"`
 	Resume *string  `json:"resume"`
+	Check  *string  `json:"check"`
 }
 
-// parseReply reads the model's JSON answer.
+// parseReply reads the model's JSON answer. It reads the first JSON object and ignores what
+// comes around it (a code fence, a stray character after the closing brace): asking the model
+// again for a slip like that costs a whole call.
 func parseReply(content string) (reply, error) {
 	content = strings.TrimSpace(content)
 	if content == "" {
 		return reply{}, fmt.Errorf("the model sent an empty answer")
 	}
+	if start := strings.IndexByte(content, '{'); start > 0 {
+		content = content[start:]
+	}
 	var out reply
-	if err := json.Unmarshal([]byte(content), &out); err != nil {
+	if err := json.NewDecoder(strings.NewReader(content)).Decode(&out); err != nil {
 		return reply{}, fmt.Errorf("the model's answer is not the requested JSON: %w", err)
 	}
 	switch out.Status {
@@ -94,6 +104,7 @@ const (
 	minWaitMs      = 100
 	maxWaitMs      = 10_000
 	maxScrollPages = 3
+	maxCheckChars  = 300
 )
 
 // checkActions turns the model's actions into ones the extension can run, and says why
@@ -109,6 +120,9 @@ func checkActions(step int, raw []modelAction, vp Viewport, maxActions int) (val
 		if reason := fill(&action, in, vp); reason != "" {
 			dropped = append(dropped, fmt.Sprintf("action %d (%s): %s", i+1, in.Kind, reason))
 			continue
+		}
+		if in.Check != nil {
+			action.Check = clipText(strings.TrimSpace(*in.Check), maxCheckChars)
 		}
 		valid = append(valid, action)
 	}

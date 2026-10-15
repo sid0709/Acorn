@@ -107,6 +107,11 @@ export interface AgentUsage {
   inputTokens: number;
   outputTokens: number;
   cost: number;
+  /** Input tokens the provider served from its prompt cache. */
+  cachedTokens?: number;
+  /** Times the decision model checked the screen instead of the driving model; and what they cost (included in `cost`). */
+  checks?: number;
+  checkCost?: number;
 }
 
 export interface AgentStep {

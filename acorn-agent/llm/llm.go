@@ -34,16 +34,22 @@ type Request struct {
 }
 
 // Usage is what one call cost. Cost is USD, as OpenRouter reports it, and 0 when it does not.
+// CachedTokens is the part of InputTokens the provider read from its prompt cache, which it
+// bills at a fraction of the normal rate; CacheWriteTokens is the part it stored for later.
 type Usage struct {
-	InputTokens  int     `json:"inputTokens"`
-	OutputTokens int     `json:"outputTokens"`
-	Cost         float64 `json:"cost"`
+	InputTokens      int     `json:"inputTokens"`
+	OutputTokens     int     `json:"outputTokens"`
+	CachedTokens     int     `json:"cachedTokens,omitempty"`
+	CacheWriteTokens int     `json:"cacheWriteTokens,omitempty"`
+	Cost             float64 `json:"cost"`
 }
 
 // Add sums another call into u.
 func (u *Usage) Add(other Usage) {
 	u.InputTokens += other.InputTokens
 	u.OutputTokens += other.OutputTokens
+	u.CachedTokens += other.CachedTokens
+	u.CacheWriteTokens += other.CacheWriteTokens
 	u.Cost += other.Cost
 }
 

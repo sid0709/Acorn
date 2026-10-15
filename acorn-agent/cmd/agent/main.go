@@ -15,6 +15,7 @@ import (
 
 	"github.com/sid0709/OpenSeat/acorn-agent/agent"
 	"github.com/sid0709/OpenSeat/acorn-agent/applicant"
+	"github.com/sid0709/OpenSeat/acorn-agent/decide"
 	"github.com/sid0709/OpenSeat/acorn-agent/httpapi"
 	"github.com/sid0709/OpenSeat/acorn-agent/llm"
 	"github.com/sid0709/OpenSeat/backend-core/config"
@@ -49,6 +50,13 @@ const (
 	envTraceDir      = "ACORN_AGENT_TRACE_DIR"
 	envMaxSteps      = "ACORN_AGENT_MAX_STEPS"
 	envMaxActions    = "ACORN_AGENT_MAX_ACTIONS"
+	envChecks        = "ACORN_AGENT_CHECKS"
+	envScreenModel   = "ACORN_AGENT_SCREEN_MODEL"
+	envDecisionsURL  = "ACORN_AGENT_DECISIONS_URL"
+	envChunkActions  = "ACORN_AGENT_CHUNK_ACTIONS"
+	envCheckMatch    = "ACORN_AGENT_CHECK_MATCH_PERCENT"
+	envCheckBlocked  = "ACORN_AGENT_CHECK_BLOCKED_PERCENT"
+	envCheckLoading  = "ACORN_AGENT_CHECK_LOADING_PERCENT"
 	envKeepTurns     = "ACORN_AGENT_KEEP_TURNS"
 	envKeepImages    = "ACORN_AGENT_KEEP_IMAGES"
 	envMaxStale      = "ACORN_AGENT_MAX_STALE"
@@ -75,6 +83,11 @@ func isOff(value string) bool {
 	return false
 }
 
+// percent reads a probability given as a whole percent (90 is 0.9).
+func percent(name string, fallback float64) float64 {
+	return float64(config.EnvInt(name, int(fallback*100))) / 100
+}
+
 func run() error {
 	config.LoadEnvFile()
 	httpConfig, err := config.LoadHTTP(defaultAddr, defaultOrigins)
@@ -85,6 +98,10 @@ func run() error {
 	cfg := agent.DefaultConfig()
 	cfg.MaxSteps = config.EnvInt(envMaxSteps, cfg.MaxSteps)
 	cfg.MaxActions = config.EnvInt(envMaxActions, cfg.MaxActions)
+	cfg.ChunkActions = config.EnvInt(envChunkActions, cfg.ChunkActions)
+	cfg.CheckMatch = percent(envCheckMatch, cfg.CheckMatch)
+	cfg.CheckBlocked = percent(envCheckBlocked, cfg.CheckBlocked)
+	cfg.CheckLoading = percent(envCheckLoading, cfg.CheckLoading)
 	cfg.KeepTurns = config.EnvInt(envKeepTurns, cfg.KeepTurns)
 	cfg.KeepImages = config.EnvInt(envKeepImages, cfg.KeepImages)
 	cfg.MaxStale = config.EnvInt(envMaxStale, cfg.MaxStale)
@@ -99,9 +116,17 @@ func run() error {
 	hidden := strings.Split(config.Env(envHideFields, ""), ",")
 	store := applicant.NewStore(config.Env(envDataDir, defaultDataDir), hidden...)
 
+	// The checks between a plan's runs of actions need a decision model that reads a screenshot.
+	var newScreen func(key string) agent.Screen
+	screenModel := config.Env(envScreenModel, config.ScreenDecisionModel)
+	decisionsURL := config.Env(envDecisionsURL, config.OpenRouterDecisionsURL)
+	if !isOff(config.Env(envChecks, "")) {
+		newScreen = func(key string) agent.Screen { return decide.New(key, screenModel, decisionsURL) }
+	}
 	a := agent.New(cfg, store,
 		func(key string) llm.Model { return llm.NewOpenRouter(key, model, baseURL, reasoning) },
 		func(key string) agent.Decider { return jev.New(key) },
+		newScreen,
 	)
 	defaultKey := config.Env(envOpenRouterKey, "")
 	server := &http.Server{
@@ -118,9 +143,13 @@ func run() error {
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
 	go jev.Warm(ctx)
+	if newScreen != nil {
+		go decide.Warm(ctx, decisionsURL)
+	}
 	failed := make(chan error, 1)
 	go func() {
 		slog.Info("agent listening", "addr", httpConfig.Addr, "model", model,
+			"checks", newScreen != nil, "screenModel", screenModel,
 			"data", store.Dir(), "key", defaultKey != "", "trace", cfg.TraceDir != "")
 		failed <- server.ListenAndServe()
 	}()

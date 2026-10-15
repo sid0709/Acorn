@@ -37,14 +37,29 @@ var (
 type Config struct {
 	// MaxSteps is the most steps one run may take.
 	MaxSteps int
-	// MaxActions is the most actions one step may send.
-	MaxActions int
-	// KeepTurns is how many recent steps the model sees in full; older ones are folded.
+	// MaxActions is the most actions one answer may plan when a decision model checks the
+	// screen between runs of them; UncheckedActions is the most when none does.
+	MaxActions       int
+	UncheckedActions int
+	// ChunkActions is the most actions that run before the screen is checked.
+	ChunkActions int
+	// CheckMatch is how sure the checker must be that the screen shows what the model
+	// expected, and CheckBlocked and CheckLoading how unsure it must be that something is in
+	// the way or the page is still loading, for the plan to go on (probabilities, 0 to 1).
+	CheckMatch, CheckBlocked, CheckLoading float64
+	// CheckLoadingWait is how sure the checker must be that the page is loading for the agent
+	// to wait and look again instead of asking the model; it waits LoadWait, at most
+	// MaxLoadWaits times in a row.
+	CheckLoadingWait float64
+	LoadWait         time.Duration
+	MaxLoadWaits     int
+	// KeepTurns is how many recent steps stay in full when the history is compacted; older
+	// ones are folded into one line each.
 	KeepTurns int
-	// KeepImages is how many of the newest steps keep their screenshot.
+	// KeepImages is how many of the newest steps keep their screenshot through a compaction.
 	KeepImages int
-	// HistoryTokens is the estimated size the model's history may reach before the oldest
-	// steps are folded early.
+	// HistoryTokens is the estimated size the model's history may grow to, every screenshot
+	// included, before it is compacted (session.history).
 	HistoryTokens int
 	// MaxStale is how many steps in a row the screen may stay the same before the run is
 	// declared stuck without asking the model again.
@@ -58,13 +73,21 @@ type Config struct {
 // DefaultConfig is the bounds a run has when nothing else is set.
 func DefaultConfig() Config {
 	return Config{
-		MaxSteps:      150,
-		MaxActions:    6,
-		KeepTurns:     8,
-		KeepImages:    3,
-		HistoryTokens: 30_000,
-		MaxStale:      6,
-		SessionTTL:    time.Hour,
+		MaxSteps:         150,
+		MaxActions:       12,
+		UncheckedActions: 6,
+		ChunkActions:     4,
+		CheckMatch:       0.9,
+		CheckBlocked:     0.2,
+		CheckLoading:     0.3,
+		CheckLoadingWait: 0.7,
+		LoadWait:         time.Second,
+		MaxLoadWaits:     4,
+		KeepTurns:        8,
+		KeepImages:       3,
+		HistoryTokens:    30_000,
+		MaxStale:         6,
+		SessionTTL:       time.Hour,
 	}
 }
 
@@ -75,20 +98,25 @@ type Agent struct {
 	applicants *applicant.Store
 	newModel   func(key string) llm.Model
 	newDecider func(key string) Decider
-	sessions   *store
-	trace      *tracer
-	now        func() time.Time
+	// newScreen builds the decision model that checks the screen; nil means no checks.
+	newScreen func(key string) Screen
+	sessions  *store
+	trace     *tracer
+	now       func() time.Time
 }
 
-// New is an agent over the applicant's data. newModel builds the model that drives a run
-// and newDecider the model that chooses among existing things; both are given the run's key.
-func New(cfg Config, applicants *applicant.Store, newModel func(key string) llm.Model, newDecider func(key string) Decider) *Agent {
+// New is an agent over the applicant's data. newModel builds the model that drives a run,
+// newDecider the model that chooses among existing things, and newScreen the decision model
+// that checks the screen between runs of actions (nil turns the checks off); each is given
+// the run's key.
+func New(cfg Config, applicants *applicant.Store, newModel func(key string) llm.Model, newDecider func(key string) Decider, newScreen func(key string) Screen) *Agent {
 	now := time.Now
 	return &Agent{
 		cfg:        cfg,
 		applicants: applicants,
 		newModel:   newModel,
 		newDecider: newDecider,
+		newScreen:  newScreen,
 		sessions:   newStore(cfg.SessionTTL, now),
 		trace:      &tracer{dir: cfg.TraceDir},
 		now:        now,
@@ -112,7 +140,12 @@ func (a *Agent) Start(ctx context.Context, key string, start Start) (Started, er
 		return Started{}, llm.ErrNoKey
 	}
 	now := a.now()
-	system, err := systemPrompt(start, snap, a.cfg.MaxActions, now)
+	checks := a.newScreen != nil && a.cfg.ChunkActions > 0
+	maxActions := a.cfg.MaxActions
+	if !checks {
+		maxActions = min(maxActions, a.cfg.UncheckedActions)
+	}
+	system, err := systemPrompt(start, snap, maxActions, a.cfg.ChunkActions, checks, now)
 	if err != nil {
 		return Started{}, err
 	}
@@ -121,12 +154,12 @@ func (a *Agent) Start(ctx context.Context, key string, start Start) (Started, er
 		return Started{}, err
 	}
 	a.sessions.add(&session{
-		id: id, key: key, start: start, snap: snap, system: system,
+		id: id, key: key, start: start, snap: snap, system: system, maxActions: maxActions,
 		created: now, touched: now,
 	})
 	stacks, documents := catalog(snap.Resumes)
 	if err := a.trace.recordSession(id, system, sessionTrace{
-		Started: now, Start: start, Model: a.modelName(key), Config: a.cfg, Resumes: stacks, Documents: documents,
+		Started: now, Start: start, Model: a.modelName(key), ScreenModel: a.screenName(key), Config: a.cfg, Resumes: stacks, Documents: documents,
 	}); err != nil {
 		slog.Warn("trace not written", "session", id, "error", err)
 	}
@@ -193,20 +226,33 @@ func (a *Agent) Step(ctx context.Context, id string, obs Observation) (Step, err
 		return a.endWithTrace(s, obs, stale, StatusStuck, fmt.Sprintf("The page did not change for %d steps in a row.", stale)), nil
 	}
 
+	// What happened to every action sent since the model last looked, which may be several
+	// runs of one plan.
+	results := append(append([]ActionResult(nil), s.carried...), obs.Results...)
+	if step, ok := a.continuePlan(ctx, s, obs, results, sig, stale); ok {
+		return step, nil
+	}
+
 	number := s.step + 1
-	text := observationText(number, a.cfg.MaxSteps, obs, s.memo, s.job, stale)
+	notes := append(append([]string(nil), obs.Notes...), s.notes...)
+	if s.parts > 1 && s.sent == s.planned && len(s.notes) == 0 {
+		notes = append(notes, fmt.Sprintf("Your plan ran in %d parts. After each part but the last, a checker confirmed the screen showed what you expected.", s.parts))
+	}
+	body := observationText(number, a.cfg.MaxSteps, obs, results, notes, stale)
 	messages := append([]llm.Message{{Role: llm.RoleSystem, Text: s.system}},
 		s.history(a.cfg.KeepTurns, a.cfg.KeepImages, a.cfg.HistoryTokens)...)
+	text := currentText(body, s.memo, s.job)
 	messages = append(messages, llm.Message{Role: llm.RoleUser, Text: text, Images: []string{obs.Screenshot}})
 
 	entry := stepTrace{
 		Seq: s.seq, Step: number, At: a.now(), URL: obs.URL, Title: obs.Title, Viewport: obs.Viewport,
-		Focus: obs.Focus, Notes: obs.Notes, Results: obs.Results, Stale: stale,
+		Focus: obs.Focus, Notes: notes, Results: results, Stale: stale,
 	}
 	answer, content, usage, calls, err := a.ask(ctx, s, messages)
 	s.usage.Calls++
 	s.usage.InputTokens += usage.InputTokens
 	s.usage.OutputTokens += usage.OutputTokens
+	s.usage.CachedTokens += usage.CachedTokens
 	s.usage.Cost += usage.Cost
 	entry.Usage = s.usage
 	if err != nil {
@@ -216,22 +262,32 @@ func (a *Agent) Step(ctx context.Context, id string, obs Observation) (Step, err
 	}
 	// Only a step the model answered counts: a retry of a failed call sends the same screen.
 	s.step, s.stale, s.lastSig = number, stale, sig
-	s.memo = clipText(strings.TrimSpace(answer.Memo), maxMemoChars)
+	s.carried, s.notes = nil, nil
+	// A memo of null means the notes did not change.
+	if answer.Memo != nil {
+		s.memo = clipText(strings.TrimSpace(*answer.Memo), maxMemoChars)
+	}
 	if job := strings.TrimSpace(answer.Job); job != "" {
 		s.job = clipText(job, maxJobChars)
 	}
+	s.message = strings.TrimSpace(answer.Message)
 
-	actions, dropped := checkActions(number, answer.Actions, obs.Viewport, a.cfg.MaxActions)
-	actions = fillSecrets(actions, s.snap.Secrets)
-	actions, dropped = a.resolveUploads(ctx, s, actions, dropped)
+	planned, dropped := checkActions(number, answer.Actions, obs.Viewport, s.maxActions)
+	planned = fillSecrets(planned, s.snap.Secrets)
+	planned, dropped = a.resolveUploads(ctx, s, planned, dropped)
 	status := answer.Status
-	if status != StatusWorking {
-		actions = nil
-	} else if len(actions) == 0 {
+	var actions []Action
+	switch {
+	case status != StatusWorking:
+		s.plan, s.verify, s.planned, s.sent, s.parts = nil, "", 0, 0, 0
+	case len(planned) == 0:
 		// A working run with nothing valid to do waits and looks again; the repeat check
 		// ends it if the page never changes.
 		dropped = append(dropped, "no usable action; waiting before the next look")
-		actions = []Action{{ID: fmt.Sprintf("s%da1", number), Kind: KindWait, Ms: 1000}}
+		planned = []Action{{ID: fmt.Sprintf("s%da1", number), Kind: KindWait, Ms: 1000}}
+		fallthrough
+	default:
+		actions, dropped = a.takePlan(s, planned, dropped)
 	}
 
 	s.turns = append(s.turns, turn{
@@ -239,7 +295,7 @@ func (a *Agent) Step(ctx context.Context, id string, obs Observation) (Step, err
 		text:    text,
 		image:   obs.Screenshot,
 		answer:  content,
-		summary: summaryLine(number, answer, actions),
+		summary: summaryLine(number, answer, planned),
 	})
 	step := Step{
 		Status: status, Message: strings.TrimSpace(answer.Message), Actions: actions,
@@ -264,9 +320,13 @@ func (a *Agent) record(s *session, entry stepTrace, screenshot string, calls []m
 	if entry.Error != "" {
 		level = slog.LevelWarn
 	}
+	status := entry.Status
+	if entry.Check != nil {
+		status = "check:" + entry.Check.Outcome
+	}
 	slog.Log(context.Background(), level, "step", "session", s.id, "seq", entry.Seq, "number", entry.Step,
-		"status", entry.Status, "actions", len(entry.Actions), "dropped", len(entry.Dropped),
-		"stale", entry.Stale, "ms", latency, "calls", entry.Usage.Calls, "cost", entry.Usage.Cost,
+		"status", status, "actions", len(entry.Actions), "dropped", len(entry.Dropped),
+		"stale", entry.Stale, "ms", latency, "calls", entry.Usage.Calls, "checks", entry.Usage.Checks, "cost", entry.Usage.Cost,
 		"message", clipText(entry.Message, 140), "error", entry.Error)
 	if err := a.trace.record(s.id, entry, screenshot, calls); err != nil {
 		slog.Warn("trace not written", "session", s.id, "error", err)

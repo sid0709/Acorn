@@ -34,10 +34,17 @@ type tracer struct {
 	dir string
 }
 
+// sourceCheck marks an entry the decision model answered, with no call to the driving model.
+const sourceCheck = "check"
+
 // stepTrace is one entry of the run.
 type stepTrace struct {
-	Seq         int            `json:"seq"`
-	Step        int            `json:"step"`
+	Seq  int `json:"seq"`
+	Step int `json:"step"`
+	// Source is "check" when the decision model carried the plan on; empty when the driving
+	// model looked.
+	Source      string         `json:"source,omitempty"`
+	Check       *checkTrace    `json:"check,omitempty"`
 	At          time.Time      `json:"at"`
 	URL         string         `json:"url"`
 	Title       string         `json:"title"`
@@ -68,6 +75,8 @@ type tracedMessage struct {
 
 // modelCall is one call of the step to the model.
 type modelCall struct {
+	// Kind is "decision" for a check by the decision model; empty for the driving model.
+	Kind string `json:"kind,omitempty"`
 	// Repair marks the second call, which tells the model its first answer was refused.
 	Repair       bool            `json:"repair,omitempty"`
 	Messages     []tracedMessage `json:"messages"`
@@ -115,12 +124,14 @@ func writeJSON(path string, value any) error {
 
 // sessionTrace is the run's start.
 type sessionTrace struct {
-	Started   time.Time `json:"started"`
-	Start     Start     `json:"start"`
-	Model     string    `json:"model"`
-	Config    Config    `json:"config"`
-	Resumes   []string  `json:"resumeStacks"`
-	Documents []string  `json:"otherDocuments"`
+	Started time.Time `json:"started"`
+	Start   Start     `json:"start"`
+	Model   string    `json:"model"`
+	// ScreenModel is the decision model that checks the screen, empty when none does.
+	ScreenModel string   `json:"screenModel,omitempty"`
+	Config      Config   `json:"config"`
+	Resumes     []string `json:"resumeStacks"`
+	Documents   []string `json:"otherDocuments"`
 }
 
 // recordSession writes the run's start and the prompt the model is given. The prompt shows
@@ -202,7 +213,14 @@ func timelineLine(entry stepTrace, calls []modelCall) string {
 	for i, action := range entry.Actions {
 		parts[i] = describe(action)
 	}
-	line := fmt.Sprintf("%03d step %d %-11s %5dms $%.4f", entry.Seq, entry.Step, entry.Status, latency, entry.Usage.Cost)
+	status := entry.Status
+	if entry.Check != nil {
+		status = "check:" + entry.Check.Outcome
+	}
+	line := fmt.Sprintf("%03d step %d %-14s %5dms $%.4f", entry.Seq, entry.Step, status, latency, entry.Usage.Cost)
+	if entry.Check != nil {
+		line += fmt.Sprintf(" match=%.2f blocked=%.2f loading=%.2f", entry.Check.Matches, entry.Check.Blocked, entry.Check.Loading)
+	}
 	if entry.Stale > 0 {
 		line += fmt.Sprintf(" stale=%d", entry.Stale)
 	}

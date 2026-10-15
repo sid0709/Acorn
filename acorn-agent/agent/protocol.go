@@ -104,6 +104,9 @@ type Action struct {
 	Resume string `json:"resume,omitempty"`
 	// FileName is set by the agent on KindUpload once the résumé is chosen.
 	FileName string `json:"fileName,omitempty"`
+	// Check is what the screen should show once this action has run, as the model expected.
+	// It stays on the agent: the extension never sees it.
+	Check string `json:"-"`
 }
 
 // Step is the agent's answer to one observation.
@@ -122,12 +125,17 @@ type Step struct {
 	Dropped []string `json:"dropped,omitempty"`
 }
 
-// Usage is the run's model use so far.
+// Usage is the run's model use so far. Cost is everything the run has spent, the checks
+// included; CheckCost is the part of it the decision model's checks cost.
 type Usage struct {
 	Calls        int     `json:"calls"`
 	InputTokens  int     `json:"inputTokens"`
 	OutputTokens int     `json:"outputTokens"`
+	CachedTokens int     `json:"cachedTokens"`
 	Cost         float64 `json:"cost"`
+	// Checks is how many times the decision model looked at the screen instead of the driving model.
+	Checks    int     `json:"checks"`
+	CheckCost float64 `json:"checkCost"`
 }
 
 // Start opens a session on the page the run begins at.

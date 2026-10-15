@@ -17,22 +17,29 @@ var systemTemplate = template.Must(template.New("system").Parse(systemTemplateTe
 
 type systemData struct {
 	StopBeforeSubmit bool
-	MaxActions       int
-	Profile          string
-	Token            string
-	Stacks           []string
-	Documents        []string
-	Today            string
+	// Checks is true when a decision model checks the screen between the model's steps, so
+	// the model may plan ahead and say what each run of actions should lead to.
+	Checks     bool
+	MaxActions int
+	// Chunk is the most actions that run before the screen is checked.
+	Chunk     int
+	Profile   string
+	Token     string
+	Stacks    []string
+	Documents []string
+	Today     string
 }
 
 // systemPrompt is the standing instruction: the task, how to answer, and who the applicant is.
 // It is the same on every step of a run, so the provider can cache it.
-func systemPrompt(start Start, snapshot applicant.Snapshot, maxActions int, now time.Time) (string, error) {
+func systemPrompt(start Start, snapshot applicant.Snapshot, maxActions, chunk int, checks bool, now time.Time) (string, error) {
 	stacks, documents := catalog(snapshot.Resumes)
 	var out strings.Builder
 	err := systemTemplate.Execute(&out, systemData{
 		StopBeforeSubmit: start.StopBeforeSubmit,
+		Checks:           checks,
 		MaxActions:       maxActions,
+		Chunk:            chunk,
 		Profile:          snapshot.Profile,
 		Token:            applicant.AccountPasswordToken,
 		Stacks:           stacks,
@@ -45,25 +52,35 @@ func systemPrompt(start Start, snapshot applicant.Snapshot, maxActions int, now 
 	return out.String(), nil
 }
 
-// observationText is what the model is told about a step beside the screenshot itself.
-func observationText(step, maxSteps int, obs Observation, memo, job string, stale int) string {
+// observationText is what the model is told about a step beside the screenshot itself. It
+// is kept with the step in the history. results are what happened to every action sent since
+// the model last looked, and notes are what the page and the agent have to add.
+func observationText(step, maxSteps int, obs Observation, results []ActionResult, notes []string, stale int) string {
 	var out strings.Builder
 	fmt.Fprintf(&out, "Step %d of at most %d.\n", step, maxSteps)
 	fmt.Fprintf(&out, "Page: %s (%s)\n", orNone(obs.Title), orNone(obs.URL))
 	fmt.Fprintf(&out, "Screenshot: %dx%d pixels. %s\n", obs.Viewport.Width, obs.Viewport.Height, scrollLine(obs.Viewport))
 	out.WriteString(focusLine(obs.Focus))
-	if len(obs.Results) > 0 {
+	if len(results) > 0 {
 		out.WriteString("Results of your last actions:\n")
-		for _, result := range obs.Results {
+		for _, result := range results {
 			out.WriteString("- " + resultLine(result) + "\n")
 		}
 	}
-	for _, note := range obs.Notes {
+	for _, note := range notes {
 		out.WriteString("Note: " + note + "\n")
 	}
 	if stale >= 1 {
 		fmt.Fprintf(&out, "Check: the screen looks the same as after your previous actions (%d step%s in a row). Your last actions may not have done anything. Find out why before you repeat them.\n", stale, plural(stale))
 	}
+	return strings.TrimRight(out.String(), "\n")
+}
+
+// currentText is the newest step's text: what the step says, then the model's own notes in
+// full, then the request. Only this step carries the notes, so they are paid for once.
+func currentText(body, memo, job string) string {
+	var out strings.Builder
+	out.WriteString(body + "\n")
 	if job = strings.TrimSpace(job); job != "" {
 		out.WriteString("Job you recorded: " + job + "\n")
 	}

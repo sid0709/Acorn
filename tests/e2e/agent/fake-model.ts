@@ -26,12 +26,18 @@ const NULLS = {
   dy: null,
   ms: null,
   resume: null,
+  check: null,
 };
 const act = (kind: string, fields: Record<string, unknown> = {}) => ({ ...NULLS, kind, ...fields });
 export const click = (p: Point) => act("click", p);
 export const typeInto = (text: string) => act("type", { text });
 export const key = (keys: string) => act("key", { keys });
 export const upload = (p: Point) => act("upload", p);
+/** An action with what the screen should show once it has run, for the decision model to check. */
+export const checked = (action: Record<string, unknown>, expect: string) => ({
+  ...action,
+  check: expect,
+});
 
 export function answer(fields: Record<string, unknown>) {
   return {
@@ -70,6 +76,38 @@ export function startFakeModel(points: () => Points, script: Script) {
         model: "fake/luna",
         choices: [{ message: { content: JSON.stringify(reply) }, finish_reason: "stop" }],
         usage: { prompt_tokens: 1000, completion_tokens: 50, cost: 0.001 },
+      });
+    },
+  });
+}
+
+export type Verdict = { matches: number; blocked: number; loading: number };
+export type DecisionRequest = {
+  model: string;
+  state: { type: string; text?: string; image_url?: { url: string } }[];
+  questions: Record<string, { type: string; instructions: string }>;
+};
+export const decisionRequests: DecisionRequest[] = [];
+
+/** A stand-in for OpenRouter's Decisions API: answers every check with the verdict it is given. */
+export function startFakeDecisions(verdict: () => Verdict) {
+  return Bun.serve({
+    port: 0,
+    hostname: "127.0.0.1",
+    async fetch(req) {
+      // The agent opens its connection with a bodiless HEAD when it starts.
+      if (req.method !== "POST") return new Response("");
+      const request = (await req.json()) as DecisionRequest;
+      decisionRequests.push(request);
+      const v = verdict();
+      const answers: Record<string, unknown> = {};
+      for (const key of Object.keys(request.questions)) {
+        answers[key] = { type: "noul", noul: v[key as keyof Verdict] };
+      }
+      return Response.json({
+        model: "fake/decisions",
+        answers,
+        usage: { input_tokens: 1200, output_tokens: 0, cost: 0.0002 },
       });
     },
   });

@@ -105,6 +105,12 @@ func answerJSON(status, message string, actions ...map[string]any) string {
 
 func newTestAgent(t *testing.T, model *scriptedModel, decider Decider, cfg Config) *Agent {
 	t.Helper()
+	return newAgentWithScreen(t, model, decider, nil, cfg)
+}
+
+// newAgentWithScreen is an agent whose screen checks are answered by screen; nil turns them off.
+func newAgentWithScreen(t *testing.T, model *scriptedModel, decider Decider, screen Screen, cfg Config) *Agent {
+	t.Helper()
 	dir := t.TempDir()
 	if err := os.WriteFile(filepath.Join(dir, applicant.ProfileFile), []byte(`{"name":"Ada Lovelace","email":"ada@example.com"}`), 0o600); err != nil {
 		t.Fatal(err)
@@ -118,9 +124,14 @@ func newTestAgent(t *testing.T, model *scriptedModel, decider Decider, cfg Confi
 			t.Fatal(err)
 		}
 	}
+	var newScreen func(string) Screen
+	if screen != nil {
+		newScreen = func(string) Screen { return screen }
+	}
 	return New(cfg, applicant.NewStore(dir),
 		func(string) llm.Model { return model },
-		func(string) Decider { return decider })
+		func(string) Decider { return decider },
+		newScreen)
 }
 
 func start(t *testing.T, a *Agent) string {
@@ -145,7 +156,7 @@ func TestStartNeedsAKeyAndTheApplicant(t *testing.T) {
 		t.Fatalf("resumes = %+v", started.Resumes)
 	}
 
-	empty := New(DefaultConfig(), applicant.NewStore(t.TempDir()), func(string) llm.Model { return nil }, func(string) Decider { return nil })
+	empty := New(DefaultConfig(), applicant.NewStore(t.TempDir()), func(string) llm.Model { return nil }, func(string) Decider { return nil }, nil)
 	if _, err := empty.Start(context.Background(), "key", Start{}); !errors.Is(err, applicant.ErrNoProfile) {
 		t.Fatalf("no profile: %v", err)
 	}
@@ -387,36 +398,86 @@ func TestRetryingAFailedCallDoesNotCountAsAStaleScreen(t *testing.T) {
 	}
 }
 
-func TestHistoryKeepsRecentScreenshotsAndFoldsTheRest(t *testing.T) {
+// sameMessages is whether two requests carry the same messages, screenshots included.
+func sameMessages(a, b []llm.Message) bool {
+	if len(a) != len(b) {
+		return false
+	}
+	for i := range a {
+		if a[i].Role != b[i].Role || a[i].Text != b[i].Text || strings.Join(a[i].Images, "") != strings.Join(b[i].Images, "") {
+			return false
+		}
+	}
+	return true
+}
+
+func runWaitSteps(t *testing.T, cfg Config, n int) *scriptedModel {
+	t.Helper()
 	var replies []string
-	for i := 0; i < 8; i++ {
+	for i := 0; i < n; i++ {
 		replies = append(replies, answerJSON("working", "step "+string(rune('A'+i)), map[string]any{"kind": "wait", "ms": 100}))
 	}
 	model := &scriptedModel{replies: replies}
-	cfg := DefaultConfig()
-	cfg.KeepTurns, cfg.KeepImages = 4, 2
 	a := newTestAgent(t, model, &fixedDecider{}, cfg)
 	id := start(t, a)
-	for i := 0; i < 8; i++ {
+	for i := 0; i < n; i++ {
 		// Each screen differs so none counts as stale.
-		if _, err := a.Step(context.Background(), id, observation(shot(t, uint8(30*i)))); err != nil {
+		if _, err := a.Step(context.Background(), id, observation(shot(t, uint8(25*i)))); err != nil {
 			t.Fatal(err)
 		}
 	}
-	last := model.requests[7].Messages
-	images, folded := 0, ""
-	for _, message := range last {
-		images += len(message.Images)
-		if strings.HasPrefix(message.Text, "Earlier in this run") {
-			folded = message.Text
+	return model
+}
+
+func TestHistoryOnlyGrowsAtTheEndSoTheProviderCanCacheIt(t *testing.T) {
+	model := runWaitSteps(t, DefaultConfig(), 8)
+	for n := 1; n < len(model.requests); n++ {
+		before, after := model.requests[n-1].Messages, model.requests[n].Messages
+		if len(after) != len(before)+2 || !sameMessages(before, after[:len(before)]) {
+			t.Fatalf("request %d does not start with request %d unchanged (%d then %d messages)", n+1, n, len(before), len(after))
+		}
+		if after[len(before)].Role != llm.RoleAssistant {
+			t.Fatalf("request %d: the model's own answer must follow the earlier request", n+1)
 		}
 	}
-	// Two kept turns plus the current screenshot.
-	if images != 3 {
-		t.Fatalf("screenshots sent = %d, want 3", images)
+	images := 0
+	for _, message := range model.requests[7].Messages {
+		images += len(message.Images)
 	}
-	if !strings.Contains(folded, "step 1: step A") || !strings.Contains(folded, "step 3: step C") || strings.Contains(folded, "step 6") {
-		t.Fatalf("folded history = %q", folded)
+	if images != 8 {
+		t.Fatalf("every screenshot is kept until the history is compacted: %d, want 8", images)
+	}
+}
+
+func TestHistoryIsCompactedOnceItPassesTheBudgetThenGrowsAgain(t *testing.T) {
+	cfg := DefaultConfig()
+	cfg.KeepTurns, cfg.KeepImages, cfg.HistoryTokens = 4, 2, 8000
+	model := runWaitSteps(t, cfg, 14)
+
+	compactions := 0
+	for n := 1; n < len(model.requests); n++ {
+		before, after := model.requests[n-1].Messages, model.requests[n].Messages
+		if len(after) == len(before)+2 && sameMessages(before, after[:len(before)]) {
+			continue
+		}
+		compactions++
+		images, turns, folded := 0, 0, ""
+		for _, message := range after {
+			images += len(message.Images)
+			if message.Role == llm.RoleAssistant {
+				turns++
+			}
+			if strings.HasPrefix(message.Text, "Earlier in this run") {
+				folded = message.Text
+			}
+		}
+		// The newest kept turns keep their screenshots, plus the current one.
+		if turns > cfg.KeepTurns || images > cfg.KeepImages+1 || !strings.Contains(folded, "step 1: step A") {
+			t.Fatalf("request %d: turns=%d images=%d folded=%q", n+1, turns, images, folded)
+		}
+	}
+	if compactions < 1 || compactions > 4 {
+		t.Fatalf("the history was compacted %d times in 14 steps; once the budget is passed it must stay small for several steps", compactions)
 	}
 }
 
@@ -593,7 +654,7 @@ func stackAgent(t *testing.T, model *scriptedModel, decider Decider, profile str
 		}
 	}
 	return New(DefaultConfig(), applicant.NewStore(dir),
-		func(string) llm.Model { return model }, func(string) Decider { return decider })
+		func(string) llm.Model { return model }, func(string) Decider { return decider }, nil)
 }
 
 func uploadStepUnused(t *testing.T, a *Agent, id string, resume any) Action {

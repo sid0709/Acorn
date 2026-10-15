@@ -15,8 +15,9 @@ import (
 // turn is one step of the run as the model lived it.
 type turn struct {
 	number int
-	// text is what the model was told beside the screenshot; image is the screenshot.
-	// image is dropped from older turns, text stays until the turn is folded into a summary.
+	// text is what the model was told beside the screenshot, notes included, exactly as it
+	// was sent; image is the screenshot, dropped when the history is compacted. text stays
+	// until the turn is folded into a summary.
 	text  string
 	image string
 	// answer is the model's reply as JSON, replayed as its own earlier turn.
@@ -53,6 +54,26 @@ type session struct {
 	usage  Usage
 	// finished is set once a step ended the run.
 	finished bool
+
+	// plan is what the model planned and has not yet been sent, one chunk per check. verify
+	// is what the screen should show after the chunk just sent, set only while plan holds more.
+	plan   []chunk
+	verify string
+	// message is the model's latest line for the person, shown again while a plan runs on.
+	message string
+	// planned and sent count the actions of the model's latest plan and how many went out, in
+	// how many parts.
+	planned, sent, parts int
+	// maxActions is the most actions one answer of this run may plan.
+	maxActions int
+	// carried holds the results of actions sent since the model last looked.
+	carried []ActionResult
+	// notes are things the model is told on its next look, about what its plan did.
+	notes []string
+	// loadWaits counts waits in a row for a loading page, with no model call.
+	loadWaits int
+	// checksOff is set once a check failed: the rest of the run goes without them.
+	checksOff bool
 }
 
 // Limits on what a session keeps.
@@ -61,7 +82,7 @@ const (
 	maxFoldedLines = 80
 	// maxSummaryChars bounds one folded line.
 	maxSummaryChars = 240
-	// maxMemoChars bounds the model's scratchpad, which is replayed on every step.
+	// maxMemoChars bounds the model's scratchpad, which is told to it on every step.
 	maxMemoChars = 2000
 	// maxJobChars bounds the job description the model records.
 	maxJobChars = 600
@@ -78,15 +99,18 @@ func newSessionID() (string, error) {
 }
 
 // history builds the model's view of the run before the current step: the folded summary,
-// then the recent turns. Only the newest keepImages turns carry their screenshot. When the
-// text still exceeds budget (in estimated tokens), the oldest turns are folded into the
-// summary until it fits.
+// then every turn exactly as it was sent and answered, screenshots included.
+//
+// It only ever grows at the end. The provider bills a prompt's tokens at a tenth of the price
+// when they repeat the start of an earlier prompt, and the first change anywhere in the prompt
+// makes everything after it a new prompt; so nothing earlier may change between one step and
+// the next. The history is therefore compacted only when it passes budget (in estimated
+// tokens), and then in one go: the oldest turns are folded into the summary and the
+// screenshots of all but the newest keepImages turns are dropped, so the history is small again
+// and the prompt grows by appending for many steps before it is compacted again.
 func (s *session) history(keepTurns, keepImages, budget int) []llm.Message {
-	for len(s.turns) > keepTurns {
-		s.fold()
-	}
-	for budgetUsed(s, keepImages) > budget && len(s.turns) > 1 {
-		s.fold()
+	if budgetUsed(s) > budget {
+		s.compact(keepTurns, keepImages, budget)
 	}
 	var out []llm.Message
 	if len(s.folded) > 0 {
@@ -95,9 +119,9 @@ func (s *session) history(keepTurns, keepImages, budget int) []llm.Message {
 			Text: "Earlier in this run (oldest first; your notes below are the full picture):\n- " + strings.Join(s.folded, "\n- "),
 		})
 	}
-	for i, t := range s.turns {
+	for _, t := range s.turns {
 		message := llm.Message{Role: llm.RoleUser, Text: t.text}
-		if i >= len(s.turns)-keepImages && t.image != "" {
+		if t.image != "" {
 			message.Images = []string{t.image}
 		} else {
 			message.Text += "\n(Screenshot no longer kept.)"
@@ -105,6 +129,21 @@ func (s *session) history(keepTurns, keepImages, budget int) []llm.Message {
 		out = append(out, message, llm.Message{Role: llm.RoleAssistant, Text: t.answer})
 	}
 	return out
+}
+
+// compact makes the history small: only the newest keepTurns turns stay in full, only the
+// newest keepImages of them keep their screenshot, and if that is still over budget the oldest
+// turns are folded until it is not.
+func (s *session) compact(keepTurns, keepImages, budget int) {
+	for len(s.turns) > keepTurns {
+		s.fold()
+	}
+	for i := 0; i < len(s.turns)-keepImages; i++ {
+		s.turns[i].image = ""
+	}
+	for budgetUsed(s) > budget && len(s.turns) > 1 {
+		s.fold()
+	}
 }
 
 // fold moves the oldest turn into the summary lines.
@@ -119,11 +158,13 @@ func (s *session) fold() {
 	s.turns = s.turns[1:]
 }
 
-func budgetUsed(s *session, keepImages int) int {
+// budgetUsed estimates the tokens the history takes: text at four characters a token, and
+// every screenshot still kept.
+func budgetUsed(s *session) int {
 	total := 0
-	for i, t := range s.turns {
+	for _, t := range s.turns {
 		total += (len(t.text) + len(t.answer)) / 4
-		if i >= len(s.turns)-keepImages && t.image != "" {
+		if t.image != "" {
 			total += approxImageTokens
 		}
 	}

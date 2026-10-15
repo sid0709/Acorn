@@ -56,7 +56,7 @@ func newServer(t *testing.T, model fakeModel, defaultKey string) (*Server, *http
 		t.Fatal(err)
 	}
 	a := agent.New(agent.DefaultConfig(), applicant.NewStore(dir),
-		func(string) llm.Model { return model }, func(string) agent.Decider { return noDecider{} })
+		func(string) llm.Model { return model }, func(string) agent.Decider { return noDecider{} }, nil)
 	server := New(a, Options{DefaultKey: defaultKey, ModelName: "fake", MaxModelCalls: 2})
 	ts := httptest.NewServer(server.Handler())
 	t.Cleanup(ts.Close)
@@ -192,7 +192,7 @@ func TestBadBodiesAndObservations(t *testing.T) {
 
 func TestMissingProfileIsAClearError(t *testing.T) {
 	a := agent.New(agent.DefaultConfig(), applicant.NewStore(t.TempDir()),
-		func(string) llm.Model { return fakeModel{} }, func(string) agent.Decider { return noDecider{} })
+		func(string) llm.Model { return fakeModel{} }, func(string) agent.Decider { return noDecider{} }, nil)
 	ts := httptest.NewServer(New(a, Options{DefaultKey: "k"}).Handler())
 	defer ts.Close()
 	response, body := send(t, http.MethodPost, ts.URL+BasePath+"/sessions", agent.Start{}, nil)
@@ -203,7 +203,7 @@ func TestMissingProfileIsAClearError(t *testing.T) {
 
 func TestCORSAllowsTheExtensionAndConfiguredOriginsOnly(t *testing.T) {
 	a := agent.New(agent.DefaultConfig(), applicant.NewStore(t.TempDir()),
-		func(string) llm.Model { return fakeModel{} }, func(string) agent.Decider { return noDecider{} })
+		func(string) llm.Model { return fakeModel{} }, func(string) agent.Decider { return noDecider{} }, nil)
 	ts := httptest.NewServer(New(a, Options{Origins: []string{"http://localhost:3000"}}).Handler())
 	defer ts.Close()
 

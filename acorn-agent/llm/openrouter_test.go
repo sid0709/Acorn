@@ -148,3 +148,18 @@ func TestCodeNamesEachFailure(t *testing.T) {
 		t.Error("Code(nil) is not empty")
 	}
 }
+
+func TestCompleteReadsCachedTokens(t *testing.T) {
+	body := `{"model":"m","choices":[{"message":{"content":"{}"},"finish_reason":"stop"}],"usage":{"prompt_tokens":1000,"completion_tokens":10,"cost":0.0001,"prompt_tokens_details":{"cached_tokens":640,"cache_write_tokens":128}}}`
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		_, _ = w.Write([]byte(body))
+	}))
+	defer server.Close()
+	resp, err := NewOpenRouter("k", "m", server.URL, "").Complete(context.Background(), Request{Messages: []Message{{Role: RoleUser, Text: "hi"}}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if resp.Usage.CachedTokens != 640 || resp.Usage.CacheWriteTokens != 128 {
+		t.Fatalf("usage = %+v", resp.Usage)
+	}
+}

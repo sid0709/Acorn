@@ -17,8 +17,11 @@ import { MSG } from "../../../acorn/extension/src/types";
 
 import {
   answer,
+  checked,
   click,
+  decisionRequests,
   requests,
+  startFakeDecisions,
   startFakeModel,
   typeInto,
   upload,
@@ -87,6 +90,9 @@ const model = startFakeModel(
   (step, at) => script(step, at),
 );
 
+let verdict = { matches: 0.98, blocked: 0.01, loading: 0.01 };
+const decisions = startFakeDecisions(() => verdict);
+
 const binary = join(dataDir, "agent");
 const build = Bun.spawnSync(["go", "build", "-o", binary, "./cmd/agent"], {
   cwd: AGENT_DIR,
@@ -100,6 +106,7 @@ const agent = Bun.spawn([binary], {
     HTTP_ADDR: new URL(AGENT_URL).host,
     OPENROUTER_API_KEY: "e2e-not-a-real-key",
     OPENROUTER_BASE_URL: `http://127.0.0.1:${model.port}`,
+    ACORN_AGENT_DECISIONS_URL: `http://127.0.0.1:${decisions.port}/`,
     ACORN_AGENT_DATA_DIR: dataDir,
     ACORN_AGENT_TRACE_DIR: traceDir,
     ACORN_AGENT_REASONING: "none",
@@ -412,6 +419,97 @@ try {
     );
   }
 
+  check(
+    decisionRequests.length === 0,
+    "a plan with no checks never asks the decision model",
+    decisionRequests.length,
+  );
+
+  // 1b. A whole screen planned at once: the decision model checks each run, the model is
+  // called for the plan and for the last look only.
+  const modelCallsBefore = requests.length;
+  script = (step, at) =>
+    step === 1
+      ? answer({
+          status: "working",
+          message: "Filling the whole form",
+          actions: [
+            click(at.name),
+            typeInto("Ada Lovelace"),
+            click(at.email),
+            checked(typeInto("ada@example.com"), "the name and email fields are filled in"),
+            click(at.auth),
+            checked(typeInto("Yes"), "the work authorization list shows Yes"),
+            click(at.agree),
+            checked(upload(at.upload), "the résumé file name is shown"),
+            click(at.submit),
+          ],
+        })
+      : answer({ status: "done", message: "The application was received" });
+  const planned = await newForm();
+  const plannedRun = await run(planned.tabId);
+  check(
+    plannedRun.at(-1)?.run?.report?.outcome === "completed",
+    "a planned run completes",
+    plannedRun.at(-1),
+  );
+  const plannedForm = await received(planned.page);
+  check(
+    JSON.stringify(plannedForm) ===
+      JSON.stringify({
+        name: "Ada Lovelace",
+        email: "ada@example.com",
+        auth: "yes",
+        file: "Ada-Lovelace.pdf",
+        size: RESUME_BYTES,
+      }),
+    "the planned run filled in everything the same as the step-by-step one",
+    plannedForm,
+  );
+  check(
+    requests.length - modelCallsBefore === 2,
+    "the model was called for the plan and the last look, not for every run",
+    requests.length - modelCallsBefore,
+  );
+  check(
+    decisionRequests.length === 3,
+    "each checked run was checked once",
+    decisionRequests.length,
+  );
+  const asked = decisionRequests[0];
+  check(
+    asked?.state.some((p) => p.image_url?.url.startsWith("data:image/jpeg;base64,")) === true &&
+      asked.questions.matches.instructions.includes("the name and email fields are filled in"),
+    "the checker is shown the screenshot and what the model expected",
+  );
+  const lastLook = requests.at(-1)?.messages.at(-1)?.content;
+  const lastLookText = Array.isArray(lastLook)
+    ? (lastLook.find((p) => p.type === "text")?.text ?? "")
+    : String(lastLook);
+  check(
+    lastLookText.includes("ran in 4 parts") && /- s1a9 done/.test(lastLookText),
+    "the model's last look says how its plan went",
+    lastLookText,
+  );
+
+  // 1c. A checker that says the screen is not what was expected hands the run to the model.
+  verdict = { matches: 0.05, blocked: 0.01, loading: 0.01 };
+  const checksBefore = decisionRequests.length;
+  const callsBefore = requests.length;
+  const refused = await newForm();
+  const refusedRun = await run(refused.tabId);
+  check(
+    requests.length - callsBefore === 2 && decisionRequests.length - checksBefore === 1,
+    "a screen that is not as expected goes back to the model after one check",
+    { model: requests.length - callsBefore, checks: decisionRequests.length - checksBefore },
+  );
+  check(
+    refusedRun.at(-1)?.run?.report?.outcome === "completed",
+    "the run still ends",
+    refusedRun.at(-1),
+  );
+  verdict = { matches: 0.98, blocked: 0.01, loading: 0.01 };
+
   // 2. Stop works, at once, and leaves the page as it is.
   script = (step, at) =>
     step === 1
@@ -464,6 +562,7 @@ try {
   await browser.close();
   void site.stop();
   void model.stop();
+  void decisions.stop();
 }
 
 if (failures.length) {

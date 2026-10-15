@@ -14,8 +14,12 @@ bun run dev:acorn-agent
 bun run build:acorn                              # then load acorn/extension/dist, press Run
 ```
 
-- Models: GPT-6 Luna (`openai/gpt-6-luna`) drives each step from the screenshot; TypeSafe Jev
-  chooses which résumé to upload. Both go through OpenRouter on `OPENROUTER_API_KEY`.
+- Models: GPT-6 Luna (`openai/gpt-6-luna`) drives each step from the screenshot and plans a whole
+  screen at a time; GPT-6 Luna Decisions (`openai/gpt-6-luna-decisions`, input tokens only) checks
+  the screen between the runs of a plan so Luna need not look at every one; TypeSafe Jev chooses
+  which résumé to upload. All go through OpenRouter on `OPENROUTER_API_KEY`. The checks are on by
+  default; `ACORN_AGENT_CHECKS=false` turns them off.
+- What a run cost and where its time went: `go run -C acorn-agent ./cmd/tracesum traces/<session>`.
 - Each run is recorded under `traces/<session>/`: per step the screenshot the model saw, the same
   screenshot with every click drawn on it (`NNN.marked.jpg`), what the model was sent and answered
   (`NNN.model.json`), and a `timeline.txt` to read the run at a glance. Typed secrets are never
