@@ -199,6 +199,8 @@ export interface RunProgress {
   endedAt?: number;
   /** 1-based count of pages visited. */
   page: number;
+  /** An agent Run: the step it is on. One page takes many steps, so this replaces the page count in the sidebar. */
+  step?: number;
   /** Refill rounds spent on the current page, and the most a page gets. */
   refills: number;
   maxRefills: number;

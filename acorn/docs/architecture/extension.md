@@ -22,6 +22,7 @@ Written from the code at commit `c03b211` (extension **v1.49.0**, 2026-10-13). I
 16. [Developing and debugging](#16-developing-and-debugging)
 17. [Glossary](#17-glossary)
 18. [Where to look](#18-where-to-look)
+19. [The agent Run (acorn-agent)](#19-the-agent-run-acorn-agent)
 
 ---
 
@@ -145,6 +146,7 @@ Build ([`vite.config.ts`](../../extension/vite.config.ts)): Vite + `@crxjs/vite-
 | ------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------- |
 | `VITE_ACORN_API_URL`            | API origin. Default from `@acorn/shared/api`: `http://127.0.0.1:8083` in development, `https://acornapi.remotepairnet.net` otherwise.        |
 | `VITE_ACORN_WEB_URL`            | Site origin. Default `http://localhost:6005` / `https://acorn.remotepairnet.net`. Used for the update check and support handoff.             |
+| `VITE_ACORN_AGENT_URL`          | Where acorn-agent runs (§19). Default `http://127.0.0.1:8090` in every build: the server reads the applicant's files from the same machine.  |
 | `VITE_ACORN_DEBUG`              | Development builds only: always use the build's API URL (ignore the Settings value) and (no longer reports capture uploads: there are none). |
 | `VITE_ACORN_AUTO_FOCUS_SECONDS` | Seconds each run tab stays in front under Auto-Focus. The code default is **4** (`AUTO_FOCUS_DEFAULT_SECONDS`); `.env.example` says 2.       |
 
@@ -926,6 +928,8 @@ Described in §10.8. The masking means the decision model never sees a code or a
 | Emailed code / link                                  | never                      | masked / without query                                                   | never (the log hides it)                         |
 | Gmail contents                                       | never                      | 10 newest rows; one or two opened emails as masked candidates            | Gmail refresh token in `acorn_gmail_mailboxes`   |
 
+The agent Run (§19) sends the model a **screenshot** of the page and the applicant's `profile.json` instead of the compact tree and the account profile; see §19.8 for who sees what.
+
 ### 14.2 How passwords stay out
 
 - The serializer writes `(hidden)` for a password box's value. No page HTML is ever sent: the planner, capture and traces carry the compact tree, labels and addresses only.
@@ -1029,3 +1033,141 @@ Load `acorn/extension/dist` unpacked in `chrome://extensions`, set an OpenRouter
 | Model ids and URLs                | [`backend-core/config/config.go`](../../../backend-core/config/config.go)                                                                                                                                                                      |
 | Message and socket names          | [`extension/src/types.ts`](../../extension/src/types.ts), [`acornapi/gateway/gateway.go`](../../../acorn-backend/acornapi/gateway/gateway.go)                                                                                                  |
 | Per-tab storage                   | `extension/src/tab-*-session.ts`, [`pipeline/run-checkpoint.ts`](../../extension/src/pipeline/run-checkpoint.ts)                                                                                                                               |
+
+---
+
+## 19. The agent Run (acorn-agent)
+
+The Run in §10 reads the page as a tree, plans fills, and decides with rules and counters in the extension. The **agent Run** replaces that with a loop a person would recognise: look at the page, decide what to do with the mouse and keyboard, do it, look again. It is the Run the sidebar's **Run** button starts unless **Agent Run** is switched off in Settings (`acornAgentMode` in `chrome.storage.local`, on by default); with it off, §10 runs as before. The §10 code stays in place behind that switch.
+
+Written from the code at extension **v1.73.0**. The rest of this document describes the page-reading Run; where §19 differs, §19 describes the agent Run.
+
+### 19.1 The split
+
+| Side                                                      | Does                                                                                                                             | Knows nothing about                          |
+| --------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------- | -------------------------------------------- |
+| **Extension** ([`src/agent/`](../../extension/src/agent)) | Looks (a screenshot, and what the page says about the focused control), acts (real mouse and keyboard events), draws the overlay | What a form is, what to answer, when to stop |
+| **acorn-agent** ([`acorn-agent/`](../../../acorn-agent))  | Holds the run's memory, asks the model what to do next, judges whether the last actions worked, ends the run                     | The browser: it never touches a page         |
+
+A change to how the agent decides (the prompt, what it remembers, when it gives up) is a change to acorn-agent only. The extension changes only when the browser needs something new: a new kind of input, a new thing to report about the page.
+
+```text
+extension (service worker)                      acorn-agent (this computer)               OpenRouter
+  attach debugger ─────────────────────────────────────────────────────────────────────────────
+  POST /agent/v1/sessions {url,title} ───────▶ read profile.json + resumes/
+  ◀──────────────────────────── {sessionId, resumes}
+  loop:
+    hide overlay · screenshot · show overlay
+    read the focused control
+    POST …/step {screenshot, focus, notes, results} ─▶ history + memo ─▶ GPT-6 Luna (image + JSON schema)
+    ◀──────────── {status, message, actions[]}  ◀──── {observation, memo, job, status, message, actions}
+    perform the actions, in order, with the overlay's cursor
+  DELETE …/sessions/{id}
+```
+
+### 19.2 The extension side
+
+All in [`acorn/extension/src/agent/`](../../extension/src/agent); the wire types are one definition in [`@acorn/shared/agent-contract`](../../packages/shared/agent-contract.ts).
+
+| Module                                                                                           | Role                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                              |
+| ------------------------------------------------------------------------------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| [`runner.ts`](../../extension/src/agent/runner.ts)                                               | The loop. Opens the session, looks, asks, acts, ends. Retries a step up to 3 times (2 s, 6 s, 15 s) on a busy model, an unreachable server or a rate limit. Follows a tab the page opens. Writes `agent-*` events to the tab's log (`RunLog`): actions are logged as kind and place, typed text only as a character count.                                                                                                                                                                                                                        |
+| [`tab-session.ts`](../../extension/src/agent/tab-session.ts)                                     | Attaches the debugger and prepares it (file-picker interception, focus emulation, overlay). Auto-accepts JavaScript dialogs and notes them for the next look. Turns the overlay's Stop button, the person ending the debugging from Chrome's bar, and the tab closing into the run's stop.                                                                                                                                                                                                                                                        |
+| [`capture.ts`](../../extension/src/agent/capture.ts)                                             | Screenshot of the visible page: JPEG quality 70, at most 1280 px wide (a wider page is scaled down; the scale travels with the shot so a point in the screenshot maps back to the page). The clip's scale is divided by `window.devicePixelRatio` (on a Retina screen the browser would otherwise return an image twice the size asked for), and the pixels every coordinate is in are **the image's own size, read from its JPEG header**, not the size asked for. A shot that takes over 8 s is retried once with the tab brought to the front. |
+| [`page-info.ts`](../../extension/src/agent/page-info.ts)                                         | What a screenshot cannot show, read from the control that has focus (through shadow roots and same-origin frames): its label, value, checked state, whether it is required or flagged invalid, and a native list's options. A password's value is replaced by its length.                                                                                                                                                                                                                                                                         |
+| [`input.ts`](../../extension/src/agent/input.ts), [`keys.ts`](../../extension/src/agent/keys.ts) | Real input through the debugger: mouse move/click (1 to 3 clicks, right button), wheel scroll in steps of at most 600 px, key chords (`Control+a` runs the editing command; punctuation has its own US key codes), typing (text of 240 characters or fewer one key at a time so a page hears key events; longer text or characters with no key are inserted whole).                                                                                                                                                                               |
+| [`upload.ts`](../../extension/src/agent/upload.ts)                                               | Hands the page a résumé without the system dialog: the click is made, the file picker it opens is intercepted, and the file is set on that input (`File` + `DataTransfer`, then `input` and `change` events). With no picker within 2 s, the file input at or near the clicked point is used.                                                                                                                                                                                                                                                     |
+| [`executor.ts`](../../extension/src/agent/executor.ts)                                           | Runs a step's actions in order: the cursor glides to the point (280 ms) before a click. An action that fails stops the batch; the rest are reported as skipped. Settle pauses: 350 ms after a click or key, 500 ms after a scroll.                                                                                                                                                                                                                                                                                                                |
+| [`overlay.ts`](../../extension/src/agent/overlay.ts)                                             | What the person sees on the page: an orange glow around the window edge, a cursor that glides to each point with a ripple on a click, and a bar with a **Stop** button. Drawn by a script in a closed shadow root with no `innerHTML` and no style element (a page's CSP may forbid either), hidden for each screenshot, reinstalled on every new document.                                                                                                                                                                                       |
+| [`client.ts`](../../extension/src/agent/client.ts)                                               | The server's HTTP routes. A server that is not running is reported as "Can't reach the Acorn agent at …"; the server's own error code is kept.                                                                                                                                                                                                                                                                                                                                                                                                    |
+| [`progress.ts`](../../extension/src/agent/progress.ts)                                           | Turns the run into the sidebar's `PipelineProgress` and `RunReport` (the Now card shows "Step N"). `need_person` ends as a failed run whose reason is "waited for person"; `stuck` as "no progress"; an AI error keeps its code for the plain-words message.                                                                                                                                                                                                                                                                                      |
+| [`settings.ts`](../../extension/src/agent/settings.ts)                                           | The server address (`VITE_ACORN_AGENT_URL`) and the Agent Run switch.                                                                                                                                                                                                                                                                                                                                                                                                                                                                             |
+
+[`background/messages/run.ts`](../../extension/src/background/messages/run.ts) starts the agent Run from `START_RUN` when the switch is on. It needs no Acorn sign-in. Stop (`STOP_RUN`, the overlay's button, or Chrome's debugging bar) ends it at once and leaves the page as it is. The manifest already holds the `debugger` permission; it adds the agent's host (`127.0.0.1:8090`, `localhost:8090`).
+
+### 19.3 The server
+
+[`acorn-agent`](../../../acorn-agent) is its own Go module (in `go.work`), with no database. It follows the Go rule: shared model ids and URLs come from `backend-core/config`.
+
+| Package                                                    | Role                                                                                                                                                                                                                                           |
+| ---------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| [`httpapi`](../../../acorn-agent/httpapi/server.go)        | Routes (below), CORS for the extension, a bound on steps in flight (`ACORN_AGENT_MAX_MODEL_CALLS`, 256), error bodies `{error, code}` with a stable code. Logs method, path, status and step counts, never bodies.                             |
+| [`agent`](../../../acorn-agent/agent)                      | The loop's brain: sessions, history, the prompt, answer checking, the résumé choice, tracing.                                                                                                                                                  |
+| [`llm`](../../../acorn-agent/llm/openrouter.go)            | One chat call to OpenRouter with images (`image_url` data URLs) and a strict JSON schema; retries 429 and 5xx up to 3 times (honouring `Retry-After`); sums the tokens and cost of every attempt.                                              |
+| [`applicant`](../../../acorn-agent/applicant/applicant.go) | `data/profile.json` (any JSON object, up to 256 KB, read as written at the start of every run) and `data/resumes/` (`.pdf .doc .docx .rtf .txt`; a résumé's id is its path in the folder; a path that climbs out of the folder names nothing). |
+
+Routes, all under `/agent/v1`:
+
+| Route                            | Does                                                                                                     |
+| -------------------------------- | -------------------------------------------------------------------------------------------------------- |
+| `GET /health`                    | `{ok, model, sessions, hasKey}`; never the key.                                                          |
+| `POST /sessions`                 | Opens a run `{url, title, stopBeforeSubmit}` → `{sessionId, resumes[]}`. 401 `no_key`, 422 `no_profile`. |
+| `POST /sessions/{id}/step`       | One observation → `{status, message, actions[], number, usage, dropped[]}`.                              |
+| `GET /sessions/{id}/resume?id=…` | The résumé file's bytes (type in `Content-Type`, name in `X-File-Name`), for a live session only.        |
+| `DELETE /sessions/{id}`          | Ends the run. A session untouched for an hour is dropped.                                                |
+
+The key is the server's `OPENROUTER_API_KEY`, or the `X-OpenRouter-Key` header when the extension sends one.
+
+### 19.4 One step
+
+0. **Is the image the size it says?** The server decodes each screenshot and refuses one whose pixels differ from its viewport by more than one pixel (`bad_observation`, "the screenshot is 2560x1314 pixels but the viewport says 1280x657"): the model measures in the image it is shown, so a mismatch would send every click to the wrong place.
+1. **Look.** `Observation`: the screenshot (data URL), the page's address and title, the viewport (screenshot size, scroll position, page size, all in screenshot pixels), the focus report, notes (a dialog that was accepted, a tab the run moved into), and the results of the last step's actions.
+2. **Is the page moving?** The server reduces each screenshot to a 32 × 32 brightness grid and compares it with the previous one: the page counts as unchanged when no cell moved by 12 or more (a blinking caret and JPEG noise stay under it; typed text, a message or a new page do not). The model is told "the screen looks the same as after your previous actions" and for how many steps. After `ACORN_AGENT_MAX_STALE` (6) such steps in a row the run ends as `stuck` without another model call. A retried step does not count as an unchanged screen.
+3. **Ask.** The request is the system prompt ([`prompts/system.md`](../../../acorn-agent/agent/prompts/system.md), deliberately short: the task, "analyze the screen and do the next thing that gets the application submitted, doing the best you can with what the screenshot and the applicant's details show", the answer format, the actions, the applicant's profile and the résumés), the run's history, and the current look with its screenshot. The model answers in a strict JSON schema: `observation` (what it sees and whether its last actions worked; written before it decides), `memo` (its own notes, rewritten in full each step, at most 2000 characters: the one thing carried from step to step besides the recent screenshots), `job`, `status`, `message`, and `actions[]`. An answer that is not that JSON is sent back once with the reason.
+4. **Check.** Actions are checked before they leave the server: a point outside the screenshot, text to type that is empty or over 2000 characters, a key that is not one, a scroll of no distance, or more than 6 actions in a step are refused and listed in `dropped` (which the log shows). A `working` step with nothing usable waits 1 s and looks again.
+5. **Act.** The extension performs the actions in order, then looks again. `done`, `need_person` and `stuck` end the run; their actions are dropped.
+
+**Actions** (every one is something a person does): `click`, `double_click`, `triple_click`, `right_click`, `hover` (at a point), `type` (into the focused control; `secret` marks a password or code so it is never logged), `key`, `scroll` (at a point, by a distance), `upload` (a résumé, at the control that opens the picker or takes the drop), `wait`.
+
+### 19.5 Memory and context
+
+- **History.** The last `ACORN_AGENT_KEEP_TURNS` (8) steps are replayed in full; only the newest `ACORN_AGENT_KEEP_IMAGES` (3) keep their screenshot. Older steps are folded into one line each ("step 4: Filled the address [type …; key Tab]"), at most 80 lines of 240 characters. When the history still exceeds about 30 000 estimated tokens the oldest steps are folded early. There is no second model call for this.
+- **Memo.** The model's own scratchpad (19.4) is replayed on every step. It is how the run remembers what is done and what was tried, without relying on what is still on screen.
+- **Résumé.** When the model emits an `upload` it usually names no file; the server picks a _stack_ (a folder): a name the model gave if it matches a file, a stack (optionally with a format: "C# + React docx") or a loose document, else the stack chosen earlier in the run, else the only stack, else **Jev** (`typesafe/jev-1.13`) chooses among the stacks by name given the job the model recorded (loose documents are never offered). The stack is sent as a PDF unless a format is named (formats are tried pdf, docx, doc, rtf, txt). If Jev fails the first stack is used and the step's `dropped` says so.
+- **Secrets.** The model reads the profile without Acorn's own keys and logins. The account password appears as `{{account_password}}`; when the model types that, the server types the real password and marks the action secret, so the password is in no prompt, history or trace. The OpenRouter key kept in `profile.json` is used only when the server has none of its own.
+
+### 19.6 Stopping, failing, and the person
+
+- **Done.** The model reports `done` once the page shows the application was received. With **Stop before Submit** on it reports `done` at the control that sends it, without clicking, and the run ends as "Ready to submit".
+- **Needs the person.** A CAPTCHA, an emailed or phone code or link, a sign-in with a service it has no credentials for, a required fact the profile lacks: the model reports `need_person` with the reason, and the run ends as stopped with that reason on the Now card. Mail verification is not read by the agent.
+- **Stuck.** The model's own report, the unchanged-page limit, or the step limit (`ACORN_AGENT_MAX_STEPS`, 150).
+- **Errors.** `no_key`, `invalid_key`, `no_credits`, `rate_limited` and `model_error` map to the same plain-words messages as the rest of Acorn (`@acorn/shared/user-messages`); a server that is not running says so.
+- **A new tab.** When a click opens a tab, the run moves into it (the old one stays open), tells the model, and Stop follows.
+
+### 19.7 Configuration
+
+| Variable                                                                                 | Default                         | Meaning                                                            |
+| ---------------------------------------------------------------------------------------- | ------------------------------- | ------------------------------------------------------------------ |
+| `OPENROUTER_API_KEY`                                                                     | none                            | The key the model and Jev are called with.                         |
+| `OPENROUTER_BASE_URL`                                                                    | `config.OpenRouterBaseURL`      | For tests: point the model at a stand-in.                          |
+| `ACORN_AGENT_MODEL`                                                                      | `config.OpenRouterModel` (Luna) | The model that drives a run.                                       |
+| `ACORN_AGENT_REASONING`                                                                  | `none`                          | Reasoning effort sent with each step.                              |
+| `ACORN_AGENT_DATA_DIR`                                                                   | `data`                          | Where `profile.json` and `resumes/` are.                           |
+| `ACORN_AGENT_TRACE`, `_TRACE_DIR`                                                        | on, `traces`                    | Records each step (below). `ACORN_AGENT_TRACE=false` turns it off. |
+| `ACORN_AGENT_MAX_STEPS` · `_MAX_ACTIONS` · `_KEEP_TURNS` · `_KEEP_IMAGES` · `_MAX_STALE` | 150 · 6 · 8 · 3 · 6             | Bounds on one run (19.4, 19.5).                                    |
+| `HTTP_ADDR`, `CORS_ORIGINS`                                                              | `127.0.0.1:8090`                | Listen address; the extension's own origin is always allowed.      |
+
+### 19.8 Data and privacy
+
+- The screenshot and the shaped `profile.json` (§19.5) go to OpenRouter (the model); Jev gets the job text, the shaped profile and the résumé stack names. Nothing goes to acorn-backend, and the extension keeps no copy of the profile.
+- A page's password boxes are not hidden from a screenshot: the model sees the dots, and the focus report replaces a password's value with its length. The password the agent types comes from `profile.json`.
+- **Traces.** With tracing on (the default), each run writes a folder `traces/<session>/` on this machine, in the order the steps were asked (a retried or failed step is its own numbered entry, never overwritten): `session.json` (the page, model, limits and the résumés on offer), `system.txt` (the standing prompt, the profile with secrets as placeholders), and for every entry `NNN.jpg` (the screenshot the model saw), `NNN.marked.jpg` (the same screenshot with each action's point drawn, numbered in order: red ring and cross for a click, a blue line for a scroll, green for an upload), `NNN.json` (what the page reported, the unchanged-screen count, what the model decided, the actions sent back, those refused and why, the error if the step failed) and `NNN.model.json` (every model call of the step: the messages sent with their images counted, the raw answer, finish reason, tokens, cost, time, requests made). `timeline.txt` is one line per entry to read a run at a glance. Text typed into a field marked `secret` is written as a character count. The folder holds the applicant's pages and is git-ignored. A trace is the recorded run to replay against a change to the agent. The server's own log has one line per step (status, actions, refused, time, cost, message, error).
+- The tab's local log (the Logs tab) holds the `agent-*` events: step, status, message, actions as kind and place, failed actions, retries, cost. It holds no screenshots and no typed text.
+
+### 19.9 Tests
+
+- `go test ./acorn-agent/...`: the loop against a scripted model (history, folding, repair, refusals, unchanged-page detection, résumé choice, secrets in traces, 20 runs at once), the model client against a stand-in server, the HTTP routes, the applicant files.
+- `bun test`: keys, input, screenshot scale, the executor, upload, the server client, the page-side scripts, and the whole loop (a fake browser and server) in [`src/agent/`](../../extension/src/agent).
+- `bun run e2e:agent` ([`tests/e2e/agent/run.ts`](../../../tests/e2e/agent/run.ts)): a real browser with the built extension, the real Go server, a form with a native list, a checkbox and a file input, and a stand-in for the model. It checks the form received every value, the overlay shows and is removed, the server was sent a screenshot and the applicant, the screenshot's pixels are the viewport the model is told **at two device pixels to a CSS pixel**, Stop works, and a missing server is reported plainly. It brings its own server on a free port and its own build of the extension, so it never touches a server you are running or the extension you have loaded. **No test has run against the real model.**
+
+### 19.10 Known gaps
+
+1. **Not run against GPT-6 Luna.** Whether Luna accepts images and a strict JSON schema on OpenRouter, how well it finds points in a screenshot, and whether `reasoning` other than `none` keeps the JSON in the message are unverified.
+2. **Native lists and typeahead.** Clicking a native `<select>` and typing the start of an option selects it in the e2e; ArrowDown then Enter does not. The prompt says to type. Platform differences are untested.
+3. **Frames.** The focus report sees the focused control through shadow roots and same-origin frames; a cross-origin frame (an embedded application form) reports no focus. Clicks and typing work there, since they are coordinates.
+4. **Mail verification** is not handled: an emailed code or link ends the run as "needs you".
+5. **Background tabs** may not draw frames; a screenshot that does not come is retried with the tab brought to the front, which is visible. Many tabs at once is untested.
+6. **Résumé choice** reads the stack's folder name, not the résumé's text.
+7. **Stop before Submit** relies on the model not clicking the control; nothing outside the model enforces it.
+8. **The tab's log holds no screenshots**; they are in the server's trace folder.
+9. **The page-reading Run's code is still in the extension** behind the switch (§10).

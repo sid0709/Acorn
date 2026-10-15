@@ -1,3 +1,5 @@
+import { runAgent } from "../../agent/runner";
+import { getAgentMode, getAgentUrl } from "../../agent/settings";
 import { getAccessToken, getAcornApiUrl } from "../../auth/acorn-auth";
 import { getRunCheckpoint } from "../../pipeline/run-checkpoint";
 import { runOrchestrator } from "../../pipeline/run-orchestrator";
@@ -45,6 +47,27 @@ export function handleStartRun(
     sendResponse({ ok: true });
 
     try {
+      // The agent plans from screenshots on this computer and needs no Acorn sign-in.
+      if (await getAgentMode()) {
+        console.info("[acorn:agent] Run on tab", tabId, "→", getAgentUrl());
+        await runAgent({
+          tabId,
+          agentUrl: getAgentUrl(),
+          signal: stop.signal,
+          stopBeforeSubmit: await stopBeforeSubmitFor(message),
+          emit: (tabIds, progress) => {
+            for (const id of tabIds) broadcastPipelineProgress(id, progress);
+          },
+          claimTab: (id) => {
+            claimed.add(id);
+            claimRunStopTab(stop, id);
+            pipelineRunningTabIds.add(id);
+            runTabIds.add(id);
+            void syncAutoFocus();
+          },
+        });
+        return;
+      }
       const token = await getAccessToken();
       if (!token) {
         broadcastPipelineProgress(tabId, {

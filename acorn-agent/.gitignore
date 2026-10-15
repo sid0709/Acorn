@@ -1,0 +1,7 @@
+# The applicant's own data and run traces stay on this machine.
+data/*
+!data/README.md
+!data/resumes/
+data/resumes/*
+!data/resumes/.gitkeep
+traces/

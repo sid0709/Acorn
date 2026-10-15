@@ -1,7 +1,7 @@
 /**
  * Where Acorn's clients find their servers. Every route lives under `/acorn` on the
  * API, and so does the Socket.IO gateway. A build overrides either host with
- * VITE_ACORN_API_URL / VITE_ACORN_WEB_URL.
+ * VITE_ACORN_API_URL / VITE_ACORN_WEB_URL / VITE_ACORN_AGENT_URL.
  */
 
 /** Engine.IO path of Acorn's Socket.IO gateway, on the API host. */
@@ -15,12 +15,25 @@ export type AcornHosts = {
   api: string;
   /** acorn-frontend, where a new Gmail creates an Acorn account. */
   web: string;
+  /**
+   * acorn-agent, which plans each step of a Run from a screenshot. It reads the applicant's
+   * profile and résumés from the machine it runs on, so every build points at this machine.
+   */
+  agent: string;
 };
 
 /** Development builds talk to the local servers (`bun run dev`); every other build to production. */
 export const ACORN_HOSTS = {
-  development: { api: "http://127.0.0.1:8083", web: "http://localhost:6005" },
-  production: { api: "https://acornapi.remotepairnet.net", web: "https://acorn.remotepairnet.net" },
+  development: {
+    api: "http://127.0.0.1:8083",
+    web: "http://localhost:6005",
+    agent: "http://127.0.0.1:8090",
+  },
+  production: {
+    api: "https://acornapi.remotepairnet.net",
+    web: "https://acorn.remotepairnet.net",
+    agent: "http://127.0.0.1:8090",
+  },
 } as const satisfies Record<string, AcornHosts>;
 
 /** The hosts for a Vite build mode (`import.meta.env.MODE`). */

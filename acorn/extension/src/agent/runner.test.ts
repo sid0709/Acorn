@@ -1,0 +1,277 @@
+import assert from "node:assert/strict";
+import { afterEach, beforeEach, describe, it } from "node:test";
+
+import { runAgent } from "./runner.ts";
+
+import type { AgentStep } from "@acorn/shared/agent-contract";
+import type { PipelineProgress } from "@acorn/shared/pipeline-types";
+
+type Command = { method: string; params?: Record<string, unknown> };
+
+const realFetch = globalThis.fetch;
+const realChrome = (globalThis as { chrome?: unknown }).chrome;
+
+let commands: Command[];
+let detached: number;
+let attached: number;
+
+/** A browser with one tab whose page answers the commands the agent sends. */
+function installBrowser(answers: Record<string, unknown> = {}) {
+  commands = [];
+  detached = 0;
+  attached = 0;
+  const noListeners = { addListener() {}, removeListener() {} };
+  (globalThis as { chrome?: unknown }).chrome = {
+    tabs: {
+      get: async (id: number) => ({
+        id,
+        url: "https://jobs.example/apply?token=secret",
+        title: "Apply",
+      }),
+      onCreated: noListeners,
+    },
+    debugger: {
+      attach: async () => void (attached += 1),
+      detach: async () => void (detached += 1),
+      onEvent: noListeners,
+      onDetach: noListeners,
+      sendCommand: async (_target: unknown, method: string, params?: Record<string, unknown>) => {
+        commands.push({ method, params });
+        if (method === "Page.getLayoutMetrics") {
+          return {
+            cssVisualViewport: { pageX: 0, pageY: 0, clientWidth: 1000, clientHeight: 600 },
+            cssContentSize: { width: 1000, height: 1800 },
+          };
+        }
+        if (method === "Page.captureScreenshot") return { data: "QUJD" };
+        if (method === "Page.addScriptToEvaluateOnNewDocument") return { identifier: "script-1" };
+        return answers[method] ?? {};
+      },
+    },
+    runtime: { sendMessage: () => {} },
+  };
+}
+
+type Seen = { method: string; path: string; body: unknown };
+let requests: Seen[];
+
+/** An agent server that answers each step with the next scripted one. */
+function installServer(steps: (AgentStep | { status: number; body: unknown })[]) {
+  requests = [];
+  let next = 0;
+  globalThis.fetch = (async (url: string | URL | Request, init?: RequestInit) => {
+    const path = new URL(String(url)).pathname + new URL(String(url)).search;
+    const body = init?.body ? JSON.parse(String(init.body)) : undefined;
+    requests.push({ method: init?.method ?? "GET", path, body });
+    if (path === "/agent/v1/sessions" && init?.method === "POST") {
+      return Response.json({
+        sessionId: "s1",
+        resumes: [{ id: "a.pdf", fileName: "a.pdf", size: 3 }],
+      });
+    }
+    if (path.endsWith("/step")) {
+      const reply = steps[Math.min(next++, steps.length - 1)];
+      if ("body" in reply) return Response.json(reply.body, { status: reply.status });
+      return Response.json(reply);
+    }
+    return new Response(null, { status: 204 });
+  }) as typeof fetch;
+}
+
+const usage = { calls: 1, inputTokens: 100, outputTokens: 10, cost: 0.002 };
+const working = (
+  number: number,
+  actions: AgentStep["actions"],
+  message = "Working",
+): AgentStep => ({
+  status: "working",
+  message,
+  actions,
+  number,
+  usage,
+});
+const finished = (status: AgentStep["status"], number: number, message: string): AgentStep => ({
+  status,
+  message,
+  actions: null,
+  number,
+  usage,
+});
+
+async function run(extra: Partial<Parameters<typeof runAgent>[0]> = {}) {
+  const progress: PipelineProgress[] = [];
+  const report = await runAgent({
+    tabId: 7,
+    agentUrl: "http://agent",
+    signal: new AbortController().signal,
+    stopBeforeSubmit: false,
+    emit: (_tabs, p) => progress.push(p),
+    retryBackoffMs: [1],
+    ...extra,
+  });
+  return { report, progress };
+}
+
+const mouse = (type: string) =>
+  commands.filter((c) => c.method === "Input.dispatchMouseEvent" && c.params?.type === type);
+
+beforeEach(() => installBrowser());
+afterEach(() => {
+  globalThis.fetch = realFetch;
+  (globalThis as { chrome?: unknown }).chrome = realChrome;
+});
+
+describe("runAgent", () => {
+  it("looks, sends the screenshot, performs the actions, and looks again until done", async () => {
+    installServer([
+      working(1, [{ id: "s1a1", kind: "click", x: 500, y: 300 }], "Opening the form"),
+      finished("done", 2, "The application was sent"),
+    ]);
+    const { report, progress } = await run();
+
+    assert.equal(report.outcome, "completed");
+    assert.equal(mouse("mousePressed").length, 1);
+    assert.deepEqual(
+      [mouse("mousePressed")[0].params?.x, mouse("mousePressed")[0].params?.y],
+      [500, 300],
+    );
+
+    const steps = requests.filter((r) => r.path.endsWith("/step"));
+    assert.equal(steps.length, 2);
+    const first = steps[0].body as Record<string, unknown>;
+    assert.equal(first.screenshot, "data:image/jpeg;base64,QUJD");
+    assert.deepEqual(first.viewport, {
+      width: 1000,
+      height: 600,
+      scrollX: 0,
+      scrollY: 0,
+      pageWidth: 1000,
+      pageHeight: 1800,
+    });
+    // The second look carries what happened to the first step's actions.
+    assert.deepEqual((steps[1].body as { results: unknown }).results, [{ id: "s1a1", ok: true }]);
+
+    assert.deepEqual(progress.map((p) => p.phase).slice(-1), ["done"]);
+    assert.match(progress.at(-1)?.message ?? "", /^Done · 2 steps/);
+    assert.equal(progress.at(-1)?.run?.report?.outcome, "completed");
+  });
+
+  it("hides the overlay for the screenshot and shows it again", async () => {
+    installServer([finished("done", 1, "ok")]);
+    await run();
+    const order = commands
+      .filter(
+        (c) =>
+          c.method === "Page.captureScreenshot" ||
+          String(c.params?.expression).includes(".capture("),
+      )
+      .map((c) =>
+        c.method === "Page.captureScreenshot"
+          ? "shot"
+          : String(c.params?.expression).includes("capture(true)")
+            ? "hide"
+            : "show",
+      );
+    assert.deepEqual(order, ["hide", "shot", "show"]);
+  });
+
+  it("starts the session on the page's address and ends it when done", async () => {
+    installServer([finished("done", 1, "ok")]);
+    await run({ stopBeforeSubmit: true });
+    assert.deepEqual(requests[0].body, {
+      url: "https://jobs.example/apply?token=secret",
+      title: "Apply",
+      stopBeforeSubmit: true,
+    });
+    assert.equal(requests.at(-1)?.method, "DELETE");
+    assert.equal(detached, 1);
+  });
+
+  it("reports ready to submit when it was asked to stop before sending", async () => {
+    installServer([finished("done", 1, "Everything is filled in")]);
+    const { report } = await run({ stopBeforeSubmit: true });
+    assert.equal(report.outcome, "ready_to_submit");
+  });
+
+  it("ends a run the person is needed for, in the agent's words", async () => {
+    installServer([finished("need_person", 3, "There is a CAPTCHA on this page")]);
+    const { report, progress } = await run();
+    assert.equal(report.outcome, "failed");
+    assert.equal(report.failure?.reason, "waited_for_person");
+    assert.equal(report.failure?.label, "There is a CAPTCHA on this page");
+    assert.equal(progress.at(-1)?.phase, "error");
+    assert.equal(progress.at(-1)?.run?.canContinue, true);
+  });
+
+  it("ends a run the agent cannot carry on", async () => {
+    installServer([finished("stuck", 9, "The page did not change for 6 steps in a row.")]);
+    const { report } = await run();
+    assert.equal(report.failure?.reason, "no_progress");
+  });
+
+  it("sends the same step again when the model was briefly busy", async () => {
+    installServer([
+      { status: 429, body: { error: "slow down", code: "rate_limited" } },
+      finished("done", 1, "ok"),
+    ]);
+    const { report } = await run();
+    assert.equal(report.outcome, "completed");
+    assert.equal(requests.filter((r) => r.path.endsWith("/step")).length, 2);
+  });
+
+  it("does not retry a refused key, and says what to do about it", async () => {
+    installServer([{ status: 402, body: { error: "insufficient credits", code: "no_credits" } }]);
+    const { report } = await run();
+    assert.equal(requests.filter((r) => r.path.endsWith("/step")).length, 1);
+    assert.equal(report.outcome, "failed");
+    assert.equal(report.failure?.reason, "ai_unavailable");
+    assert.equal(report.failure?.code, "openrouter_no_credits");
+  });
+
+  it("says the agent is not running when nothing answers", async () => {
+    installServer([finished("done", 1, "ok")]);
+    globalThis.fetch = (async () => {
+      throw new TypeError("Failed to fetch");
+    }) as typeof fetch;
+    const { report } = await run();
+    assert.equal(report.failure?.code, "offline");
+    assert.match(report.failure?.label ?? "", /Can't reach the Acorn agent/);
+    assert.equal(detached, 1);
+  });
+
+  it("stops at once when the person presses Stop, and leaves the page", async () => {
+    installServer([working(1, [{ id: "s1a1", kind: "wait", ms: 60_000 }])]);
+    const stop = new AbortController();
+    const running = run({ signal: stop.signal });
+    await new Promise((resolve) => setTimeout(resolve, 50));
+    stop.abort();
+    const { report } = await running;
+    assert.equal(report.outcome, "stopped");
+    assert.equal(detached, 1);
+    assert.equal(requests.at(-1)?.method, "DELETE");
+  });
+
+  it("never writes what it typed into the log or the progress", async () => {
+    installServer([
+      working(1, [{ id: "s1a1", kind: "type", text: "hunter2-secret", secret: true }]),
+      finished("done", 2, "ok"),
+    ]);
+    const { progress } = await run();
+    assert.ok(!JSON.stringify(progress).includes("hunter2"));
+  });
+
+  it("carries the page's files in the debugger session: picker interception on, overlay installed", async () => {
+    installServer([finished("done", 1, "ok")]);
+    await run();
+    const methods = commands.map((c) => c.method);
+    for (const wanted of [
+      "Page.enable",
+      "Page.setInterceptFileChooserDialog",
+      "Runtime.addBinding",
+      "Page.addScriptToEvaluateOnNewDocument",
+    ]) {
+      assert.ok(methods.includes(wanted), wanted);
+    }
+    assert.ok(methods.includes("Page.removeScriptToEvaluateOnNewDocument"));
+  });
+});

@@ -1,11 +1,12 @@
 ---
 paths:
   - "acorn-backend/**/*.go"
+  - "acorn-agent/**/*.go"
 ---
 
 # Go
 
-Applies to `acorn-backend`. Shared settings live in `backend-core/config`, copied into this repo. The module replace is `../backend-core`. Use `config.LoadDatabase`, `config.LoadHTTP`, `config.LoadOpenAI`, `config.Env`, and `config.EnvInt`. Handlers and domain code do not call `os.Getenv`.
+Applies to `acorn-backend` and `acorn-agent`. Shared settings live in `backend-core/config`, copied into this repo. The module replace is `../backend-core`. Use `config.LoadDatabase`, `config.LoadHTTP`, `config.LoadOpenAI`, `config.Env`, and `config.EnvInt`. Handlers and domain code do not call `os.Getenv`.
 
 ## Config
 

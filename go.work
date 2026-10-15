@@ -1,3 +1,6 @@
 go 1.26.4
 
-use ./acorn-backend
+use (
+	./acorn-agent
+	./acorn-backend
+)

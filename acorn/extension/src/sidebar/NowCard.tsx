@@ -233,7 +233,7 @@ function RunStatus({ progress }: { progress: PipelineProgress }) {
     return <RunCelebration key={run.runId} run={run} />;
   }
   const ready = run.report?.outcome === RUN_OUTCOME.readyToSubmit;
-  const parts = [`Page ${Math.max(run.page, 1)}`];
+  const parts = [run.step ? `Step ${run.step}` : `Page ${Math.max(run.page, 1)}`];
   if (run.refills > 0) parts.push(`refill ${run.refills}/${run.maxRefills}`);
   return (
     <VStack gap={1}>

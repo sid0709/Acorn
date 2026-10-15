@@ -14,6 +14,8 @@ describe("acornHosts", () => {
     assert.equal(acornHosts("production").api, "https://acornapi.remotepairnet.net");
     assert.equal(acornHosts("production").web, "https://acorn.remotepairnet.net");
     assert.equal(acornHosts("development").web, "http://localhost:6005");
+    assert.equal(acornHosts("development").agent, "http://127.0.0.1:8090");
+    assert.equal(acornHosts("production").agent, "http://127.0.0.1:8090");
     assert.ok(ACORN_SOCKET_PATH.startsWith("/acorn/"));
   });
 });
