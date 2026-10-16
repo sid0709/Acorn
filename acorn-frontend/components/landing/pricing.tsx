@@ -1,81 +1,55 @@
-import {
-  Badge,
-  Button,
-  Card,
-  Glyph,
-  Grid,
-  HStack,
-  Heading,
-  List,
-  ListItem,
-  Stack,
-  Text,
-} from "sid-ui";
+import Link from "next/link";
 import { PLANS, formatPrice, type PlanId } from "@/lib/billing";
 import { CTA_START, LANDING_SECTIONS } from "@/lib/landing";
 import { ROUTES } from "@/lib/routes";
-import { LandingSection } from "./landing-section";
+import { SectionTitle } from "./section-title";
 
-const PLAN_MIN_WIDTH = 260;
-const PLAN_COLUMNS = 3;
 /** The plan the page points an active job seeker to. */
 const HIGHLIGHTED_PLAN: PlanId = "pro";
 
 export function Pricing() {
   return (
-    <LandingSection
-      id={LANDING_SECTIONS.pricing}
-      eyebrow="Pricing"
-      title="Start free. Upgrade when your search heats up."
-      description="Every plan includes the agent, autofill, and your profile. No credit card to start."
-    >
-      <Grid columns={{ minWidth: PLAN_MIN_WIDTH, max: PLAN_COLUMNS }} gap={4}>
+    <section id={LANDING_SECTIONS.pricing} aria-labelledby="pricing-title">
+      <SectionTitle
+        id="pricing-title"
+        title="Start free. Upgrade when your search heats up."
+        description="Every plan includes the agent, autofill, and your profile. No credit card to start."
+      />
+      <div className="ac-card-grid">
         {PLANS.map((plan) => {
           const highlighted = plan.id === HIGHLIGHTED_PLAN;
           const free = plan.price.monthly === 0;
           return (
-            <Card
+            <article
               key={plan.id}
-              padding={6}
-              variant={highlighted ? "blue" : "default"}
-              elevation={highlighted ? "high" : undefined}
+              className={highlighted ? "ac-card ac-plan ac-plan-hot" : "ac-card ac-plan"}
+              data-hover
             >
-              <Stack gap={5}>
-                <Stack gap={1}>
-                  <HStack hAlign="between" vAlign="center" gap={2}>
-                    <Heading level={3}>{plan.name}</Heading>
-                    {highlighted ? <Badge label="Recommended" variant="blue" /> : null}
-                  </HStack>
-                  <Text type="supporting" color="secondary">
-                    {plan.tagline}
-                  </Text>
-                </Stack>
-                <Stack gap={1}>
-                  <HStack gap={1} vAlign="end">
-                    <Text type="display-2">{formatPrice(plan.price.monthly)}</Text>
-                    <Text color="secondary">/ month</Text>
-                  </HStack>
-                  <Text type="supporting" color="secondary">
-                    {free
-                      ? "Free forever"
-                      : `${formatPrice(plan.price.yearly)} / month billed yearly`}
-                  </Text>
-                </Stack>
-                <List density="compact">
-                  {plan.features.map((feature) => (
-                    <ListItem key={feature} label={feature} startContent={<Glyph name="check" />} />
-                  ))}
-                </List>
-                <Button
-                  label={free ? CTA_START : `Start with ${plan.name}`}
-                  variant={highlighted ? "primary" : "secondary"}
-                  href={ROUTES.signUp}
-                />
-              </Stack>
-            </Card>
+              <div className="ac-card-tag">{highlighted ? "Recommended" : plan.name}</div>
+              <h3>{plan.name}</h3>
+              <p>{plan.tagline}</p>
+              <div className="ac-price">
+                {formatPrice(plan.price.monthly)}
+                <span> / month</span>
+              </div>
+              <div className="ac-price-note">
+                {free ? "Free forever" : `${formatPrice(plan.price.yearly)} / month billed yearly`}
+              </div>
+              <ul className="ac-plan-list">
+                {plan.features.map((feature) => (
+                  <li key={feature}>{feature}</li>
+                ))}
+              </ul>
+              <Link
+                href={ROUTES.signUp}
+                className={highlighted ? "ac-btn ac-btn-primary" : "ac-btn ac-btn-glass"}
+              >
+                {free ? CTA_START : `Start with ${plan.name}`}
+              </Link>
+            </article>
           );
         })}
-      </Grid>
-    </LandingSection>
+      </div>
+    </section>
   );
 }

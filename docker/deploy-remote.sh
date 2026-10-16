@@ -165,11 +165,14 @@ if [[ "$want_web" == true ]]; then
   echo "Pulling $WEB_REF"
   docker pull "$WEB_REF"
   docker rm -f "$WEB_CONTAINER" >/dev/null 2>&1 || true
+  # The privacy and terms pages show this address; it comes from deploy.env, empty when unset.
+  contact_email="$(grep -E '^ACORN_CONTACT_EMAIL=' "$DEPLOY_ENV" | tail -n 1 | cut -d= -f2- || true)"
   docker run -d \
     --name "$WEB_CONTAINER" \
     --restart unless-stopped \
     --network "$NETWORK" \
     -e ACORN_API_URL="$INTERNAL_API_URL" \
+    -e ACORN_CONTACT_EMAIL="$contact_email" \
     -e PORT=3000 \
     -e HOSTNAME=0.0.0.0 \
     -p 127.0.0.1:6005:3000 \
