@@ -6,6 +6,13 @@ import (
 	"testing"
 )
 
+// stopsAtOnce is a config that accepts the model's stop for the applicant without sending it back.
+func stopsAtOnce() Config {
+	cfg := DefaultConfig()
+	cfg.StopPasses = 0
+	return cfg
+}
+
 func ending(status, message string, stop any) string {
 	out, _ := json.Marshal(map[string]any{
 		"observation": "I see a form", "memo": nil, "job": "", "status": status,
@@ -35,7 +42,7 @@ func TestARunTheModelEndsSaysWhyForThePerson(t *testing.T) {
 	}
 	for name, tc := range cases {
 		t.Run(name, func(t *testing.T) {
-			a := newTestAgent(t, &scriptedModel{replies: []string{tc.reply}}, &fixedDecider{}, DefaultConfig())
+			a := newTestAgent(t, &scriptedModel{replies: []string{tc.reply}}, &fixedDecider{}, stopsAtOnce())
 			step := stepOK(t, a, start(t, a), observation(shot(t, 40)))
 			if (step.Stop == nil) != (tc.want == nil) || (step.Stop != nil && *step.Stop != *tc.want) {
 				t.Fatalf("stop = %+v, want %+v", step.Stop, tc.want)

@@ -150,7 +150,7 @@ func TestARunThatEndsMayStillScrollWhatThePersonMustActOnIntoView(t *testing.T) 
 	scroll := func(dy float64) map[string]any { return map[string]any{"kind": "scroll", "x": 100, "y": 100, "dy": dy} }
 	reply = plan("A code was sent", nil, scroll(300), click(5, 5, nil), scroll(200), scroll(100))
 	reply = strings.Replace(reply, `"status":"working"`, `"status":"need_person"`, 1)
-	a := newTestAgent(t, &scriptedModel{replies: []string{reply}}, &fixedDecider{}, DefaultConfig())
+	a := newTestAgent(t, &scriptedModel{replies: []string{reply}}, &fixedDecider{}, stopsAtOnce())
 	step := stepOK(t, a, start(t, a), observation(shot(t, 40)))
 	if step.Status != StatusNeedPerson || len(step.Actions) != 2 || step.Actions[0].Kind != KindScroll || step.Actions[1].Kind != KindScroll {
 		t.Fatalf("step = %+v actions = %s", step, kinds(step.Actions))

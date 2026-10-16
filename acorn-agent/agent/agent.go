@@ -56,6 +56,9 @@ type Config struct {
 	OptionMatch  float64
 	LoadWait     time.Duration
 	MaxLoadWaits int
+	// StopPasses is how many times a run's stop for the applicant is sent back, to finish
+	// everything that does not need them first (stopgate.go); 0 accepts every stop at once.
+	StopPasses int
 	// KeepTurns is how many recent steps stay in full when the history is compacted; older
 	// ones are folded into one line each.
 	KeepTurns int
@@ -98,6 +101,7 @@ func DefaultConfig() Config {
 		OptionMatch:      0.7,
 		LoadWait:         time.Second,
 		MaxLoadWaits:     4,
+		StopPasses:       2,
 		KeepTurns:        8,
 		KeepImages:       3,
 		HistoryTokens:    30_000,
@@ -403,6 +407,12 @@ func (a *Agent) step(ctx context.Context, id string, obs Observation) (Step, err
 	planned = fillSecrets(planned, s.snap.Secrets)
 	planned, dropped = a.resolveUploads(ctx, s, planned, dropped)
 	status := answer.Status
+	// The applicant is asked last: a stop is first sent back to finish everything else on the page.
+	if note, held := a.holdStop(s, status, answer); held {
+		status, answer.Message = StatusWorking, stopPassMessage
+		planned = []Action{{ID: fmt.Sprintf("s%da1", number), Kind: KindWait, Ms: stopPassWaitMs}}
+		s.notes = append(s.notes, note)
+	}
 	var actions []Action
 	switch {
 	case status != StatusWorking:

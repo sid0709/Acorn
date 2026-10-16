@@ -13,7 +13,7 @@ func TestContinueTakesAStoppedRunBackUpWithItsMemory(t *testing.T) {
 		answerJSON("need_person", "A CAPTCHA is on the page"),
 		answerJSON("working", "Carrying on", map[string]any{"kind": "wait", "ms": 100}),
 	}}
-	a := newTestAgent(t, model, &fixedDecider{}, DefaultConfig())
+	a := newTestAgent(t, model, &fixedDecider{}, stopsAtOnce())
 	id := start(t, a)
 	stepOK(t, a, id, observation(shot(t, 255)))
 	stopped := stepOK(t, a, id, observation(shot(t, 200)))

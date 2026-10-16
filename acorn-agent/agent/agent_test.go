@@ -350,7 +350,7 @@ func TestSecretTextIsNeverTraced(t *testing.T) {
 
 func TestNonWorkingStatusEndsTheRun(t *testing.T) {
 	model := &scriptedModel{replies: []string{answerJSON("need_person", "A CAPTCHA is on the page", map[string]any{"kind": "click", "x": 5.0, "y": 5.0})}}
-	a := newTestAgent(t, model, &fixedDecider{}, DefaultConfig())
+	a := newTestAgent(t, model, &fixedDecider{}, stopsAtOnce())
 	id := start(t, a)
 	step, err := a.Step(context.Background(), id, observation(shot(t, 255)))
 	if err != nil {

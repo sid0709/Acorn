@@ -232,3 +232,70 @@ func TestADropdownThatNeverOpensIsNeverTypedInto(t *testing.T) {
 		t.Fatalf("the model was not told:\n%s", text)
 	}
 }
+
+func TestTheFirstStopForTheApplicantIsSentBackToFinishThePageThenItStands(t *testing.T) {
+	stop := map[string]any{"reason": "captcha", "problem": "A check that you are human", "action": "Tick the box"}
+	model := &scriptedModel{replies: []string{
+		ending("need_person", "Solve the check", stop),
+		plan("filling the optional fields", nil, click(10, 10, nil)),
+		ending("need_person", "Solve the check", stop),
+	}}
+	a := newTestAgent(t, model, &fixedDecider{}, DefaultConfig())
+	id := start(t, a)
+	first := stepOK(t, a, id, observation(shot(t, 40)))
+	if first.Status != StatusWorking || first.Stop != nil || len(first.Actions) != 1 || first.Actions[0].Kind != KindWait {
+		t.Fatalf("the stop should go back: %+v", first)
+	}
+	if first.Message != stopPassMessage {
+		t.Fatalf("message %q", first.Message)
+	}
+	obs := observation(shot(t, 90))
+	obs.Results = resultsOf(first)
+	second := stepOK(t, a, id, obs)
+	if second.Status != StatusWorking || second.Actions[0].Kind != KindClick {
+		t.Fatalf("the model should fill: %+v", second)
+	}
+	if text := lastText(model); !strings.Contains(text, "the applicant is asked last") || !strings.Contains(text, "optional ones too") {
+		t.Fatalf("the model was not told why:\n%s", text)
+	}
+	obs = observation(shot(t, 140))
+	obs.Results = resultsOf(second)
+	third := stepOK(t, a, id, obs)
+	if third.Status != StatusNeedPerson || third.Stop == nil || third.Stop.Reason != StopCaptcha {
+		t.Fatalf("after the pass the stop stands: %+v", third)
+	}
+}
+
+func TestAStopWhilePartsOfThePageAreUnseenIsSentBackAgainButNotForever(t *testing.T) {
+	stop := map[string]any{"reason": "verification", "problem": "p", "action": "a"}
+	model := &scriptedModel{replies: []string{
+		ending("need_person", "x", stop), ending("need_person", "x", stop), ending("need_person", "x", stop), ending("need_person", "x", stop),
+	}}
+	cfg := DefaultConfig()
+	a := newTestAgent(t, model, &fixedDecider{}, cfg)
+	id := start(t, a)
+	tall := func(n uint8, results []ActionResult) Observation {
+		obs := observation(shot(t, n))
+		obs.Viewport.PageHeight = 4000 // only the top screen has been seen
+		obs.Results = results
+		return obs
+	}
+	step := stepOK(t, a, id, tall(40, nil))
+	for i := 1; i <= 2; i++ {
+		if step.Status != StatusWorking {
+			t.Fatalf("pass %d: %+v", i, step)
+		}
+		step = stepOK(t, a, id, tall(uint8(40+50*i), resultsOf(step)))
+	}
+	if step.Status != StatusNeedPerson {
+		t.Fatalf("the number of passes is bounded (%d): %+v", cfg.StopPasses, step)
+	}
+}
+
+func TestAStopPassCanBeTurnedOff(t *testing.T) {
+	stop := map[string]any{"reason": "captcha", "problem": "p", "action": "a"}
+	a := newTestAgent(t, &scriptedModel{replies: []string{ending("need_person", "x", stop)}}, &fixedDecider{}, stopsAtOnce())
+	if step := stepOK(t, a, start(t, a), observation(shot(t, 40))); step.Status != StatusNeedPerson {
+		t.Fatalf("%+v", step)
+	}
+}

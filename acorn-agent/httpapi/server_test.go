@@ -343,8 +343,11 @@ func TestAStoppedRunContinuesOverHTTP(t *testing.T) {
 	}
 	obs := agent.Observation{Screenshot: screenshot(t), URL: "https://jobs.example", Viewport: agent.Viewport{Width: 200, Height: 100}}
 	url := ts.URL + BasePath + "/sessions/" + started.SessionID
-	if response, body := send(t, http.MethodPost, url+"/step", obs, nil); response.StatusCode != 200 {
-		t.Fatalf("step = %d %s", response.StatusCode, body)
+	// The first stop is sent back to finish the page (the model is asked again); the second stands.
+	for i := 0; i < 2; i++ {
+		if response, body := send(t, http.MethodPost, url+"/step", obs, nil); response.StatusCode != 200 {
+			t.Fatalf("step = %d %s", response.StatusCode, body)
+		}
 	}
 	if response, body := send(t, http.MethodPost, url+"/step", obs, nil); response.StatusCode != http.StatusConflict || !strings.Contains(string(body), `"run_over"`) {
 		t.Fatalf("a stopped run takes no step: %d %s", response.StatusCode, body)
@@ -352,7 +355,7 @@ func TestAStoppedRunContinuesOverHTTP(t *testing.T) {
 
 	response, body := send(t, http.MethodPost, url+"/continue", nil, nil)
 	var continued agent.Continued
-	if response.StatusCode != 200 || json.Unmarshal(body, &continued) != nil || continued.Number != 1 || continued.Usage.Calls != 1 {
+	if response.StatusCode != 200 || json.Unmarshal(body, &continued) != nil || continued.Number != 2 || continued.Usage.Calls != 2 {
 		t.Fatalf("continue = %d %s", response.StatusCode, body)
 	}
 	if response, body := send(t, http.MethodPost, url+"/step", obs, nil); response.StatusCode != 200 {
