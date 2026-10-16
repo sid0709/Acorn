@@ -83,8 +83,9 @@ func TestAScreenIndexOnASingleScreenshotIsIgnored(t *testing.T) {
 		t.Fatalf("actions = %s, dropped = %v", kinds(step.Actions), step.Dropped)
 	}
 	for i, action := range step.Actions {
-		if action.ScrollTo != nil {
-			t.Fatalf("action %d should not scroll on a single screenshot", i+1)
+		// A single screenshot has no screens to scroll between; its points are pinned to where it was taken.
+		if action.ScrollTo == nil || *action.ScrollTo != 0 || action.PageHeight != 0 {
+			t.Fatalf("action %d scrollTo = %v pageHeight = %v", i+1, action.ScrollTo, action.PageHeight)
 		}
 	}
 }

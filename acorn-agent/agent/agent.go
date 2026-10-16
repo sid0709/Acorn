@@ -401,6 +401,7 @@ func (a *Agent) step(ctx context.Context, id string, obs Observation) (Step, err
 	s.message = strings.TrimSpace(answer.Message)
 
 	planned, dropped := checkActions(number, answer.Actions, obs.Viewport, s.maxActions, screens)
+	planned = pinFrame(planned, obs.Viewport, len(screens))
 	planned, surveyAsked := withoutSurvey(planned)
 	// A run that did not turn surveys on is not told they exist, and one the model asks for anyway is ignored.
 	surveyAsked = surveyAsked && s.start.Survey

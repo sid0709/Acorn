@@ -13,6 +13,7 @@ import {
   type AgentActionResult,
 } from "@acorn/shared/agent-contract";
 
+import { NO_FOCUS_MESSAGE, nothingHasFocus, scrollsAPage } from "./focus-guard";
 import { BLOCKED_MESSAGE, type GuardVerdict } from "./guard";
 import { clickAt, moveMouse, pressKeys, typeText, wheelAt } from "./input";
 import { scrollForAction } from "./survey";
@@ -137,12 +138,15 @@ async function perform(ctx: ExecutorContext, action: AgentAction): Promise<Done>
     }
     case "type": {
       if (!action.text) throw new Error("there is no text to type");
+      if (await nothingHasFocus(cdp)) throw new Error(NO_FOCUS_MESSAGE);
       await typeText(cdp, action.text);
       await ctx.sleep(SETTLE_MS / 2);
       return { detail: `${[...action.text].length} characters` };
     }
     case "key": {
       if (!action.keys) throw new Error("there is no key to press");
+      if (scrollsAPage(action.keys) && (await nothingHasFocus(cdp)))
+        throw new Error(NO_FOCUS_MESSAGE);
       await pressKeys(cdp, action.keys);
       await ctx.sleep(SETTLE_MS);
       return {};

@@ -36,6 +36,12 @@ const (
 	askListOpen = "list_open"
 	// listOpenMatch is how sure the decision model must be that a list is open.
 	listOpenMatch = 0.5
+	// askNativeOption is its question about a native list, whose options the page reports as text.
+	askNativeOption = "native_option"
+	// nativeOptionPrefix starts the criteria keys of that question.
+	nativeOptionPrefix = "option_"
+	// maxNativeOptionChars bounds one option's text in that question.
+	maxNativeOptionChars = 120
 	// optionNone is its answer when no option answers.
 	optionNone = "none"
 	// maxOptionPosition is how far down an open list the decision model counts.
@@ -251,6 +257,9 @@ func (a *Agent) continueScript(ctx context.Context, s *session, obs Observation,
 		a.abandon(s, "The last actions failed: "+failed+".")
 		return Step{}, false
 	}
+	if options := nativeList(obs.Focus); options != nil {
+		return a.chooseNative(ctx, s, obs, entry, results, sig, options)
+	}
 	position, listOpen, check, err := a.pickOption(ctx, s, obs, open.choose.Text)
 	s.usage.Checks++
 	s.usage.CheckCost += check.response.Usage.Cost
@@ -314,4 +323,71 @@ func (a *Agent) giveUp(s *session, obs Observation, entry stepTrace, open *openL
 func nudgedClick(id string, choose Action, dy float64, vp Viewport) Action {
 	y := math.Min(math.Max(*choose.Y+dy, 0), float64(vp.Height-1))
 	return Action{ID: id, Kind: KindClick, X: choose.X, Y: &y, ScrollTo: choose.ScrollTo, PageHeight: choose.PageHeight}
+}
+
+// nativeList is the options of the control that has focus when it is a native list: the browser
+// draws its popup itself, so a screenshot never shows it (and "no list is open" would be wrong),
+// but the page reports the options as text.
+func nativeList(focus *Focus) []string {
+	if focus == nil || focus.Tag != "select" || len(focus.Options) == 0 {
+		return nil
+	}
+	return focus.Options
+}
+
+// chooseNative picks the option of a focused native list that answers the choose action. The options
+// are text, so the decision model chooses among them by their wording, with no counting of rows in a
+// picture. The option is typed whole (a list matches what is typed to its options as it goes, so the
+// whole text selects that one and no other) and Enter commits it. No arrow keys, Home or clicks are
+// sent: keys that reach a page, not a list, scroll it.
+func (a *Agent) chooseNative(ctx context.Context, s *session, obs Observation, entry stepTrace, results []ActionResult, sig []uint8, options []string) (Step, bool) {
+	sc := s.script
+	open := sc.open
+	criteria := map[string]string{optionNone: "no option answers it"}
+	for i, option := range options {
+		criteria[nativeOptionPrefix+strconv.Itoa(i)] = clipText(option, maxNativeOptionChars)
+	}
+	questions := map[string]decide.Question{askNativeOption: {
+		Type: decide.TypeChoice,
+		Instructions: "A form has a dropdown list. Someone wants to choose the option that answers: " + strconv.Quote(open.choose.Text) + ". " +
+			"Which option is it? Choose the option whose meaning matches: for a yes or no answer, the option that says yes or no, even when it goes on to explain. " +
+			"Answer none if no option answers it.",
+		Criteria: criteria,
+	}}
+	response, err := a.newScreen(s.key).Decide(ctx, decide.Request{State: []decide.Part{decide.Text("The label of the list: " + focusLabel(obs.Focus))}, Questions: questions})
+	check := verdict{response: response, prompt: "which option of the native list answers " + strconv.Quote(open.choose.Text)}
+	s.usage.Checks++
+	s.usage.CheckCost += response.Usage.Cost
+	s.usage.Cost += response.Usage.Cost
+	entry.Usage = s.usage
+	s.carried = withoutChoose(results)
+	s.stale, s.lastSig = 0, sig
+	index := -1
+	if err == nil {
+		found := response.Answers[askNativeOption]
+		if i, ok := strings.CutPrefix(found.Choice, nativeOptionPrefix); ok && found.Probabilities[found.Choice] >= a.cfg.OptionMatch {
+			if n, convErr := strconv.Atoi(i); convErr == nil && n >= 0 && n < len(options) {
+				index = n
+			}
+		}
+	} else {
+		slog.Warn("native option check failed", "session", s.id, "error", err)
+	}
+	if index < 0 {
+		return a.giveUp(s, obs, entry, open, []modelCall{check.call(err)})
+	}
+	sc.open = nil
+	typed := Action{ID: sc.nextID(s.seq), Kind: KindType, Text: options[index]}
+	commit := Action{ID: sc.nextID(s.seq), Kind: KindKey, Keys: "Enter"}
+	step := Step{Status: StatusWorking, Message: s.message, Actions: a.dispatch(s, []Action{typed, commit}), Number: s.step, Usage: s.usage}
+	entry.Status, entry.Message, entry.Actions = step.Status, step.Message, step.Actions
+	a.record(s, entry, obs.Screenshot, []modelCall{check.call(nil)})
+	return step, true
+}
+
+func focusLabel(focus *Focus) string {
+	if focus == nil || focus.Label == "" {
+		return "(none)"
+	}
+	return focus.Label
 }

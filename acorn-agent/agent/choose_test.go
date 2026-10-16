@@ -299,3 +299,45 @@ func TestAStopPassCanBeTurnedOff(t *testing.T) {
 		t.Fatalf("%+v", step)
 	}
 }
+
+func nativeSelectLook(t *testing.T, shade uint8, results []ActionResult) Observation {
+	t.Helper()
+	obs := observation(shot(t, shade))
+	obs.Results = results
+	obs.Focus = &Focus{Tag: "select", Label: "What's your highest level of education completed?", Options: []string{"No answer", "High School", "College - Associates", "College - Bachelor of Arts"}}
+	return obs
+}
+
+func TestANativeListIsChosenFromItsOptionsAsTextWithNoArrowKeysOrExtraClicks(t *testing.T) {
+	model := &scriptedModel{replies: []string{plan("answering", nil, chooseAction(500, 300, "associate degree", "it shows the answer"))}}
+	screen := &fakeScreen{nativeChoice: "option_2"}
+	a := newAgentWithScreen(t, model, &fixedDecider{}, screen, DefaultConfig())
+	id := start(t, a)
+	step := stepOK(t, a, id, observation(shot(t, 40)))
+	if got := strings.Join(sent(step.Actions), " "); got != "click@500,300" {
+		t.Fatalf("first batch %s", got)
+	}
+	step = stepOK(t, a, id, nativeSelectLook(t, 90, resultsOf(step)))
+	if got := strings.Join(sent(step.Actions), " "); got != "type:College - Associates key:Enter" {
+		t.Fatalf("the option is typed whole and committed: %s", got)
+	}
+	for _, request := range screen.requests {
+		if _, vision := request.Questions[askListOpen]; vision {
+			t.Fatal("a native list's popup is never in the screenshot: asking whether a list is open would send the agent clicking it again")
+		}
+	}
+}
+
+func TestANativeListWithNoMatchingOptionIsLeftToTheModelAndNeverClickedAgain(t *testing.T) {
+	model := &scriptedModel{replies: []string{
+		plan("answering", nil, chooseAction(500, 300, "PhD in physics", "it shows the answer")),
+		plan("picking it myself", nil, click(60, 60, nil)),
+	}}
+	a := newAgentWithScreen(t, model, &fixedDecider{}, &fakeScreen{}, DefaultConfig())
+	id := start(t, a)
+	step := stepOK(t, a, id, observation(shot(t, 40)))
+	step = stepOK(t, a, id, nativeSelectLook(t, 90, resultsOf(step)))
+	if model.count() != 2 || len(step.Actions) != 1 || step.Actions[0].X == nil || *step.Actions[0].X != 60 {
+		t.Fatalf("the model must look next, not another click at the same control: %+v", step)
+	}
+}

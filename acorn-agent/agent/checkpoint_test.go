@@ -28,6 +28,8 @@ type fakeScreen struct {
 	// options are the answers to the next option questions about an open dropdown, in order;
 	// once they run out the answer is none.
 	options []optionVerdict
+	// nativeChoice is the key the screen gives for a native list's options (e.g. "option_4"); empty answers none.
+	nativeChoice string
 	// closedLooks is how many of the next looks at an open dropdown see no list open (a click that missed the control).
 	closedLooks int
 }
@@ -48,6 +50,17 @@ func (f *fakeScreen) Decide(_ context.Context, req decide.Request) (decide.Respo
 	f.requests = append(f.requests, req)
 	if f.err != nil {
 		return decide.Response{}, f.err
+	}
+	if _, asked := req.Questions[askNativeOption]; asked {
+		choice := optionNone
+		if f.nativeChoice != "" {
+			choice = f.nativeChoice
+		}
+		return decide.Response{
+			Model:   "fake-screen-1",
+			Answers: map[string]decide.Answer{askNativeOption: {Type: decide.TypeChoice, Choice: choice, Probabilities: map[string]float64{choice: 0.95}}},
+			Usage:   decide.Usage{InputTokens: 300, Cost: 0.0001},
+		}, nil
 	}
 	if _, asked := req.Questions[askOption]; asked {
 		choice, sure := optionNone, 1.0

@@ -57,6 +57,7 @@ import {
   AGENT_EXPIRED_MESSAGE,
   AGENT_STARTING_MESSAGE,
 } from "./progress";
+import { waitForScrollRest } from "./scroll-rest";
 import { scrollToTop } from "./scroll-top";
 import { AGENT_SURVEY } from "./settings";
 import { captureSurvey } from "./survey";
@@ -517,6 +518,8 @@ export async function runAgent(args: AgentRunArgs): Promise<RunReport> {
       // A page is first looked at from its top: a run that starts, or a click that opens another page,
       // must not begin in the middle of a form whose first questions lie above the screen.
       if (newPage) await scrollToTop(here.cdp, sleep);
+      // A scroll still running (a key, a click, a list scrolling itself into view) is waited out.
+      await waitForScrollRest(here.cdp, sleep);
       let survey: AgentSurveyScreen[] | null = null;
       const captureStartedAt = Date.now();
       await here.overlay.hideForCapture(true);

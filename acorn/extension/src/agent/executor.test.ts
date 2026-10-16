@@ -148,4 +148,36 @@ describe("runActions", () => {
     assert.equal(results[0].ok, true);
     assert.deepEqual(slept, [1500]);
   });
+
+  it("refuses keys that would scroll the page, and typing, when nothing has focus", async () => {
+    const { ctx, cdp } = context();
+    cdp.send = ((method: string) =>
+      Promise.resolve(
+        method === "Runtime.evaluate" ? { result: { value: true } } : {},
+      )) as typeof cdp.send;
+    const results = await runActions(ctx, [
+      { id: "down", kind: "key", keys: "ArrowDown" },
+      { id: "enter", kind: "key", keys: "Enter" },
+      { id: "type", kind: "type", text: "Ada" },
+    ]);
+    assert.equal(results[0]?.ok, false);
+    assert.match(results[0]?.error ?? "", /nothing has focus/);
+    assert.equal(results[1]?.ok, false, "the rest of a step after a failure is skipped");
+  });
+
+  it("lets keys and typing through when a control has focus", async () => {
+    const { ctx, cdp } = context();
+    cdp.send = ((method: string) =>
+      Promise.resolve(
+        method === "Runtime.evaluate" ? { result: { value: false } } : {},
+      )) as typeof cdp.send;
+    const results = await runActions(ctx, [
+      { id: "down", kind: "key", keys: "ArrowDown" },
+      { id: "type", kind: "type", text: "Ada" },
+    ]);
+    assert.deepEqual(
+      results.map((r) => r.ok),
+      [true, true],
+    );
+  });
 });
