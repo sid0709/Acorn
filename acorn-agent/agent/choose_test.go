@@ -56,19 +56,19 @@ func TestSeveralDropdownsAreSetFromTheBottomUpWithOneModelCall(t *testing.T) {
 	obs := observation(shot(t, 80))
 	obs.Results = resultsOf(step)
 	step = stepOK(t, a, id, obs)
-	if got := strings.Join(sent(step.Actions), " "); got != "key:Enter click@500,400" {
+	if got := strings.Join(sent(step.Actions), " "); got != "key:Home Enter click@500,400" {
 		t.Fatalf("second batch = %s", got)
 	}
 	obs = observation(shot(t, 120))
 	obs.Results = resultsOf(step)
 	step = stepOK(t, a, id, obs)
-	if got := strings.Join(sent(step.Actions), " "); got != "key:ArrowDown ArrowDown Enter click@500,200" {
+	if got := strings.Join(sent(step.Actions), " "); got != "key:Home ArrowDown ArrowDown Enter click@500,200" {
 		t.Fatalf("third batch = %s", got)
 	}
 	obs = observation(shot(t, 160))
 	obs.Results = resultsOf(step)
 	step = stepOK(t, a, id, obs)
-	if got := strings.Join(sent(step.Actions), " "); got != "key:ArrowDown Enter" {
+	if got := strings.Join(sent(step.Actions), " "); got != "key:Home ArrowDown Enter" {
 		t.Fatalf("last batch = %s", got)
 	}
 	if model.count() != 1 {
@@ -88,7 +88,7 @@ func TestSeveralDropdownsAreSetFromTheBottomUpWithOneModelCall(t *testing.T) {
 	}
 }
 
-func TestALongListIsNarrowedByTypingTheAnswerWhenTheOpenListHasNoSureOption(t *testing.T) {
+func TestTheAnswerIsTypedToNarrowAnOpenListThatHasNoSureOption(t *testing.T) {
 	model := &scriptedModel{replies: []string{plan("answering", nil, chooseAction(500, 300, "Prefer not to say", "it shows the answer"))}}
 	screen := &fakeScreen{options: []optionVerdict{{0, 0}, {4, 0.9}}}
 	a := newAgentWithScreen(t, model, &fixedDecider{}, screen, DefaultConfig())
@@ -106,7 +106,7 @@ func TestALongListIsNarrowedByTypingTheAnswerWhenTheOpenListHasNoSureOption(t *t
 	obs = observation(shot(t, 120))
 	obs.Results = resultsOf(step)
 	step = stepOK(t, a, id, obs)
-	if got := strings.Join(sent(step.Actions), " "); got != "key:ArrowDown ArrowDown ArrowDown Enter" {
+	if got := strings.Join(sent(step.Actions), " "); got != "key:Home ArrowDown ArrowDown ArrowDown Enter" {
 		t.Fatalf("after narrowing, batch = %s", got)
 	}
 }
@@ -129,13 +129,9 @@ func TestADropdownNoOptionAnswersIsLeftOpenWholeForTheModel(t *testing.T) {
 	if len(step.Actions) != 1 || !strings.HasPrefix(step.Actions[0].Keys, "Backspace") || len(strings.Fields(step.Actions[0].Keys)) != len("Heterosexual") {
 		t.Fatalf("the typed answer should be cleared, got %v", sent(step.Actions))
 	}
-	asked := screen.calls()
 	obs = observation(shot(t, 160))
 	obs.Results = resultsOf(step)
-	step = stepOK(t, a, id, obs) // the list is whole again: the model looks
-	if screen.calls() != asked {
-		t.Fatal("the decision model was asked again after giving up")
-	}
+	step = stepOK(t, a, id, obs) // the list is whole again and still nothing answers: the model looks
 	if model.count() != 2 || len(step.Actions) != 1 || step.Actions[0].Kind != KindClick {
 		t.Fatalf("model calls %d, step %+v", model.count(), step)
 	}
@@ -184,5 +180,55 @@ func TestAFailedBatchCheckAsksForEveryWrongFieldAtOnceNotOneAtATime(t *testing.T
 	text := lastText(model)
 	if !strings.Contains(text, "every one that is wrong or empty together") || strings.Contains(text, "one action at a time") {
 		t.Fatalf("the model was not asked for one repair answer:\n%s", text)
+	}
+}
+
+func TestAClickThatOpenedNothingIsMovedOntoTheBoxBeforeAnythingIsTyped(t *testing.T) {
+	model := &scriptedModel{replies: []string{plan("answering", nil, chooseAction(500, 300, "Male", "it shows the answer"))}}
+	screen := &fakeScreen{closedLooks: 1, options: []optionVerdict{{6, 0.95}}}
+	a := newAgentWithScreen(t, model, &fixedDecider{}, screen, DefaultConfig())
+	id := start(t, a)
+	step := stepOK(t, a, id, observation(shot(t, 40)))
+	obs := observation(shot(t, 80))
+	obs.Results = resultsOf(step)
+	step = stepOK(t, a, id, obs) // nothing opened
+	if got := strings.Join(sent(step.Actions), " "); got != "click@500,312" {
+		t.Fatalf("the click should move down onto the box, got %s", got)
+	}
+	obs = observation(shot(t, 120))
+	obs.Results = resultsOf(step)
+	step = stepOK(t, a, id, obs) // now it is open
+	if got := strings.Join(sent(step.Actions), " "); got != "key:Home ArrowDown ArrowDown ArrowDown ArrowDown ArrowDown Enter" {
+		t.Fatalf("batch = %s", got)
+	}
+}
+
+func TestADropdownThatNeverOpensIsNeverTypedInto(t *testing.T) {
+	model := &scriptedModel{replies: []string{
+		plan("answering", nil, chooseAction(500, 300, "Male", "it shows the answer")),
+		plan("clicking it myself", nil, click(60, 60, nil)),
+	}}
+	screen := &fakeScreen{closedLooks: 10}
+	a := newAgentWithScreen(t, model, &fixedDecider{}, screen, DefaultConfig())
+	id := start(t, a)
+	step := stepOK(t, a, id, observation(shot(t, 40)))
+	for i := 0; i < len(nudgeOffsets); i++ {
+		obs := observation(shot(t, uint8(80+40*i)))
+		obs.Results = resultsOf(step)
+		step = stepOK(t, a, id, obs)
+		for _, action := range step.Actions {
+			if action.Kind == KindType {
+				t.Fatalf("typed into a dropdown that never opened: %v", sent(step.Actions))
+			}
+		}
+	}
+	obs := observation(shot(t, 250))
+	obs.Results = resultsOf(step)
+	step = stepOK(t, a, id, obs)
+	if model.count() != 2 || len(step.Actions) != 1 || step.Actions[0].Kind != KindClick {
+		t.Fatalf("after the tries the model must look; calls %d, step %+v", model.count(), step)
+	}
+	if text := lastText(model); !strings.Contains(text, `choose "Male"`) {
+		t.Fatalf("the model was not told:\n%s", text)
 	}
 }

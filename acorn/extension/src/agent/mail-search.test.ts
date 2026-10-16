@@ -11,6 +11,7 @@ import {
   mailEmails,
   missed,
   senderName,
+  shownValue,
   startMailSearch,
 } from "./mail-search";
 import { isEmailVerificationStop, verificationKindFor } from "./mail-verification";
@@ -58,11 +59,25 @@ describe("what the run shows of its look in Gmail", () => {
   it("marks the email the value came from, and a search that ended without one", () => {
     const search = afterLook(startMailSearch(VERIFICATION.emailCode, 1000), raw);
     assert.deepEqual(
-      [foundIn(search, "a").state, foundIn(search, "a").chosenId],
+      [foundIn(search, "a", "qGEZpnBb").state, foundIn(search, "a", "qGEZpnBb").chosenId],
       [MAIL_SEARCH_STATE.found, "a"],
     );
     assert.equal(missed(search, "timeout").state, MAIL_SEARCH_STATE.missed);
     assert.equal(missed(search, "timeout").detail, "timeout");
+  });
+
+  it("shows a code whole and a link without its query, which is where sites keep the token", () => {
+    assert.equal(shownValue(VERIFICATION.emailCode, "qGEZpnBb"), "qGEZpnBb");
+    assert.equal(
+      shownValue(VERIFICATION.emailLink, "https://jobs.example/verify/abc?token=secret#x"),
+      "jobs.example/verify/abc",
+    );
+    assert.equal(shownValue(VERIFICATION.emailLink, "not a link"), "");
+    const search = afterLook(startMailSearch(VERIFICATION.emailLink, 1), raw);
+    assert.equal(
+      foundIn(search, "a", "https://jobs.example/v?token=secret").shown,
+      "jobs.example/v",
+    );
   });
 
   it("names the likeliest email among those the model weighed, and the sender without the address", () => {
@@ -80,6 +95,16 @@ describe("what the run shows of its look in Gmail", () => {
     assert.equal(fields.emails[0]?.probability, 0.93);
     assert.equal("id" in (fields.emails[0] ?? {}), false);
     assert.equal(fields.model, "decision-model");
+    const opened = lookLogFields(search, "m", [
+      {
+        subject: "Security code",
+        candidates: ['The code is "abc".'],
+        picked: 0,
+        pick: { found: true, confidence: 1 },
+      },
+    ]).opened;
+    assert.equal(opened[0]?.picked, 0);
+    assert.equal(opened[0]?.candidates.length, 1);
   });
 });
 

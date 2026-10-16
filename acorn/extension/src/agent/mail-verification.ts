@@ -14,7 +14,7 @@ import {
 
 import { authHeaders, getAcornApiUrl } from "../auth/acorn-auth";
 
-import type { RawMailEmail } from "./mail-search";
+import type { RawMailEmail, RawMailOpened } from "./mail-search";
 
 const MAIL_POLL_MS = 5_000;
 
@@ -27,6 +27,8 @@ export interface MailVerificationRequest {
   text: string;
   since: number;
   seen: string;
+  /** Emails whose value was already used for this step: only a newer email can answer. */
+  exclude: string[];
 }
 
 export interface MailVerificationResponse {
@@ -38,6 +40,8 @@ export interface MailVerificationResponse {
   unchanged?: boolean;
   /** The newest emails this look read, with what the decision model made of each. */
   emails?: RawMailEmail[];
+  /** The emails the backend opened to find the value, and what each held. */
+  opened?: RawMailOpened[];
   /** The email the value was taken from. */
   messageId?: string;
   /** The decision model that read the emails. */
@@ -86,6 +90,8 @@ export async function waitForMailVerification(args: {
   pageText: string;
   sinceMs: number;
   windowMs: number;
+  /** Ids of emails already used for this step. */
+  exclude?: string[];
   apiUrl?: string;
   signal?: AbortSignal;
   /** Called with each answer from the backend, so the person can see what was read. */
@@ -107,6 +113,7 @@ export async function waitForMailVerification(args: {
         text: args.pageText,
         since: args.sinceMs,
         seen,
+        exclude: args.exclude ?? [],
       },
       args.apiUrl,
       args.signal,

@@ -203,6 +203,10 @@ export async function runAgent(args: AgentRunArgs): Promise<RunReport> {
    * A wait or a scroll does not count, or the email could arrive before the time it is looked for from.
    */
   let lastChangeAt = startedAt;
+  /** Emails whose code or link was used: a site that asks again wants a newer one. */
+  const usedMailIds: string[] = [];
+  /** When the first search for the site's email began: a search for the same step again starts from it. */
+  let mailSince: number | undefined;
   /** What the run is reading in Gmail, shown on the Now card; kept after the code is found. */
   let mailSearch: MailSearch | undefined;
   const MAIL_VERIFY_WINDOW_MS = 10 * 60 * 1000;
@@ -261,8 +265,9 @@ export async function runAgent(args: AgentRunArgs): Promise<RunReport> {
     here: AgentTab,
   ): Promise<GmailRead> => {
     const kind = verificationKindFor(step.stop);
-    mailSearch = startMailSearch(kind, lastChangeAt);
-    log.event("mail-verification:start", { kind, since: lastChangeAt });
+    const since = mailSince ?? lastChangeAt;
+    mailSearch = startMailSearch(kind, since);
+    log.event("mail-verification:start", { kind, since, excluded: usedMailIds.length });
     const showSearch = () =>
       emit(
         runningProgress(
@@ -279,18 +284,24 @@ export async function runAgent(args: AgentRunArgs): Promise<RunReport> {
       url: info.url ?? "",
       title: info.title ?? "",
       pageText,
-      sinceMs: lastChangeAt,
+      sinceMs: since,
       windowMs: MAIL_VERIFY_WINDOW_MS,
+      exclude: usedMailIds,
       signal,
       onLook: (response) => {
         if (!mailSearch) return;
         mailSearch = afterLook(mailSearch, response.ok ? response.emails : undefined);
-        log.event("mail-verification:look", lookLogFields(mailSearch, response.model));
+        log.event(
+          "mail-verification:look",
+          lookLogFields(mailSearch, response.model, response.opened),
+        );
         showSearch();
       },
     });
     if (outcome.ok) {
-      mailSearch = foundIn(mailSearch, outcome.messageId);
+      mailSearch = foundIn(mailSearch, outcome.messageId, outcome.value);
+      mailSince = since;
+      if (outcome.messageId) usedMailIds.push(outcome.messageId);
       log.event("mail-verification:found", { kind: outcome.kind, messageId: outcome.messageId });
       showSearch();
       await continueSession(args.agentUrl, must(sessionId));

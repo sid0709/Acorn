@@ -28,6 +28,8 @@ type fakeScreen struct {
 	// options are the answers to the next option questions about an open dropdown, in order;
 	// once they run out the answer is none.
 	options []optionVerdict
+	// closedLooks is how many of the next looks at an open dropdown see no list open (a click that missed the control).
+	closedLooks int
 }
 
 // optionVerdict is the position the screen says answers a choose action (0 for none) and how sure it is.
@@ -49,15 +51,22 @@ func (f *fakeScreen) Decide(_ context.Context, req decide.Request) (decide.Respo
 	}
 	if _, asked := req.Questions[askOption]; asked {
 		choice, sure := optionNone, 1.0
-		if len(f.options) > 0 {
+		open := 1.0
+		if f.closedLooks > 0 {
+			f.closedLooks--
+			open = 0
+		} else if len(f.options) > 0 {
 			if v := f.options[0]; v.position > 0 {
 				choice, sure = strconv.Itoa(v.position), v.sure
 			}
 			f.options = f.options[1:]
 		}
 		return decide.Response{
-			Model:   "fake-screen-1",
-			Answers: map[string]decide.Answer{askOption: {Type: decide.TypeChoice, Choice: choice, Probabilities: map[string]float64{choice: sure}}},
+			Model: "fake-screen-1",
+			Answers: map[string]decide.Answer{
+				askOption:   {Type: decide.TypeChoice, Choice: choice, Probabilities: map[string]float64{choice: sure}},
+				askListOpen: {Type: decide.TypeNoul, Noul: &open},
+			},
 			Usage:   decide.Usage{InputTokens: 1000, Cost: 0.0002},
 			Latency: 5 * time.Millisecond,
 		}, nil

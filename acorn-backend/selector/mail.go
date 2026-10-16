@@ -27,8 +27,10 @@ const (
 	maxMailField = 300
 	// maxMailPageText bounds the page copy sent with a mail decision.
 	maxMailPageText = 1500
-	// maxSecretContext bounds the email text around one candidate.
+	// maxSecretContext bounds the description of one candidate.
 	maxSecretContext = 240
+	// maxEmailText bounds the email text sent with a choice among its codes or links.
+	maxEmailText = 3000
 	// mailTimeLayout is how received times are written for Jev.
 	mailTimeLayout = "2006-01-02 15:04 MST"
 )
@@ -64,9 +66,9 @@ type MailRank struct {
 	Usage  jev.Usage
 }
 
-// SecretCandidate is one code or link an email holds. Description is all Jev
-// reads: a code is masked in its own context, a link is shown without its
-// query string, so the secret itself never reaches the model.
+// SecretCandidate is one code or link an email holds. Description is what Jev
+// is offered: a code as its text, a link by its text and address without its
+// query string, where sites keep the token.
 type SecretCandidate struct {
 	Description string
 }
@@ -138,27 +140,28 @@ func (g *Gateway) RankMail(ctx context.Context, ask MailAsk, items []MailItem) (
 const tieBreak = 1e-9
 
 // PickSecret asks which of the email's codes or links is the one the page wants.
-func (g *Gateway) PickSecret(ctx context.Context, ask MailAsk, subject string, candidates []SecretCandidate) (SecretPick, error) {
+func (g *Gateway) PickSecret(ctx context.Context, ask MailAsk, subject, emailText string, candidates []SecretCandidate) (SecretPick, error) {
 	if !IsMailVerification(ask.Kind) || len(candidates) == 0 {
 		return SecretPick{}, fmt.Errorf("%w: a mail verification kind and candidates are required", ErrInvalid)
 	}
 	if limit := jev.MaxChoiceOptions - 1; len(candidates) > limit {
 		candidates = candidates[:limit]
 	}
-	instructions := "Which of these is the one-time verification code in this email, the code the page asks the applicant to enter? " +
-		"Each candidate is shown as [CODE] inside the email's own words. Choose none when the email holds no such code."
+	instructions := "Which text in this email is the one-time verification code the page asks the applicant to enter? " +
+		"Choose none when the email holds no such code."
 	none := "The email holds no verification code for this step."
 	if ask.Kind == VerifyEmailLink {
 		instructions = "Which link in this email must the applicant open to go on with the step the page is waiting on " +
-			"(verify the email address, activate the account, or reset the password)? Never pick an unsubscribe, privacy, " +
-			"help, or social link. Choose none when the email holds no such link."
-		none = "The email holds no link for this step."
+			"(verify the email address, confirm the account, or reset the password)? The unsubscribe, privacy, " +
+			"help and social links are never it. Choose none when the email holds no such link."
+		none = "None of the links in this email is the one to open."
 	}
 	criteria := map[string]string{noControlKey: none}
 	for i, candidate := range candidates {
 		criteria[fmt.Sprintf("%s_%d", secretPrefix, i)] = clip(candidate.Description, maxSecretContext)
 	}
-	state := mailState(ask) + "\nEmail subject: " + clip(subject, maxMailField)
+	// The email's own text is part of what Jev reads: it chooses among the candidates by what the email says about them.
+	state := mailState(ask) + "\nEmail subject: " + clip(subject, maxMailField) + "\nEmail text:\n" + clip(emailText, maxEmailText)
 	res, err := g.decider.Decide(openai.WithCall(ctx, "mail-secret"), jev.Request{
 		State: state,
 		Questions: map[string]jev.Question{secretQuestion: {

@@ -6,6 +6,7 @@
 
 import {
   MAIL_SEARCH_STATE,
+  VERIFICATION,
   type MailSearch,
   type MailSearchEmail,
   type VerificationKind,
@@ -20,6 +21,25 @@ export interface RawMailEmail {
   after?: boolean;
   judged?: boolean;
   probability?: number;
+}
+
+/** One email the backend opened to find the value: what it held, never the value itself. */
+export interface RawMailOpened {
+  subject?: string;
+  /** What each code or link found was offered to the decision model as (a link without its query). */
+  candidates?: string[];
+  /** What the decision model answered: how many it saw, whether it chose one, the likeliest and how sure it was. */
+  pick?: {
+    candidates?: number;
+    found?: boolean;
+    best?: number;
+    bestP?: number;
+    confidence?: number;
+  };
+  /** Which candidate was used, or -1. */
+  picked?: number;
+  fallback?: boolean;
+  unconfirmed?: boolean;
 }
 
 /** The longest sender or subject kept in the log: they are for reading, not for the whole text. */
@@ -54,9 +74,29 @@ export function afterLook(search: MailSearch, raw: RawMailEmail[] | undefined): 
   return { ...search, looks: search.looks + 1, emails };
 }
 
+/** What the person reads of a value taken from an email: a code whole, a link without its query. */
+export function shownValue(kind: VerificationKind, value: string): string {
+  if (kind !== VERIFICATION.emailLink) return value;
+  try {
+    const link = new URL(value);
+    return `${link.host}${link.pathname}`;
+  } catch {
+    return "";
+  }
+}
+
 /** The search once the code or link was taken from an email. */
-export function foundIn(search: MailSearch, messageId: string | undefined): MailSearch {
-  return { ...search, state: MAIL_SEARCH_STATE.found, chosenId: messageId || undefined };
+export function foundIn(
+  search: MailSearch,
+  messageId: string | undefined,
+  value: string,
+): MailSearch {
+  return {
+    ...search,
+    state: MAIL_SEARCH_STATE.found,
+    chosenId: messageId || undefined,
+    shown: shownValue(search.kind, value) || undefined,
+  };
 }
 
 /** The search once it ended without one. */
@@ -65,8 +105,16 @@ export function missed(search: MailSearch, detail?: string): MailSearch {
 }
 
 /** What a look adds to the log: the emails and what each was judged, never an email's text. */
-export function lookLogFields(search: MailSearch, model?: string) {
+export function lookLogFields(search: MailSearch, model?: string, opened?: RawMailOpened[]) {
   return {
+    opened: (opened ?? []).map((email) => ({
+      subject: clip(email.subject),
+      candidates: email.candidates ?? [],
+      pick: email.pick ?? null,
+      picked: email.picked ?? -1,
+      fallback: email.fallback === true,
+      unconfirmed: email.unconfirmed === true,
+    })),
     kind: search.kind,
     looks: search.looks,
     since: search.since,

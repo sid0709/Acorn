@@ -2,8 +2,8 @@
 // applicant. Each look lists the newest inbox emails (their rows only: sender,
 // subject, plain-text preview, time) and, when that list changed since the last
 // look, TypeSafe Jev judges all of them together. Only the email Jev picks is
-// opened, and Jev then picks the code or link among the ones it holds; nothing is
-// matched on wording. When the step's time is known only emails that arrived after
+// opened, and Jev then picks the code or link among the ones it holds (a code among the text that
+// stands alone in the email, then tokens in its sentences); nothing is matched on wording. When the step's time is known only emails that arrived after
 // it compete, and of those from one sender the newest is opened first: the site
 // honours the last code it sent. When the best email holds none, the second best is opened;
 // after that the search stops.
@@ -14,6 +14,7 @@ import (
 	"errors"
 	"fmt"
 	"hash/fnv"
+	"slices"
 	"sort"
 	"strconv"
 	"time"
@@ -38,6 +39,9 @@ const (
 	// confidentMail is the chance at or above which Jev's pick of the email is trusted
 	// enough to take its most probable link or code when Jev answers none of them.
 	confidentMail = 0.5
+	// minFallbackCandidate is the least chance the most probable candidate needs for that: a
+	// candidate Jev thought unlikely is not the answer just because the email was right.
+	minFallbackCandidate = 0.5
 )
 
 // Statuses a search ends in.
@@ -56,7 +60,7 @@ var ErrInvalid = errors.New("invalid mail verification request")
 // Selector is the decision model's side. *selector.Gateway is the real one.
 type Selector interface {
 	RankMail(ctx context.Context, ask selector.MailAsk, items []selector.MailItem) (selector.MailRank, error)
-	PickSecret(ctx context.Context, ask selector.MailAsk, subject string, candidates []selector.SecretCandidate) (selector.SecretPick, error)
+	PickSecret(ctx context.Context, ask selector.MailAsk, subject, emailText string, candidates []selector.SecretCandidate) (selector.SecretPick, error)
 }
 
 // Reader reads the applicant's mailbox.
@@ -74,6 +78,9 @@ type Query struct {
 	// Seen is the Seen of the last look: when the newest emails are still the same,
 	// Jev is not asked again.
 	Seen string
+	// Exclude are emails already used for this step: a code from one of them was typed and the
+	// site asked again, so only a newer email can answer.
+	Exclude []string
 }
 
 // Judged is one email Jev weighed, for the debug trace.
@@ -101,6 +108,18 @@ type Opened struct {
 	Fallback bool `json:"fallback"`
 	// Unconfirmed is true when the picked value was not found written in the email.
 	Unconfirmed bool `json:"unconfirmed"`
+	// Pick is what Jev answered, so a miss can be read afterwards.
+	Pick Pick `json:"pick"`
+}
+
+// Pick is Jev's answer: how many candidates it was shown, whether it chose one,
+// which it thought likeliest and how sure it was.
+type Pick struct {
+	Candidates int     `json:"candidates"`
+	Found      bool    `json:"found"`
+	Best       int     `json:"best"`
+	BestP      float64 `json:"bestP"`
+	Confidence float64 `json:"confidence"`
 }
 
 // Result is how a look ended. Value is set only when Status is StatusFound.
@@ -135,7 +154,7 @@ func Find(ctx context.Context, decide Selector, mail Reader, q Query) (Result, e
 	result := Result{Status: StatusPending, Emails: listed(items)}
 	// An email from before the site was asked to send is an earlier request's: its
 	// code is no longer valid. Wait for the one this step caused.
-	eligible := eligibleMail(items, q.Since)
+	eligible := withoutEmails(eligibleMail(items, q.Since), q.Exclude)
 	result.Seen = seenOf(eligible)
 	if len(eligible) == 0 {
 		return result, nil
@@ -176,6 +195,20 @@ func Find(ctx context.Context, decide Selector, mail Reader, q Query) (Result, e
 	}
 	result.Status = StatusNotFound
 	return result, nil
+}
+
+// withoutEmails drops the emails with these ids.
+func withoutEmails(items []selector.MailItem, ids []string) []selector.MailItem {
+	if len(ids) == 0 {
+		return items
+	}
+	out := make([]selector.MailItem, 0, len(items))
+	for _, item := range items {
+		if !slices.Contains(ids, item.ID) {
+			out = append(out, item)
+		}
+	}
+	return out
 }
 
 // seenOf names a list of emails by their ids, so two looks can tell whether anything arrived.
@@ -271,10 +304,11 @@ func judged(items []selector.MailItem, rank selector.MailRank) []Judged {
 	return out
 }
 
-// secretIn opens one email and asks Jev which of its codes or links the page
-// wants. "" when the email holds none; called is false when Jev was not asked.
-// When Jev was sure of the email but answers none of its links or codes, its
-// most probable one is taken: the email itself is the site's answer.
+// secretIn opens one email and asks Jev which of its codes or links the page wants. "" when the
+// email holds none; called is false when Jev was not asked. Jev reads the email's text and chooses
+// among texts this package took from it, so the value is never written by the model; when Jev
+// answers none but was sure of the email, its most probable candidate is taken if it gave that
+// one real weight: the email itself is the site's answer.
 func secretIn(ctx context.Context, decide Selector, mail Reader, ask selector.MailAsk, ranked selector.Ranked, subject string) (string, Opened, jev.Usage, bool, error) {
 	opened := Opened{ID: ranked.ID, Subject: subject, Picked: -1}
 	message, err := mail.Open(ctx, ranked.ID)
@@ -293,15 +327,16 @@ func secretIn(ctx context.Context, decide Selector, mail Reader, ask selector.Ma
 	if len(found) == 0 {
 		return "", opened, jev.Usage{}, false, nil
 	}
-	pick, err := decide.PickSecret(ctx, ask, firstNonEmpty(message.Subject, subject), candidates)
+	pick, err := decide.PickSecret(ctx, ask, firstNonEmpty(message.Subject, subject), bodyText(message), candidates)
 	if err != nil {
 		return "", opened, jev.Usage{}, false, fmt.Errorf("pick from mail: %w", err)
 	}
+	opened.Pick = Pick{Candidates: len(found), Found: pick.Found, Best: pick.Best, BestP: pick.BestP, Confidence: pick.Confidence}
 	index := -1
 	switch {
 	case pick.Found && pick.Index < len(found):
 		index = pick.Index
-	case ranked.Probability >= confidentMail && pick.Best >= 0 && pick.Best < len(found):
+	case ranked.Probability >= confidentMail && pick.Best >= 0 && pick.Best < len(found) && pick.BestP >= minFallbackCandidate:
 		index, opened.Fallback = pick.Best, true
 	}
 	opened.Picked = index

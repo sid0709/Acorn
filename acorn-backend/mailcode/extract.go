@@ -1,13 +1,12 @@
 package mailcode
 
 import (
+	"fmt"
 	"net/url"
 	"regexp"
 	"slices"
-	"strconv"
 	"strings"
 	"unicode"
-	"unicode/utf8"
 
 	"golang.org/x/net/html"
 	"golang.org/x/net/html/atom"
@@ -23,12 +22,8 @@ const (
 	maxElementChars = 32
 	// maxCandidates bounds the codes or links one email offers Jev.
 	maxCandidates = 40
-	// codeContext is how many characters on each side of a code Jev reads.
+	// codeContext is how many characters of the line before a link Jev reads.
 	codeContext = 90
-	// codeMask stands in for a code inside its own context, so Jev never reads the code.
-	codeMask = "[CODE]"
-	// otherMask stands in for every other candidate in that context.
-	otherMask = "[another candidate]"
 )
 
 var (
@@ -41,7 +36,7 @@ var (
 	// codeElement is the text of an element or line that is only a code: up to four groups of letters
 	// and digits, joined by a space or a dash. A link, an address or a sentence is not.
 	codeElement = regexp.MustCompile(`^[\p{L}\p{N}]+(?:[ -][\p{L}\p{N}]+){0,3}$`)
-	spaces    = regexp.MustCompile(`\s+`)
+	spaces      = regexp.MustCompile(`\s+`)
 )
 
 // secret is one code or link an email holds: Value is what the run uses,
@@ -49,6 +44,8 @@ var (
 type secret struct {
 	Value       string
 	Description string
+	// Alone is a code that stands alone in the email (its own element or line).
+	Alone bool
 }
 
 // bodyText is the email's readable text: its plain part, else its HTML as text.
@@ -60,23 +57,23 @@ func bodyText(message mailbox.FullMessage) string {
 }
 
 // codeCandidates are what the email offers as its one-time code. Which is the code is the
-// decision model's call, from the words around it, with the code itself masked. The first
-// candidates are text that stands alone: an element (or a line of a plain email) whose whole
-// text is only a code-sized run of letters and digits, which is how a site sets a code apart.
-// That is a property of the email's layout, not of the code, so a code of any letters and digits
-// qualifies. After them come tokens inside sentences that look like codes, for an email whose
-// code is written in a line of words.
+// decision model's call: it reads the email and chooses among these texts (the texts are taken
+// from the email by this code, never written by the model). The first candidates are text that
+// stands alone: an element (or a line of a plain email) whose whole text is only a code-sized run
+// of letters and digits, which is how a site sets a code apart. That is a property of the
+// email's layout, not of the code, so a code of any letters and digits qualifies. After them come
+// tokens inside sentences that look like codes, for an email that writes its code in a sentence.
 func codeCandidates(message mailbox.FullMessage) []secret {
 	text := emailAddress.ReplaceAllString(webAddress.ReplaceAllString(bodyText(message), " "), " ")
 	text = spaces.ReplaceAllString(text, " ")
 	seen := map[string]bool{}
-	var found []located
+	var out []secret
 	add := func(token string, alone bool) {
-		if seen[token] || len(found) == maxCandidates {
+		if seen[token] || len(out) == maxCandidates {
 			return
 		}
 		seen[token] = true
-		found = append(found, located{token: token, alone: alone})
+		out = append(out, secret{Value: token, Description: fmt.Sprintf("The code is %q.", token), Alone: alone})
 	}
 	for _, token := range elementTexts(message) {
 		add(token, true)
@@ -86,52 +83,8 @@ func codeCandidates(message mailbox.FullMessage) []secret {
 			add(token, false)
 		}
 	}
-	out := make([]secret, len(found))
-	for i, candidate := range found {
-		out[i] = secret{Value: candidate.token, Description: candidateContext(text, candidate, seen)}
-	}
 	return out
 }
-
-// located is a candidate code and whether it stands alone in the email.
-type located struct {
-	token string
-	alone bool
-}
-
-// candidateContext is what the decision model reads of a candidate: the words around its first
-// place in the text, the candidate masked, and whether it stands alone.
-func candidateContext(text string, candidate located, seen map[string]bool) string {
-	note := ""
-	if candidate.alone {
-		note = ", standing alone in the email"
-	}
-	start, end := wholeWord(text, candidate.token)
-	if start < 0 {
-		return "…" + codeMask + "… (" + codeShape(candidate.token) + note + ")"
-	}
-	return maskedContext(text, start, end, candidate.token, seen, note)
-}
-
-// wholeWord is where token first stands as a word of its own in text, or -1.
-func wholeWord(text, token string) (int, int) {
-	for from := 0; from < len(text); {
-		i := strings.Index(text[from:], token)
-		if i < 0 {
-			return -1, -1
-		}
-		start, end := from+i, from+i+len(token)
-		before, _ := utf8.DecodeLastRuneInString(text[:start])
-		after, _ := utf8.DecodeRuneInString(text[end:])
-		if !isWordRune(before) && !isWordRune(after) {
-			return start, end
-		}
-		from = start + 1
-	}
-	return -1, -1
-}
-
-func isWordRune(r rune) bool { return r != utf8.RuneError && (unicode.IsLetter(r) || unicode.IsNumber(r)) }
 
 // elementTexts are the texts that stand alone in the email and are only a code-sized run of
 // letters and digits: each innermost HTML element whose whole text is one, or each such line of a
@@ -225,62 +178,6 @@ func looksLikeCode(token string) bool {
 	return digit || innerUpper || !lower
 }
 
-// maskedContext is the text around a code with the code itself masked, every
-// other candidate masked too, and a note of the code's shape so codes of
-// different lengths stay apart. The window ends on whole words, so no piece of
-// a code shows either.
-func maskedContext(text string, start, end int, token string, candidates map[string]bool, note string) string {
-	before := []rune(text[:start])
-	after := []rune(text[end:])
-	if len(before) > codeContext {
-		before = before[len(before)-codeContext:]
-		if cut := strings.IndexRune(string(before), ' '); cut >= 0 {
-			before = []rune(string(before)[cut:])
-		}
-	}
-	if len(after) > codeContext {
-		after = after[:codeContext]
-		if cut := strings.LastIndex(string(after), " "); cut >= 0 {
-			after = []rune(string(after)[:cut])
-		}
-	}
-	mask := func(part string) string {
-		return codeToken.ReplaceAllStringFunc(part, func(word string) string {
-			if candidates[word] {
-				return otherMask
-			}
-			return word
-		})
-	}
-	return "…" + mask(string(before)) + codeMask + mask(string(after)) + "… (" + codeShape(token) + note + ")"
-}
-
-func codeShape(token string) string {
-	letters, digits := 0, 0
-	for _, r := range token {
-		switch {
-		case unicode.IsDigit(r):
-			digits++
-		case unicode.IsLetter(r):
-			letters++
-		}
-	}
-	shape := strings.Builder{}
-	shape.WriteString(strconv.Itoa(len([]rune(token))) + " characters")
-	switch {
-	case letters == 0:
-		shape.WriteString(", digits only")
-	case digits == 0:
-		shape.WriteString(", letters only")
-	default:
-		shape.WriteString(", letters and digits")
-	}
-	if strings.Contains(token, "-") {
-		shape.WriteString(", with dashes")
-	}
-	return shape.String()
-}
-
 // linkCandidates are the web links in the email: each anchor with its text, or
 // bare addresses from the plain text. Jev reads a link without its query string
 // or fragment, where sites keep the token.
@@ -299,13 +196,14 @@ func linkCandidates(message mailbox.FullMessage) []secret {
 			return
 		}
 		seen[parsed.String()] = true
-		description := "Link to " + parsed.Host + parsed.EscapedPath()
+		description := "The link to " + parsed.Host + parsed.EscapedPath()
 		if text = strings.TrimSpace(spaces.ReplaceAllString(text, " ")); text != "" && !webAddress.MatchString(text) {
-			description = "Link text \"" + text + "\" · " + description
+			description = fmt.Sprintf("The link %q to %s%s", text, parsed.Host, parsed.EscapedPath())
 		}
 		if before = strings.TrimSpace(spaces.ReplaceAllString(before, " ")); before != "" {
-			description = "After the words \"" + before + "\" · " + description
+			description += fmt.Sprintf(", after the words %q", before)
 		}
+		description += "."
 		out = append(out, secret{Value: value, Description: description})
 	}
 	for _, anchor := range htmlAnchors(message.HTML) {

@@ -152,6 +152,8 @@ export interface MailSearch {
   emails: MailSearchEmail[];
   /** The email the code or link was taken from, once found. */
   chosenId?: string;
+  /** What was taken from it, for the person to read: the code, or the link's address without its query. */
+  shown?: string;
   /** Why the search ended without one. */
   detail?: string;
 }

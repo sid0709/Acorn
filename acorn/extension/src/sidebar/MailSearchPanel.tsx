@@ -67,6 +67,11 @@ export function MailSearchPanel({ search }: { search: MailSearch }) {
           {heading(search)}
         </Text>
       </HStack>
+      {search.shown ? (
+        <Text size="sm" weight="semibold" hasTabularNumbers>
+          {search.kind === VERIFICATION.emailLink ? "Link" : "Code"}: {search.shown}
+        </Text>
+      ) : null}
       <Text size="sm" color="secondary">
         {subline(search)}
       </Text>

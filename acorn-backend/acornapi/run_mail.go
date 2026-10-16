@@ -50,6 +50,8 @@ func (s *Server) runMailVerification(w http.ResponseWriter, r *http.Request) {
 		Text  string `json:"text"`
 		Since int64  `json:"since"`
 		Seen  string `json:"seen"`
+		// Exclude are the ids of emails already used for this step.
+		Exclude []string `json:"exclude"`
 	}
 	if !decode(w, r, &body) {
 		return
@@ -91,8 +93,9 @@ func (s *Server) runMailVerification(w http.ResponseWriter, r *http.Request) {
 		Ask: selector.MailAsk{
 			Kind: body.Kind, URL: body.URL, Title: body.Title, PageText: text, Now: started,
 		},
-		Since: since,
-		Seen:  body.Seen,
+		Since:   since,
+		Seen:    body.Seen,
+		Exclude: body.Exclude,
 	})
 	elapsed := time.Since(started)
 	if err != nil {

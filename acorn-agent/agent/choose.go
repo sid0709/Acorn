@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"log/slog"
+	"math"
 	"sort"
 	"strconv"
 	"strings"
@@ -16,12 +17,13 @@ import (
 // option can land on the wrong one when the list moves. So the driving model says only what each
 // dropdown should be set to (a "choose" action: the control's point and the answer in words), and
 // the agent does the rest with the decision model, which reads a screenshot in a second or two:
-// open the control, look at the open list, ask which option, counting from the top, answers it, and
-// press ArrowDown to it and Enter. When the list as opened has no sure answer (a long list shows
-// only its first options) the answer is typed to narrow it and the list is looked at again. Typing
-// comes second because it can go wrong: words that match no option empty the list, and typed
-// spaces scroll the page when the click did not reach the control. The extension only ever
-// receives a click, some typing and keys.
+// open the control, check that a list did open (a click can miss the control: it is moved onto the
+// box and tried again, and nothing is ever typed into a list that is not open, since typed spaces
+// scroll the page), type the answer to narrow the list (a model counts three options reliably and ten
+// not: it chose the 7th of 8 for the 6th), look at the narrowed list, ask which option, counting from
+// the first, answers it, and press Home, ArrowDown to it and Enter. Typed words that match no option
+// are taken back out and the whole list is looked at once. The extension only ever receives a
+// click, some typing and keys.
 //
 // Several dropdowns in one plan are set from the bottom of the screen up: a choice can add or
 // remove a message under its control, which moves everything below it but nothing above.
@@ -29,7 +31,12 @@ import (
 const (
 	// askOption is the decision model's question about an open list.
 	askOption = "option"
-	// optionNone is its answer when no list is open or no option answers.
+	// askListOpen is its question of whether a list is open at all: a click that missed the
+	// control opens nothing, and typing then would go nowhere.
+	askListOpen = "list_open"
+	// listOpenMatch is how sure the decision model must be that a list is open.
+	listOpenMatch = 0.5
+	// optionNone is its answer when no option answers.
 	optionNone = "none"
 	// maxOptionPosition is how far down an open list the decision model counts.
 	maxOptionPosition = 12
@@ -39,6 +46,12 @@ const (
 	// are not shown to the driving model as results of its own actions.
 	choosePrefix = "ch"
 )
+
+// nudgeOffsets are how far, in screenshot pixels, the next try at opening a dropdown clicks below
+// (positive) or above (negative) the point the model gave, when the click opened nothing. A
+// model's point can land on a control's label, or on the gap between label and box, and a person
+// would move down onto the box.
+var nudgeOffsets = []float64{12, 24, -12}
 
 // sourceChoose marks an entry where the agent looked at an open dropdown, with the decision
 // model, to pick the option that answers a choose action.
@@ -61,10 +74,12 @@ func (sc *script) nextID(seq int) string {
 // openList is a dropdown opened for a choose action.
 type openList struct {
 	choose Action
-	// typed is how many characters were typed to narrow the list (0 until the whole list failed
-	// to answer); giveUp is that the typing was taken back out and the model is to look next.
-	typed  int
-	giveUp bool
+	// typed is how many characters were typed to narrow the list (0 before they were); cleared is
+	// that they were taken back out, so the next look is at the whole list.
+	typed   int
+	cleared bool
+	// nudges is how many more clicks were made because the list did not open.
+	nudges int
 }
 
 // isChooseID is whether the agent made this action for a choose ("s12ch3", "s12ch3t").
@@ -168,40 +183,50 @@ func (a *Agent) dispatch(s *session, prefix []Action) []Action {
 
 // optionCriteria are the answers the decision model may give about an open list.
 func optionCriteria() map[string]string {
-	criteria := map[string]string{optionNone: "no list of options is open, or none of its options answers"}
+	criteria := map[string]string{optionNone: "no option of the open list answers it, or the first option of the list is not visible"}
 	for i := 1; i <= maxOptionPosition; i++ {
-		criteria[strconv.Itoa(i)] = "option number " + strconv.Itoa(i) + " from the top of the open list"
+		criteria[strconv.Itoa(i)] = "option number " + strconv.Itoa(i) + " of the open list, counting from its first option"
 	}
 	return criteria
 }
 
-// pickOption asks the decision model which option of the open list answers the choose action:
-// its position counted from the top of the list, and whether the model was sure enough.
-func (a *Agent) pickOption(ctx context.Context, s *session, obs Observation, answer string) (int, verdict, error) {
-	questions := map[string]decide.Question{askOption: {
-		Type: decide.TypeChoice,
-		Instructions: "A dropdown list of choices is open on this page. Someone wants to choose the option that answers: " + strconv.Quote(answer) + ". " +
-			"Counting from the top of the open list, with the first option you can see as 1, which option is it? " +
-			"Choose the option whose meaning matches: for a yes or no answer, the option that says yes or no, even when it goes on to explain. " +
-			"Answer none if no list is open or no option matches.",
-		Criteria: optionCriteria(),
-	}}
+// pickOption asks the decision model whether a dropdown list is open and, if it is, which of its
+// options answers the choose action: the position counted from the list's first option, and whether
+// the model was sure enough.
+func (a *Agent) pickOption(ctx context.Context, s *session, obs Observation, answer string) (position int, listOpen bool, check verdict, err error) {
+	questions := map[string]decide.Question{
+		askListOpen: decide.YesNo("Is a dropdown list of choices open on this page right now: a list of options shown below or above a control, so that one can be picked?"),
+		askOption: {
+			Type: decide.TypeChoice,
+			Instructions: "A dropdown list of choices is open on this page. Someone wants to choose the option that answers: " + strconv.Quote(answer) + ". " +
+				"Counting from the first option of the list, which option is it? " +
+				"Choose the option whose meaning matches: for a yes or no answer, the option that says yes or no, even when it goes on to explain. " +
+				"If the list is scrolled so that its first option is not visible, answer none.",
+			Criteria: optionCriteria(),
+		},
+	}
 	response, err := a.newScreen(s.key).Decide(ctx, decide.Request{State: checkState(obs.Screenshot), Questions: questions})
-	check := verdict{response: response, prompt: "which option of the open list answers " + strconv.Quote(answer)}
+	check = verdict{response: response, prompt: "which option of the open list answers " + strconv.Quote(answer)}
 	if err != nil {
-		return 0, check, err
+		return 0, false, check, err
+	}
+	if open, ok := response.Answers[askListOpen]; ok && open.Noul != nil {
+		listOpen = *open.Noul >= listOpenMatch
 	}
 	found := response.Answers[askOption]
 	position, convErr := strconv.Atoi(found.Choice)
 	if convErr != nil || position < 1 || position > maxOptionPosition || found.Probabilities[found.Choice] < a.cfg.OptionMatch {
-		return 0, check, nil
+		return 0, listOpen, check, nil
 	}
-	return position, check, nil
+	return position, true, check, nil
 }
 
-// optionKeys moves from the first option of an open list to the one at position and picks it.
+// optionKeys goes to the first option of an open list (Home, as in any list box: the highlighted
+// option follows the mouse pointer, so it is not necessarily the first), moves down to the one at
+// position and picks it.
 func optionKeys(position int) string {
-	keys := make([]string, 0, position)
+	keys := make([]string, 0, position+1)
+	keys = append(keys, "Home")
 	for i := 1; i < position; i++ {
 		keys = append(keys, "ArrowDown")
 	}
@@ -226,10 +251,7 @@ func (a *Agent) continueScript(ctx context.Context, s *session, obs Observation,
 		a.abandon(s, "The last actions failed: "+failed+".")
 		return Step{}, false
 	}
-	if open.giveUp {
-		return a.giveUp(s, obs, entry, open, nil)
-	}
-	position, check, err := a.pickOption(ctx, s, obs, open.choose.Text)
+	position, listOpen, check, err := a.pickOption(ctx, s, obs, open.choose.Text)
 	s.usage.Checks++
 	s.usage.CheckCost += check.response.Usage.Cost
 	s.usage.Cost += check.response.Usage.Cost
@@ -246,23 +268,31 @@ func (a *Agent) continueScript(ctx context.Context, s *session, obs Observation,
 		key := Action{ID: sc.nextID(s.seq), Kind: KindKey, Keys: optionKeys(position)}
 		sc.open = nil
 		step = Step{Status: StatusWorking, Message: s.message, Actions: a.dispatch(s, []Action{key}), Number: s.step, Usage: s.usage}
-	case err == nil && open.typed == 0:
-		// The list as opened has no sure answer (a long list shows only its first options): narrow it
-		// by typing the answer, and look again.
-		open.typed = len([]rune(open.choose.Text))
-		typed := Action{ID: sc.nextID(s.seq), Kind: KindType, Text: open.choose.Text}
-		step = Step{Status: StatusWorking, Message: s.message, Actions: []Action{typed}, Number: s.step, Usage: s.usage}
-	case err == nil:
-		// Typing did not help either: take it back out, so the list the model is left with is whole.
-		open.giveUp = true
+	case err != nil || open.cleared:
+		// Nothing answers even in the whole list (or the checker failed): the model looks, with the list open.
+		return a.giveUp(s, obs, entry, open, []modelCall{check.call(err)})
+	case open.typed > 0:
+		// The typed words found no option: take them back out and look at the whole list.
+		open.cleared = true
 		backspaces := make([]string, min(open.typed, maxClearKeys))
 		for i := range backspaces {
 			backspaces[i] = "Backspace"
 		}
 		clear := Action{ID: sc.nextID(s.seq), Kind: KindKey, Keys: strings.Join(backspaces, " ")}
 		step = Step{Status: StatusWorking, Message: s.message, Actions: []Action{clear}, Number: s.step, Usage: s.usage}
-	default:
+	case !listOpen && open.nudges < len(nudgeOffsets):
+		// The click opened nothing, so typing would go nowhere: click again, a little lower or higher.
+		click := nudgedClick(sc.nextID(s.seq), open.choose, nudgeOffsets[open.nudges], obs.Viewport)
+		open.nudges++
+		step = Step{Status: StatusWorking, Message: s.message, Actions: []Action{click}, Number: s.step, Usage: s.usage}
+	case !listOpen:
 		return a.giveUp(s, obs, entry, open, []modelCall{check.call(err)})
+	default:
+		// The list is open: narrow it by typing the answer, so that few options are left to choose
+		// among (a model counts three options reliably and ten not), and look again.
+		open.typed = len([]rune(open.choose.Text))
+		typed := Action{ID: sc.nextID(s.seq), Kind: KindType, Text: open.choose.Text}
+		step = Step{Status: StatusWorking, Message: s.message, Actions: []Action{typed}, Number: s.step, Usage: s.usage}
 	}
 	entry.Status, entry.Message, entry.Actions = step.Status, step.Message, step.Actions
 	a.record(s, entry, obs.Screenshot, []modelCall{check.call(err)})
@@ -278,4 +308,10 @@ func (a *Agent) giveUp(s *session, obs Observation, entry stepTrace, open *openL
 	entry.Status, entry.Message, entry.Usage = StatusWorking, s.message, s.usage
 	a.record(s, entry, obs.Screenshot, calls)
 	return Step{}, false
+}
+
+// nudgedClick is a click at the choose action's point moved dy pixels down (up when negative), kept on the screen.
+func nudgedClick(id string, choose Action, dy float64, vp Viewport) Action {
+	y := math.Min(math.Max(*choose.Y+dy, 0), float64(vp.Height-1))
+	return Action{ID: id, Kind: KindClick, X: choose.X, Y: &y, ScrollTo: choose.ScrollTo, PageHeight: choose.PageHeight}
 }
