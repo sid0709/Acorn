@@ -1,6 +1,8 @@
 import assert from "node:assert/strict";
 import { afterEach, describe, it } from "node:test";
 
+import { ACORN_AGENT_LOOPBACK_ORIGIN } from "@acorn/shared/api";
+
 import {
   AgentApiError,
   endSession,
@@ -101,11 +103,11 @@ describe("errors", () => {
       throw new TypeError("Failed to fetch");
     }) as typeof fetch;
     await assert.rejects(
-      startSession("http://127.0.0.1:8090", { url: "", title: "", stopBeforeSubmit: false }),
+      startSession(ACORN_AGENT_LOOPBACK_ORIGIN, { url: "", title: "", stopBeforeSubmit: false }),
       (err: unknown) =>
         err instanceof AgentApiError &&
         err.code === "unreachable" &&
-        /Can't reach the Acorn agent at http:\/\/127\.0\.0\.1:8090/.test(err.message),
+        err.message.includes(`Can't reach the Acorn agent at ${ACORN_AGENT_LOOPBACK_ORIGIN}`),
     );
   });
 

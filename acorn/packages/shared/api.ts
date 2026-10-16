@@ -30,13 +30,16 @@ export const ACORN_PRODUCTION_WEB_WWW_ORIGIN = "https://www.acornapply.com" as c
 export const ACORN_PRODUCTION_API_ORIGIN = "https://api.acornapply.com" as const;
 /** Production acorn-agent: the Run's planner, on the API host under `/agent/v1` (nginx splits by path). */
 export const ACORN_PRODUCTION_AGENT_ORIGIN = ACORN_PRODUCTION_API_ORIGIN;
+/** Local acorn-agent. 8090 is JoinedHQ on the VPS; do not reuse it. */
+export const ACORN_AGENT_DEFAULT_PORT = 8093 as const;
+export const ACORN_AGENT_LOOPBACK_ORIGIN = `http://127.0.0.1:${ACORN_AGENT_DEFAULT_PORT}` as const;
 
 /** Development builds talk to the local servers (`bun run dev`); every other build to production. */
 export const ACORN_HOSTS = {
   development: {
     api: "http://127.0.0.1:8083",
     web: "http://localhost:6005",
-    agent: "http://127.0.0.1:8090",
+    agent: ACORN_AGENT_LOOPBACK_ORIGIN,
   },
   production: {
     api: ACORN_PRODUCTION_API_ORIGIN,

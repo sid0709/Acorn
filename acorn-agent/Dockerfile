@@ -22,5 +22,5 @@ COPY --from=build /out/acorn-agent /usr/local/bin/acorn-agent
 
 # The agent keeps each run in memory and writes nothing: no data folder, no traces.
 USER nobody
-EXPOSE 8090
+EXPOSE 8093
 ENTRYPOINT ["acorn-agent"]
