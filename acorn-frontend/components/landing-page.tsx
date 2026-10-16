@@ -1,3 +1,4 @@
+import { AcornCursor } from "./landing/acorn-cursor";
 import { AgentBand } from "./landing/agent-band";
 import { AgentFlow } from "./landing/agent-flow";
 import { AtsResume } from "./landing/ats-resume";
@@ -24,6 +25,7 @@ export function LandingPage({
 }) {
   return (
     <div className="lp">
+      <AcornCursor />
       <div className="lp-nav">
         <LandingNav />
       </div>
