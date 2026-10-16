@@ -3,7 +3,7 @@ import { authHeaders, getAcornApiUrl } from "../../auth/acorn-auth";
 import { cachedFileGet } from "./file-cache";
 import { apiError, isNestMissingRoute, readId } from "./http";
 
-import type { RuntimeAttachedFile } from "@acorn/shared/plan-runner/types";
+import type { RuntimeAttachedFile } from "@acorn/shared/attached-file";
 
 const CUSTOM_STORED_FILE_UNAVAILABLE =
   "Could not load the stored résumé. Custom preview, download, and Fill use the file from generate.";

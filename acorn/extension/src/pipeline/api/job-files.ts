@@ -5,7 +5,7 @@ import { authHeaders, getAcornApiUrl } from "../../auth/acorn-auth";
 import { cachedFileGet } from "./file-cache";
 import { apiError, isNestMissingRoute } from "./http";
 
-import type { RuntimeAttachedFile } from "@acorn/shared/plan-runner/types";
+import type { RuntimeAttachedFile } from "@acorn/shared/attached-file";
 
 export async function fetchRecommendedResume(
   jobId: string,

@@ -6,7 +6,6 @@ import type { PipelinePhase, PipelineProgress } from "@acorn/shared/pipeline-typ
 
 export type RowFaceInput = {
   fillPhase?: PipelinePhase | null;
-  resumeSkipped?: boolean;
   generateStatus?: GenerateStatus | null;
   generateLabel?: string | null;
   hasResume?: boolean;
@@ -20,7 +19,6 @@ export type RowFaceInput = {
 export type TabFaceInput = {
   signedIn: boolean;
   fillPhase?: PipelinePhase | null;
-  resumeSkipped?: boolean;
   generateStatus?: GenerateStatus | null;
   generateLabel?: string | null;
   hasResume?: boolean;
@@ -55,14 +53,10 @@ function generatingWork(status?: GenerateStatus | null, label?: string | null): 
   return status === "running" && !generatingThink(status, label);
 }
 
-export function holdFromFill(
-  phase?: PipelinePhase | null,
-  resumeSkipped = false,
-): AcornFaceMode | null {
+export function holdFromFill(phase?: PipelinePhase | null): AcornFaceMode | null {
   if (phase === "analyzing") return "thinking";
   if (phase === "fetching" || phase === "running") return "working";
   if (phase === "error") return "sad";
-  if (phase === "done" && resumeSkipped) return "sad";
   return null;
 }
 
@@ -83,7 +77,7 @@ export function holdFromGenerate(
 /** Hold pose for one job / remembered tab. One-shots are applied by playback. */
 export function resolveRowHold(input: RowFaceInput): AcornFaceMode {
   if (input.opening || input.downloading) return "working";
-  const fill = holdFromFill(input.fillPhase, input.resumeSkipped);
+  const fill = holdFromFill(input.fillPhase);
   if (fill === "working" || fill === "thinking" || fill === "sad") return fill;
   const gen = holdFromGenerate(input.generateStatus, input.generateLabel, input.hasResume);
   if (gen) return gen;
@@ -110,7 +104,7 @@ export function countBusyWorkers(
 ): BusyWorkerCounts {
   const modes = new Map<string, AcornFaceMode>();
   for (const [tabId, progress] of Object.entries(pipelines)) {
-    const mode = holdFromFill(progress.phase, progress.resumeUpload?.status === "skipped");
+    const mode = holdFromFill(progress.phase);
     if (mode === "thinking" || mode === "working") modes.set(tabId, mode);
   }
   for (const row of jobGenerates) {
@@ -131,7 +125,7 @@ export function countBusyWorkers(
 /** Hold pose for the focused tab. */
 export function resolveTabHold(input: TabFaceInput): AcornFaceMode {
   if (!input.signedIn) return "sleeping";
-  const fill = holdFromFill(input.fillPhase, input.resumeSkipped);
+  const fill = holdFromFill(input.fillPhase);
   if (fill === "working" || fill === "thinking" || fill === "sad") return fill;
   const gen = holdFromGenerate(input.generateStatus, input.generateLabel, input.hasResume);
   if (gen) return gen;
@@ -173,7 +167,6 @@ export function tabInputFromProgress(
   return {
     signedIn,
     fillPhase: progress?.phase ?? "idle",
-    resumeSkipped: progress?.resumeUpload?.status === "skipped",
     generateStatus: generate?.status ?? null,
     generateLabel: generate?.label ?? null,
     hasResume: Boolean(generate?.hasResume),

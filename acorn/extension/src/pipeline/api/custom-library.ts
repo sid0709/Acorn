@@ -6,7 +6,7 @@ import { loggedFetch } from "./api-log";
 import { cachedFileGet } from "./file-cache";
 import { apiError, isNestMissingRoute, readId } from "./http";
 
-import type { RuntimeAttachedFile } from "@acorn/shared/plan-runner/types";
+import type { RuntimeAttachedFile } from "@acorn/shared/attached-file";
 
 const CUSTOM_RECOMMEND_UNAVAILABLE = "Custom Recommend needs Library matching on this Acorn API.";
 
