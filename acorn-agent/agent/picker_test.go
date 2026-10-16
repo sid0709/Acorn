@@ -17,7 +17,7 @@ func openedPicker(id string) []ActionResult {
 func TestAClickThatOpenedAFilePickerIsToldToTheModel(t *testing.T) {
 	model := &scriptedModel{replies: []string{attachClick(), plan("uploading", nil, map[string]any{"kind": "upload", "x": 300, "y": 400})}}
 	a := newTestAgent(t, model, &fixedDecider{}, DefaultConfig()) // no decision model: the model must do it
-	id := start(t, a)
+	id := startOnForm(t, a)
 	stepOK(t, a, id, observation(shot(t, 40)))
 	obs := observation(shot(t, 90))
 	obs.Results = openedPicker("s1a1")
@@ -34,7 +34,7 @@ func TestTheAgentUploadsTheResumeItselfWhenTheControlTakesOne(t *testing.T) {
 	model := &scriptedModel{replies: []string{attachClick(), plan("next", nil, click(1, 1, nil))}}
 	screen := &fakeScreen{fileKind: fileResume, fileSure: 0.97}
 	a := newAgentWithScreen(t, model, &fixedDecider{choice: "Ada"}, screen, DefaultConfig())
-	id := start(t, a)
+	id := startOnForm(t, a)
 	stepOK(t, a, id, observation(shot(t, 40)))
 
 	obs := observation(shot(t, 90))
@@ -71,7 +71,7 @@ func TestAControlForAnotherDocumentIsLeftToTheModel(t *testing.T) {
 			model := &scriptedModel{replies: []string{attachClick(), plan("choosing", nil, click(1, 1, nil))}}
 			screen := &fakeScreen{fileKind: kind, fileSure: 0.99}
 			a := newAgentWithScreen(t, model, &fixedDecider{}, screen, DefaultConfig())
-			id := start(t, a)
+			id := startOnForm(t, a)
 			stepOK(t, a, id, observation(shot(t, 40)))
 			obs := observation(shot(t, 90))
 			obs.Results = openedPicker("s1a1")
@@ -90,7 +90,7 @@ func TestTheAgentUploadsAtAPointOnlyOnce(t *testing.T) {
 	model := &scriptedModel{replies: []string{attachClick(), attachClick(), plan("again", nil, click(1, 1, nil))}}
 	screen := &fakeScreen{fileKind: fileResume, fileSure: 0.99}
 	a := newAgentWithScreen(t, model, &fixedDecider{}, screen, DefaultConfig())
-	id := start(t, a)
+	id := startOnForm(t, a)
 	stepOK(t, a, id, observation(shot(t, 40)))
 	obs := observation(shot(t, 90))
 	obs.Results = openedPicker("s1a1")
@@ -117,7 +117,7 @@ func TestAnUnsureCheckerLeavesTheUploadToTheModel(t *testing.T) {
 	model := &scriptedModel{replies: []string{attachClick(), plan("deciding", nil, click(1, 1, nil))}}
 	screen := &fakeScreen{fileKind: fileResume, fileSure: 0.5}
 	a := newAgentWithScreen(t, model, &fixedDecider{}, screen, DefaultConfig())
-	id := start(t, a)
+	id := startOnForm(t, a)
 	stepOK(t, a, id, observation(shot(t, 40)))
 	obs := observation(shot(t, 90))
 	obs.Results = openedPicker("s1a1")

@@ -162,6 +162,21 @@ func newAgentWithScreen(t *testing.T, model *scriptedModel, decider Decider, scr
 		newScreen)
 }
 
+// startOnForm opens a run and marks the session as already on the application form, so tests
+// that count screen-check calls are not preceded by the navigation gate.
+func startOnForm(t *testing.T, a *Agent) string {
+	t.Helper()
+	id := start(t, a)
+	s, ok := a.sessions.get(id)
+	if !ok {
+		t.Fatal("no session")
+	}
+	s.mu.Lock()
+	s.formReady = true
+	s.mu.Unlock()
+	return id
+}
+
 func start(t *testing.T, a *Agent) string {
 	t.Helper()
 	started, err := a.Start(context.Background(), "key", applicant.Auth{}, Start{URL: "https://jobs.example/apply", Title: "Apply"})

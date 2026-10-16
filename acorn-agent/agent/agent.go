@@ -87,7 +87,7 @@ func DefaultConfig() Config {
 		MaxSteps:         150,
 		MaxActions:       12,
 		UncheckedActions: 6,
-		ChunkActions:     4,
+		ChunkActions:     6,
 		CheckMatch:       0.9,
 		CheckBlocked:     0.2,
 		CheckLoading:     0.3,
@@ -218,6 +218,7 @@ func (a *Agent) Continue(id string) (Continued, error) {
 	s.pendingUpload = nil
 	s.plan, s.verify, s.planned, s.sent, s.parts = nil, "", 0, 0, 0
 	s.stale, s.lastSig, s.loadWaits = 0, nil, 0
+	s.formReady, s.navScrolls = false, 0
 	s.notes = append(s.notes, note)
 	slog.Info("run continued", "session", s.id, "step", s.step, "limit", s.stepLimit)
 	return Continued{Number: s.step, Usage: s.usage}, nil
@@ -328,6 +329,9 @@ func (a *Agent) step(ctx context.Context, id string, obs Observation) (Step, err
 		return step, nil
 	}
 	if step, ok := a.continuePlan(ctx, s, obs, results, sig, stale); ok {
+		return step, nil
+	}
+	if step, ok := a.tryNavigate(ctx, s, obs, len(screens), results, sig, stale); ok {
 		return step, nil
 	}
 

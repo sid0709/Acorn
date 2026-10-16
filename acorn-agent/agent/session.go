@@ -96,6 +96,11 @@ type session struct {
 	loadWaits int
 	// checksOff is set once a check failed: the rest of the run goes without them.
 	checksOff bool
+	// formReady is set once the screen shows an application form or Apply control, so navigation
+	// scrolls stop and the driving model plans clicks and typing.
+	formReady bool
+	// navScrolls counts scroll-only steps sent while looking for the form.
+	navScrolls int
 	// wantTrace is set when the run asked for its trace in the answers, and pendingTrace is what was
 	// recorded since the last answer.
 	wantTrace    bool

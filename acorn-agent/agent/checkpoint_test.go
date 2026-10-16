@@ -22,6 +22,8 @@ type fakeScreen struct {
 	// fileKind is what the screen says a file control takes (a file_kind question), with fileSure as its probability.
 	fileKind string
 	fileSure float64
+	// formReady is the probability returned for the navigation form-ready question; nil means sure (1.0).
+	formReady *float64
 }
 
 type screenVerdict struct{ matches, blocked, loading float64 }
@@ -42,6 +44,19 @@ func (f *fakeScreen) Decide(_ context.Context, req decide.Request) (decide.Respo
 				Type: decide.TypeChoice, Choice: f.fileKind, Probabilities: map[string]float64{f.fileKind: f.fileSure},
 			}},
 			Usage: decide.Usage{InputTokens: 1200, Cost: 0.0002},
+		}, nil
+	}
+	if _, asked := req.Questions[askFormReady]; asked {
+		p := 1.0
+		if f.formReady != nil {
+			p = *f.formReady
+		}
+		noul := func(prob float64) decide.Answer { return decide.Answer{Type: decide.TypeNoul, Noul: &prob} }
+		return decide.Response{
+			Model:   "fake-screen-1",
+			Answers: map[string]decide.Answer{askFormReady: noul(p)},
+			Usage:   decide.Usage{InputTokens: 800, Cost: 0.0001},
+			Latency: 5 * time.Millisecond,
 		}, nil
 	}
 	if len(f.verdicts) == 0 {
@@ -130,7 +145,7 @@ func TestPlanRunsOnWhenTheScreenMatchesWithoutCallingTheModel(t *testing.T) {
 	model := &scriptedModel{replies: []string{sixClicks(), plan("next page", nil, click(5, 5, nil))}}
 	screen := &fakeScreen{verdicts: []screenVerdict{sure, sure}}
 	a := newAgentWithScreen(t, model, &fixedDecider{}, screen, DefaultConfig())
-	id := start(t, a)
+	id := startOnForm(t, a)
 
 	first := stepOK(t, a, id, observation(shot(t, 40)))
 	if kinds(first.Actions) != "s1a1,s1a2" || model.count() != 1 {
@@ -177,7 +192,7 @@ func TestTheCheckerIsAskedWhatTheModelExpectedAboutTheScreenshot(t *testing.T) {
 	model := &scriptedModel{replies: []string{sixClicks()}}
 	screen := &fakeScreen{verdicts: []screenVerdict{sure}}
 	a := newAgentWithScreen(t, model, &fixedDecider{}, screen, DefaultConfig())
-	id := start(t, a)
+	id := startOnForm(t, a)
 	stepOK(t, a, id, observation(shot(t, 40)))
 	obs := observation(shot(t, 90))
 	obs.Results = resultsFor("s1a", 1, 2)
@@ -201,7 +216,7 @@ func TestMismatchSendsTheScreenToTheModelAndSaysWhyThePlanStopped(t *testing.T) 
 	model := &scriptedModel{replies: []string{sixClicks(), plan("recovering", nil, click(5, 5, nil))}}
 	screen := &fakeScreen{verdicts: []screenVerdict{notSure}}
 	a := newAgentWithScreen(t, model, &fixedDecider{}, screen, DefaultConfig())
-	id := start(t, a)
+	id := startOnForm(t, a)
 	stepOK(t, a, id, observation(shot(t, 40)))
 
 	obs := observation(shot(t, 90))
@@ -259,7 +274,7 @@ func TestSomethingInTheWayOrAFailedActionOrAFrozenScreenSendsTheModelToLook(t *t
 				screen.verdicts = []screenVerdict{*tc.verdict}
 			}
 			a := newAgentWithScreen(t, model, &fixedDecider{}, screen, DefaultConfig())
-			id := start(t, a)
+			id := startOnForm(t, a)
 			stepOK(t, a, id, observation(shot(t, 40)))
 			stepOK(t, a, id, tc.obs(t))
 			if model.count() != 2 || screen.calls() != tc.checks {
@@ -276,7 +291,7 @@ func TestALoadingPageIsWaitedForWithoutTheModelThenChecked(t *testing.T) {
 	model := &scriptedModel{replies: []string{sixClicks()}}
 	screen := &fakeScreen{verdicts: []screenVerdict{{matches: 0.2, loading: 0.95}, sure}}
 	a := newAgentWithScreen(t, model, &fixedDecider{}, screen, DefaultConfig())
-	id := start(t, a)
+	id := startOnForm(t, a)
 	stepOK(t, a, id, observation(shot(t, 40)))
 
 	obs := observation(shot(t, 90))
@@ -300,7 +315,7 @@ func TestALoadingPageThatNeverLoadsIsLeftToTheModel(t *testing.T) {
 	cfg := DefaultConfig()
 	cfg.MaxLoadWaits = 2
 	a := newAgentWithScreen(t, model, &fixedDecider{}, screen, cfg)
-	id := start(t, a)
+	id := startOnForm(t, a)
 	stepOK(t, a, id, observation(shot(t, 40)))
 	for i, shade := range []uint8{90, 140} {
 		obs := observation(shot(t, shade))
@@ -320,8 +335,10 @@ func TestAChunkWithoutACheckEndsThePlanThere(t *testing.T) {
 	reply := plan("filling", nil, click(10, 10, nil), click(20, 20, nil), click(30, 30, nil), click(40, 40, nil), click(50, 50, "later"), click(60, 60, nil))
 	model := &scriptedModel{replies: []string{reply}}
 	screen := &fakeScreen{}
-	a := newAgentWithScreen(t, model, &fixedDecider{}, screen, DefaultConfig())
-	id := start(t, a)
+	cfg := DefaultConfig()
+	cfg.ChunkActions = 4
+	a := newAgentWithScreen(t, model, &fixedDecider{}, screen, cfg)
+	id := startOnForm(t, a)
 	first := stepOK(t, a, id, observation(shot(t, 40)))
 	if len(first.Actions) != 4 || len(first.Dropped) != 1 || !strings.Contains(first.Dropped[0], "2 planned actions were not sent") {
 		t.Fatalf("first = %+v", first)
@@ -339,7 +356,7 @@ func TestACheckerThatFailsIsDroppedForTheRestOfTheRun(t *testing.T) {
 	model := &scriptedModel{replies: []string{sixClicks(), sixClicks()}}
 	screen := &fakeScreen{err: errors.New("no credits")}
 	a := newAgentWithScreen(t, model, &fixedDecider{}, screen, DefaultConfig())
-	id := start(t, a)
+	id := startOnForm(t, a)
 	stepOK(t, a, id, observation(shot(t, 40)))
 	obs := observation(shot(t, 90))
 	obs.Results = resultsFor("s1a", 1, 2)
@@ -367,7 +384,7 @@ func TestACheckerThatFailsIsDroppedForTheRestOfTheRun(t *testing.T) {
 func TestWithoutADecisionModelThePromptAndPlanStayAsBefore(t *testing.T) {
 	model := &scriptedModel{replies: []string{sixClicks()}}
 	a := newAgentWithScreen(t, model, &fixedDecider{}, nil, DefaultConfig())
-	id := start(t, a)
+	id := startOnForm(t, a)
 	step := stepOK(t, a, id, observation(shot(t, 40)))
 	if len(step.Actions) != 6 {
 		t.Fatalf("actions = %s", kinds(step.Actions))
@@ -390,7 +407,7 @@ func TestChecksAreCountedAndCostedSeparately(t *testing.T) {
 	model := &scriptedModel{replies: []string{sixClicks()}}
 	screen := &fakeScreen{verdicts: []screenVerdict{sure}}
 	a := newAgentWithScreen(t, model, &fixedDecider{}, screen, DefaultConfig())
-	id := start(t, a)
+	id := startOnForm(t, a)
 	stepOK(t, a, id, observation(shot(t, 40)))
 	obs := observation(shot(t, 90))
 	obs.Results = resultsFor("s1a", 1, 2)
@@ -426,7 +443,7 @@ func TestTypedTextThatMovedTooFewPixelsIsStillCheckedNotTakenForNoChange(t *test
 	model := &scriptedModel{replies: []string{reply, plan("done looking", nil, click(5, 5, nil))}}
 	screen := &fakeScreen{verdicts: []screenVerdict{sure}}
 	a := newAgentWithScreen(t, model, &fixedDecider{}, screen, DefaultConfig())
-	id := start(t, a)
+	id := startOnForm(t, a)
 	first := stepOK(t, a, id, observation(shot(t, 40)))
 	if len(first.Actions) != 2 {
 		t.Fatalf("first run = %s", kinds(first.Actions))
@@ -443,7 +460,7 @@ func TestAClickThatLeftTheScreenTheSameStillHandsTheRunBack(t *testing.T) {
 	model := &scriptedModel{replies: []string{sixClicks(), plan("recovering", nil, click(5, 5, nil))}}
 	screen := &fakeScreen{}
 	a := newAgentWithScreen(t, model, &fixedDecider{}, screen, DefaultConfig())
-	id := start(t, a)
+	id := startOnForm(t, a)
 	stepOK(t, a, id, observation(shot(t, 40)))
 	obs := observation(shot(t, 40))
 	obs.Results = resultsFor("s1a", 1, 2)
