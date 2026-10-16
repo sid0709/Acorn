@@ -89,6 +89,43 @@ func surveyNote(obs Observation) string {
 	return out.String()
 }
 
+// formSurveyMessage is what the person sees while the page below the résumé is photographed.
+const formSurveyMessage = "Looking at the rest of the form."
+
+// pendingFormSurvey is whether this batch attached a file that has not yet been followed
+// by a survey of the form below it.
+func pendingFormSurvey(s *session, results []ActionResult) bool {
+	for _, result := range results {
+		if result.OK && s.byID[result.ID].Kind == KindUpload && !s.surveyedUpload[result.ID] {
+			return true
+		}
+	}
+	return false
+}
+
+// askFormSurvey tells the extension to photograph the page from where it is down to the
+// bottom, and does not call the model. The look after that plans the form.
+func (a *Agent) askFormSurvey(s *session, obs Observation, results []ActionResult) Step {
+	if s.surveyedUpload == nil {
+		s.surveyedUpload = map[string]bool{}
+	}
+	for _, result := range results {
+		if result.OK && s.byID[result.ID].Kind == KindUpload {
+			s.surveyedUpload[result.ID] = true
+		}
+	}
+	// The model has not looked yet. Keep this batch, including the upload's result, for that look.
+	s.carried = append([]ActionResult(nil), results...)
+	a.record(s, stepTrace{
+		Seq: s.seq, Step: s.step, At: a.now(), Source: sourceSurvey, URL: obs.URL, Title: obs.Title, Viewport: obs.Viewport,
+		Results: results, Status: StatusWorking, Message: formSurveyMessage, Usage: s.usage,
+	}, "", nil)
+	return Step{
+		Status: StatusWorking, Message: formSurveyMessage, Survey: true, SurveyFrom: SurveyFromDown,
+		Number: s.step, Usage: s.usage,
+	}
+}
+
 // withoutSurvey takes the survey request out of a plan: it is not an action for the extension.
 func withoutSurvey(actions []Action) (kept []Action, asked bool) {
 	for _, action := range actions {

@@ -14,6 +14,7 @@ import {
   type AgentActionResult,
   type AgentStep,
   type AgentUsage,
+  SURVEY_FROM_HERE,
 } from "@acorn/shared/agent-contract";
 import {
   RUN_FAILURE_REASON,
@@ -393,9 +394,10 @@ export async function runAgent(args: AgentRunArgs): Promise<RunReport> {
     let carriedNotes: string[] = [];
     let answer: string | undefined;
     let sentText = "";
-    // With surveys on (AGENT_SURVEY), the first look of a page is a survey of the whole of it, so
-    // the model can plan the form at once; so is the look after the model asks for one.
+    // With surveys on (AGENT_SURVEY), the first look of a page is a survey from the top. A survey
+    // the server asks for after a résumé is attached starts where the page is and goes down.
     let surveyNext = surveyOn;
+    let fromHere = false;
     let lastLook = "";
     for (;;) {
       checkStopped();
@@ -410,8 +412,10 @@ export async function runAgent(args: AgentRunArgs): Promise<RunReport> {
       await here.overlay.ensure();
       const info = await chrome.tabs.get(here.tabId);
       const lookKey = `${info.url ?? ""}\n${info.title ?? ""}`;
-      const surveying = surveyOn && (surveyNext || lookKey !== lastLook);
+      const surveying = surveyNext || (surveyOn && lookKey !== lastLook);
+      const surveyDown = fromHere;
       surveyNext = false;
+      fromHere = false;
       lastLook = lookKey;
       let survey: AgentSurveyScreen[] | null = null;
       const captureStartedAt = Date.now();
@@ -419,12 +423,14 @@ export async function runAgent(args: AgentRunArgs): Promise<RunReport> {
       try {
         shot = await captureShot(here.cdp);
         if (surveying) {
-          survey = await captureSurvey({ cdp: here.cdp, sleep, checkStopped }, shot).catch(
-            (err: unknown) => {
-              if (signal.aborted) throw err;
-              return null; // a page that cannot be surveyed is looked at one screen at a time
-            },
-          );
+          survey = await captureSurvey(
+            { cdp: here.cdp, sleep, checkStopped },
+            shot,
+            surveyDown,
+          ).catch((err: unknown) => {
+            if (signal.aborted) throw err;
+            return null; // a page that cannot be surveyed is looked at one screen at a time
+          });
         }
       } finally {
         await here.overlay.hideForCapture(false);
@@ -464,7 +470,10 @@ export async function runAgent(args: AgentRunArgs): Promise<RunReport> {
       stepNumber = step.number;
       lastUsage = step.usage;
       const actions = step.actions ?? [];
-      if (step.survey) surveyNext = true;
+      if (step.survey) {
+        surveyNext = true;
+        fromHere = step.surveyFrom === SURVEY_FROM_HERE;
+      }
       log.step = step.number;
       recordAgentTrace(log, step.trace, {
         seq: step.trace?.seq ?? step.number,

@@ -165,6 +165,10 @@ func (a *Agent) answerPending(s *session, obs Observation, results []ActionResul
 		upload := held
 		upload.ID = fmt.Sprintf("s%dq%d", s.step, s.seq)
 		upload.Kind, upload.Resume, upload.FileName = KindUpload, file.ID, file.FileName
+		if s.byID == nil {
+			s.byID = map[string]Action{}
+		}
+		s.byID[upload.ID] = upload
 		s.carried = results
 		s.stale, s.lastSig = 0, sig
 		s.notes = append(s.notes, fmt.Sprintf("No job description was found, so the applicant chose to upload their default résumé; Acorn uploaded %s at %.0f,%.0f. Any actions you planned after the upload did not run: look again and plan from here.", file.FileName, *held.X, *held.Y))

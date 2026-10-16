@@ -199,7 +199,7 @@ func TestTheCheckerIsAskedWhatTheModelExpectedAboutTheScreenshot(t *testing.T) {
 
 func TestMismatchSendsTheScreenToTheModelAndSaysWhyThePlanStopped(t *testing.T) {
 	model := &scriptedModel{replies: []string{sixClicks(), plan("recovering", nil, click(5, 5, nil))}}
-	screen := &fakeScreen{verdicts: []screenVerdict{notSure}}
+	screen := &fakeScreen{verdicts: []screenVerdict{notSure, sure}}
 	a := newAgentWithScreen(t, model, &fixedDecider{}, screen, DefaultConfig())
 	id := start(t, a)
 	stepOK(t, a, id, observation(shot(t, 40)))
@@ -211,18 +211,23 @@ func TestMismatchSendsTheScreenToTheModelAndSaysWhyThePlanStopped(t *testing.T) 
 		t.Fatalf("the model must look: calls %d, %+v", model.count(), step)
 	}
 	text := lastText(model)
-	for _, want := range []string{"You planned 6 actions: 2 ran, 4 did not", "first name shows Ada", "s1a2 done"} {
+	for _, want := range []string{"You planned 6 actions: 2 ran, 4 are still queued", "first name shows Ada", "s1a2 done"} {
 		if !strings.Contains(text, want) {
 			t.Fatalf("missing %q in:\n%s", want, text)
 		}
 	}
-	// The plan is gone: the next look goes to the model again, not to the checker.
+	// The repair runs first, and the actions that were already planned follow it.
+	if len(step.Actions) != 3 || step.Actions[0].X == nil || *step.Actions[0].X != 5 {
+		t.Fatalf("repair = %s", kinds(step.Actions))
+	}
 	obs = observation(shot(t, 140))
-	obs.Results = resultsFor("s2a", 1)
-	model.replies = append(model.replies, plan("again", nil, click(1, 1, nil)))
-	stepOK(t, a, id, obs)
-	if screen.calls() != 1 || model.count() != 3 {
-		t.Fatalf("checks %d, model calls %d", screen.calls(), model.count())
+	obs.Results = make([]ActionResult, len(step.Actions))
+	for i, action := range step.Actions {
+		obs.Results[i] = ActionResult{ID: action.ID, OK: true}
+	}
+	next := stepOK(t, a, id, obs)
+	if kinds(next.Actions) != "s1a5,s1a6" || model.count() != 2 {
+		t.Fatalf("queued = %s, model calls %d, checks %d", kinds(next.Actions), model.count(), screen.calls())
 	}
 }
 
@@ -381,7 +386,7 @@ func TestWithoutADecisionModelThePromptAndPlanStayAsBefore(t *testing.T) {
 	cid := start(t, checked)
 	stepOK(t, checked, cid, observation(shot(t, 40)))
 	system = checked.newModel("").(*scriptedModel).requests[0].Messages[0].Text
-	if !strings.Contains(system, `"check"`) || !strings.Contains(system, "up to 12") {
+	if !strings.Contains(system, `"check"`) || !strings.Contains(system, "up to 40") {
 		t.Fatalf("the checked prompt must explain checks and allow 12:\n%s", system)
 	}
 }
@@ -449,5 +454,42 @@ func TestAClickThatLeftTheScreenTheSameStillHandsTheRunBack(t *testing.T) {
 	obs.Results = resultsFor("s1a", 1, 2)
 	if step := stepOK(t, a, id, obs); step.Message != "recovering" || screen.calls() != 0 {
 		t.Fatalf("a click that changed nothing must not be checked: %+v, checks %d", step, screen.calls())
+	}
+}
+
+func TestASecondMissDropsWhatWasQueued(t *testing.T) {
+	model := &scriptedModel{replies: []string{sixClicks(), plan("recovering", nil, click(5, 5, nil)), plan("again", nil, click(1, 1, nil))}}
+	screen := &fakeScreen{verdicts: []screenVerdict{notSure, notSure}}
+	a := newAgentWithScreen(t, model, &fixedDecider{}, screen, DefaultConfig())
+	id := start(t, a)
+	stepOK(t, a, id, observation(shot(t, 40)))
+	obs := observation(shot(t, 90))
+	obs.Results = resultsFor("s1a", 1, 2)
+	repair := stepOK(t, a, id, obs)
+	obs = observation(shot(t, 140))
+	obs.Results = make([]ActionResult, len(repair.Actions))
+	for i, action := range repair.Actions {
+		obs.Results[i] = ActionResult{ID: action.ID, OK: true}
+	}
+	again := stepOK(t, a, id, obs)
+	if again.Message != "again" || model.count() != 3 || strings.Contains(lastText(model), "still queued") {
+		t.Fatalf("a second miss plans afresh: %+v\n%s", again, lastText(model))
+	}
+	if !strings.Contains(lastText(model), "did not") {
+		t.Fatalf("missing the drop in:\n%s", lastText(model))
+	}
+}
+
+func TestASingleFieldIsPlannedAgainOnce(t *testing.T) {
+	short := plan("one field", nil, typeAction("Ada", "name shows Ada"))
+	full := plan("the form", nil, typeAction("Ada", nil), click(20, 20, "name shows Ada"), click(30, 30, nil), click(40, 40, "email shows ada@example.com"))
+	model := &scriptedModel{replies: []string{short, full}}
+	a := newAgentWithScreen(t, model, &fixedDecider{}, &fakeScreen{}, DefaultConfig())
+	step := stepOK(t, a, start(t, a), observation(shot(t, 40)))
+	if model.count() != 2 || len(step.Actions) < 2 {
+		t.Fatalf("actions = %s, model calls %d", kinds(step.Actions), model.count())
+	}
+	if !strings.Contains(lastText(model), "You planned one action") {
+		t.Fatalf("the short plan was not sent back:\n%s", lastText(model))
 	}
 }

@@ -13,6 +13,10 @@ import (
 //go:embed prompts/system.md
 var systemTemplateText string
 
+// shortPlanNudge is what a one-action answer is told, with the same screenshots, so the
+// model plans the fields it can already see.
+const shortPlanNudge = "You planned one action. Plan every field you can see on this screen. One action is only for an upload, a scroll to a part of the page this look has not shown, a wait, or a click that opens a page or a dialog you have not seen (leave its check null). Answer again with only the JSON object."
+
 var systemTemplate = template.Must(template.New("system").Parse(systemTemplateText))
 
 type systemData struct {

@@ -49,11 +49,26 @@ export async function scrollPageTo(cdp: Cdp, y: number): Promise<{ y: number; he
  * overlap at a time, and the very bottom. At most SURVEY_MAX_SCREENS of them.
  */
 export function surveyPositions(pageHeight: number, viewHeight: number): number[] {
-  if (!(viewHeight > 0) || pageHeight < viewHeight * SURVEY_MIN_PAGE_RATIO) return [];
-  const last = pageHeight - viewHeight;
+  return surveyPositionsFrom(0, pageHeight, viewHeight);
+}
+
+/**
+ * The same stops as surveyPositions, starting at `start` instead of the top, so a survey taken
+ * after a résumé is attached photographs the form below and leaves the job description above out.
+ * Empty when what remains below `start` is about one screen.
+ */
+export function surveyPositionsFrom(
+  start: number,
+  pageHeight: number,
+  viewHeight: number,
+): number[] {
+  if (!(viewHeight > 0) || !(pageHeight > 0)) return [];
+  const last = Math.max(0, pageHeight - viewHeight);
+  const origin = Math.max(0, Math.min(start, last));
+  if (pageHeight - origin < viewHeight * SURVEY_MIN_PAGE_RATIO) return [];
   const step = viewHeight * (1 - SURVEY_OVERLAP);
   const positions: number[] = [];
-  for (let y = 0; y < last - 1; y += step) positions.push(Math.round(y));
+  for (let y = origin; y < last - 1; y += step) positions.push(Math.round(y));
   positions.push(Math.round(last));
   return positions.slice(0, SURVEY_MAX_SCREENS);
 }
@@ -72,12 +87,14 @@ export interface SurveyDeps {
 export async function captureSurvey(
   deps: SurveyDeps,
   first: Shot,
+  fromHere = false,
 ): Promise<AgentSurveyScreen[] | null> {
   const scale = first.scale;
-  const positions = surveyPositions(
-    first.viewport.pageHeight / scale,
-    first.viewport.height / scale,
-  );
+  const pageHeight = first.viewport.pageHeight / scale;
+  const viewHeight = first.viewport.height / scale;
+  const positions = fromHere
+    ? surveyPositionsFrom(first.viewport.scrollY / scale, pageHeight, viewHeight)
+    : surveyPositions(pageHeight, viewHeight);
   if (positions.length < 2) return null;
   const original = first.viewport.scrollY / scale;
   const screens: AgentSurveyScreen[] = [];

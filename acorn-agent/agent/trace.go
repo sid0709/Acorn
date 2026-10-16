@@ -37,6 +37,9 @@ type tracer struct {
 // sourceCheck marks an entry the decision model answered, with no call to the driving model.
 const sourceCheck = "check"
 
+// sourceSurvey marks an entry that asks for a survey of the form and does not call the model.
+const sourceSurvey = "survey"
+
 // sourcePicker marks an entry where the agent uploaded the résumé at a click that opened a
 // file picker, with no call to the driving model.
 const sourcePicker = "picker"

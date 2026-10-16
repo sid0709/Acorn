@@ -53,10 +53,14 @@ func TestTheAgentUploadsTheResumeItselfWhenTheControlTakesOne(t *testing.T) {
 		t.Fatalf("usage = %+v", step.Usage)
 	}
 
-	// The model's next look says what the agent did, with the upload's result.
+	// The model's next look says what the agent did, once the form below the résumé is surveyed.
 	next := observation(shot(t, 140))
 	next.Results = []ActionResult{{ID: step.Actions[0].ID, OK: true, Detail: "Ada.pdf, 3 bytes, through the picker"}}
-	stepOK(t, a, id, next)
+	surveyed := stepOK(t, a, id, next)
+	if !surveyed.Survey || surveyed.SurveyFrom != SurveyFromDown || model.count() != 1 {
+		t.Fatalf("survey = %+v, model calls %d", surveyed, model.count())
+	}
+	stepOK(t, a, id, observation(shot(t, 180)))
 	text := lastText(model)
 	for _, want := range []string{"Acorn uploaded", "for you", "s1a1 done", "through the picker"} {
 		if !strings.Contains(text, want) {
@@ -98,9 +102,14 @@ func TestTheAgentUploadsAtAPointOnlyOnce(t *testing.T) {
 	if first.Actions[0].Kind != KindUpload {
 		t.Fatalf("first = %+v", first)
 	}
-	// The model looks, clicks the same control again, and it opens a picker again: no second upload.
+	// The résumé is attached: the form below is surveyed, and only then does the model look.
 	obs = observation(shot(t, 140))
 	obs.Results = []ActionResult{{ID: first.Actions[0].ID, OK: true}}
+	surveyed := stepOK(t, a, id, obs)
+	if !surveyed.Survey || len(surveyed.Actions) != 0 {
+		t.Fatalf("survey = %+v", surveyed)
+	}
+	obs = observation(shot(t, 160))
 	second := stepOK(t, a, id, obs)
 	obs = observation(shot(t, 190))
 	obs.Results = openedPicker(second.Actions[0].ID)
