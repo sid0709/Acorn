@@ -6,6 +6,7 @@
  */
 
 import {
+  AGENT_ERROR_CODE,
   AGENT_STATUS,
   type AgentAction,
   type AgentAsk,
@@ -27,6 +28,7 @@ import { RunLog, logUrl } from "../pipeline/run-log";
 import { captureShot, type Shot } from "./capture";
 import {
   AgentApiError,
+  continueSession,
   endSession,
   fetchResumeFile,
   isRetryable,
@@ -43,6 +45,7 @@ import {
   failureFromError,
   failureFromStatus,
   runningProgress,
+  AGENT_EXPIRED_MESSAGE,
   AGENT_STARTING_MESSAGE,
 } from "./progress";
 import { AGENT_SURVEY } from "./settings";
@@ -51,6 +54,7 @@ import { openAgentTab, type AgentTab } from "./tab-session";
 import { recordAgentTrace } from "./trace-log";
 import { toBase64, type ResumeFile } from "./upload";
 
+import type { KeptRun } from "./kept-run";
 import type { PipelineProgress } from "@acorn/shared/pipeline-types";
 
 /** The most times one step is sent again when the model is busy or briefly down. */
@@ -95,6 +99,21 @@ export interface AgentRunArgs {
    * when the signal aborts. A run without it cannot ask, so a question ends it.
    */
   waitForAnswer?: (signal: AbortSignal) => Promise<string>;
+  /**
+   * A stopped run to take back up: the agent still holds its memory, so the run goes on in the same
+   * conversation instead of starting over. If the agent has forgotten it, the run starts over.
+   */
+  resume?: KeptRun;
+  /**
+   * Keeps a run that stopped (the person pressed Stop, it needed them, or the connection dropped)
+   * so Continue can take it back up. Without it, a run that stops is ended on the server.
+   */
+  keepRun?: (tabIds: number[], run: KeptRun) => Promise<void>;
+}
+
+/** Whether a failure leaves the run's memory on the server for Continue: not when it is gone. */
+function runSurvives(err: unknown): boolean {
+  return !(err instanceof AgentApiError && err.code === AGENT_ERROR_CODE.noSession);
 }
 
 /** A short fingerprint of a page's text, to send it only when it changed. */
@@ -141,7 +160,9 @@ function sleeper(signal: AbortSignal) {
 
 export async function runAgent(args: AgentRunArgs): Promise<RunReport> {
   const surveyOn = args.survey ?? AGENT_SURVEY;
-  const runId = crypto.randomUUID().slice(0, 8);
+  // A continued run writes to the same log and trace folder as the run it takes up.
+  const runId = args.resume?.runId ?? crypto.randomUUID().slice(0, 8);
+  const workTabId = args.resume?.tabId ?? args.tabId;
   const startedAt = Date.now();
   const log = new RunLog(runId, args.tabId);
   const local = new AbortController();
@@ -154,6 +175,10 @@ export async function runAgent(args: AgentRunArgs): Promise<RunReport> {
   const tabs: number[] = [args.tabId];
   let current: AgentTab | null = null;
   let sessionId: string | null = null;
+  /** Set when the run ends in a way Continue can take up again: the server keeps its memory. */
+  let keepSession = false;
+  // A continued run keeps what it was started with: the agent's prompt was fixed then.
+  let stopBeforeSubmit = args.resume?.stopBeforeSubmit ?? args.stopBeforeSubmit;
   let shot: Shot | null = null;
   let tabClosed = false;
   let lastUsage: AgentUsage | null = null;
@@ -278,8 +303,9 @@ export async function runAgent(args: AgentRunArgs): Promise<RunReport> {
     }
   };
 
-  const finish = (report: RunReport): RunReport => {
+  const finish = (report: RunReport, resumable = false): RunReport => {
     chrome.tabs.onCreated.removeListener(onCreated);
+    keepSession = resumable && Boolean(sessionId) && Boolean(args.keepRun);
     const seconds = Math.round((Date.now() - startedAt) / 1000);
     log.event("run:end", {
       outcome: report.outcome,
@@ -290,7 +316,16 @@ export async function runAgent(args: AgentRunArgs): Promise<RunReport> {
       calls: lastUsage?.calls,
       costUsd: lastUsage?.cost,
     });
-    emit(endProgress({ run: runState(), report, steps: stepNumber, startedAt, usage: lastUsage }));
+    emit(
+      endProgress({
+        run: runState(),
+        report,
+        steps: stepNumber,
+        startedAt,
+        usage: lastUsage,
+        canContinue: keepSession,
+      }),
+    );
     return report;
   };
 
@@ -303,29 +338,56 @@ export async function runAgent(args: AgentRunArgs): Promise<RunReport> {
 
   try {
     emit(runningProgress(runState(), AGENT_STARTING_MESSAGE));
-    const tab = await chrome.tabs.get(args.tabId);
+    // Continue may be pressed on a tab the run was not working in last: it goes on where it was.
+    if (workTabId !== args.tabId) {
+      tabs.push(workTabId);
+      log.moveTo(workTabId);
+      args.claimTab?.(workTabId);
+    }
+    const tab = await chrome.tabs.get(workTabId);
     log.event("agent-start", {
-      tabId: args.tabId,
+      tabId: workTabId,
       url: logUrl(tab.url ?? ""),
-      stopBeforeSubmit: args.stopBeforeSubmit,
+      stopBeforeSubmit,
+      continued: Boolean(args.resume),
     });
-    current = await openAgentTab(args.tabId, hooks, OVERLAY_LABEL);
+    current = await openAgentTab(workTabId, hooks, OVERLAY_LABEL);
     watchFrames(current);
-    const started = await startSession(
-      args.agentUrl,
-      {
-        url: tab.url ?? "",
-        title: tab.title ?? "",
-        stopBeforeSubmit: args.stopBeforeSubmit,
-        trace: true,
-        survey: surveyOn,
-      },
-      args.key,
-      args.accessToken,
-    );
-    sessionId = started.sessionId;
-    log.event("agent-session", { resumes: started.resumes.length });
-    recordAgentTrace(log, started.trace);
+    if (args.resume) {
+      // Held from now on, so a Continue that fails for want of the network can be tried again.
+      sessionId = args.resume.sessionId;
+      try {
+        const continued = await continueSession(args.agentUrl, sessionId);
+        stepNumber = continued.number;
+        lastUsage = continued.usage;
+        log.step = continued.number;
+        log.event("agent-continue", { step: continued.number, calls: continued.usage.calls });
+      } catch (err) {
+        // A run the agent forgot (it expired, or the server restarted) cannot be continued: start over.
+        if (!(err instanceof AgentApiError && err.code === AGENT_ERROR_CODE.noSession)) throw err;
+        log.event("agent-continue:lost", { sessionId: args.resume.sessionId });
+        sessionId = null;
+        stopBeforeSubmit = args.stopBeforeSubmit;
+        emit(runningProgress(runState(), AGENT_EXPIRED_MESSAGE));
+      }
+    }
+    if (!sessionId) {
+      const started = await startSession(
+        args.agentUrl,
+        {
+          url: tab.url ?? "",
+          title: tab.title ?? "",
+          stopBeforeSubmit,
+          trace: true,
+          survey: surveyOn,
+        },
+        args.key,
+        args.accessToken,
+      );
+      sessionId = started.sessionId;
+      log.event("agent-session", { resumes: started.resumes.length });
+      recordAgentTrace(log, started.trace);
+    }
 
     let results: AgentActionResult[] = [];
     let carriedNotes: string[] = [];
@@ -454,11 +516,12 @@ export async function runAgent(args: AgentRunArgs): Promise<RunReport> {
         if (actions.length > 0) await runActions(executor, actions);
         if (step.status === AGENT_STATUS.done) {
           return finish(
-            report(args.stopBeforeSubmit ? RUN_OUTCOME.readyToSubmit : RUN_OUTCOME.completed),
+            report(stopBeforeSubmit ? RUN_OUTCOME.readyToSubmit : RUN_OUTCOME.completed),
           );
         }
         return finish(
           report(RUN_OUTCOME.failed, failureFromStatus(step.status, step.message, step.stop)),
+          true,
         );
       }
 
@@ -487,17 +550,25 @@ export async function runAgent(args: AgentRunArgs): Promise<RunReport> {
           detail: "",
           stage: RUN_STAGE.filling,
         }),
+        true,
       );
     }
     log.event("agent-error", {
       message: err instanceof Error ? err.message : String(err),
       code: err instanceof AgentApiError ? err.code : "",
     });
-    return finish(report(RUN_OUTCOME.failed, failureFromError(err)));
+    return finish(report(RUN_OUTCOME.failed, failureFromError(err)), runSurvives(err));
   } finally {
     chrome.tabs.onCreated.removeListener(onCreated);
     frames.stop?.();
-    if (sessionId) await endSession(args.agentUrl, sessionId);
+    if (sessionId && keepSession && args.keepRun) {
+      // The agent keeps this run's memory; Continue takes it back up on the tab it stopped in.
+      await args
+        .keepRun(tabs, { sessionId, runId, tabId: current?.tabId ?? workTabId, stopBeforeSubmit })
+        .catch(() => undefined);
+    } else if (sessionId) {
+      await endSession(args.agentUrl, sessionId);
+    }
     await current?.close().catch(() => undefined);
   }
 }

@@ -1,3 +1,5 @@
+import { endSession } from "../../agent/client";
+import { forgetKeptRunOfClosedTab, keepRun, takeKeptRun, type KeptRun } from "../../agent/kept-run";
 import { runAgent } from "../../agent/runner";
 import { getAgentUrl } from "../../agent/settings";
 import { getAccessToken } from "../../auth/acorn-auth";
@@ -28,6 +30,8 @@ export function handleStartRun(
       return;
     }
 
+    const resume = await resumableRun(tabId, message.continueRun === true);
+
     const claimed = new Set<number>([tabId]);
     const stop = beginRunStop(tabId);
     pipelineRunningTabIds.add(tabId);
@@ -46,6 +50,8 @@ export function handleStartRun(
         agentUrl: getAgentUrl(),
         signal: stop.signal,
         stopBeforeSubmit: await stopBeforeSubmitFor(message),
+        resume,
+        keepRun,
         accessToken: (await getAccessToken()) ?? undefined,
         emit: (tabIds, progress) => {
           for (const id of tabIds) broadcastPipelineProgress(id, progress);
@@ -75,6 +81,32 @@ export function handleStartRun(
       void syncAutoFocus();
     }
   })();
+}
+
+/**
+ * The stopped run this start takes back up, when it is a Continue and the agent can still be
+ * asked about it. Any run kept for the tab is taken out either way: Continue goes on with it, and
+ * a fresh Run leaves it behind, so the agent is told to forget it.
+ */
+async function resumableRun(tabId: number, continuing: boolean): Promise<KeptRun | undefined> {
+  const kept = await takeKeptRun(tabId).catch(() => null);
+  if (!kept) return undefined;
+  if (
+    continuing &&
+    (await chrome.tabs.get(kept.tabId).then(
+      () => true,
+      () => false,
+    ))
+  )
+    return kept;
+  await endSession(getAgentUrl(), kept.sessionId);
+  return undefined;
+}
+
+/** A tab closed: the stopped run kept for it is over, so the agent is told to forget it. */
+export async function endKeptRunOfTab(tabId: number): Promise<void> {
+  const kept = await forgetKeptRunOfClosedTab(tabId).catch(() => null);
+  if (kept) await endSession(getAgentUrl(), kept.sessionId);
 }
 
 /** Stop before Submit as the start message asks for it, else as the sidebar switch says. */

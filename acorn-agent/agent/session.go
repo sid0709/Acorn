@@ -53,8 +53,12 @@ type session struct {
 	// resume is the résumé chosen for this run, once chosen.
 	resume string
 	usage  Usage
-	// finished is set once a step ended the run.
-	finished bool
+	// finished is set once a step ended the run; stoppedFor is why, in the words of the step.
+	finished   bool
+	stoppedFor string
+	// stepLimit is the most steps the run may take so far: Continue after the limit adds a whole
+	// budget, so a run the person is still helping is not cut off again at once.
+	stepLimit int
 
 	// plan is what the model planned and has not yet been sent, one chunk per check. verify
 	// is what the screen should show after the chunk just sent, set only while plan holds more.

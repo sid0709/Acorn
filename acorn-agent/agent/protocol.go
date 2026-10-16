@@ -276,3 +276,10 @@ type Started struct {
 	// Trace holds the run's start (session.json, system.txt) when the run asked for a trace.
 	Trace *Trace `json:"trace,omitempty"`
 }
+
+// Continued is a run taken back up: the step it stopped at and what it has spent, so the
+// extension's counters go on from there.
+type Continued struct {
+	Number int   `json:"number"`
+	Usage  Usage `json:"usage"`
+}

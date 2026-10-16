@@ -145,12 +145,12 @@ func (a *Agent) answerPending(s *session, obs Observation, results []ActionResul
 		return a.askStep(s, obs, results, sig, held), nil
 	case AnswerChooseOwn:
 		s.pendingUpload = nil
-		s.finished = true
 		stop := &StopInfo{
 			Reason:  StopResumeChoice,
 			Problem: "Acorn found no job description, so it doesn't know which résumé fits.",
 			Action:  "Upload the résumé you want on the page yourself, then press Continue.",
 		}
+		s.finished, s.stoppedFor = true, stop.Problem
 		a.record(s, stepTrace{
 			Seq: s.seq, Step: s.step, At: a.now(), Source: sourceAsk, URL: obs.URL, Title: obs.Title, Viewport: obs.Viewport,
 			Status: StatusNeedPerson, Message: stop.Problem, Stop: stop, Usage: s.usage,

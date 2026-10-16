@@ -5,7 +5,6 @@ import (
 	"encoding/base64"
 	"encoding/json"
 	"net/http"
-	"net/url"
 	"strings"
 	"time"
 	"unicode"
@@ -121,18 +120,4 @@ func captureFileName(prefix, label, ext string) string {
 		name = prefix
 	}
 	return name + ext
-}
-
-// pageLabel names a run folder after the page host and title.
-func pageLabel(page map[string]any) string {
-	label := ""
-	if raw, ok := page["url"].(string); ok {
-		if parsed, err := url.Parse(raw); err == nil {
-			label = parsed.Hostname()
-		}
-	}
-	if title, ok := page["title"].(string); ok && title != "" {
-		label += " " + title
-	}
-	return label
 }

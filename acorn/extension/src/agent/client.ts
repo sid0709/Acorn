@@ -7,6 +7,7 @@ import {
   AGENT_ERROR_CODE,
   AGENT_KEY_HEADER,
   AGENT_ROUTES,
+  type AgentContinued,
   type AgentErrorBody,
   type AgentObservation,
   type AgentStart,
@@ -117,6 +118,18 @@ export async function startSession(
     timeoutMs: QUICK_TIMEOUT_MS,
   });
   return (await response.json()) as AgentStarted;
+}
+
+/**
+ * Takes a stopped run back up: the server keeps its memory, history and cost, and tells the
+ * model the person pressed Continue. A session the server no longer holds answers `no_session`.
+ */
+export async function continueSession(base: string, sessionId: string): Promise<AgentContinued> {
+  const response = await call(base, AGENT_ROUTES.continue(sessionId), {
+    method: "POST",
+    timeoutMs: QUICK_TIMEOUT_MS,
+  });
+  return (await response.json()) as AgentContinued;
 }
 
 export async function sendStep(

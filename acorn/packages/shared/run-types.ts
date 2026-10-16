@@ -19,100 +19,6 @@ export const RUN_STAGE = {
 
 export type RunStage = (typeof RUN_STAGE)[keyof typeof RUN_STAGE];
 
-/** What kind of page the decision model says this is (mirrors the backend's page kinds). */
-export const PAGE_KIND = {
-  posting: "job_posting",
-  form: "application_form",
-  /**
-   * Sign in, create an account, recover it, or go on without one. The run goes on
-   * without one when it can; otherwise it signs in or creates the account.
-   */
-  accountStep: "account_step",
-  confirmation: "confirmation",
-  blocked: "blocked",
-  other: "other",
-} as const;
-
-export type PageKind = (typeof PAGE_KIND)[keyof typeof PAGE_KIND];
-
-/** What a page asks to verify (mirrors the backend's verifications). */
-export const VERIFICATION = {
-  none: "none",
-  /** A code sent to the applicant's email: the run reads it from their connected Gmail. */
-  emailCode: "email_code",
-  /** A link sent to the applicant's email: the run opens it in the same tab. */
-  emailLink: "email_link",
-  /**
-   * The page asks where to send a code and email is a choice: the run chooses email
-   * and sends it, since it can read the applicant's Gmail and never their phone.
-   */
-  chooseEmail: "choose_email",
-  /** Anything else only the applicant can give (a phone code, a challenge). */
-  other: "other",
-} as const;
-
-export type Verification = (typeof VERIFICATION)[keyof typeof VERIFICATION];
-
-/** What an account step asks for (mirrors the backend's account modes). */
-export const ACCOUNT_MODE = {
-  none: "none",
-  signIn: "sign_in",
-  createAccount: "create_account",
-  resetPassword: "reset_password",
-  choose: "choose",
-  /** Only the account's email, asked first; the site picks the next form from it. */
-  identify: "identify",
-} as const;
-
-export type AccountMode = (typeof ACCOUNT_MODE)[keyof typeof ACCOUNT_MODE];
-
-/** One account step the run sent on a site, and whether the site went on. */
-export interface AccountAttempt {
-  mode: AccountMode;
-  accepted: boolean;
-  /** The page's own words after a rejected attempt. */
-  messages: string[];
-}
-
-/** How a site answered an account step the run sent (mirrors the backend's outcomes). */
-export const ACCOUNT_OUTCOME = {
-  /** The site took it and went on. */
-  accepted: "accepted",
-  /** The site said no: wrong password, account exists, locked, a flagged field. */
-  refused: "refused",
-  /** Nothing was sent: the click only switched which account form shows. */
-  notSent: "not_sent",
-} as const;
-
-export type AccountOutcome = (typeof ACCOUNT_OUTCOME)[keyof typeof ACCOUNT_OUTCOME];
-
-/** How a search of the applicant's mail ended (mirrors the backend's statuses). */
-export const MAIL_VERIFICATION_STATUS = {
-  found: "found",
-  /** No email from the site has arrived yet. */
-  pending: "pending",
-  /** The site's best emails hold no code or link. */
-  notFound: "not_found",
-  /** No Gmail is connected to read. */
-  noMailbox: "no_mailbox",
-} as const;
-
-export type MailVerificationStatus =
-  (typeof MAIL_VERIFICATION_STATUS)[keyof typeof MAIL_VERIFICATION_STATUS];
-
-/** What a picked control does (mirrors the backend's roles). */
-export const CONTROL_ROLE = {
-  apply: "apply",
-  next: "next",
-  submit: "submit",
-  /** Starts or completes something the page still requires before it can go on. */
-  resolve: "resolve",
-  /** Saves what a requirement's click opened inside the page (an entry form, a dialog). */
-  commit: "commit",
-} as const;
-
-export type ControlRole = (typeof CONTROL_ROLE)[keyof typeof CONTROL_ROLE];
-
 /** How a run ended. */
 export const RUN_OUTCOME = {
   completed: "completed",
@@ -187,14 +93,6 @@ export interface RunReport {
   usage?: AiUsageSummary | null;
 }
 
-/** One email the run is reading for a code or link: what the sidebar lists. */
-export interface MailRow {
-  from: string;
-  subject: string;
-  /** Jev's chance that this is the site's email; 0 until judged. */
-  probability: number;
-}
-
 /** Live Run state shown in the sidebar. */
 export interface RunProgress {
   runId: string;
@@ -210,8 +108,6 @@ export interface RunProgress {
   /** Refill rounds spent on the current page, and the most a page gets. */
   refills: number;
   maxRefills: number;
-  /** The kind the decision model gave the current page. */
-  kind?: PageKind;
   /** What the run is about to click, or just clicked. */
   control?: string;
   /**
@@ -223,9 +119,7 @@ export interface RunProgress {
   screenChecks?: number;
   /** An agent Run waiting on the person: the question and the answers they may give. */
   ask?: { id: string; question: string; options: { id: string; label: string }[] };
-  /** While the run reads the mail: the newest emails it hands to Jev. */
-  mail?: MailRow[];
-  /** The run stopped partway and kept a checkpoint: Continue carries on from here. */
+  /** The run stopped partway and the agent still remembers it: Continue takes it back up. */
   canContinue?: boolean;
   report?: RunReport;
 }

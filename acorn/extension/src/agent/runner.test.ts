@@ -3,6 +3,7 @@ import { afterEach, beforeEach, describe, it } from "node:test";
 
 import { runAgent } from "./runner.ts";
 
+import type { KeptRun } from "./kept-run.ts";
 import type { AgentStep } from "@acorn/shared/agent-contract";
 import type { PipelineProgress } from "@acorn/shared/pipeline-types";
 
@@ -58,6 +59,8 @@ function installBrowser(answers: Record<string, unknown> = {}) {
 
 type Seen = { method: string; path: string; body: unknown };
 let requests: Seen[];
+/** What the server answers to a Continue; null is a run it still holds, at step 4. */
+let continueReply: { status: number; body: unknown } | null = null;
 
 /** An agent server that answers each step with the next scripted one. */
 function installServer(steps: (AgentStep | { status: number; body: unknown })[]) {
@@ -72,6 +75,10 @@ function installServer(steps: (AgentStep | { status: number; body: unknown })[])
         sessionId: "s1",
         resumes: [{ id: "a.pdf", fileName: "a.pdf", size: 3 }],
       });
+    }
+    if (path.endsWith("/continue")) {
+      if (continueReply) return Response.json(continueReply.body, { status: continueReply.status });
+      return Response.json({ number: 4, usage: { ...usage, calls: 4, cost: 0.008 } });
     }
     if (path.endsWith("/step")) {
       const reply = steps[Math.min(next++, steps.length - 1)];
@@ -119,7 +126,10 @@ async function run(extra: Partial<Parameters<typeof runAgent>[0]> = {}) {
 const mouse = (type: string) =>
   commands.filter((c) => c.method === "Input.dispatchMouseEvent" && c.params?.type === type);
 
-beforeEach(() => installBrowser());
+beforeEach(() => {
+  continueReply = null;
+  installBrowser();
+});
 afterEach(() => {
   globalThis.fetch = realFetch;
   (globalThis as { chrome?: unknown }).chrome = realChrome;
@@ -437,7 +447,7 @@ describe("runAgent", () => {
 
   it("ends a run the person is needed for, in the agent's words", async () => {
     installServer([finished("need_person", 3, "There is a CAPTCHA on this page")]);
-    const { report, progress } = await run();
+    const { report, progress } = await run({ keepRun: async () => {} });
     assert.equal(report.outcome, "failed");
     assert.equal(report.failure?.reason, "waited_for_person");
     assert.equal(report.failure?.label, "There is a CAPTCHA on this page");
@@ -515,5 +525,143 @@ describe("runAgent", () => {
       assert.ok(methods.includes(wanted), wanted);
     }
     assert.ok(methods.includes("Page.removeScriptToEvaluateOnNewDocument"));
+  });
+
+  describe("keeping a stopped run for Continue", () => {
+    const kept: { tabs: number[]; run: KeptRun }[] = [];
+    const keepRun = async (tabs: number[], run: KeptRun) => void kept.push({ tabs, run });
+    const deleted = () => requests.filter((r) => r.method === "DELETE");
+    beforeEach(() => void (kept.length = 0));
+
+    it("keeps the run's memory on the server when it needs the person", async () => {
+      installServer([finished("need_person", 3, "There is a CAPTCHA on this page")]);
+      const { progress } = await run({ keepRun, stopBeforeSubmit: true });
+      assert.equal(deleted().length, 0);
+      assert.equal(kept.length, 1);
+      assert.deepEqual(kept[0].tabs, [7]);
+      assert.equal(kept[0].run.sessionId, "s1");
+      assert.equal(kept[0].run.tabId, 7);
+      assert.equal(kept[0].run.stopBeforeSubmit, true);
+      assert.equal(progress.at(-1)?.run?.canContinue, true);
+      assert.equal(kept[0].run.runId, progress.at(-1)?.run?.runId);
+    });
+
+    it("keeps it when the person presses Stop", async () => {
+      installServer([working(1, [{ id: "s1a1", kind: "wait", ms: 60_000 }])]);
+      const stop = new AbortController();
+      const running = run({ signal: stop.signal, keepRun });
+      await new Promise((resolve) => setTimeout(resolve, 50));
+      stop.abort();
+      const { report, progress } = await running;
+      assert.equal(report.outcome, "stopped");
+      assert.equal(deleted().length, 0);
+      assert.equal(kept[0]?.run.sessionId, "s1");
+      assert.equal(progress.at(-1)?.run?.canContinue, true);
+    });
+
+    it("keeps it when the connection fails, so Continue can try again", async () => {
+      installServer([{ status: 502, body: { error: "bad gateway", code: "backend_unreachable" } }]);
+      const { report } = await run({ keepRun });
+      assert.equal(report.outcome, "failed");
+      assert.equal(kept.length, 1);
+      assert.equal(deleted().length, 0);
+    });
+
+    it("ends a run that finished, and a run the server no longer holds", async () => {
+      installServer([finished("done", 1, "ok")]);
+      const done = await run({ keepRun });
+      assert.equal(done.report.outcome, "completed");
+      assert.equal(done.progress.at(-1)?.run?.canContinue, false);
+      assert.equal(deleted().length, 1);
+
+      installServer([{ status: 404, body: { error: "gone", code: "no_session" } }]);
+      const gone = await run({ keepRun });
+      assert.equal(gone.report.outcome, "failed");
+      assert.equal(gone.progress.at(-1)?.run?.canContinue, false);
+      assert.equal(kept.length, 0);
+    });
+
+    it("ends the run when nothing is there to keep it", async () => {
+      installServer([finished("stuck", 2, "The page did not change")]);
+      const { progress } = await run();
+      assert.equal(deleted().length, 1);
+      assert.equal(progress.at(-1)?.run?.canContinue, false);
+    });
+  });
+
+  describe("Continue", () => {
+    const resume: KeptRun = { sessionId: "s1", runId: "run-1", tabId: 7, stopBeforeSubmit: true };
+    const sessionsOpened = () =>
+      requests.filter((r) => r.path === "/agent/v1/sessions" && r.method === "POST");
+
+    it("goes on in the same agent session instead of starting a new one", async () => {
+      installServer([finished("done", 5, "Everything is filled in")]);
+      const { report, progress } = await run({ resume, stopBeforeSubmit: false });
+
+      assert.equal(sessionsOpened().length, 0);
+      assert.deepEqual(
+        requests.map((r) => `${r.method} ${r.path}`),
+        [
+          "POST /agent/v1/sessions/s1/continue",
+          "POST /agent/v1/sessions/s1/step",
+          "DELETE /agent/v1/sessions/s1",
+        ],
+      );
+      // The run keeps what it started with: it was told to stop before Submit.
+      assert.equal(report.outcome, "ready_to_submit");
+      // Its counters, and its log, go on from where it stopped.
+      assert.equal(progress.at(-1)?.run?.runId, "run-1");
+      assert.equal(progress.at(-1)?.run?.step, 5);
+      assert.equal(progress.at(0)?.run?.runId, "run-1");
+    });
+
+    it("carries the step and the cost from the server", async () => {
+      installServer([
+        working(5, [{ id: "s5a1", kind: "click", x: 5, y: 5 }]),
+        finished("done", 6, "ok"),
+      ]);
+      const { progress } = await run({ resume });
+      const midway = progress.find((p) => p.run?.step === 5);
+      assert.ok(midway);
+      assert.equal(midway?.run?.modelCalls, 1);
+    });
+
+    it("works the tab it stopped in, when Continue is pressed on another", async () => {
+      installServer([finished("done", 5, "ok")]);
+      const claimed: number[] = [];
+      const seen: number[][] = [];
+      await run({
+        tabId: 7,
+        resume: { ...resume, tabId: 9 },
+        claimTab: (id) => void claimed.push(id),
+        emit: (tabs) => void seen.push([...tabs]),
+      });
+      assert.deepEqual(claimed, [9]);
+      assert.deepEqual(seen.at(-1), [7, 9]);
+    });
+
+    it("starts over, and says so, when the agent no longer remembers the run", async () => {
+      continueReply = { status: 404, body: { error: "no such session", code: "no_session" } };
+      installServer([finished("done", 1, "ok")]);
+      const { report, progress } = await run({ resume, stopBeforeSubmit: false });
+
+      assert.equal(sessionsOpened().length, 1);
+      assert.equal(report.outcome, "completed");
+      assert.ok(progress.some((p) => /starts over/.test(p.message)));
+    });
+
+    it("keeps the run for another Continue when the agent could not be reached", async () => {
+      installServer([finished("done", 1, "ok")]);
+      const original = globalThis.fetch;
+      globalThis.fetch = (async (url: string | URL | Request, init?: RequestInit) => {
+        if (String(url).endsWith("/continue")) throw new TypeError("Failed to fetch");
+        return original(url, init);
+      }) as typeof fetch;
+      const kept: KeptRun[] = [];
+      const { report } = await run({ resume, keepRun: async (_tabs, run) => void kept.push(run) });
+      assert.equal(report.outcome, "failed");
+      assert.equal(sessionsOpened().length, 0);
+      assert.equal(kept[0]?.sessionId, "s1");
+    });
   });
 });

@@ -172,7 +172,7 @@ func (a *Agent) Start(ctx context.Context, key string, auth applicant.Auth, star
 	}
 	a.sessions.add(&session{
 		id: id, key: key, auth: auth, start: start, snap: snap, system: system, maxActions: maxActions, fallback: fallback,
-		created: now, touched: now, wantTrace: start.Trace,
+		created: now, touched: now, wantTrace: start.Trace, stepLimit: a.cfg.MaxSteps,
 	})
 	stacks, documents := catalog(snap.Resumes)
 	startTrace, err := a.trace.recordSession(id, system, sessionTrace{
@@ -192,6 +192,36 @@ func (a *Agent) Start(ctx context.Context, key string, auth applicant.Auth, star
 
 // End drops a session once the run is over.
 func (a *Agent) End(id string) { a.sessions.remove(id) }
+
+// Continue takes a run that stopped back up where it was, with everything the model knows: its
+// notes, the job it recorded, the history, the résumé chosen, and the cost so far. The run may have
+// ended because it needed the person, got stuck, reached its step limit, or was stopped or cut off
+// by the person or the connection; the next step is told which, so the model looks at the screen
+// as it is now. A session that expired or was ended is gone (ErrNoSession): the caller starts a new
+// run.
+func (a *Agent) Continue(id string) (Continued, error) {
+	s, ok := a.sessions.get(id)
+	if !ok {
+		return Continued{}, ErrNoSession
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.touched = a.now()
+	note := "The run was paused and the applicant pressed Continue. The actions you last planned may not have run. Judge by the screenshot, not by your memory of the plan."
+	if s.finished {
+		note = fmt.Sprintf("You stopped the run (%s). The applicant has pressed Continue, so they may have changed the page since. Look at the screen as it is now and carry on from your notes; do not redo what they say is done.", clipText(s.stoppedFor, maxSummaryChars))
+	}
+	if s.step >= s.stepLimit {
+		s.stepLimit += a.cfg.MaxSteps
+	}
+	s.finished, s.stoppedFor = false, ""
+	s.pendingUpload = nil
+	s.plan, s.verify, s.planned, s.sent, s.parts = nil, "", 0, 0, 0
+	s.stale, s.lastSig, s.loadWaits = 0, nil, 0
+	s.notes = append(s.notes, note)
+	slog.Info("run continued", "session", s.id, "step", s.step, "limit", s.stepLimit)
+	return Continued{Number: s.step, Usage: s.usage}, nil
+}
 
 // ResumeFile is one résumé file of a live session, for the extension to put in a file input.
 func (a *Agent) ResumeFile(ctx context.Context, sessionID, resumeID string) (applicant.Resume, []byte, error) {
@@ -272,11 +302,11 @@ func (a *Agent) step(ctx context.Context, id string, obs Observation) (Step, err
 		a.record(s, stepTrace{Seq: s.seq, Step: s.step + 1, At: a.now(), URL: obs.URL, Title: obs.Title, Viewport: obs.Viewport, Error: err.Error(), Usage: s.usage}, obs.Screenshot, nil)
 		return Step{}, err
 	}
-	if s.step >= a.cfg.MaxSteps {
-		return a.endWithTrace(s, obs, 0, StatusStuck, fmt.Sprintf("The run reached its limit of %d steps.", a.cfg.MaxSteps), &StopInfo{
+	if s.step >= s.stepLimit {
+		return a.endWithTrace(s, obs, 0, StatusStuck, fmt.Sprintf("The run reached its limit of %d steps.", s.stepLimit), &StopInfo{
 			Reason:  StopStepLimit,
-			Problem: fmt.Sprintf("This application took more than %d steps, so Acorn stopped.", a.cfg.MaxSteps),
-			Action:  "Finish the rest on the page yourself, or press Run again.",
+			Problem: fmt.Sprintf("This application took more than %d steps, so Acorn stopped.", s.stepLimit),
+			Action:  "Finish the rest on the page yourself, or press Continue to give the run more steps.",
 		}), nil
 	}
 	// A page that did not move after actions is evidence the model needs, and a run that
@@ -311,7 +341,7 @@ func (a *Agent) step(ctx context.Context, id string, obs Observation) (Step, err
 		notes = append(notes, surveyNote(obs))
 		images = surveyImages(obs)
 	}
-	body := observationText(number, a.cfg.MaxSteps, obs, results, notes, stale)
+	body := observationText(number, s.stepLimit, obs, results, notes, stale)
 	messages := append([]llm.Message{{Role: llm.RoleSystem, Text: s.system}},
 		s.history(a.cfg.KeepTurns, a.cfg.KeepImages, a.cfg.HistoryTokens)...)
 	text := currentText(body, s.memo, s.job)
@@ -387,7 +417,7 @@ func (a *Agent) step(ctx context.Context, id string, obs Observation) (Step, err
 	entry.Stop = step.Stop
 	a.record(s, entry, obs.Screenshot, calls)
 	if status != StatusWorking {
-		s.finished = true
+		s.finished, s.stoppedFor = true, step.Message
 	}
 	if s.pendingUpload != nil && len(step.Actions) == 0 && status == StatusWorking {
 		s.seq++
@@ -423,7 +453,7 @@ func (a *Agent) record(s *session, entry stepTrace, screenshot string, calls []m
 
 // endWithTrace finishes a run the agent itself gave up on, and records why.
 func (a *Agent) endWithTrace(s *session, obs Observation, stale int, status, message string, stop *StopInfo) Step {
-	s.finished = true
+	s.finished, s.stoppedFor = true, message
 	a.record(s, stepTrace{
 		Seq: s.seq, Step: s.step + 1, At: a.now(), URL: obs.URL, Title: obs.Title, Viewport: obs.Viewport,
 		Focus: obs.Focus, Notes: obs.Notes, Results: obs.Results, Stale: stale, Memo: s.memo, Job: s.job,

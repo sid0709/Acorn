@@ -27,7 +27,6 @@ export const RESUME_API = {
 } as const;
 
 export const CUSTOM_RESUME_API = {
-  extractJd: "/acorn/custom/extract-jd",
   generate: "/acorn/custom/generate",
   generateContinue: (inputId: string) =>
     `/acorn/custom/generate/${encodeURIComponent(inputId)}/continue`,

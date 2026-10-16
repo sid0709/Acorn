@@ -152,45 +152,10 @@ func keyed(values []string, prefix string) (map[string]string, map[string]string
 	return keys, criteria
 }
 
-// bestKey is the most probable key that names a listed value.
-func bestKey(probabilities map[string]float64, keys map[string]string) string {
-	best, bestP := "", -1.0
-	for key, p := range probabilities {
-		if _, listed := keys[key]; listed && (p > bestP || (p == bestP && key < best)) {
-			best, bestP = key, p
-		}
-	}
-	return best
-}
-
-// clipTailShare is the part of a clipped page kept from its end: one in this many runes.
-const clipTailShare = 3
-
 func clip(text string, max int) string {
 	runes := []rune(strings.TrimSpace(text))
 	if len(runes) <= max {
 		return string(runes)
 	}
 	return string(runes[:max-1]) + "…"
-}
-
-// clipEnds bounds a long page to max runes and keeps both of its ends: a form puts
-// its answer to the last click (an error, a code prompt) next to Submit, at the bottom.
-func clipEnds(text string, max int) string {
-	runes := []rune(strings.TrimSpace(text))
-	if len(runes) <= max {
-		return string(runes)
-	}
-	tail := max / clipTailShare
-	head := max - tail - 1
-	return string(runes[:head]) + "…" + string(runes[len(runes)-tail:])
-}
-
-func firstNonEmpty(values ...string) string {
-	for _, value := range values {
-		if strings.TrimSpace(value) != "" {
-			return strings.TrimSpace(value)
-		}
-	}
-	return ""
 }
