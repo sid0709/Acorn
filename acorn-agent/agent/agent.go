@@ -350,6 +350,8 @@ func (a *Agent) step(ctx context.Context, id string, obs Observation) (Step, err
 
 	planned, dropped := checkActions(number, answer.Actions, obs.Viewport, s.maxActions, screens)
 	planned, surveyAsked := withoutSurvey(planned)
+	// A run that did not turn surveys on is not told they exist, and one the model asks for anyway is ignored.
+	surveyAsked = surveyAsked && s.start.Survey
 	planned = fillSecrets(planned, s.snap.Secrets)
 	planned, dropped = a.resolveUploads(ctx, s, planned, dropped)
 	status := answer.Status

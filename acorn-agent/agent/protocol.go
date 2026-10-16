@@ -237,6 +237,10 @@ type Start struct {
 	// model was sent and answered, how long each call took) come back with each step, for the
 	// extension to keep in its own log. The server writes and keeps nothing for it.
 	Trace bool `json:"trace,omitempty"`
+	// Survey lets the run look at a whole long page as several screenshots from top to bottom
+	// (the extension scrolls the page to take them). Off by default: the model then sees only the
+	// current screen, as a person does, and is not told surveys exist.
+	Survey bool `json:"survey,omitempty"`
 }
 
 // TraceFile is one file of a run's trace, returned to the extension. Text holds a text file;
