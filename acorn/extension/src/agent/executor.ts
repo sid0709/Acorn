@@ -14,6 +14,7 @@ import {
 import { BLOCKED_MESSAGE, type GuardVerdict } from "./guard";
 import { clickAt, moveMouse, pressKeys, typeText, wheelAt } from "./input";
 import { scrollForAction } from "./survey";
+import { waitForUploadProcessing } from "./upload-settle";
 import { uploadAt, type ResumeFile } from "./upload";
 
 import type { Cdp } from "./cdp";
@@ -148,6 +149,7 @@ async function perform(ctx: ExecutorContext, action: AgentAction): Promise<Done>
       await refuseIfBlocked(verdict);
       void ctx.overlay.click();
       const done = await uploadAt(cdp, x, y, file, ctx.fileChooserWaitMs);
+      await waitForUploadProcessing(cdp, ctx.sleep);
       await ctx.sleep(SETTLE_MS);
       return { detail: `${done.fileName}, ${done.bytes} bytes, through the ${done.via}` };
     }

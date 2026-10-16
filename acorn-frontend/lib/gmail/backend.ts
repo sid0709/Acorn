@@ -1,3 +1,5 @@
+import { ACORN_GMAIL_API } from "@acorn/shared/gmail";
+
 import { sessionToken } from "@/lib/auth/cookie";
 import { acornApiUrl } from "@/lib/config";
 
@@ -21,11 +23,8 @@ const LIST_MAX_AGE_SECONDS = 15;
 const MESSAGE_MAX_AGE_SECONDS = 600;
 
 export const GMAIL_BACKEND = {
-  mailboxes: "/acorn/gmail/mailboxes",
-  messages: "/acorn/gmail/messages",
-  overview: "/acorn/gmail/overview",
-  guides: "/acorn/gmail/label-guides",
-  autolabel: "/acorn/gmail/autolabel",
+  ...ACORN_GMAIL_API,
+  guides: ACORN_GMAIL_API.labelGuides,
 } as const;
 
 async function call(path: string, init?: RequestInit): Promise<Response | null> {

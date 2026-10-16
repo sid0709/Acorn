@@ -159,3 +159,12 @@ func clip(text string, max int) string {
 	}
 	return string(runes[:max-1]) + "…"
 }
+
+func firstNonEmpty(values ...string) string {
+	for _, value := range values {
+		if strings.TrimSpace(value) != "" {
+			return strings.TrimSpace(value)
+		}
+	}
+	return ""
+}

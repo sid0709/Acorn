@@ -143,7 +143,7 @@ func kinds(actions []Action) string {
 
 func TestPlanRunsOnWhenTheScreenMatchesWithoutCallingTheModel(t *testing.T) {
 	model := &scriptedModel{replies: []string{sixClicks(), plan("next page", nil, click(5, 5, nil))}}
-	screen := &fakeScreen{verdicts: []screenVerdict{sure, sure}}
+	screen := &fakeScreen{verdicts: []screenVerdict{sure, sure, sure}}
 	a := newAgentWithScreen(t, model, &fixedDecider{}, screen, DefaultConfig())
 	id := startOnForm(t, a)
 
@@ -178,7 +178,7 @@ func TestPlanRunsOnWhenTheScreenMatchesWithoutCallingTheModel(t *testing.T) {
 	obs.Results = resultsFor("s1a", 5, 6)
 	stepOK(t, a, id, obs)
 	text := lastText(model)
-	if model.count() != 2 || screen.calls() != 2 {
+	if model.count() != 2 || screen.calls() != 3 {
 		t.Fatalf("model calls %d, checks %d", model.count(), screen.calls())
 	}
 	for _, want := range []string{"s1a1 done", "s1a4 done", "s1a6 done", "ran in 3 parts"} {

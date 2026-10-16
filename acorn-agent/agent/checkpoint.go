@@ -180,7 +180,8 @@ func (a *Agent) takePlan(s *session, actions []Action, dropped []string) ([]Acti
 		s.sent, s.parts = len(actions), 1
 		return actions, dropped
 	}
-	return a.sendRun(s, splitPlan(actions, a.cfg.ChunkActions), dropped)
+	batch := a.checksOn(s)
+	return a.sendRun(s, splitPlanForSession(actions, a.cfg.ChunkActions, batch, s.granularChecks), dropped)
 }
 
 // sendRun sends the first of the runs and keeps the rest only if the screen can be checked
@@ -200,7 +201,7 @@ func (a *Agent) sendRun(s *session, runs []chunk, dropped []string) ([]Action, [
 	}
 	s.plan = rest
 	s.verify = ""
-	if len(rest) > 0 {
+	if first.expect != "" {
 		s.verify = first.expect
 	}
 	return first.actions, dropped
@@ -220,7 +221,7 @@ func (a *Agent) abandon(s *session, reason string) {
 // expected, without calling the model. It reports false when the model must look instead.
 // results are the results of every action sent since the model last looked.
 func (a *Agent) continuePlan(ctx context.Context, s *session, obs Observation, results []ActionResult, sig []uint8, stale int) (Step, bool) {
-	if s.verify == "" || len(s.plan) == 0 || !a.checksOn(s) {
+	if s.verify == "" || !a.checksOn(s) {
 		return Step{}, false
 	}
 	entry := stepTrace{
@@ -265,6 +266,14 @@ func (a *Agent) continuePlan(ctx context.Context, s *session, obs Observation, r
 		s.carried = results
 		s.stale, s.lastSig = 0, sig
 		s.loadWaits = 0
+		s.verify = ""
+		if len(s.plan) == 0 {
+			s.granularChecks = false
+			entry.Status, entry.Message = StatusWorking, s.message
+			entry.Memo, entry.Job = s.memo, s.job
+			a.record(s, entry, obs.Screenshot, []modelCall{verdict.call(nil)})
+			return Step{}, false
+		}
 		actions, dropped := a.sendRun(s, s.plan, nil)
 		step := Step{Status: StatusWorking, Message: s.message, Actions: actions, Number: s.step, Usage: s.usage, Dropped: dropped}
 		entry.Status, entry.Message, entry.Actions, entry.Dropped = step.Status, step.Message, actions, dropped
@@ -283,7 +292,12 @@ func (a *Agent) continuePlan(ctx context.Context, s *session, obs Observation, r
 		return step, true
 	}
 	a.record(s, entry, obs.Screenshot, []modelCall{verdict.call(nil)})
-	a.abandon(s, "The checker did not confirm the screen showed what you expected ("+expect+"): "+reason+".")
+	reasonText := "The checker did not confirm the screen showed what you expected (" + expect + "): " + reason + "."
+	if !s.granularChecks && strings.HasPrefix(expect, "The screen shows all of the following") {
+		s.granularChecks = true
+		reasonText += " The rest of this screen will be filled one action at a time with a check after each."
+	}
+	a.abandon(s, reasonText)
 	return Step{}, false
 }
 

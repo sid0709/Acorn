@@ -15,6 +15,7 @@ import {
   type AgentStep,
   type AgentUsage,
 } from "@acorn/shared/agent-contract";
+import { VERIFICATION } from "@acorn/shared/run-types";
 import {
   RUN_FAILURE_REASON,
   RUN_OUTCOME,
@@ -38,6 +39,12 @@ import {
 } from "./client";
 import { runActions, type ExecutorContext } from "./executor";
 import { createClickGuard, createFrameSweep, describeWindow, watchFrameEvents } from "./guard";
+import {
+  guessVerificationKind,
+  isEmailVerificationStop,
+  noteForVerification,
+  waitForMailVerification,
+} from "./mail-verification";
 import { readFocus, readPageText } from "./page-info";
 import {
   agentRunState,
@@ -183,6 +190,9 @@ export async function runAgent(args: AgentRunArgs): Promise<RunReport> {
   let tabClosed = false;
   let lastUsage: AgentUsage | null = null;
   let stepNumber = 0;
+  /** When the last agent step finished; used to bound Gmail verification search. */
+  let lastActionAt = startedAt;
+  const MAIL_VERIFY_WINDOW_MS = 10 * 60 * 1000;
   let pendingTab: number | null = null;
   let pageUrl = "";
   /** Notes from things that happened between looks (a frame the guard closed), told on the next look. */
@@ -491,6 +501,56 @@ export async function runAgent(args: AgentRunArgs): Promise<RunReport> {
       );
       void here.overlay.setLabel(step.message || OVERLAY_LABEL);
 
+      if (step.status === AGENT_STATUS.needPerson && isEmailVerificationStop(step.stop?.reason)) {
+        const kind = guessVerificationKind(text, step.stop);
+        log.event("mail-verification:start", { kind, since: lastActionAt });
+        emit(
+          runningProgress(
+            { ...runState(), stage: RUN_STAGE.verifying },
+            step.message || "Reading your Gmail for the verification…",
+          ),
+        );
+        void here.overlay.setLabel("Reading your Gmail for the verification…");
+        const outcome = await waitForMailVerification({
+          runId,
+          step: step.number,
+          kind,
+          url: info.url ?? "",
+          title: info.title ?? "",
+          pageText: text,
+          sinceMs: lastActionAt,
+          windowMs: MAIL_VERIFY_WINDOW_MS,
+          token: args.accessToken,
+          signal,
+          onPoll: () => log.event("mail-verification:poll"),
+        });
+        if (outcome.ok) {
+          log.event("mail-verification:found", { kind: outcome.kind });
+          await continueSession(args.agentUrl, must(sessionId));
+          keepSession = false;
+          if (outcome.kind === VERIFICATION.emailLink) {
+            await chrome.tabs.update(here.tabId, { url: outcome.value });
+          }
+          pendingNotes.push(noteForVerification(outcome.kind, outcome.value));
+          results = [];
+          lastActionAt = Date.now();
+          void here.overlay.setLabel(OVERLAY_LABEL);
+          continue;
+        }
+        if (outcome.reason === "no_mailbox") {
+          return finish(
+            report(RUN_OUTCOME.failed, {
+              reason: RUN_FAILURE_REASON.mailUnreadable,
+              label: "Gmail is not connected",
+              detail: "Connect Gmail on the Acorn website, then press Continue.",
+              stage: RUN_STAGE.verifying,
+            }),
+            true,
+          );
+        }
+        log.event("mail-verification:miss", { reason: outcome.reason, detail: outcome.detail });
+      }
+
       if (step.status === AGENT_STATUS.ask && step.ask) {
         const ask = step.ask;
         log.event("agent-ask", { id: ask.id, options: ask.options.map((option) => option.id) });
@@ -529,6 +589,7 @@ export async function runAgent(args: AgentRunArgs): Promise<RunReport> {
       for (const result of results) {
         if (!result.ok) log.event("agent-action:failed", { id: result.id, error: result.error });
       }
+      lastActionAt = Date.now();
       if (pendingTab != null) await sleep(300); // a click that opens a tab: give it a moment to exist
     }
   } catch (err) {

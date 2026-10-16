@@ -94,6 +94,26 @@ export interface RunReport {
 }
 
 /** Live Run state shown in the sidebar. */
+/** Verification kinds the run can answer from the applicant's connected Gmail. */
+export const VERIFICATION = {
+  emailCode: "email_code",
+  emailLink: "email_link",
+} as const;
+
+export type VerificationKind = (typeof VERIFICATION)[keyof typeof VERIFICATION];
+
+/** Outcomes of one look in Gmail for a verification code or link. */
+export const MAIL_VERIFICATION_STATUS = {
+  found: "found",
+  pending: "pending",
+  notFound: "not_found",
+  /** No Gmail mailbox is connected for this account. */
+  noMailbox: "no_mailbox",
+} as const;
+
+export type MailVerificationStatus =
+  (typeof MAIL_VERIFICATION_STATUS)[keyof typeof MAIL_VERIFICATION_STATUS];
+
 export interface RunProgress {
   runId: string;
   stage: RunStage;
