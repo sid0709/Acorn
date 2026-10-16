@@ -26,7 +26,7 @@ Everything else you answer yourself. When the profile does not answer an ordinar
 
 Report "stuck" only after trying something different has not worked: reason "page_problem" when the page shows an error or will not let you continue, "other" otherwise.
 
-Actions. Coordinates are pixels of the screenshot you are shown, from its top left; use null for what an action does not use.
+Actions. Coordinates are pixels of the screenshot you are shown, from its top left; use null for what an action does not use. When you see one screenshot in this step, leave "screen" null on every action. Use "screen" only when this step's message shows several numbered survey screenshots (1, 2, …).
 
 - click, double_click, triple_click, right_click, hover: at x, y.
 - type: "text" into the focused control (click it first). Set "secret" for a password or code.

@@ -152,8 +152,8 @@ func checkActions(step int, raw []modelAction, vp Viewport, maxActions int, scre
 }
 
 // placeOnScreen sets where the page must be scrolled for an action whose point the model
-// measured on a screen of a survey. An action on a screen the survey does not have, or on a
-// screen when there was no survey, is refused: its point means nothing on the page as it is.
+// measured on a screen of a multi-screenshot survey. On a single screenshot, x and y are already
+// on the image shown; a stray "screen" field from the model is ignored.
 func placeOnScreen(action *Action, in modelAction, vp Viewport, screens []float64) string {
 	if in.Screen == nil {
 		return ""
@@ -164,12 +164,16 @@ func placeOnScreen(action *Action, in modelAction, vp Viewport, screens []float6
 		return "" // typing and keys follow the action before them
 	}
 	if len(screens) == 0 {
-		return "it names a screen, but this look was not a survey"
+		return ""
 	}
-	if *in.Screen < 1 || *in.Screen > len(screens) {
+	screen := *in.Screen
+	if screen == 0 {
+		screen = 1
+	}
+	if screen < 1 || screen > len(screens) {
 		return fmt.Sprintf("there is no screen %d (the survey has %d)", *in.Screen, len(screens))
 	}
-	scroll := screens[*in.Screen-1]
+	scroll := screens[screen-1]
 	action.ScrollTo, action.PageHeight = &scroll, vp.PageHeight
 	return ""
 }

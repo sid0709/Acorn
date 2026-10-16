@@ -74,12 +74,17 @@ func TestAnActionOnAScreenThatDoesNotExistIsRefused(t *testing.T) {
 	}
 }
 
-func TestAScreenWithoutASurveyIsRefusedBecauseItsPointMeansNothing(t *testing.T) {
-	model := &scriptedModel{replies: []string{plan("planning", nil, onScreen(2, 20, 20, nil), click(5, 5, nil))}}
+func TestAScreenIndexOnASingleScreenshotIsIgnored(t *testing.T) {
+	model := &scriptedModel{replies: []string{plan("planning", nil, onScreen(0, 20, 20, nil), onScreen(2, 5, 5, nil))}}
 	a := newTestAgent(t, model, &fixedDecider{}, DefaultConfig())
 	step := stepOK(t, a, start(t, a), observation(shot(t, 40)))
-	if len(step.Actions) != 1 || !strings.Contains(strings.Join(step.Dropped, " "), "was not a survey") {
-		t.Fatalf("step = %+v", step)
+	if len(step.Actions) != 2 {
+		t.Fatalf("actions = %s, dropped = %v", kinds(step.Actions), step.Dropped)
+	}
+	for i, action := range step.Actions {
+		if action.ScrollTo != nil {
+			t.Fatalf("action %d should not scroll on a single screenshot", i+1)
+		}
 	}
 }
 
