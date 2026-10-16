@@ -56,6 +56,12 @@ type Config struct {
 	OptionMatch  float64
 	LoadWait     time.Duration
 	MaxLoadWaits int
+	// DonePasses is how many times a "done" the screen does not confirm (no thank-you or confirmation) is
+	// sent back to the model before the run is reported as one that could not confirm (donegate.go);
+	// negative accepts every "done". DoneConfirm is how sure the checker must be that the screen shows a
+	// sent application (a probability).
+	DonePasses  int
+	DoneConfirm float64
 	// StopPasses is how many times a run's stop for the applicant is sent back, to finish
 	// everything that does not need them first (stopgate.go); 0 accepts every stop at once.
 	StopPasses int
@@ -102,6 +108,8 @@ func DefaultConfig() Config {
 		LoadWait:         time.Second,
 		MaxLoadWaits:     4,
 		StopPasses:       2,
+		DonePasses:       2,
+		DoneConfirm:      0.7,
 		KeepTurns:        8,
 		KeepImages:       3,
 		HistoryTokens:    30_000,
@@ -413,6 +421,13 @@ func (a *Agent) step(ctx context.Context, id string, obs Observation) (Step, err
 	planned = fillSecrets(planned, s.snap.Secrets)
 	planned, dropped = a.resolveUploads(ctx, s, planned, dropped)
 	status := answer.Status
+	// "Done" is the page's confirmation, not the model's word: a done the screen does not show is sent back.
+	if note, held := a.holdDone(ctx, s, obs, &answer); held {
+		answer.Status, answer.Message = StatusWorking, donePassMessage
+		planned = []Action{{ID: fmt.Sprintf("s%da1", number), Kind: KindWait, Ms: stopPassWaitMs}}
+		s.notes = append(s.notes, note)
+	}
+	status = answer.Status
 	// The applicant is asked last: a stop is first sent back to finish everything else on the page.
 	if note, held := a.holdStop(s, status, answer); held {
 		status, answer.Message = StatusWorking, stopPassMessage

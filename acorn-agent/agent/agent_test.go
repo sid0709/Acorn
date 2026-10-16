@@ -494,7 +494,7 @@ func TestHistoryOnlyGrowsAtTheEndSoTheProviderCanCacheIt(t *testing.T) {
 
 func TestHistoryIsCompactedOnceItPassesTheBudgetThenGrowsAgain(t *testing.T) {
 	cfg := DefaultConfig()
-	cfg.KeepTurns, cfg.KeepImages, cfg.HistoryTokens = 4, 2, 8000
+	cfg.KeepTurns, cfg.KeepImages, cfg.HistoryTokens = 4, 2, 9000
 	model := runWaitSteps(t, cfg, 14)
 
 	compactions := 0
