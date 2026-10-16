@@ -11,7 +11,7 @@ func fieldInteractions(actions []Action) int {
 	n := 0
 	for _, action := range actions {
 		switch action.Kind {
-		case KindType, KindUpload:
+		case KindType, KindUpload, KindChoose:
 			n++
 		}
 	}
@@ -51,10 +51,9 @@ func fillBatchPrefix(actions []Action) (prefix, rest []Action) {
 
 // splitPlanForSession cuts a plan into runs. When batching is allowed and the prefix before
 // any scroll or upload fills at least two fields, that prefix is one run and one check; the
-// rest of the plan is split normally. Otherwise the plan is cut by limit, or one action at a
-// time when granularChecks is set.
-func splitPlanForSession(actions []Action, limit int, batch, granular bool) []chunk {
-	if batch && !granular {
+// rest of the plan is split normally. Otherwise the plan is cut by limit.
+func splitPlanForSession(actions []Action, limit int, batch bool) []chunk {
+	if batch {
 		prefix, rest := fillBatchPrefix(actions)
 		if fieldInteractions(prefix) >= minFieldInteractionsForBatch {
 			if expect := batchExpect(prefix); expect != "" {
@@ -65,9 +64,6 @@ func splitPlanForSession(actions []Action, limit int, batch, granular bool) []ch
 				return out
 			}
 		}
-	}
-	if granular {
-		return splitPlan(actions, 1)
 	}
 	return splitPlan(actions, limit)
 }

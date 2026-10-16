@@ -3,9 +3,11 @@ package mailcode
 import (
 	"net/url"
 	"regexp"
+	"slices"
 	"strconv"
 	"strings"
 	"unicode"
+	"unicode/utf8"
 
 	"golang.org/x/net/html"
 	"golang.org/x/net/html/atom"
@@ -17,6 +19,8 @@ const (
 	// minCodeLen and maxCodeLen bound a token that can be a one-time code.
 	minCodeLen = 4
 	maxCodeLen = 12
+	// maxElementChars bounds the text of an element that can be a code on its own.
+	maxElementChars = 32
 	// maxCandidates bounds the codes or links one email offers Jev.
 	maxCandidates = 40
 	// codeContext is how many characters on each side of a code Jev reads.
@@ -34,6 +38,9 @@ var (
 	emailAddress = regexp.MustCompile(`[\w.+-]+@[\w-]+(\.[\w-]+)+`)
 	// codeToken is one run of letters and digits, optionally in dash-joined groups.
 	codeToken = regexp.MustCompile(`[\p{L}\p{N}]+(?:-[\p{L}\p{N}]+)*`)
+	// codeElement is the text of an element or line that is only a code: up to four groups of letters
+	// and digits, joined by a space or a dash. A link, an address or a sentence is not.
+	codeElement = regexp.MustCompile(`^[\p{L}\p{N}]+(?:[ -][\p{L}\p{N}]+){0,3}$`)
 	spaces    = regexp.MustCompile(`\s+`)
 )
 
@@ -52,55 +59,177 @@ func bodyText(message mailbox.FullMessage) string {
 	return htmlText(message.HTML)
 }
 
-// codeCandidates are the tokens in the email that can be a one-time code: a
-// run of letters and digits of code length holding a digit, or all capitals.
-// Which one is the code is the decision model's call, from the words around it.
+// codeCandidates are what the email offers as its one-time code. Which is the code is the
+// decision model's call, from the words around it, with the code itself masked. The first
+// candidates are text that stands alone: an element (or a line of a plain email) whose whole
+// text is only a code-sized run of letters and digits, which is how a site sets a code apart.
+// That is a property of the email's layout, not of the code, so a code of any letters and digits
+// qualifies. After them come tokens inside sentences that look like codes, for an email whose
+// code is written in a line of words.
 func codeCandidates(message mailbox.FullMessage) []secret {
 	text := emailAddress.ReplaceAllString(webAddress.ReplaceAllString(bodyText(message), " "), " ")
 	text = spaces.ReplaceAllString(text, " ")
 	seen := map[string]bool{}
-	var spans [][]int
-	for _, span := range codeToken.FindAllStringIndex(text, -1) {
-		token := text[span[0]:span[1]]
-		if seen[token] || !looksLikeCode(token) {
-			continue
+	var found []located
+	add := func(token string, alone bool) {
+		if seen[token] || len(found) == maxCandidates {
+			return
 		}
 		seen[token] = true
-		spans = append(spans, span)
-		if len(spans) == maxCandidates {
-			break
+		found = append(found, located{token: token, alone: alone})
+	}
+	for _, token := range elementTexts(message) {
+		add(token, true)
+	}
+	for _, span := range codeToken.FindAllStringIndex(text, -1) {
+		if token := text[span[0]:span[1]]; looksLikeCode(token) {
+			add(token, false)
 		}
 	}
-	out := make([]secret, len(spans))
-	for i, span := range spans {
-		token := text[span[0]:span[1]]
-		out[i] = secret{Value: token, Description: maskedContext(text, span[0], span[1], token, seen)}
+	out := make([]secret, len(found))
+	for i, candidate := range found {
+		out[i] = secret{Value: candidate.token, Description: candidateContext(text, candidate, seen)}
 	}
 	return out
 }
 
+// located is a candidate code and whether it stands alone in the email.
+type located struct {
+	token string
+	alone bool
+}
+
+// candidateContext is what the decision model reads of a candidate: the words around its first
+// place in the text, the candidate masked, and whether it stands alone.
+func candidateContext(text string, candidate located, seen map[string]bool) string {
+	note := ""
+	if candidate.alone {
+		note = ", standing alone in the email"
+	}
+	start, end := wholeWord(text, candidate.token)
+	if start < 0 {
+		return "…" + codeMask + "… (" + codeShape(candidate.token) + note + ")"
+	}
+	return maskedContext(text, start, end, candidate.token, seen, note)
+}
+
+// wholeWord is where token first stands as a word of its own in text, or -1.
+func wholeWord(text, token string) (int, int) {
+	for from := 0; from < len(text); {
+		i := strings.Index(text[from:], token)
+		if i < 0 {
+			return -1, -1
+		}
+		start, end := from+i, from+i+len(token)
+		before, _ := utf8.DecodeLastRuneInString(text[:start])
+		after, _ := utf8.DecodeRuneInString(text[end:])
+		if !isWordRune(before) && !isWordRune(after) {
+			return start, end
+		}
+		from = start + 1
+	}
+	return -1, -1
+}
+
+func isWordRune(r rune) bool { return r != utf8.RuneError && (unicode.IsLetter(r) || unicode.IsNumber(r)) }
+
+// elementTexts are the texts that stand alone in the email and are only a code-sized run of
+// letters and digits: each innermost HTML element whose whole text is one, or each such line of a
+// plain-text email.
+func elementTexts(message mailbox.FullMessage) []string {
+	var texts []string
+	if strings.TrimSpace(message.HTML) != "" {
+		texts = htmlElementTexts(message.HTML)
+	} else {
+		for _, line := range strings.Split(message.Text, "\n") {
+			texts = append(texts, line)
+		}
+	}
+	var out []string
+	seen := map[string]bool{}
+	for _, text := range texts {
+		text = strings.TrimSpace(spaces.ReplaceAllString(strings.ReplaceAll(text, "\u00a0", " "), " "))
+		n := len([]rune(text))
+		if n < minCodeLen || n > maxElementChars || !codeElement.MatchString(text) || seen[text] {
+			continue
+		}
+		seen[text] = true
+		out = append(out, text)
+	}
+	return out
+}
+
+// htmlElementTexts is the whole text of every innermost element of an HTML body: an element whose
+// text is no more than one of its children's is left to that child.
+func htmlElementTexts(source string) []string {
+	doc, err := html.Parse(strings.NewReader(source))
+	if err != nil {
+		return nil
+	}
+	var out []string
+	collapse := func(text string) string {
+		return strings.TrimSpace(spaces.ReplaceAllString(strings.ReplaceAll(text, "\u00a0", " "), " "))
+	}
+	var walk func(*html.Node) string
+	walk = func(node *html.Node) string {
+		if node.Type == html.TextNode {
+			return node.Data
+		}
+		if node.Type == html.ElementNode {
+			switch node.DataAtom {
+			case atom.Script, atom.Style, atom.Head, atom.Title:
+				return ""
+			}
+		}
+		var all strings.Builder
+		var children []string
+		for child := node.FirstChild; child != nil; child = child.NextSibling {
+			text := walk(child)
+			all.WriteString(text)
+			if child.Type == html.ElementNode {
+				children = append(children, collapse(text))
+			}
+		}
+		if node.Type == html.ElementNode {
+			whole := collapse(all.String())
+			if whole != "" && !slices.Contains(children, whole) {
+				out = append(out, whole)
+			}
+		}
+		return all.String()
+	}
+	walk(doc)
+	return out
+}
+
+// looksLikeCode is whether a token inside a sentence can be a one-time code: of code length, and
+// not an ordinary lower-case or capitalised word (it holds a digit, or a capital after its first
+// letter, or is all capitals).
 func looksLikeCode(token string) bool {
 	plain := strings.ReplaceAll(token, "-", "")
-	if n := len([]rune(plain)); n < minCodeLen || n > maxCodeLen {
+	letters := []rune(plain)
+	if n := len(letters); n < minCodeLen || n > maxCodeLen {
 		return false
 	}
-	digit, lower := false, false
-	for _, r := range plain {
+	digit, lower, innerUpper := false, false, false
+	for i, r := range letters {
 		switch {
 		case unicode.IsDigit(r):
 			digit = true
 		case unicode.IsLower(r):
 			lower = true
+		case unicode.IsUpper(r) && i > 0:
+			innerUpper = true
 		}
 	}
-	return digit || !lower
+	return digit || innerUpper || !lower
 }
 
 // maskedContext is the text around a code with the code itself masked, every
 // other candidate masked too, and a note of the code's shape so codes of
 // different lengths stay apart. The window ends on whole words, so no piece of
 // a code shows either.
-func maskedContext(text string, start, end int, token string, candidates map[string]bool) string {
+func maskedContext(text string, start, end int, token string, candidates map[string]bool, note string) string {
 	before := []rune(text[:start])
 	after := []rune(text[end:])
 	if len(before) > codeContext {
@@ -123,7 +252,7 @@ func maskedContext(text string, start, end int, token string, candidates map[str
 			return word
 		})
 	}
-	return "…" + mask(string(before)) + codeMask + mask(string(after)) + "… (" + codeShape(token) + ")"
+	return "…" + mask(string(before)) + codeMask + mask(string(after)) + "… (" + codeShape(token) + note + ")"
 }
 
 func codeShape(token string) string {

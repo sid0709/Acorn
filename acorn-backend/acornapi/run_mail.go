@@ -109,7 +109,7 @@ func (s *Server) runMailVerification(w http.ResponseWriter, r *http.Request) {
 	out := map[string]any{
 		"ok": true, "status": result.Status, "kind": body.Kind,
 		"seen": result.Seen, "unchanged": result.Unchanged,
-		"emails": result.Emails, "model": gateway.Model(),
+		"emails": result.Emails, "opened": result.Opened, "model": gateway.Model(),
 		"usage": map[string]any{
 			"inputTokens":  result.Usage.InputTokens,
 			"outputTokens": result.Usage.OutputTokens,
@@ -119,6 +119,7 @@ func (s *Server) runMailVerification(w http.ResponseWriter, r *http.Request) {
 	}
 	if result.Status == mailcode.StatusFound {
 		out["value"] = result.Value
+		out["messageId"] = result.MessageID
 	}
 	writeJSON(w, http.StatusOK, out)
 }

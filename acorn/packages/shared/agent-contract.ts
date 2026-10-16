@@ -51,7 +51,10 @@ export type AgentStatus = (typeof AGENT_STATUS)[keyof typeof AGENT_STATUS];
 /** Why a run ended without being done (mirrors acorn-agent's Stop* values). */
 export const AGENT_STOP_REASON = {
   captcha: "captcha",
+  /** A code the site emailed the applicant. */
   verification: "verification",
+  /** A link in an email the applicant must open. */
+  verificationLink: "verification_link",
   identity: "identity",
   document: "document",
   signIn: "sign_in",

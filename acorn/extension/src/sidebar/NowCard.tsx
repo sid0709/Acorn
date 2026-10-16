@@ -5,6 +5,7 @@ import { Badge, Button, Card, Glyph, HStack, ProgressBar, Text, VStack } from "s
 import { AgentAsk } from "./AgentAsk";
 import { AgentStopNotice } from "./AgentStopNotice";
 import { GenerateProgressBar } from "./GenerateProgressBar";
+import { MailSearchPanel } from "./MailSearchPanel";
 import { RunCelebration } from "./RunCelebration";
 import { RunCost } from "./RunCost";
 import { RunTimer } from "./RunTimer";
@@ -214,6 +215,9 @@ export function NowCard(props: NowCardProps) {
         {top.length ? <RecommendTop top={top} /> : null}
         {fillBusy ? <ProgressBar label={progress.message || "Working…"} isIndeterminate /> : null}
         <RunStatus progress={progress} onAnswer={answerRun} />
+        {progress.run?.mail && progress.run.report?.outcome !== RUN_OUTCOME.completed ? (
+          <MailSearchPanel search={progress.run.mail} />
+        ) : null}
         <VStack gap={2}>
           {continueRun ? (
             <Button

@@ -5,7 +5,9 @@
  */
 
 import {
+  ACTION_KIND,
   ACTION_OPENED,
+  type ActionKind,
   type ActionOpened,
   type AgentAction,
   type AgentActionResult,
@@ -47,6 +49,20 @@ export interface ExecutorContext {
   /** How long an upload waits for the click to open a file picker; the default when unset. */
   fileChooserWaitMs?: number;
 }
+
+/**
+ * The actions that can make a site send something (a code, a link) or move its page: a click,
+ * typing, a key, a file. A wait or a scroll cannot, so they say nothing about when a site was asked.
+ */
+export const CHANGES_THE_PAGE: ReadonlySet<ActionKind> = new Set([
+  ACTION_KIND.click,
+  ACTION_KIND.doubleClick,
+  ACTION_KIND.tripleClick,
+  ACTION_KIND.rightClick,
+  ACTION_KIND.type,
+  ACTION_KIND.key,
+  ACTION_KIND.upload,
+]);
 
 function point(action: AgentAction, scale: number): { x: number; y: number } {
   if (action.x == null || action.y == null) throw new Error("the action has no point");

@@ -78,22 +78,29 @@ type Query struct {
 
 // Judged is one email Jev weighed, for the debug trace.
 type Judged struct {
-	ID          string
-	From        string
-	Subject     string
-	After       bool
-	Probability float64
+	ID      string `json:"id"`
+	From    string `json:"from"`
+	Subject string `json:"subject"`
+	// ReceivedAt is when the email arrived.
+	ReceivedAt time.Time `json:"receivedAt"`
+	// After is whether it arrived after the site was asked to send (or that time is unknown).
+	After bool `json:"after"`
+	// Judged is whether Jev weighed it; an email from before the request is not, and cannot compete.
+	Judged      bool    `json:"judged"`
+	Probability float64 `json:"probability"`
 }
 
 // Opened is one email the search opened, for the debug trace (never the values).
 type Opened struct {
-	ID         string
-	Subject    string
-	Candidates []string
-	Picked     int
-	Fallback   bool
+	ID      string `json:"id"`
+	Subject string `json:"subject"`
+	// Candidates describes each code or link found in the email (never its value).
+	Candidates []string `json:"candidates"`
+	// Picked is the candidate used, or -1 when none was.
+	Picked   int  `json:"picked"`
+	Fallback bool `json:"fallback"`
 	// Unconfirmed is true when the picked value was not found written in the email.
-	Unconfirmed bool
+	Unconfirmed bool `json:"unconfirmed"`
 }
 
 // Result is how a look ended. Value is set only when Status is StatusFound.
@@ -259,7 +266,7 @@ func judged(items []selector.MailItem, rank selector.MailRank) []Judged {
 	out := make([]Judged, 0, len(rank.Ranked))
 	for _, ranked := range rank.Ranked {
 		item := byID[ranked.ID]
-		out = append(out, Judged{ID: item.ID, From: item.From, Subject: item.Subject, After: item.After, Probability: ranked.Probability})
+		out = append(out, Judged{ID: item.ID, From: item.From, Subject: item.Subject, ReceivedAt: item.ReceivedAt, After: item.After || !item.AfterKnown, Judged: true, Probability: ranked.Probability})
 	}
 	return out
 }
@@ -315,7 +322,7 @@ func secretIn(ctx context.Context, decide Selector, mail Reader, ask selector.Ma
 func listed(items []selector.MailItem) []Judged {
 	out := make([]Judged, len(items))
 	for i, item := range items {
-		out[i] = Judged{ID: item.ID, From: item.From, Subject: item.Subject, After: item.After}
+		out[i] = Judged{ID: item.ID, From: item.From, Subject: item.Subject, ReceivedAt: item.ReceivedAt, After: item.After || !item.AfterKnown}
 	}
 	return out
 }
@@ -327,7 +334,8 @@ func withProbabilities(emails, judged []Judged) []Judged {
 		byID[j.ID] = j.Probability
 	}
 	for i := range emails {
-		emails[i].Probability = byID[emails[i].ID]
+		probability, weighed := byID[emails[i].ID]
+		emails[i].Probability, emails[i].Judged = probability, weighed
 	}
 	return emails
 }

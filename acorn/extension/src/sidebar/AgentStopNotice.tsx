@@ -14,6 +14,7 @@ type StopCopy = { heading: string; glyph: GlyphName };
 const STOP_COPY: Record<AgentStopReason, StopCopy> = {
   [AGENT_STOP_REASON.captcha]: { heading: "Show the page you're not a robot", glyph: "lock" },
   [AGENT_STOP_REASON.verification]: { heading: "Enter the code sent to you", glyph: "mail" },
+  [AGENT_STOP_REASON.verificationLink]: { heading: "Open the link sent to you", glyph: "mail" },
   [AGENT_STOP_REASON.identity]: { heading: "Add your ID details", glyph: "creditCard" },
   [AGENT_STOP_REASON.document]: { heading: "Upload a document", glyph: "upload" },
   [AGENT_STOP_REASON.signIn]: { heading: "Sign in to continue", glyph: "user" },

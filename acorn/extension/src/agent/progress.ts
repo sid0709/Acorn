@@ -16,6 +16,7 @@ import {
   RUN_FAILURE_REASON,
   RUN_OUTCOME,
   RUN_STAGE,
+  type MailSearch,
   type RunFailure,
   type RunProgress,
   type RunReport,
@@ -53,6 +54,8 @@ export function agentRunState(input: {
   usage?: AgentUsage | null;
   /** The question the run is waiting on, while it waits. */
   ask?: AgentAsk;
+  /** What the run is reading in Gmail for a code or link, while it does and once it has. */
+  mail?: MailSearch;
 }): RunProgress {
   return {
     runId: input.runId,
@@ -67,6 +70,7 @@ export function agentRunState(input: {
     modelCalls: input.usage?.calls,
     screenChecks: input.usage?.checks,
     ask: input.ask,
+    mail: input.mail,
   };
 }
 

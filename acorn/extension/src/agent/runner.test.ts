@@ -375,11 +375,11 @@ describe("runAgent", () => {
     installServer([
       {
         status: "need_person",
-        message: "A code was sent",
+        message: "A check that you are human is below",
         actions: [{ id: "s1a1", kind: "scroll", x: 300, y: 300, dx: 0, dy: 400 }],
         number: 1,
         usage,
-        stop: { reason: "verification", problem: "p", action: "a" },
+        stop: { reason: "captcha", problem: "p", action: "a" },
       },
     ]);
     const { report } = await run();

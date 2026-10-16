@@ -68,6 +68,7 @@ const (
 	envCheckMatch    = "ACORN_AGENT_CHECK_MATCH_PERCENT"
 	envCheckBlocked  = "ACORN_AGENT_CHECK_BLOCKED_PERCENT"
 	envCheckLoading  = "ACORN_AGENT_CHECK_LOADING_PERCENT"
+	envOptionMatch   = "ACORN_AGENT_OPTION_MATCH_PERCENT"
 	envKeepTurns     = "ACORN_AGENT_KEEP_TURNS"
 	envKeepImages    = "ACORN_AGENT_KEEP_IMAGES"
 	envMaxStale      = "ACORN_AGENT_MAX_STALE"
@@ -119,6 +120,7 @@ func run() error {
 	cfg.CheckMatch = percent(envCheckMatch, cfg.CheckMatch)
 	cfg.CheckBlocked = percent(envCheckBlocked, cfg.CheckBlocked)
 	cfg.CheckLoading = percent(envCheckLoading, cfg.CheckLoading)
+	cfg.OptionMatch = percent(envOptionMatch, cfg.OptionMatch)
 	cfg.VetBlock = percent(envVetBlock, 0.3)
 	cfg.KeepTurns = config.EnvInt(envKeepTurns, cfg.KeepTurns)
 	cfg.KeepImages = config.EnvInt(envKeepImages, cfg.KeepImages)

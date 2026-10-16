@@ -20,6 +20,7 @@ import {
   RUN_FAILURE_REASON,
   RUN_OUTCOME,
   RUN_STAGE,
+  type MailSearch,
   type RunFailure,
   type RunReport,
 } from "@acorn/shared/run-types";
@@ -37,12 +38,13 @@ import {
   startSession,
   vetTarget,
 } from "./client";
-import { runActions, type ExecutorContext } from "./executor";
+import { CHANGES_THE_PAGE, runActions, type ExecutorContext } from "./executor";
 import { createClickGuard, createFrameSweep, describeWindow, watchFrameEvents } from "./guard";
+import { afterLook, foundIn, lookLogFields, missed, startMailSearch } from "./mail-search";
 import {
-  guessVerificationKind,
   isEmailVerificationStop,
   noteForVerification,
+  verificationKindFor,
   waitForMailVerification,
 } from "./mail-verification";
 import { readFocus, readPageText } from "./page-info";
@@ -75,6 +77,10 @@ export const NEW_TAB_WAIT_MS = 8_000;
 export const ASK_LABEL = "Acorn has a question for you in the sidebar";
 /** What the overlay's bar says while the agent works. */
 export const OVERLAY_LABEL = "Acorn is applying on this page";
+
+/** How a look in Gmail for a code or link ended. */
+const GMAIL_READ = { found: "found", noMailbox: "no_mailbox", missed: "missed" } as const;
+type GmailRead = (typeof GMAIL_READ)[keyof typeof GMAIL_READ];
 
 /** Raised inside the run when the person stops it. */
 class StoppedError extends Error {
@@ -191,8 +197,14 @@ export async function runAgent(args: AgentRunArgs): Promise<RunReport> {
   let tabClosed = false;
   let lastUsage: AgentUsage | null = null;
   let stepNumber = 0;
-  /** When the last agent step finished; used to bound Gmail verification search. */
-  let lastActionAt = startedAt;
+  /**
+   * When the last actions that change a page began (a click, typing, a key, an upload): a site
+   * sends its code or link in answer to one of these, so only mail from after it can be the site's.
+   * A wait or a scroll does not count, or the email could arrive before the time it is looked for from.
+   */
+  let lastChangeAt = startedAt;
+  /** What the run is reading in Gmail, shown on the Now card; kept after the code is found. */
+  let mailSearch: MailSearch | undefined;
   const MAIL_VERIFY_WINDOW_MS = 10 * 60 * 1000;
   let pendingTab: number | null = null;
   let pageUrl = "";
@@ -228,7 +240,73 @@ export async function runAgent(args: AgentRunArgs): Promise<RunReport> {
 
   const emit = (progress: PipelineProgress) => args.emit(tabs, progress);
   const runState = (control?: string, ask?: AgentAsk) =>
-    agentRunState({ runId, startedAt, step: stepNumber, control, usage: lastUsage, ask });
+    agentRunState({
+      runId,
+      startedAt,
+      step: stepNumber,
+      control,
+      usage: lastUsage,
+      ask,
+      mail: mailSearch,
+    });
+
+  /**
+   * Reads the applicant's Gmail for the code or link the site said it sent, showing what is read.
+   * When it finds one the agent takes the run back up, told the value on its next look.
+   */
+  const readGmail = async (
+    step: AgentStep,
+    info: { url?: string; title?: string },
+    pageText: string,
+    here: AgentTab,
+  ): Promise<GmailRead> => {
+    const kind = verificationKindFor(step.stop);
+    mailSearch = startMailSearch(kind, lastChangeAt);
+    log.event("mail-verification:start", { kind, since: lastChangeAt });
+    const showSearch = () =>
+      emit(
+        runningProgress(
+          { ...runState(), stage: RUN_STAGE.verifying },
+          step.message || "Reading your Gmail for the verification…",
+        ),
+      );
+    showSearch();
+    void here.overlay.setLabel("Reading your Gmail for the verification…");
+    const outcome = await waitForMailVerification({
+      runId,
+      step: step.number,
+      kind,
+      url: info.url ?? "",
+      title: info.title ?? "",
+      pageText,
+      sinceMs: lastChangeAt,
+      windowMs: MAIL_VERIFY_WINDOW_MS,
+      signal,
+      onLook: (response) => {
+        if (!mailSearch) return;
+        mailSearch = afterLook(mailSearch, response.ok ? response.emails : undefined);
+        log.event("mail-verification:look", lookLogFields(mailSearch, response.model));
+        showSearch();
+      },
+    });
+    if (outcome.ok) {
+      mailSearch = foundIn(mailSearch, outcome.messageId);
+      log.event("mail-verification:found", { kind: outcome.kind, messageId: outcome.messageId });
+      showSearch();
+      await continueSession(args.agentUrl, must(sessionId));
+      keepSession = false;
+      if (outcome.kind === VERIFICATION.emailLink) {
+        await chrome.tabs.update(here.tabId, { url: outcome.value });
+      }
+      pendingNotes.push(noteForVerification(outcome.kind, outcome.value));
+      lastChangeAt = Date.now();
+      void here.overlay.setLabel(OVERLAY_LABEL);
+      return GMAIL_READ.found;
+    }
+    mailSearch = missed(mailSearch, outcome.reason === "error" ? outcome.detail : outcome.reason);
+    log.event("mail-verification:miss", { reason: outcome.reason, detail: outcome.detail });
+    return outcome.reason === "no_mailbox" ? GMAIL_READ.noMailbox : GMAIL_READ.missed;
+  };
 
   const onCreated = (tab: chrome.tabs.Tab) => {
     if (tab.openerTabId === current?.tabId && tab.id != null) pendingTab = tab.id;
@@ -507,42 +585,12 @@ export async function runAgent(args: AgentRunArgs): Promise<RunReport> {
       void here.overlay.setLabel(step.message || OVERLAY_LABEL);
 
       if (step.status === AGENT_STATUS.needPerson && isEmailVerificationStop(step.stop?.reason)) {
-        const kind = guessVerificationKind(text, step.stop);
-        log.event("mail-verification:start", { kind, since: lastActionAt });
-        emit(
-          runningProgress(
-            { ...runState(), stage: RUN_STAGE.verifying },
-            step.message || "Reading your Gmail for the verification…",
-          ),
-        );
-        void here.overlay.setLabel("Reading your Gmail for the verification…");
-        const outcome = await waitForMailVerification({
-          runId,
-          step: step.number,
-          kind,
-          url: info.url ?? "",
-          title: info.title ?? "",
-          pageText: text,
-          sinceMs: lastActionAt,
-          windowMs: MAIL_VERIFY_WINDOW_MS,
-          token: args.accessToken,
-          signal,
-          onPoll: () => log.event("mail-verification:poll"),
-        });
-        if (outcome.ok) {
-          log.event("mail-verification:found", { kind: outcome.kind });
-          await continueSession(args.agentUrl, must(sessionId));
-          keepSession = false;
-          if (outcome.kind === VERIFICATION.emailLink) {
-            await chrome.tabs.update(here.tabId, { url: outcome.value });
-          }
-          pendingNotes.push(noteForVerification(outcome.kind, outcome.value));
+        const gmail = await readGmail(step, info, text, here);
+        if (gmail === GMAIL_READ.found) {
           results = [];
-          lastActionAt = Date.now();
-          void here.overlay.setLabel(OVERLAY_LABEL);
           continue;
         }
-        if (outcome.reason === "no_mailbox") {
+        if (gmail === GMAIL_READ.noMailbox) {
           return finish(
             report(RUN_OUTCOME.failed, {
               reason: RUN_FAILURE_REASON.mailUnreadable,
@@ -553,7 +601,6 @@ export async function runAgent(args: AgentRunArgs): Promise<RunReport> {
             true,
           );
         }
-        log.event("mail-verification:miss", { reason: outcome.reason, detail: outcome.detail });
       }
 
       if (step.status === AGENT_STATUS.ask && step.ask) {
@@ -590,11 +637,13 @@ export async function runAgent(args: AgentRunArgs): Promise<RunReport> {
         );
       }
 
+      const actionsBeganAt = Date.now();
       results = await runActions(executor, actions);
       for (const result of results) {
         if (!result.ok) log.event("agent-action:failed", { id: result.id, error: result.error });
       }
-      lastActionAt = Date.now();
+      if (actions.some((action) => CHANGES_THE_PAGE.has(action.kind)))
+        lastChangeAt = actionsBeganAt;
       if (pendingTab != null) await sleep(300); // a click that opens a tab: give it a moment to exist
     }
   } catch (err) {

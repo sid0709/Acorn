@@ -96,9 +96,6 @@ type session struct {
 	loadWaits int
 	// checksOff is set once a check failed: the rest of the run goes without them.
 	checksOff bool
-	// granularChecks is set when a batched fill failed its check: the next plans are cut
-	// to one action and one check at a time until the plan completes.
-	granularChecks bool
 	// formReady is set once the screen shows an application form or Apply control, so navigation
 	// scrolls stop and the driving model plans clicks and typing.
 	formReady bool
@@ -108,12 +105,10 @@ type session struct {
 	// recorded since the last answer.
 	wantTrace    bool
 	pendingTrace *Trace
+	// script is a run of the model's actions with a dropdown to set in it, being carried out.
+	script *script
 	// cover is what the run has looked at on the page it is on, in pixels from the top.
 	cover coverage
-	// review is the pass over the parts of the page not seen, before the application is sent;
-	// reviews counts the ones this run has made.
-	review  *review
-	reviews int
 }
 
 // addTrace keeps the trace of an entry until the next answer carries it to the extension.

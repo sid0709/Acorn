@@ -51,14 +51,11 @@ type Config struct {
 	// to wait and look again instead of asking the model; it waits LoadWait, at most
 	// MaxLoadWaits times in a row.
 	CheckLoadingWait float64
-	LoadWait         time.Duration
-	MaxLoadWaits     int
-	// ReviewIssue is how sure the checker must be that a part of the page holds a problem (a
-	// required field left empty, a message about a field) for the agent to hand it to the model;
-	// SubmitPoint how sure it must be that a planned click sends the application; MaxReviews how
-	// many times a run may look through the parts of the page it has not seen before sending.
-	ReviewIssue, SubmitPoint float64
-	MaxReviews               int
+	// OptionMatch is how sure the checker must be of which option of an open dropdown answers a
+	// choose action (a probability) for the agent to pick it.
+	OptionMatch  float64
+	LoadWait     time.Duration
+	MaxLoadWaits int
 	// KeepTurns is how many recent steps stay in full when the history is compacted; older
 	// ones are folded into one line each.
 	KeepTurns int
@@ -98,11 +95,9 @@ func DefaultConfig() Config {
 		CheckBlocked:     0.2,
 		CheckLoading:     0.3,
 		CheckLoadingWait: 0.7,
+		OptionMatch:      0.7,
 		LoadWait:         time.Second,
 		MaxLoadWaits:     4,
-		ReviewIssue:      0.6,
-		SubmitPoint:      0.7,
-		MaxReviews:       3,
 		KeepTurns:        8,
 		KeepImages:       3,
 		HistoryTokens:    30_000,
@@ -227,7 +222,7 @@ func (a *Agent) Continue(id string) (Continued, error) {
 	s.pendingUpload = nil
 	s.plan, s.verify, s.planned, s.sent, s.parts = nil, "", 0, 0, 0
 	s.stale, s.lastSig, s.loadWaits = 0, nil, 0
-	s.formReady, s.navScrolls = false, 0
+	s.script = nil
 	s.notes = append(s.notes, note)
 	slog.Info("run continued", "session", s.id, "step", s.step, "limit", s.stepLimit)
 	return Continued{Number: s.step, Usage: s.usage}, nil
@@ -302,8 +297,8 @@ func (a *Agent) step(ctx context.Context, id string, obs Observation) (Step, err
 	}
 	s.cover.see(obs.URL, obs.Viewport)
 	// What happened to every action sent since the model last looked, which may be several
-	// runs of one plan. The review's own scrolls are not the model's actions.
-	results := withoutReview(append(append([]ActionResult(nil), s.carried...), obs.Results...))
+	// runs of one plan.
+	results := withoutChoose(append(append([]ActionResult(nil), s.carried...), obs.Results...))
 	a.learnJD(ctx, s, obs)
 	if s.pendingUpload != nil {
 		return a.answerPending(s, obs, results, sig)
@@ -338,19 +333,19 @@ func (a *Agent) step(ctx context.Context, id string, obs Observation) (Step, err
 	if step, ok := a.handlePicker(ctx, s, obs, results, sig); ok {
 		return step, nil
 	}
-	if step, ok := a.continuePlan(ctx, s, obs, results, sig, stale); ok {
+	if step, ok := a.continueScript(ctx, s, obs, results, sig); ok {
 		return step, nil
 	}
-	// The part of a plan before the send has run and been checked: look through the unseen parts.
-	if step, ok := a.reviewStep(ctx, s, obs, results); ok {
+	if step, ok := a.continuePlan(ctx, s, obs, results, sig, stale); ok {
 		return step, nil
 	}
 	if step, ok := a.tryNavigate(ctx, s, obs, len(screens), results, sig, stale); ok {
 		return step, nil
 	}
 
-	// The model looks now: a review waiting on a plan that did not run is over.
-	s.review = nil
+	// The model looks now, so the form-finding gate has had its turn (the model finds its own way from here).
+	s.formReady = true
+	s.script = nil
 	number := s.step + 1
 	notes := append(append([]string(nil), obs.Notes...), s.notes...)
 	if line := s.cover.line(obs.Viewport); line != "" {
@@ -407,12 +402,6 @@ func (a *Agent) step(ctx context.Context, id string, obs Observation) (Step, err
 	surveyAsked = surveyAsked && s.start.Survey
 	planned = fillSecrets(planned, s.snap.Secrets)
 	planned, dropped = a.resolveUploads(ctx, s, planned, dropped)
-	// A plan that sends the application while parts of the page are unseen is held: the part
-	// before the send goes on, and the rest waits for a look through those parts.
-	var held []Action
-	if answer.Status == StatusWorking {
-		planned, held = a.holdSubmit(ctx, s, obs, planned)
-	}
 	status := answer.Status
 	var actions []Action
 	switch {
@@ -420,7 +409,7 @@ func (a *Agent) step(ctx context.Context, id string, obs Observation) (Step, err
 		s.plan, s.verify, s.planned, s.sent, s.parts = nil, "", 0, 0, 0
 		// A run that ends may still scroll what the person must act on into view.
 		actions = scrollOnly(planned, maxStopScrolls)
-	case len(planned) == 0 && len(held) == 0 && s.pendingUpload == nil && !surveyAsked:
+	case len(planned) == 0 && s.pendingUpload == nil && !surveyAsked:
 		// A working run with nothing valid to do waits and looks again; the repeat check
 		// ends it if the page never changes.
 		dropped = append(dropped, "no usable action; waiting before the next look")
@@ -445,23 +434,6 @@ func (a *Agent) step(ctx context.Context, id string, obs Observation) (Step, err
 	entry.Status, entry.Message, entry.Actions, entry.Dropped = status, step.Message, actions, dropped
 	entry.Stop = step.Stop
 	a.record(s, entry, obs.Screenshot, calls)
-	if len(held) > 0 && status == StatusWorking {
-		s.review = &review{phase: reviewWaiting, held: held, origin: obs.Viewport.ScrollY}
-		if len(step.Actions) == 0 {
-			if next, ok := a.reviewStep(ctx, s, obs, nil); ok {
-				return next, nil
-			}
-		}
-	}
-	// A run asked to stop before sending says it is ready: look through what it has not seen first.
-	if status == StatusDone && s.start.StopBeforeSubmit && a.reviewOn(s) {
-		ready := step
-		s.review = &review{phase: reviewWaiting, end: &ready, origin: obs.Viewport.ScrollY}
-		if next, ok := a.reviewStep(ctx, s, obs, nil); ok {
-			return next, nil
-		}
-		s.review = nil
-	}
 	if status != StatusWorking {
 		s.finished, s.stoppedFor = true, step.Message
 	}
@@ -521,7 +493,7 @@ func stopFor(status string, answer reply) *StopInfo {
 		stop.Action = strings.TrimSpace(answer.Stop.Action)
 	}
 	switch stop.Reason {
-	case StopCaptcha, StopVerification, StopIdentity, StopDocument, StopSignIn, StopPageProblem, StopOther:
+	case StopCaptcha, StopVerification, StopVerificationLink, StopIdentity, StopDocument, StopSignIn, StopPageProblem, StopOther:
 	default:
 		stop.Reason = StopOther
 	}

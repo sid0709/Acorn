@@ -19,6 +19,9 @@ const (
 	KindScroll      = "scroll"
 	KindUpload      = "upload"
 	KindWait        = "wait"
+	// KindChoose is not sent to the extension: it sets a dropdown the page draws itself to an
+	// answer given in words. The agent opens it, finds the option and picks it (choose.go).
+	KindChoose = "choose"
 	// KindSurvey is not sent to the extension: it asks for the next look to be a survey of
 	// the whole page (Step.Survey).
 	KindSurvey = "survey"
@@ -44,13 +47,15 @@ const (
 const (
 	StopCaptcha      = "captcha"
 	StopVerification = "verification"
-	StopIdentity     = "identity"
-	StopDocument     = "document"
-	StopSignIn       = "sign_in"
-	StopPageProblem  = "page_problem"
-	StopOther        = "other"
-	StopNoChange     = "no_change"
-	StopStepLimit    = "step_limit"
+	// StopVerificationLink: a link in an email that the applicant must open.
+	StopVerificationLink = "verification_link"
+	StopIdentity         = "identity"
+	StopDocument         = "document"
+	StopSignIn           = "sign_in"
+	StopPageProblem      = "page_problem"
+	StopOther            = "other"
+	StopNoChange         = "no_change"
+	StopStepLimit        = "step_limit"
 	// StopResumeChoice: no job description was found, so the agent could not choose a résumé,
 	// and the person chose to pick one themselves.
 	StopResumeChoice = "resume_choice"

@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"math"
+	"strconv"
 	"strings"
 	"sync"
 	"testing"
@@ -24,6 +25,15 @@ type fakeScreen struct {
 	fileSure float64
 	// formReady is the probability returned for the navigation form-ready question; nil means sure (1.0).
 	formReady *float64
+	// options are the answers to the next option questions about an open dropdown, in order;
+	// once they run out the answer is none.
+	options []optionVerdict
+}
+
+// optionVerdict is the position the screen says answers a choose action (0 for none) and how sure it is.
+type optionVerdict struct {
+	position int
+	sure     float64
 }
 
 type screenVerdict struct{ matches, blocked, loading float64 }
@@ -36,6 +46,21 @@ func (f *fakeScreen) Decide(_ context.Context, req decide.Request) (decide.Respo
 	f.requests = append(f.requests, req)
 	if f.err != nil {
 		return decide.Response{}, f.err
+	}
+	if _, asked := req.Questions[askOption]; asked {
+		choice, sure := optionNone, 1.0
+		if len(f.options) > 0 {
+			if v := f.options[0]; v.position > 0 {
+				choice, sure = strconv.Itoa(v.position), v.sure
+			}
+			f.options = f.options[1:]
+		}
+		return decide.Response{
+			Model:   "fake-screen-1",
+			Answers: map[string]decide.Answer{askOption: {Type: decide.TypeChoice, Choice: choice, Probabilities: map[string]float64{choice: sure}}},
+			Usage:   decide.Usage{InputTokens: 1000, Cost: 0.0002},
+			Latency: 5 * time.Millisecond,
+		}, nil
 	}
 	if _, asked := req.Questions[askFileKind]; asked {
 		return decide.Response{

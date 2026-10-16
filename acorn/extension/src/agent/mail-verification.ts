@@ -14,6 +14,8 @@ import {
 
 import { authHeaders, getAcornApiUrl } from "../auth/acorn-auth";
 
+import type { RawMailEmail } from "./mail-search";
+
 const MAIL_POLL_MS = 5_000;
 
 export interface MailVerificationRequest {
@@ -34,26 +36,30 @@ export interface MailVerificationResponse {
   value?: string;
   seen?: string;
   unchanged?: boolean;
+  /** The newest emails this look read, with what the decision model made of each. */
+  emails?: RawMailEmail[];
+  /** The email the value was taken from. */
+  messageId?: string;
+  /** The decision model that read the emails. */
+  model?: string;
 }
 
-export function guessVerificationKind(pageText: string, stop?: AgentStop): VerificationKind {
-  const text = `${stop?.problem ?? ""} ${stop?.action ?? ""} ${pageText}`.toLowerCase();
-  if (/\blink\b|verify.*url|click.*email|confirm.*email/.test(text)) {
-    return VERIFICATION.emailLink;
-  }
-  return VERIFICATION.emailCode;
+/** What the agent stopped for: the model says which, in its stop reason. */
+export function verificationKindFor(stop?: AgentStop): VerificationKind {
+  return stop?.reason === AGENT_STOP_REASON.verificationLink
+    ? VERIFICATION.emailLink
+    : VERIFICATION.emailCode;
 }
 
 export async function requestMailVerification(
   request: MailVerificationRequest,
-  token: string | undefined,
   apiUrl?: string,
   signal?: AbortSignal,
 ): Promise<MailVerificationResponse> {
   const base = (apiUrl ?? (await getAcornApiUrl())).replace(/\/$/, "");
   const response = await fetch(`${base}${ACORN_GMAIL_API.mailVerification}`, {
     method: "POST",
-    headers: { "Content-Type": "application/json", ...authHeaders(token) },
+    headers: await authHeaders(),
     body: JSON.stringify(request),
     signal: signal
       ? AbortSignal.any([signal, AbortSignal.timeout(65_000)])
@@ -67,7 +73,7 @@ export async function requestMailVerification(
 }
 
 export type MailVerificationOutcome =
-  | { ok: true; kind: VerificationKind; value: string }
+  | { ok: true; kind: VerificationKind; value: string; messageId?: string }
   | { ok: false; reason: "no_mailbox" | "not_found" | "timeout" | "error"; detail?: string };
 
 /** Polls Gmail until a code or link is found, the window ends, or the run stops. */
@@ -80,10 +86,10 @@ export async function waitForMailVerification(args: {
   pageText: string;
   sinceMs: number;
   windowMs: number;
-  token?: string;
   apiUrl?: string;
   signal?: AbortSignal;
-  onPoll?: () => void;
+  /** Called with each answer from the backend, so the person can see what was read. */
+  onLook?: (response: MailVerificationResponse) => void;
 }): Promise<MailVerificationOutcome> {
   const deadline = args.sinceMs + args.windowMs;
   let seen = "";
@@ -91,7 +97,6 @@ export async function waitForMailVerification(args: {
     if (args.signal?.aborted) {
       return { ok: false, reason: "timeout" };
     }
-    args.onPoll?.();
     const response = await requestMailVerification(
       {
         runId: args.runId,
@@ -103,10 +108,10 @@ export async function waitForMailVerification(args: {
         since: args.sinceMs,
         seen,
       },
-      args.token,
       args.apiUrl,
       args.signal,
     );
+    args.onLook?.(response);
     if (!response.ok) {
       return { ok: false, reason: "error", detail: response.error };
     }
@@ -114,7 +119,7 @@ export async function waitForMailVerification(args: {
       return { ok: false, reason: "no_mailbox" };
     }
     if (response.status === MAIL_VERIFICATION_STATUS.found && response.value) {
-      return { ok: true, kind: args.kind, value: response.value };
+      return { ok: true, kind: args.kind, value: response.value, messageId: response.messageId };
     }
     if (response.status === MAIL_VERIFICATION_STATUS.notFound) {
       return { ok: false, reason: "not_found" };
@@ -142,7 +147,7 @@ export function noteForVerification(kind: VerificationKind, value: string): stri
 
 /** True when the agent stopped for an emailed code or link we can try to read from Gmail. */
 export function isEmailVerificationStop(reason: string | undefined): boolean {
-  return reason === AGENT_STOP_REASON.verification;
+  return reason === AGENT_STOP_REASON.verification || reason === AGENT_STOP_REASON.verificationLink;
 }
 
 function sleep(ms: number, signal?: AbortSignal): Promise<void> {
@@ -152,7 +157,7 @@ function sleep(ms: number, signal?: AbortSignal): Promise<void> {
       "abort",
       () => {
         clearTimeout(timer);
-        reject(signal.reason ?? new Error("aborted"));
+        reject(signal.reason instanceof Error ? signal.reason : new Error("aborted"));
       },
       { once: true },
     );

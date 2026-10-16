@@ -46,15 +46,22 @@ func formReady(ctx context.Context, screen Screen, screenshot string) (float64, 
 
 func navScrollAction(number, attempt int, viewport Viewport) Action {
 	dy := float64(viewport.Height) * navScrollViewportFraction
+	// A scroll turns the wheel at a point, so it has one: the middle of the screen.
+	x, y := float64(viewport.Width)/2, float64(viewport.Height)/2
 	return Action{
 		ID:   fmt.Sprintf("s%dn%d", number, attempt),
 		Kind: KindScroll,
+		X:    &x,
+		Y:    &y,
 		DY:   dy,
 	}
 }
 
-func (a *Agent) navigateGate(s *session, surveyScreens int) bool {
-	if !a.checksOn(s) || a.newScreen == nil || surveyScreens > 0 || s.formReady {
+// navigateGate says whether the gate may look now. It only runs before the driving model has
+// looked: once the model drives, it finds its own way, and a note the extension attached (an
+// emailed code) is for the model, not for a scroll that never asks it.
+func (a *Agent) navigateGate(s *session, obs Observation, surveyScreens int) bool {
+	if !a.checksOn(s) || a.newScreen == nil || surveyScreens > 0 || s.formReady || len(obs.Notes) > 0 {
 		return false
 	}
 	if len(s.plan) > 0 || s.verify != "" || s.pendingUpload != nil {
@@ -66,7 +73,7 @@ func (a *Agent) navigateGate(s *session, surveyScreens int) bool {
 // tryNavigate scrolls toward the application form when the screen decision model says it is not
 // visible yet, without calling the driving model. It reports true when a scroll step was sent.
 func (a *Agent) tryNavigate(ctx context.Context, s *session, obs Observation, surveyScreens int, results []ActionResult, sig []uint8, stale int) (Step, bool) {
-	if !a.navigateGate(s, surveyScreens) {
+	if !a.navigateGate(s, obs, surveyScreens) {
 		return Step{}, false
 	}
 	if s.navScrolls >= maxNavScrolls {

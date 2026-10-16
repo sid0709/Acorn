@@ -12,10 +12,7 @@ import {
 describe("waitForUploadProcessing", () => {
   it("enables the network domain and waits for in-flight XHR to finish", async () => {
     const cdp = fakeCdp();
-    let now = 0;
-    const sleep = async (ms: number) => {
-      now += ms;
-    };
+    const sleep = async () => {};
     const done = waitForUploadProcessing(cdp, sleep);
     cdp.emit("Network.requestWillBeSent", { requestId: "a", type: "XHR" });
     await sleep(UPLOAD_PROCESS_MIN_MS);

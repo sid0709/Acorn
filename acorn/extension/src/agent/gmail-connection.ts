@@ -24,7 +24,7 @@ export async function fetchGmailConnectionStatus(
   const base = (apiUrl ?? (await getAcornApiUrl())).replace(/\/$/, "");
   try {
     const response = await fetch(`${base}${ACORN_GMAIL_API.mailboxes}`, {
-      headers: authHeaders(token),
+      headers: await authHeaders(),
       signal: AbortSignal.timeout(15_000),
     });
     if (!response.ok) {

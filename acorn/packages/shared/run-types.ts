@@ -114,6 +114,48 @@ export const MAIL_VERIFICATION_STATUS = {
 export type MailVerificationStatus =
   (typeof MAIL_VERIFICATION_STATUS)[keyof typeof MAIL_VERIFICATION_STATUS];
 
+/** One email read while looking for a code or link, and how likely it is the one the site sent. */
+export interface MailSearchEmail {
+  id: string;
+  /** Sender, as the email shows it. */
+  from: string;
+  subject: string;
+  /** When it arrived (ms since epoch); 0 when unknown. */
+  receivedAt: number;
+  /** It arrived after the site was asked to send (or that time is not known), so it may compete. */
+  after: boolean;
+  /** The decision model weighed it; one from before the request is not weighed. */
+  judged: boolean;
+  /** The chance (0 to 1) the decision model gave that the site sent it for this step. */
+  probability: number;
+}
+
+/** Where a look in Gmail for a code or link stands. */
+export const MAIL_SEARCH_STATE = {
+  searching: "searching",
+  found: "found",
+  /** The search ended without a code or link. */
+  missed: "missed",
+} as const;
+
+export type MailSearchState = (typeof MAIL_SEARCH_STATE)[keyof typeof MAIL_SEARCH_STATE];
+
+/** What an agent Run is reading in Gmail for a code or link, shown on the Now card. */
+export interface MailSearch {
+  kind: VerificationKind;
+  state: MailSearchState;
+  /** Only mail that arrived after this (ms since epoch) can be the site's. */
+  since: number;
+  /** How many times Gmail has been looked at. */
+  looks: number;
+  /** The newest emails the last look read, newest first. */
+  emails: MailSearchEmail[];
+  /** The email the code or link was taken from, once found. */
+  chosenId?: string;
+  /** Why the search ended without one. */
+  detail?: string;
+}
+
 export interface RunProgress {
   runId: string;
   stage: RunStage;
@@ -139,6 +181,8 @@ export interface RunProgress {
   screenChecks?: number;
   /** An agent Run waiting on the person: the question and the answers they may give. */
   ask?: { id: string; question: string; options: { id: string; label: string }[] };
+  /** An agent Run reading Gmail for a code or link: the emails read, and which one was used. */
+  mail?: MailSearch;
   /** The run stopped partway and the agent still remembers it: Continue takes it back up. */
   canContinue?: boolean;
   report?: RunReport;

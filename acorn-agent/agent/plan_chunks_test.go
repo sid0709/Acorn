@@ -33,7 +33,7 @@ func TestBatchExcludesScrollAndRunsItAfterFillCheck(t *testing.T) {
 		{Kind: KindType, Text: "b", Check: "b shows"},
 		{Kind: KindScroll, DY: 400},
 		{Kind: KindClick, Check: "next field open"},
-	}, 6, true, false)
+	}, 6, true)
 	if len(runs) < 2 || len(runs[0].actions) != 2 || runs[0].actions[0].Kind != KindType {
 		t.Fatalf("first run should batch only fills: %+v", runs[0])
 	}
@@ -47,7 +47,7 @@ func TestBatchPrefixStopsAtUpload(t *testing.T) {
 		{Kind: KindType, Text: "a", Check: "a shows"},
 		{Kind: KindType, Text: "b", Check: "b shows"},
 		{Kind: KindUpload, Check: "file attached"},
-	}, 6, true, false)
+	}, 6, true)
 	if len(runs) != 2 || len(runs[0].actions) != 2 || runs[1].actions[0].Kind != KindUpload {
 		t.Fatalf("runs = %+v", runs)
 	}
