@@ -102,7 +102,7 @@ func (a *Agent) learnJD(ctx context.Context, s *session, obs Observation) {
 		return
 	}
 	s.jd = clipText(text, maxJDChars)
-	s.notes = append(s.notes, "The job description, read from the page text ("+orNone(obs.Title)+"):\n"+clipText(text, maxJDNoteChars))
+	s.notes = append(s.notes, "The job description, read from the page text ("+orNone(obs.Title)+"). The screenshot, not this text, shows what the form holds and what is filled in:\n"+clipText(text, maxJDNoteChars))
 }
 
 // needsAsk is whether choosing a résumé now would be a guess the person should confirm: a résumé

@@ -74,6 +74,15 @@ export function collectPageText(limit: number): FrameText {
     if (node.nodeType === 1) {
       const element = node as Element;
       if (skip.has(element.tagName)) return;
+      // Text the page does not show (a message kept for after an upload, a closed menu) is not on
+      // the page: a model that reads it believes what the screen contradicts.
+      try {
+        const view = element.ownerDocument.defaultView ?? window;
+        const style = view.getComputedStyle(element);
+        if (style.display === "none" || style.visibility === "hidden") return;
+      } catch {
+        // An element that cannot be styled (another document): its text is read as it is.
+      }
       if (element.tagName.includes("-") && !element.shadowRoot) custom += 1;
       if (block.has(element.tagName)) pieces.push("\n");
       if (element.tagName === "IFRAME") {
@@ -107,12 +116,15 @@ type FlatNode = {
   nodeType: number;
   nodeName: string;
   nodeValue?: string;
+  shadowRootType?: string;
 };
 const FLAT_SKIP = new Set(["SCRIPT", "STYLE", "NOSCRIPT", "TEMPLATE", "HEAD"]);
 
 /**
- * The text the debugger's DOM view can reach that a script cannot: inside closed shadow roots.
- * Only what the other reads did not already give is returned.
+ * The text the debugger's DOM view can reach that a script cannot: inside closed shadow roots and
+ * the documents of frames the script could not enter. Only that is returned, and only what the
+ * other reads did not already give: the rest of this view holds text the page does not show (the
+ * debugger's tree has no styles to tell), which the script read has left out.
  */
 async function deeperText(cdp: Cdp, have: string): Promise<string> {
   try {
@@ -129,14 +141,18 @@ async function deeperText(cdp: Cdp, have: string): Promise<string> {
       const text = (node.nodeValue ?? "").replace(/\s+/g, " ").trim();
       if (text.length < 3 || have.includes(text)) continue;
       let hidden = false;
+      let beyondScript = false;
       for (let up = nodes.get(node.parentId ?? -1), depth = 0; up && depth < 40; depth += 1) {
         if (FLAT_SKIP.has(up.nodeName)) {
           hidden = true;
           break;
         }
+        if (up.shadowRootType === "closed" || (up.nodeType === 9 && up.parentId != null)) {
+          beyondScript = true;
+        }
         up = nodes.get(up.parentId ?? -1);
       }
-      if (hidden) continue;
+      if (hidden || !beyondScript) continue;
       extra.push(text);
       size += text.length + 1;
     }
