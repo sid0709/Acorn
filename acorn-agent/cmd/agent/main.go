@@ -23,8 +23,11 @@ import (
 )
 
 const (
+	// defaultAgentPort is the host port when HTTP_ADDR and ACORN_AGENT_PORT are unset.
+	// 8090 on the VPS is JoinedHQ; do not reuse it.
+	defaultAgentPort = "8093"
 	// defaultAddr listens on this machine only: the profile and résumés never leave it.
-	defaultAddr = "127.0.0.1:8090"
+	defaultAddr = "127.0.0.1:" + defaultAgentPort
 	// defaultDataDir is the folder holding profile.json and resumes/.
 	defaultDataDir = "data"
 	// defaultTraceDir is where each run's screenshots and answers are recorded. The folder
@@ -69,6 +72,7 @@ const (
 	envKeepImages    = "ACORN_AGENT_KEEP_IMAGES"
 	envMaxStale      = "ACORN_AGENT_MAX_STALE"
 	envMaxModelCalls = "ACORN_AGENT_MAX_MODEL_CALLS"
+	envAgentPort     = "ACORN_AGENT_PORT"
 )
 
 // defaultOrigins are the web origins allowed besides the extension, which is always allowed.
@@ -98,7 +102,12 @@ func percent(name string, fallback float64) float64 {
 
 func run() error {
 	config.LoadEnvFile()
-	httpConfig, err := config.LoadHTTP(defaultAddr, defaultOrigins)
+	port := config.Env(envAgentPort, defaultAgentPort)
+	listenAddr := defaultAddr
+	if port != defaultAgentPort {
+		listenAddr = "127.0.0.1:" + port
+	}
+	httpConfig, err := config.LoadHTTP(listenAddr, defaultOrigins)
 	if err != nil {
 		return err
 	}

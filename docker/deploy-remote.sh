@@ -26,7 +26,9 @@ INTERNAL_API_URL="${ACORN_INTERNAL_API_URL:-http://${API_CONTAINER}:8083}"
 API_HEALTH_URL="${API_HEALTH_URL:-http://127.0.0.1:8083/health}"
 WEB_URL="${WEB_URL:-http://127.0.0.1:6005/}"
 ADMIN_URL="${ADMIN_URL:-http://127.0.0.1:6011/}"
-AGENT_HEALTH_URL="${AGENT_HEALTH_URL:-http://127.0.0.1:8090/agent/v1/health}"
+DEFAULT_AGENT_PORT="${DEFAULT_AGENT_PORT:-8093}"
+# JoinedHQ and other host services already use these; Acorn must not steal them.
+FORBIDDEN_AGENT_PORTS="${FORBIDDEN_AGENT_PORTS:-8083 6005 6010 6011 8080 8081 8090}"
 # A rollback to a commit from before the agent existed has no agent image: leave the running one.
 AGENT_PULL_OPTIONAL="${AGENT_PULL_OPTIONAL:-false}"
 HEALTH_ATTEMPTS="${HEALTH_ATTEMPTS:-36}"
@@ -41,6 +43,68 @@ if [[ -z "$TAG_OR_REF" || "$TAG_OR_REF" == "latest" ]]; then
 fi
 
 [[ -f "$DEPLOY_ENV" ]] || { echo "Missing deploy env file: $DEPLOY_ENV" >&2; exit 1; }
+
+deploy_env_value() {
+  local key="$1"
+  grep -E "^${key}=" "$DEPLOY_ENV" 2>/dev/null | tail -n 1 | cut -d= -f2- | tr -d '\r\n" ' || true
+}
+
+is_forbidden_agent_port() {
+  local port="$1"
+  local forbidden
+  for forbidden in $FORBIDDEN_AGENT_PORTS; do
+    if [[ "$port" == "$forbidden" ]]; then
+      return 0
+    fi
+  done
+  return 1
+}
+
+# Host port the agent container publishes. deploy.env ACORN_AGENT_PORT, else 8093.
+AGENT_PORT="${ACORN_AGENT_PORT:-$(deploy_env_value ACORN_AGENT_PORT)}"
+AGENT_PORT="${AGENT_PORT:-$DEFAULT_AGENT_PORT}"
+if [[ ! "$AGENT_PORT" =~ ^[0-9]+$ ]] || ((AGENT_PORT < 1 || AGENT_PORT > 65535)); then
+  echo "ACORN_AGENT_PORT must be a TCP port number, got: ${AGENT_PORT}" >&2
+  exit 1
+fi
+if is_forbidden_agent_port "$AGENT_PORT"; then
+  echo "ACORN_AGENT_PORT=${AGENT_PORT} is reserved on this host (JoinedHQ or Acorn's other services). Use ${DEFAULT_AGENT_PORT}, not: ${FORBIDDEN_AGENT_PORTS}" >&2
+  exit 1
+fi
+AGENT_HEALTH_URL="${AGENT_HEALTH_URL:-http://127.0.0.1:${AGENT_PORT}/agent/v1/health}"
+
+# Fail before docker run if the chosen port is held by anything except this Acorn agent container.
+# Never stop or rebind another container (JoinedHQ owns 8090).
+assert_agent_port_free() {
+  local port="$1"
+  local our="$2"
+  local name ports holders=""
+  while read -r name ports; do
+    [[ -z "$name" ]] && continue
+    if printf '%s\n' "$ports" | grep -Eq "(^|[^0-9])${port}->"; then
+      if [[ "$name" != "$our" ]]; then
+        holders="${holders}${holders:+ }$name"
+      fi
+    fi
+  done < <(docker ps --format '{{.Names}} {{.Ports}}')
+  if [[ -n "$holders" ]]; then
+    echo "Acorn agent cannot bind 127.0.0.1:${port}: already published by container(s) ${holders}." >&2
+    echo "Leave that service as it is (JoinedHQ holds 8090). Set ACORN_AGENT_PORT in ${DEPLOY_ENV} to a free port other than: ${FORBIDDEN_AGENT_PORTS}" >&2
+    exit 1
+  fi
+  # Recreate of this container is fine: it is already the listener on this port.
+  if docker inspect -f '{{.State.Running}}' "$our" 2>/dev/null | grep -qx true \
+    && docker port "$our" "${port}/tcp" >/dev/null 2>&1; then
+    return 0
+  fi
+  if command -v ss >/dev/null 2>&1; then
+    if ss -ltn "sport = :${port}" 2>/dev/null | awk 'NR>1 {found=1} END {exit !found}'; then
+      echo "Acorn agent cannot bind 127.0.0.1:${port}: a process on this host is already listening there (not ${our})." >&2
+      echo "Leave that process as it is. Set ACORN_AGENT_PORT in ${DEPLOY_ENV} to a free port other than: ${FORBIDDEN_AGENT_PORTS}" >&2
+      exit 1
+    fi
+  fi
+}
 
 # Argument is a tag (full github.sha), not a full image reference.
 API_REF="${API_IMAGE_DEFAULT}:${TAG_OR_REF}"
@@ -146,6 +210,7 @@ if [[ "$want_agent" == true ]]; then
   # The agent gets only its own settings from deploy.env, never the API's secrets (the database,
   # Google). It reads each person's profile and Library from the API, over the Docker network,
   # with that person's own session, and writes nothing: no traces.
+  assert_agent_port_free "$AGENT_PORT" "$AGENT_CONTAINER"
   agent_env="$(mktemp)"
   trap 'rm -f "$agent_env"' EXIT
   grep -E '^(ACORN_AGENT_[A-Z_]+|OPENROUTER_API_KEY)=' "$DEPLOY_ENV" > "$agent_env" || true
@@ -155,10 +220,11 @@ if [[ "$want_agent" == true ]]; then
     --restart unless-stopped \
     --network "$NETWORK" \
     --env-file "$agent_env" \
-    -e HTTP_ADDR=0.0.0.0:8090 \
+    -e HTTP_ADDR="0.0.0.0:${AGENT_PORT}" \
+    -e ACORN_AGENT_PORT="$AGENT_PORT" \
     -e ACORN_AGENT_BACKEND_URL="$INTERNAL_API_URL" \
     -e ACORN_AGENT_TRACE=false \
-    -p 127.0.0.1:8090:8090 \
+    -p "127.0.0.1:${AGENT_PORT}:${AGENT_PORT}" \
     "$AGENT_REF"
   rm -f "$agent_env"
 fi
