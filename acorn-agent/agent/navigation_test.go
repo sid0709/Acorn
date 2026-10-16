@@ -31,6 +31,21 @@ func TestNavigationLetsTheModelLookWhenTheFormIsReady(t *testing.T) {
 	}
 }
 
+func TestNavigationSkipsWhileVerifyPending(t *testing.T) {
+	a := newAgentWithScreen(t, &scriptedModel{}, &fixedDecider{}, &fakeScreen{}, DefaultConfig())
+	id := start(t, a)
+	s, ok := a.sessions.get(id)
+	if !ok {
+		t.Fatal("session missing")
+	}
+	s.mu.Lock()
+	s.verify = "the résumé row shows the file"
+	s.mu.Unlock()
+	if a.navigateGate(s, 0) {
+		t.Fatal("navigation must not run while a screen check is pending")
+	}
+}
+
 func TestNavigationSkipsScrollOnApplicationFormPageText(t *testing.T) {
 	notReady := 0.05
 	screen := &fakeScreen{formReady: &notReady}

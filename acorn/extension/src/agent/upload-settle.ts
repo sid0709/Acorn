@@ -1,53 +1,67 @@
 /**
- * Waits after a file is set on an input until the page finishes processing it. Many
- * application forms parse the résumé and autofill other fields only after upload completes.
+ * Waits after a file is set on an input until the page finishes processing it. Uses
+ * the debugger's Network domain to see XHR/Fetch the upload triggered, instead of
+ * guessing from DOM text or class names.
  */
 
 import type { Cdp } from "./cdp";
 
-/** Minimum time after the file is accepted before we treat processing as done. */
+/** Minimum time after the file is accepted before we treat the network as settled. */
 export const UPLOAD_PROCESS_MIN_MS = 800;
-/** How often we ask the page whether it is still uploading. */
+/** How long with no tracked requests in flight before we continue. */
+export const UPLOAD_NETWORK_QUIET_MS = 500;
+/** How often we re-check in-flight requests. */
 export const UPLOAD_PROCESS_POLL_MS = 250;
 /** Longest we wait for upload processing before continuing anyway. */
 export const UPLOAD_PROCESS_MAX_MS = 45_000;
 
-const STILL_UPLOADING = `(() => {
-  const busy = (el) => {
-    if (!el || el.nodeType !== 1) return false;
-    if (el.getAttribute("aria-busy") === "true") return true;
-    const cls = typeof el.className === "string" ? el.className.toLowerCase() : "";
-    if (/\b(uploading|processing|spinner|loading)\b/.test(cls)) return true;
-    return false;
-  };
-  const inputs = document.querySelectorAll('input[type="file"]');
-  for (const input of inputs) {
-    for (let node = input.parentElement, depth = 0; node && depth < 8; node = node.parentElement, depth += 1) {
-      if (busy(node)) return true;
+/** Request types that usually carry résumé parsing or autofill after an upload. */
+const UPLOAD_NETWORK_TYPES = new Set(["XHR", "Fetch"]);
+
+type NetworkTracker = {
+  pending: Set<string>;
+  stop: () => void;
+};
+
+function trackUploadNetwork(cdp: Cdp): NetworkTracker {
+  const pending = new Set<string>();
+  const stop = cdp.onEvent((method, params) => {
+    if (method === "Network.requestWillBeSent") {
+      const type = params.type;
+      const id = params.requestId;
+      if (typeof type === "string" && typeof id === "string" && UPLOAD_NETWORK_TYPES.has(type)) {
+        pending.add(id);
+      }
     }
-  }
-  const text = (document.body && document.body.innerText) || "";
-  if (/\b(uploading|processing (your )?file|please wait)\b/i.test(text)) return true;
-  const progress = document.querySelector('progress:not([value="100"])');
-  if (progress && !progress.hasAttribute("hidden")) return true;
-  return false;
-})()`;
+    if (method === "Network.loadingFinished" || method === "Network.loadingFailed") {
+      const id = params.requestId;
+      if (typeof id === "string") pending.delete(id);
+    }
+  });
+  return { pending, stop };
+}
 
-type EvaluateBool = { result?: { value?: boolean } };
-
-/** Polls the page until upload UI settles or the max wait is reached. */
+/** Polls until upload-related network activity settles or the max wait is reached. */
 export async function waitForUploadProcessing(
   cdp: Cdp,
   sleep: (ms: number) => Promise<void>,
 ): Promise<void> {
+  await cdp.send("Network.enable").catch(() => undefined);
+  const tracker = trackUploadNetwork(cdp);
   const started = Date.now();
-  await sleep(UPLOAD_PROCESS_MIN_MS);
-  while (Date.now() - started < UPLOAD_PROCESS_MAX_MS) {
-    const answer = await cdp.send<EvaluateBool>("Runtime.evaluate", {
-      expression: STILL_UPLOADING,
-      returnByValue: true,
-    });
-    if (!answer.result?.value) return;
-    await sleep(UPLOAD_PROCESS_POLL_MS);
+  let quietSince = 0;
+  try {
+    await sleep(UPLOAD_PROCESS_MIN_MS);
+    while (Date.now() - started < UPLOAD_PROCESS_MAX_MS) {
+      if (tracker.pending.size === 0) {
+        if (quietSince === 0) quietSince = Date.now();
+        if (Date.now() - quietSince >= UPLOAD_NETWORK_QUIET_MS) return;
+      } else {
+        quietSince = 0;
+      }
+      await sleep(UPLOAD_PROCESS_POLL_MS);
+    }
+  } finally {
+    tracker.stop();
   }
 }

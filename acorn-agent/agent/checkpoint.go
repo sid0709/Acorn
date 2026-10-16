@@ -39,24 +39,6 @@ type chunk struct {
 	expect string
 }
 
-// splitPlan cuts a plan into runs. A run ends at an action the model put a check on, or
-// after limit actions when it did not, so no run goes unchecked for longer than that.
-func splitPlan(actions []Action, limit int) []chunk {
-	var out []chunk
-	var current []Action
-	for _, action := range actions {
-		current = append(current, action)
-		if action.Check != "" || (limit > 0 && len(current) == limit) {
-			out = append(out, chunk{actions: current, expect: action.Check})
-			current = nil
-		}
-	}
-	if len(current) > 0 {
-		out = append(out, chunk{actions: current})
-	}
-	return out
-}
-
 // verdict is what the checker made of a screenshot.
 type verdict struct {
 	matches, blocked, loading float64

@@ -143,7 +143,7 @@ func Find(ctx context.Context, decide Selector, mail Reader, q Query) (Result, e
 		return result, fmt.Errorf("rank mail: %w", err)
 	}
 	result.add(rank.Usage)
-	rank.Ranked = newestFromPicksSender(eligible, rank.Ranked)
+	rank.Ranked = newestPlausibleFirst(eligible, rank.Ranked)
 	result.Judged = judged(eligible, rank)
 	result.Emails = withProbabilities(result.Emails, result.Judged)
 	if rank.None {
@@ -222,10 +222,10 @@ func eligibleMail(items []selector.MailItem, since time.Time) []selector.MailIte
 	return out
 }
 
-// newestFromPicksSender puts first, newest first, the plausible emails from the
-// sender of Jev's best pick; the rest follow in Jev's order. A site's earlier
-// codes stop working once it sends a new one, so the newest is the one to try.
-func newestFromPicksSender(items []selector.MailItem, ranked []selector.Ranked) []selector.Ranked {
+// newestPlausibleFirst opens emails Jev thought could match, newest arrival first.
+// When several emails meet the bar, the latest code or link is almost always the
+// one the site still honours; Jev's probability order is kept only as a tie-break.
+func newestPlausibleFirst(items []selector.MailItem, ranked []selector.Ranked) []selector.Ranked {
 	if len(ranked) < 2 {
 		return ranked
 	}
@@ -233,19 +233,22 @@ func newestFromPicksSender(items []selector.MailItem, ranked []selector.Ranked) 
 	for _, item := range items {
 		byID[item.ID] = item
 	}
-	sender := byID[ranked[0].ID].From
-	var same, rest []selector.Ranked
+	var plausible, rest []selector.Ranked
 	for _, r := range ranked {
-		if byID[r.ID].From == sender && r.Probability >= minOpenProbability {
-			same = append(same, r)
+		if r.Probability >= minOpenProbability {
+			plausible = append(plausible, r)
 		} else {
 			rest = append(rest, r)
 		}
 	}
-	sort.SliceStable(same, func(i, j int) bool {
-		return byID[same[i].ID].ReceivedAt.After(byID[same[j].ID].ReceivedAt)
+	sort.SliceStable(plausible, func(i, j int) bool {
+		a, b := byID[plausible[i].ID], byID[plausible[j].ID]
+		if !a.ReceivedAt.Equal(b.ReceivedAt) {
+			return a.ReceivedAt.After(b.ReceivedAt)
+		}
+		return plausible[i].Probability > plausible[j].Probability
 	})
-	return append(same, rest...)
+	return append(plausible, rest...)
 }
 
 func judged(items []selector.MailItem, rank selector.MailRank) []Judged {

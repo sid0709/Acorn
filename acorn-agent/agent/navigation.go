@@ -57,7 +57,7 @@ func (a *Agent) navigateGate(s *session, surveyScreens int) bool {
 	if !a.checksOn(s) || a.newScreen == nil || surveyScreens > 0 || s.formReady {
 		return false
 	}
-	if len(s.plan) > 0 || s.pendingUpload != nil {
+	if len(s.plan) > 0 || s.verify != "" || s.pendingUpload != nil {
 		return false
 	}
 	return true

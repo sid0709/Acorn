@@ -84,6 +84,27 @@ func TestFindOpensNewestEvenWhenRankedLast(t *testing.T) {
 	}
 }
 
+func TestFindPrefersNewestAmongSeveralPlausibleSenders(t *testing.T) {
+	decide := &rankInOrder{}
+	result, err := Find(context.Background(), decide, inbox{[]mailbox.Message{
+		mail("111111", clicked.Add(5*time.Second)),
+		func() mailbox.Message {
+			m := mail("394659", clicked.Add(25*time.Second))
+			m.Sender, m.SenderEmail, m.Subject = "Acme Jobs", "jobs@acme.test", "verify"
+			return m
+		}(),
+	}}, Query{
+		Ask:   selector.MailAsk{Kind: selector.VerifyEmailCode},
+		Since: clicked,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if result.Value != "394659" {
+		t.Fatalf("value %q, want the latest arrival 394659", result.Value)
+	}
+}
+
 func TestFindKeepsClockSkewAllowance(t *testing.T) {
 	result, _ := find(t, []mailbox.Message{mail("555555", clicked.Add(-arrivalSkew/2))})
 	if result.Value != "555555" {

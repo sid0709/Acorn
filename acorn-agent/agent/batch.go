@@ -41,7 +41,7 @@ func batchExpect(actions []Action) string {
 // at least two fields, the whole plan is one run and one check. Otherwise the plan is cut
 // by limit, or by one action at a time when granularChecks is set.
 func splitPlanForSession(actions []Action, limit int, batch, granular bool) []chunk {
-	if batch && !granular && fieldInteractions(actions) >= minFieldInteractionsForBatch {
+	if batch && !granular && !planHasScrollOrUpload(actions) && fieldInteractions(actions) >= minFieldInteractionsForBatch {
 		if expect := batchExpect(actions); expect != "" {
 			return []chunk{{actions: actions, expect: expect}}
 		}

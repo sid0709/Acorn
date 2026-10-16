@@ -108,8 +108,9 @@ func (g *Gateway) RankMail(ctx context.Context, ask MailAsk, items []MailItem) (
 			Instructions: "Which of these emails carries the link or code for the step the page is waiting on? " +
 				"The email may come from the job site or from the hiring platform it runs on, under either name. " +
 				"Match its subject and preview to the step (verifying the email, activating the account, resetting " +
-				"the password, a security code), and prefer one that arrived after the site was asked to send it, " +
-				"most recent first. Choose none only when no email could be it.",
+				"the password, a security code), and prefer one that arrived after the site was asked to send it. " +
+				"When more than one email could match, the newest arrival is the one Acorn opens first. " +
+				"Choose none only when no email could be it.",
 			Criteria: criteria,
 		}},
 	})
