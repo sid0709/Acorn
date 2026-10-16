@@ -54,7 +54,7 @@ const (
 	envScreenModel   = "ACORN_AGENT_SCREEN_MODEL"
 	envDecisionsURL  = "ACORN_AGENT_DECISIONS_URL"
 	// envFallbackResume names the résumé folder offered to the person when a résumé is wanted and no
-	// job description was found.
+	// job description was found, when the applicant is a local folder.
 	envFallbackResume = "DEFAULT_FALLBACK_RESUME"
 	envChunkActions   = "ACORN_AGENT_CHUNK_ACTIONS"
 	envVetBlock       = "ACORN_AGENT_VET_BLOCK_PERCENT"
@@ -107,7 +107,6 @@ func run() error {
 	cfg.MaxSteps = config.EnvInt(envMaxSteps, cfg.MaxSteps)
 	cfg.MaxActions = config.EnvInt(envMaxActions, cfg.MaxActions)
 	cfg.ChunkActions = config.EnvInt(envChunkActions, cfg.ChunkActions)
-	cfg.FallbackResume = config.Env(envFallbackResume, "")
 	cfg.CheckMatch = percent(envCheckMatch, cfg.CheckMatch)
 	cfg.CheckBlocked = percent(envCheckBlocked, cfg.CheckBlocked)
 	cfg.CheckLoading = percent(envCheckLoading, cfg.CheckLoading)
@@ -133,8 +132,11 @@ func run() error {
 		store := applicant.NewStore(config.Env(envDataDir, defaultDataDir), hidden...)
 		source = store
 		location = store.Dir()
-		// One person's own folder: a default résumé that is not in it is a mistake to report.
+		// One person's own folder: its default résumé is named here, and a name that is not in it
+		// is a mistake to report. With the backend the default is the one each person marked in
+		// their Library, so there is no setting.
 		cfg.FallbackStrict = true
+		cfg.FallbackResume = config.Env(envFallbackResume, "")
 	}
 
 	// The checks between a plan's runs of actions need a decision model that reads a screenshot.

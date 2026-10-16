@@ -15,8 +15,8 @@ import (
 // it (clicking Apply scrolls straight to the form), so the extension sends the page's text when
 // the page changes, and the decision model that reads text (Jev) says whether it holds a job
 // description. When the agent reaches a résumé upload without one it does not guess: it asks the
-// person, every time, whether to upload the default résumé (the DEFAULT_FALLBACK_RESUME
-// folder). A file is only ever uploaded from this computer: never from an online source.
+// person, every time, whether to upload their default résumé (the one marked default in their
+// Acorn Library, or the DEFAULT_FALLBACK_RESUME folder in development). A file is only ever uploaded from this computer: never from an online source.
 
 const (
 	askJobDescription = "job_description"
@@ -34,25 +34,23 @@ const (
 // ErrFallbackResume is returned when DEFAULT_FALLBACK_RESUME names a folder that does not exist.
 var ErrFallbackResume = errors.New("DEFAULT_FALLBACK_RESUME names a résumé folder that is not in data/resumes")
 
-// fallbackFor is the résumé to offer when there is no job description, or "" when none is. The
-// configured name wins when the applicant has it. When they do not, a strict server (one
-// person's own folder) refuses to run; otherwise the applicant's primary résumé is offered, so a
-// setting made for the server never stops someone whose Library is named differently.
+// fallbackFor is the résumé to offer when there is no job description, or "" when none is. For one
+// person's own folder (FallbackStrict) it is the folder named in the setting, and a name that is
+// not there stops the run. Otherwise it is the applicant's default résumé, the one they marked
+// "default" in their Acorn Library, so nothing is set on the server.
 func (a *Agent) fallbackFor(resumes []applicant.Resume) (string, error) {
-	stacks := stackNames(resumes)
-	name := strings.TrimSpace(a.cfg.FallbackResume)
-	if name != "" {
+	if a.cfg.FallbackStrict {
+		name := strings.TrimSpace(a.cfg.FallbackResume)
+		if name == "" {
+			return "", nil
+		}
+		stacks := stackNames(resumes)
 		for _, stack := range stacks {
 			if strings.EqualFold(stack, name) {
 				return stack, nil
 			}
 		}
-		if a.cfg.FallbackStrict {
-			return "", fmt.Errorf("%w: %q (folders: %s)", ErrFallbackResume, name, strings.Join(stacks, ", "))
-		}
-	}
-	if a.cfg.FallbackStrict {
-		return "", nil
+		return "", fmt.Errorf("%w: %q (folders: %s)", ErrFallbackResume, name, strings.Join(stacks, ", "))
 	}
 	for _, resume := range resumes {
 		if resume.Stack != "" && resume.Primary {

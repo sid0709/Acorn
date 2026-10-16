@@ -19,6 +19,7 @@ func uploadPlan(message string, before ...map[string]any) string {
 
 func gateConfig() Config {
 	cfg := DefaultConfig()
+	cfg.FallbackStrict = true   // one person's own folder, as in development
 	cfg.FallbackResume = "data" // a folder newTestAgent creates
 	return cfg
 }
@@ -309,20 +310,28 @@ func TestTheStackChosenOnceIsKeptForTheRunWhateverTheModelNames(t *testing.T) {
 	}
 }
 
-func TestAServerForManyPeopleOffersTheirPrimaryWhenTheirLibraryLacksTheConfiguredName(t *testing.T) {
+func TestAServerForManyPeopleOffersTheDefaultResumeEachPersonMarkedInTheirLibrary(t *testing.T) {
+	// No server setting: a name left in the config is not used.
 	a := &Agent{cfg: Config{FallbackResume: "AI - Full Stack"}}
 	resumes := []applicant.Resume{
 		{ID: "1", Stack: "Python", Primary: true}, {ID: "2", Stack: "Go"},
 	}
 	if got, err := a.fallbackFor(resumes); err != nil || got != "Python" {
-		t.Fatalf("no such name: %q %v, want the primary", got, err)
+		t.Fatalf("got %q %v, want the one marked default", got, err)
 	}
-	resumes = append(resumes, applicant.Resume{ID: "3", Stack: "ai - full stack"})
+	if got, err := a.fallbackFor([]applicant.Resume{{ID: "1", Stack: "Go"}}); err != nil || got != "" {
+		t.Fatalf("no default marked: %q %v, want none", got, err)
+	}
+	if got, err := a.fallbackFor([]applicant.Resume{{ID: "1", Name: "Letter", Primary: true}}); err != nil || got != "" {
+		t.Fatalf("a default that is a document, not a résumé stack: %q %v, want none", got, err)
+	}
+}
+
+func TestAFolderServerOffersTheNamedResumeWhateverItsCase(t *testing.T) {
+	a := &Agent{cfg: Config{FallbackStrict: true, FallbackResume: "AI - Full Stack"}}
+	resumes := []applicant.Resume{{ID: "1", Stack: "Python", Primary: true}, {ID: "3", Stack: "ai - full stack"}}
 	if got, err := a.fallbackFor(resumes); err != nil || got != "ai - full stack" {
-		t.Fatalf("the configured name wins, whatever its case: %q %v", got, err)
-	}
-	if got, err := (&Agent{}).fallbackFor([]applicant.Resume{{ID: "1", Stack: "Go"}}); err != nil || got != "" {
-		t.Fatalf("no name and no primary: %q %v, want none", got, err)
+		t.Fatalf("got %q %v", got, err)
 	}
 }
 

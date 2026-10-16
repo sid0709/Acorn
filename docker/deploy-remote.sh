@@ -145,7 +145,7 @@ if [[ "$want_agent" == true ]]; then
   # with that person's own session, and writes nothing: no traces.
   agent_env="$(mktemp)"
   trap 'rm -f "$agent_env"' EXIT
-  grep -E '^(ACORN_AGENT_[A-Z_]+|DEFAULT_FALLBACK_RESUME|OPENROUTER_API_KEY)=' "$DEPLOY_ENV" > "$agent_env" || true
+  grep -E '^(ACORN_AGENT_[A-Z_]+|OPENROUTER_API_KEY)=' "$DEPLOY_ENV" > "$agent_env" || true
   docker rm -f "$AGENT_CONTAINER" >/dev/null 2>&1 || true
   docker run -d \
     --name "$AGENT_CONTAINER" \

@@ -71,13 +71,13 @@ type Config struct {
 	// VetBlock is the probability, from the decision model, at which a control, window or frame
 	// is blocked as an online file source (0 means 0.3).
 	VetBlock float64
-	// FallbackStrict makes a FallbackResume that is not among the applicant's résumés an error
-	// that stops the run (one person's own folder). Without it the run goes on and offers the
-	// applicant's primary résumé instead, as the backend names it: the setting is the server's, the
-	// résumés each person's.
+	// FallbackStrict is for one person's own folder: FallbackResume names the résumé offered, and
+	// one that is not among the applicant's résumés stops the run. Without it the offer is the
+	// applicant's default résumé (the one they marked default on their Acorn Library) and
+	// FallbackResume is not used.
 	FallbackStrict bool
 	// FallbackResume is the résumé folder offered to the person when a résumé is wanted and no
-	// job description was found ("" turns the question off). It must be a folder in the data.
+	// job description was found ("" turns the question off). Used with FallbackStrict only.
 	FallbackResume string
 }
 

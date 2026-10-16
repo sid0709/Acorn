@@ -35,7 +35,7 @@ Each deploy run writes `ACORN_ADMIN_USERNAME` / `ACORN_ADMIN_PWD` into `/opt/aco
 
 The agent plans the extension's Run from screenshots. It has no database and writes nothing: each run lives in memory, and a deploy ends the runs in flight. It reads each person's profile and Library from the API with that person's own Acorn session (sent by the extension), over the Docker network, `http://acorn-api:8083`. Each person's OpenRouter key is the one in their profile, so there is no server AI key to set. It is rebuilt when `acorn-agent/*` or `backend-core/*` change.
 
-The container gets only the `ACORN_AGENT_*`, `DEFAULT_FALLBACK_RESUME` and `OPENROUTER_API_KEY` lines of `/opt/acorn/deploy.env`, never the API's database or Google settings, with traces off (`ACORN_AGENT_TRACE=false`) so no screenshot or profile is written to the server's disk. See [`server-setup.md`](server-setup.md) for the one-time DNS, certificate and nginx work for `agent.acornapply.com`; until that is done the deploy still succeeds and the public agent health check only warns.
+The container gets only the `ACORN_AGENT_*` and `OPENROUTER_API_KEY` lines of `/opt/acorn/deploy.env`, never the API's database or Google settings, with traces off (`ACORN_AGENT_TRACE=false`) so no screenshot or profile is written to the server's disk. See [`server-setup.md`](server-setup.md) for the one-time DNS, certificate and nginx work for `agent.acornapply.com`; until that is done the deploy still succeeds and the public agent health check only warns.
 
 ## Same-host traffic
 
