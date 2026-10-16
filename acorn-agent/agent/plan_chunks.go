@@ -35,13 +35,3 @@ func splitPlan(actions []Action, limit int) []chunk {
 	}
 	return out
 }
-
-func planHasScrollOrUpload(actions []Action) bool {
-	for _, action := range actions {
-		switch action.Kind {
-		case KindScroll, KindUpload:
-			return true
-		}
-	}
-	return false
-}

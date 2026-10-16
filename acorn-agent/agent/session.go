@@ -108,6 +108,12 @@ type session struct {
 	// recorded since the last answer.
 	wantTrace    bool
 	pendingTrace *Trace
+	// cover is what the run has looked at on the page it is on, in pixels from the top.
+	cover coverage
+	// review is the pass over the parts of the page not seen, before the application is sent;
+	// reviews counts the ones this run has made.
+	review  *review
+	reviews int
 }
 
 // addTrace keeps the trace of an entry until the next answer carries it to the extension.

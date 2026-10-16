@@ -55,6 +55,7 @@ import {
   AGENT_EXPIRED_MESSAGE,
   AGENT_STARTING_MESSAGE,
 } from "./progress";
+import { scrollToTop } from "./scroll-top";
 import { AGENT_SURVEY } from "./settings";
 import { captureSurvey } from "./survey";
 import { openAgentTab, type AgentTab } from "./tab-session";
@@ -420,9 +421,13 @@ export async function runAgent(args: AgentRunArgs): Promise<RunReport> {
       await here.overlay.ensure();
       const info = await chrome.tabs.get(here.tabId);
       const lookKey = `${info.url ?? ""}\n${info.title ?? ""}`;
-      const surveying = surveyOn && (surveyNext || lookKey !== lastLook);
+      const newPage = lookKey !== lastLook;
+      const surveying = surveyOn && (surveyNext || newPage);
       surveyNext = false;
       lastLook = lookKey;
+      // A page is first looked at from its top: a run that starts, or a click that opens another page,
+      // must not begin in the middle of a form whose first questions lie above the screen.
+      if (newPage) await scrollToTop(here.cdp, sleep);
       let survey: AgentSurveyScreen[] | null = null;
       const captureStartedAt = Date.now();
       await here.overlay.hideForCapture(true);

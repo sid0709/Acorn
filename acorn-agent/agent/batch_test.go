@@ -22,6 +22,18 @@ func TestBatchFillUsesOneRunAndCombinedExpect(t *testing.T) {
 	}
 }
 
+func TestBatchDoesNotIncludeScrollInSameRun(t *testing.T) {
+	actions := []Action{
+		{Kind: KindType, Text: "Ada", Check: "first name shows Ada"},
+		{Kind: KindScroll, DY: 300},
+		{Kind: KindType, Text: "ada@example.com", Check: "email shows ada@example.com"},
+	}
+	runs := splitPlanForSession(actions, 6, true, false)
+	if len(runs) == 1 {
+		t.Fatalf("scroll must not share a batch run: %+v", runs[0])
+	}
+}
+
 func TestOneFieldDoesNotBatch(t *testing.T) {
 	actions := []Action{
 		{Kind: KindType, Text: "Ada", Check: "name shows Ada"},

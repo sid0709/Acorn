@@ -3,8 +3,6 @@
  * Values are confirmed in the email body before use (see acorn-backend/mailcode).
  */
 
-import { authHeaders, getAcornApiUrl } from "../auth/acorn-auth";
-
 import { AGENT_STOP_REASON, type AgentStop } from "@acorn/shared/agent-contract";
 import { ACORN_GMAIL_API } from "@acorn/shared/gmail";
 import {
@@ -13,6 +11,8 @@ import {
   type MailVerificationStatus,
   type VerificationKind,
 } from "@acorn/shared/run-types";
+
+import { authHeaders, getAcornApiUrl } from "../auth/acorn-auth";
 
 const MAIL_POLL_MS = 5_000;
 

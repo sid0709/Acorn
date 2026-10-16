@@ -41,6 +41,10 @@ const sourceCheck = "check"
 // file picker, with no call to the driving model.
 const sourcePicker = "picker"
 
+// sourceReview marks an entry where the agent looked at a part of the page the run had not seen,
+// with the decision model, before the application went out.
+const sourceReview = "review"
+
 // sourceAsk marks an entry where the run waited on the person's answer, or acted on it.
 const sourceAsk = "ask"
 

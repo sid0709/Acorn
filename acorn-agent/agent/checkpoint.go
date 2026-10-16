@@ -192,7 +192,8 @@ func (a *Agent) sendRun(s *session, runs []chunk, dropped []string) ([]Action, [
 // abandon drops the rest of the plan and tells the model why on its next look.
 func (a *Agent) abandon(s *session, reason string) {
 	left := s.planned - s.sent
-	s.plan, s.verify = nil, ""
+	// A plan that did not go as expected is over, and so is the review that waited on it.
+	s.plan, s.verify, s.review = nil, "", nil
 	if s.planned == 0 {
 		return
 	}

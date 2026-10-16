@@ -4,9 +4,9 @@
  * separate extension OAuth.
  */
 
-import { authHeaders, getAcornApiUrl } from "../auth/acorn-auth";
-
 import { ACORN_GMAIL_API, type AcornGmailMailboxesResponse } from "@acorn/shared/gmail";
+
+import { authHeaders, getAcornApiUrl } from "../auth/acorn-auth";
 
 export interface GmailConnectionStatus {
   connected: boolean;

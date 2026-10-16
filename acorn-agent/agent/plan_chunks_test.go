@@ -27,14 +27,28 @@ func TestScrollDoesNotShareRunWithEarlierActions(t *testing.T) {
 	}
 }
 
-func TestBatchSkipsPlansWithUpload(t *testing.T) {
-	actions := []Action{
-		{Kind: KindUpload, Check: "file attached"},
+func TestBatchExcludesScrollAndRunsItAfterFillCheck(t *testing.T) {
+	runs := splitPlanForSession([]Action{
 		{Kind: KindType, Text: "a", Check: "a shows"},
 		{Kind: KindType, Text: "b", Check: "b shows"},
+		{Kind: KindScroll, DY: 400},
+		{Kind: KindClick, Check: "next field open"},
+	}, 6, true, false)
+	if len(runs) < 2 || len(runs[0].actions) != 2 || runs[0].actions[0].Kind != KindType {
+		t.Fatalf("first run should batch only fills: %+v", runs[0])
 	}
-	runs := splitPlanForSession(actions, 6, true, false)
-	if len(runs) == 1 && len(runs[0].actions) == 3 {
-		t.Fatalf("upload must not batch with other fields: %+v", runs)
+	if len(runs[1].actions) != 1 || runs[1].actions[0].Kind != KindScroll {
+		t.Fatalf("scroll must follow the batch: %+v", runs[1])
+	}
+}
+
+func TestBatchPrefixStopsAtUpload(t *testing.T) {
+	runs := splitPlanForSession([]Action{
+		{Kind: KindType, Text: "a", Check: "a shows"},
+		{Kind: KindType, Text: "b", Check: "b shows"},
+		{Kind: KindUpload, Check: "file attached"},
+	}, 6, true, false)
+	if len(runs) != 2 || len(runs[0].actions) != 2 || runs[1].actions[0].Kind != KindUpload {
+		t.Fatalf("runs = %+v", runs)
 	}
 }

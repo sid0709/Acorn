@@ -111,7 +111,7 @@ func shot(t *testing.T, shade uint8, marks ...image.Rectangle) string {
 func observation(screenshot string) Observation {
 	return Observation{
 		Screenshot: screenshot, URL: "https://jobs.example/apply", Title: "Apply",
-		Viewport: Viewport{Width: 1280, Height: 800, PageWidth: 1280, PageHeight: 2400},
+		Viewport: Viewport{Width: 1280, Height: 800, PageWidth: 1280, PageHeight: 800},
 	}
 }
 

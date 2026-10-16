@@ -37,13 +37,33 @@ func batchExpect(actions []Action) string {
 	}
 }
 
-// splitPlanForSession cuts a plan into runs. When batching is allowed and the plan fills
-// at least two fields, the whole plan is one run and one check. Otherwise the plan is cut
-// by limit, or by one action at a time when granularChecks is set.
+// fillBatchPrefix is the start of a plan that may be batched: everything before the first
+// scroll or upload. Scrolling belongs on the next look after a check, not in a multi-field run.
+func fillBatchPrefix(actions []Action) (prefix, rest []Action) {
+	for i, action := range actions {
+		switch action.Kind {
+		case KindScroll, KindUpload:
+			return actions[:i], actions[i:]
+		}
+	}
+	return actions, nil
+}
+
+// splitPlanForSession cuts a plan into runs. When batching is allowed and the prefix before
+// any scroll or upload fills at least two fields, that prefix is one run and one check; the
+// rest of the plan is split normally. Otherwise the plan is cut by limit, or one action at a
+// time when granularChecks is set.
 func splitPlanForSession(actions []Action, limit int, batch, granular bool) []chunk {
-	if batch && !granular && !planHasScrollOrUpload(actions) && fieldInteractions(actions) >= minFieldInteractionsForBatch {
-		if expect := batchExpect(actions); expect != "" {
-			return []chunk{{actions: actions, expect: expect}}
+	if batch && !granular {
+		prefix, rest := fillBatchPrefix(actions)
+		if fieldInteractions(prefix) >= minFieldInteractionsForBatch {
+			if expect := batchExpect(prefix); expect != "" {
+				out := []chunk{{actions: prefix, expect: expect}}
+				if len(rest) > 0 {
+					out = append(out, splitPlan(rest, limit)...)
+				}
+				return out
+			}
 		}
 	}
 	if granular {

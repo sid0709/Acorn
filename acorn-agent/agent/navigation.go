@@ -86,6 +86,8 @@ func (a *Agent) tryNavigate(ctx context.Context, s *session, obs Observation, su
 	if ready >= a.cfg.CheckMatch {
 		s.formReady = true
 		if s.navScrolls > 0 {
+			// The form begins about here; the job description above it is not looked through before sending.
+			s.cover.floor = max(0, obs.Viewport.ScrollY-float64(obs.Viewport.Height)/2)
 			s.notes = append(s.notes, "The page was scrolled automatically to find the application. Scroll back toward the top and fill required fields in order before Submit.")
 		}
 		return Step{}, false

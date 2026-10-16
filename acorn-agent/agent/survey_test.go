@@ -15,6 +15,7 @@ import (
 func surveyObservation(t *testing.T) Observation {
 	t.Helper()
 	obs := observation(shot(t, 40))
+	obs.Viewport.PageHeight = 2400
 	obs.Survey = []SurveyScreen{
 		{Screenshot: shot(t, 40), ScrollY: 0},
 		{Screenshot: shot(t, 120), ScrollY: 680},

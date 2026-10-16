@@ -1,6 +1,5 @@
-import { Card, Drawer, HStack, StatusDot, Text, TextInput, VStack } from "sid-ui";
-
 import { acornGmailConnectUrl } from "@acorn/shared/gmail";
+import { Card, Drawer, HStack, StatusDot, Text, TextInput, VStack } from "sid-ui";
 
 import { DEFAULT_ACORN_API_URL, DEFAULT_ACORN_WEB_URL, setAcornApiUrl } from "../auth/acorn-auth";
 import { ACORN_DEBUG } from "../debug-trace";

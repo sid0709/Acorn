@@ -14,8 +14,8 @@ import {
 import { BLOCKED_MESSAGE, type GuardVerdict } from "./guard";
 import { clickAt, moveMouse, pressKeys, typeText, wheelAt } from "./input";
 import { scrollForAction } from "./survey";
-import { waitForUploadProcessing } from "./upload-settle";
 import { uploadAt, type ResumeFile } from "./upload";
+import { waitForUploadProcessing } from "./upload-settle";
 
 import type { Cdp } from "./cdp";
 import type { Overlay } from "./overlay";
