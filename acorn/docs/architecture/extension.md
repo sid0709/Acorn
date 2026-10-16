@@ -1130,6 +1130,20 @@ A screenshot may never show the job description: clicking Apply scrolls straight
 
 **Files only ever come from this computer.** The prompt forbids Dropbox, Google Drive, OneDrive, Box and any other online source, and signing in to one. Only the `upload` action attaches a file. This is a prompt rule (the agent has no list of services to match); a page that opens such a chooser anyway is not blocked by code.
 
+### 19.4e Survey: the whole page in one look, and fewer model calls
+
+A recorded Greenhouse run took 22 model calls, and 17 of them were mechanical: clicking dropdown options (11) and scrolling to find fields (6). Each call costs about 7 s and $0.0006, mostly output (278 tokens, of which only about 59 were actions; the rest was narration), so the way to a faster, cheaper run is fewer calls, not smaller ones. Three changes, none of which names a site:
+
+1. **Terse answers.** `job` may be `null` (it is written once, when learned, then kept; it was repeated on every call, about 90 tokens), `memo` is a line or two and `null` unless it changed, `observation` is one short sentence, and `message` a few words.
+2. **Type-ahead for dropdowns.** A dropdown the page draws itself (a searchable list) is answered by clicking it, typing the start of the answer and pressing Enter, which needs no options on screen, so every dropdown question visible can be planned in one run with a check after each (19.4a).
+3. **A survey.** On the first look of a page, and whenever the address or title changes or the server asks (the model's action of kind `survey`, which is never sent to the extension: it sets `Step.survey`), the extension scrolls through the page by itself ([`survey.ts`](../../extension/src/agent/survey.ts)), taking a screenshot every 85% of a screen (at most 8, a page under 1.25 screens tall is not surveyed), then puts the page back. The server shows the model all of them, top to bottom, with where each is scrolled to; the model plans the form in one answer and gives each point action a `screen`. The server turns that into `scrollTo` (the screen's scroll position) and `pageHeight` (the page's height then) on the action, and the executor scrolls there before acting (`scrollForAction`).
+   - **It refuses rather than guess.** If the page is not the height the survey saw (± 12 px) or will not scroll to where asked, the action fails with "the page changed shape since the survey… look again", the rest of the batch is skipped and the model looks afresh. A message that appears above a field, or a row added by an attached file, moves every point below it, and a click at a stale point lands on the wrong control. Each run of at most 4 actions is also checked by the decision model (19.4a).
+   - **Not a text observer.** The survey is screenshots only. The old DOM serializer (§7) is still in the code and is not used by the agent.
+   - **Cost:** a survey is up to 8 screenshots once per page (about 1.3k tokens each) which stay in the cached history; the checked run then replaces the call-per-scroll and call-per-dropdown pattern.
+4. **A run that ends for the person scrolls first.** With `need_person` or `stuck` the model may send up to two scroll actions, which the extension runs before it ends the run, so that what the person must act on (a code field, a CAPTCHA) is in view when they look.
+
+A trace entry with a survey writes `NNN.survey1.jpg`… and, for a screen that has actions on it, `NNN.survey1.marked.jpg` with them drawn.
+
 ### 19.4d Files only from this computer: the guard
 
 The applicant has not allowed any online file source (a cloud drive, a file-sharing service, signing in to one), so no click may reach one. The prompt says so, but a model can slip, so three things are enforced in code, with no list of services in it (the decision model says what a control or page is, and was right on all 20 realistic cases tried live: Dropbox, Google Drive, an icon-only OneDrive button, a Google Picker frame and an OAuth window all scored 0.91–0.97; Attach, Choose file, Next, Submit, a recaptcha frame, Calendly and an ATS apply window scored 0.02–0.09; "Enter manually" 0.46).

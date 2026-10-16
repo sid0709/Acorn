@@ -11,6 +11,7 @@ export const SITE_HTML = `<!doctype html>
   input[type=text], input[type=email], select { width: 420px; padding: 10px; font-size: 16px; }
   button { padding: 10px 18px; font-size: 16px; }
   .error { color: crimson; }
+  #fileName { display: block; min-height: 24px; }
 </style>
 </head>
 <body>

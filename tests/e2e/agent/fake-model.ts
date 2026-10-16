@@ -105,7 +105,8 @@ export function startFakeModel(points: () => Points, script: Script) {
       const request = (await req.json()) as ModelRequest;
       requests.push(request);
       const step = stepOf(request);
-      const reply = script(step, points(), surveyOf(request));
+      const survey = surveyOf(request);
+      const reply = script(step, points(), survey);
       return Response.json({
         model: "fake/luna",
         choices: [{ message: { content: JSON.stringify(reply) }, finish_reason: "stop" }],

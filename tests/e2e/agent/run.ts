@@ -92,7 +92,7 @@ let points: Points | null = null;
 let script: Script = () => answer({ status: "stuck", message: "no script" });
 const model = startFakeModel(
   () => points as Points,
-  (step, at) => script(step, at),
+  (step, at, survey) => script(step, at, survey),
 );
 
 let verdict = { matches: 0.98, blocked: 0.01, loading: 0.01 };
