@@ -61,18 +61,11 @@ bun run build:acorn   # production build: talks to https://api.acornapply.com
 
 ### 4. Use it
 
-1. Visit any website
-2. Click the Acorn toolbar icon to open the sidebar. The Acorn Face in the identity row and on each list card shows fill/generate status. List cards keep the company logo (Fill) or tab favicon (Custom) with a small acorn badge for that row’s mode. The identity row shows how many tabs are thinking or working. Help (next to Sign out) opens a page of large live faces for every pose.
-3. Sign in — Worker pool jobs appear in a Lens-style list
-4. Click a job to focus its apply tab if that job is already open, or open the apply URL in a new tab (bound to that tab for Fill)
-5. **Fill page / Generate / Recommend** — the sticky footer is Generate, Fill page, and Recommend. In Fill mode Generate and Recommend use the **attached Worker pool job’s stored JD** (not a fresh page extract). Progress, Continue, and View JD live on that job card. Fill uploads the Worker pool résumé, or the file from a Fill Generate/Recommend on that job when one exists.
-6. **Custom** — Remember the focused Chrome tab (it stays bound if you switch away and back). Generate, Recommend, and Fill stay disabled until that tab is remembered. The card uses a Acorn Face for status, then title and host in the same layout as Fill. Click a remembered card to focus that Chrome tab; focusing a remembered tab highlights it in the Custom list (same selected color as Fill). Generate and Recommend extract a job description from the same optimized page tree Fill uses for AI Analyze. If the page has no posting, they stop and the card shows **No job description on this page** (or the extract reason). Generate then uses that extracted JD in My Resume’s Editor: same stored config, template, and variables; the template-applied file is stored in Firestore. Recommend matches analyzed Library uploads the same way Job Search Recommend does. After generate finishes, the card shows **Resume generated** and unlocks download and preview. After recommend finishes, the card shows the Library stack name. Before that it shows **Not generated...** or **No resume assigned**, with those actions disabled. Fill’s résumé upload, **View**, and Download use the file for the selected mode (generated Firestore file, or Library recommend). While a résumé is generating, that tab’s card shows a thin segmented progress bar (JD load, summary, skills, experience, save). Recommend uses a two-segment bar (JD, then **Recommending…**). After JD is loaded you can **View JD** on that card. If a step fails, the card keeps the bar and offers **Continue** (resume from the failed step, reuse prior outputs) plus **Start over**. Multiple remembered tabs can generate or recommend at the same time. Generate/Recommend and Fill can run at the same time on different remembered tabs; the same tab cannot run both at once. A new apply tab must be remembered separately.
-   **Fast fill** (default): the page lists its fields (kind, label, form section, options) and `POST /acorn/ai-analyze` with `mode: "fast"` plans without the planner prompt. Free-text fields: Jev picks a profile fact function (`acorn-backend/acorn/facts.go`: first name, email, LinkedIn, school, job start date…), `write` (the text model answers), or blank — and a separate Jev question marks fields about another person (references, contacts), which are never filled. Choice fields (selects, radio / Yes-No / checkbox groups, single checkboxes) are picked by Jev straight from their own options. File fields: Jev tells the résumé field from a parse zone or cover letter. Custom dropdowns are answered by the leftover pass (open → Jev, typing an estimate first for lists over 30). Any fast-plan failure falls back to the full planner.
-   **Refill flagged fields** (under Fill page) repairs a fill the site rejected: click the site's Submit / Next first, then Refill. It reads the errors the page shows (ARIA, native validation, and the text inside each field's own wrapper — no per-site rules), sends only those fields to the planner, clears optional fields the profile has no value for (no `N/A` unless the question asks for it), and refills the rest. It never clicks Submit. The result notice says how many fields the page still flags.
-   **Run** goes on without an account whenever the site offers it (until its own account work there started, and only once). When an account is mandatory (Workday and similar), it fills the sign-in, sign-up, or password-reset form with the profile email and the profile's **Default account password**, in an order kept in code (`pipeline/account-goal.ts`) and fed by what Jev reads from the pages: sign in first; if signing in is refused, create an account when the site offers one and sign in again; otherwise, or if that sign-in is refused too, reset the password through the emailed link and sign in again. It stops when a sign-in after a completed reset is refused, or the reset is refused. Jev reports on every account step which steps the page offers (remembered per site), and judges how the site answered each account step the run sent (`/acorn/run/account-outcome`): took it, refused it, or nothing was sent. A page that answers an account step by asking to verify by email counts as the site taking that step. A password-reset request is always answered by reading the site's link from Gmail, whatever the page says; messages a form already showed before the click are never taken as its answer. After any navigation Run waits until the page's main document stops changing (address, fields, controls, text) before reading it, reads the main document rather than a helper frame when no frame holds a form, and looks again a few times before believing a page is not an application or blocked. Every typed field is entered and left like a person does (focusin / focusout, sent by hand when the tab has no window focus), since many forms commit and check a value only when the field is left. A text box that declares itself a search (`enterkeyhint="search"`, `type="search"`, `role="searchbox"`) is answered like a dropdown: type the answer, press Enter, then pick among the results (its open list is often only a menu of categories). A menu option that opens a deeper level instead of being chosen is followed: Jev scores the new options and the run clicks the top one, again for each level (up to 3). A search box's value is the items picked inside its own field. A floating popup belongs to the nearest control that opens one — comboboxes, selects, listbox buttons, and search boxes. Every click lands where a mouse would: on the deepest element at the target's centre (an option's inner row), or on a same-sized layer laid over a button. The sub-menu follow-up only reads the field's own popup, never another field's list or picked items. A step that names an invisible companion input acts on the field's one visible control that opens a list, and a pick on such a control opens it and picks. A dropdown inside a fieldset is asked its legend's question. After a click changes the page, Run waits for it to settle before deciding whether it is a new step, and compares with the page as it was clicked. Drift repair leaves an answer alone while its control still shows what it showed right after it was given (a dropdown shows the option it picked, not the planned words). A refusal is counted only when the page says something (an alert, a flagged field, new text); a silent page is a click that had no effect and is retried. Jev only reads which account form the page shows and which control sends or opens the goal's form. When a page asks for a code or link sent by email, Run reads it from the connected Gmail (every 5 s it lists the newest 10 emails; when that list changes, Jev judges all 10 and only the picked email is opened); a code is entered through the fill engine, a link is opened in the same tab. Without a connected Gmail it waits for you. When a dialog opens over the page (a "Start Your Application" chooser), Run treats the dialog as the current step: the page marks which controls sit inside an open dialog and which it covers (native `<dialog>`, ARIA dialog roles, `aria-modal`, `inert`, and a hit test at each control's centre), and Jev picks inside the dialog, preferring to apply manually on the site over reusing a previous application or another service's account. **Stop** (under Run while it works) ends the run at once: no further click, fill, or navigation touches the page. Run applies to the page in front of it and keeps no record of earlier applications. A run that stops partway keeps a checkpoint for its tab (account history, mail state, the page it had filled), and the card offers **Continue**, which carries on from that point with the résumé already chosen instead of starting over. A page read that fails while the page loads or before its content script answers is retried, re-injecting the script, for up to 30 s. Password values never appear in the page tree, plans shown in the sidebar, progress, or logs.
-7. If Fill leaves a text field blank, open the **Q&A** tab in the sidebar — same human-like writer as Acorn text-field fill. Switching tabs keeps the question and answer. Or drag-select the question on the page: an Acorn chip appears; click it for an in-page answer, then **Copy**.
-8. Preview a job’s résumé with the **eye** — generated Worker-pool file when present, otherwise the Library Word file assigned in Job Search. Download remains on the card (disabled until a résumé exists). Custom **check** forgets that remembered tab and closes it. Acorn keeps no record of jobs applied to.
-9. In the sidebar: **Pure Tree**, **Meta Tree**, **AI Analyze**, and the plan-run step list (verified / skipped)
+1. Visit a job's application page.
+2. Click the Acorn toolbar icon to open the sidebar and sign in with your email and extension password.
+3. **Run** on the Jobs tab: the agent looks at the page, opens the application, fills each page from your profile, attaches a résumé from your Library, and stops on the confirmation page, or tells you what it needs (a CAPTCHA, an emailed code, a document) and waits for **Continue**. **Stop** ends it at once. Details: [`docs/architecture/extension.md`](docs/architecture/extension.md) §19.
+4. The **Ask** tab answers a question with the same writer, from your profile. Or drag-select a question on any page: an Acorn chip appears; click it for an in-page answer with Copy.
+5. **Support** and **Logs**: your reports and replies, and the tab's local log of what the Run did.
 
 ## API (acorn-backend, under `/acorn`)
 
@@ -101,7 +94,7 @@ bun run build:acorn   # production build: talks to https://api.acornapply.com
 Acorn does not render a Custom-only résumé. `POST /acorn/custom/generate` must be the same path as My Resume’s Editor:
 
 1. Load the signed-in profile’s stored `ResumeConfig`, DOCX template, and variables.
-2. **Fill mode:** use the Worker pool job’s stored `jobDescription`. Do not extract from the page. **Custom mode:** same DOM snapshot as Fill (`fetchDomFromTab` + `formatAnalyzeTrees`), then `POST /acorn/custom/extract-jd` with `pageText` = that formatted pure tree. If `hasJobDescription` is false, stop — do not enqueue.
+2. Use the Worker pool job’s stored `jobDescription`. Do not extract from the page.
 3. Enqueue editor `resume_generation` with `jobDescription` = that posting prose. If the body includes `checkpoint.resumeFrom` / `partialSections`, skip completed section steps (`summary` / `skills` / `experience`) and continue from `resumeFrom`. `POST .../generate/:inputId/continue` should do the same for an existing task.
 4. Optional `jobId` persists the template-applied file onto that Worker pool job (`generatedResume`).
 5. Apply that stored template to the generation result.
@@ -109,7 +102,7 @@ Acorn does not render a Custom-only résumé. `POST /acorn/custom/generate` must
 7. Poll returns `generationId` plus `resumeId` of the stored file, plus `partialSections` while running.
 8. `GET /acorn/custom/resumes/:generationId` and `/preview` return/convert **that** file.
 
-Acorn persists checkpoints locally (`chrome.storage.session`) per Custom tab and per Worker pool job so Continue works even if the API has not deployed continue yet — JD extract is skipped on Acorn’s side; section skip still needs the checkpoint fields above.
+Acorn persists checkpoints locally (`chrome.storage.session`) per Worker pool job so Continue works even if the API has not deployed continue yet — JD extract is skipped on Acorn’s side; section skip still needs the checkpoint fields above.
 
 ### Custom recommend backend contract
 
@@ -117,13 +110,13 @@ Library files have a kind (`resume` or `cover_letter`; files saved before kinds 
 
 `POST /acorn/custom/recommend` must be the same Library match as Job Search recommend:
 
-1. Custom sends the tab's visible page text (same DOM snapshot as Fill); Fill Recommend sends the stored job JD. No extract-jd call.
+1. Recommend sends the stored job JD (the posting text). No extract-jd call.
 2. Load the signed-in profile’s uploaded Library catalog: each file's stack title and analyzed skills.
 3. Ask the SelectorGateway (TypeSafe Jev, `typesafe/jev-1.13` on the account's OpenRouter key) in one decision: is this a job posting (else 422 `No job description on this page`), and how probable each upload is. No threshold: the most probable upload is recommended.
 4. Return that upload's `resumeId` and `recommendedTop` (top 3 `{ resumeId, stack, probability }`, shown on the On this tab card). Do not write `vendor_tasks`.
 5. `GET /acorn/custom/library-resumes/:resumeId` and `/preview` return/convert **that** Library file.
 
-Fill (Worker Pool) still uses the Library upload via `GET /acorn/jobs/:jobId/recommended-resume`. Custom Fill in Generate mode uses the generated Firestore file. Custom Fill in Recommend mode uses `GET /acorn/custom/library-resumes/:resumeId`. Do not serve `GET /api/personal/resume-generations/:id/docx` (`renderDocx`, Source Sans, no Skills block) as the Custom generated file.
+A Worker Pool job's recommended résumé is the Library upload via `GET /acorn/jobs/:jobId/recommended-resume`; a generated one is `GET /acorn/custom/resumes/:generationId`. Do not serve `GET /api/personal/resume-generations/:id/docx` (`renderDocx`, Source Sans, no Skills block) as the generated file.
 
 Socket.io: same host, path `/acorn/socket.io`, handshake `auth.token` = access token.
 
@@ -134,21 +127,13 @@ bun run dev:acorn   # from the repo root: watch-build the extension
 # Reload unpacked extension in chrome://extensions after changes
 ```
 
-### End-to-end test on a local application site
+### End-to-end test
 
-`tests/e2e/mock-apply` drives the real extension, headless, through a local multi-step application site (posting → "how to apply" dialog → sign-in chooser, sign in (refused: no account yet), create account, sign in → My Information, My Experience, Application Questions, Voluntary Disclosures → Review) with **Stop before Submit** on, and screenshots every step it reaches. It passes when Run stops on Review, ready to submit, without sending. The site reproduces real platform behaviour (late rendering, a click-catching layer over buttons, a robot trap field, values that count only once a field is left, a search box whose results are picked, an error summary). It needs the local acorn-backend running.
-
-```bash
-bun run e2e:mock-apply:setup
-```
-
-Setup makes a local test account (generated credentials in the git-ignored `tests/e2e/mock-apply/.e2e-account.json`), a made-up applicant profile, and a Library résumé. Run needs an OpenRouter key on that account; pass your own once with `E2E_OPENROUTER_KEY=<key> bun run e2e:mock-apply:setup`. Then:
+`tests/e2e/agent` drives the built extension, headless, through a local application site with a scripted stand-in for the agent's model, so it needs no OpenRouter key.
 
 ```bash
-bun run e2e:mock-apply
+bun run e2e:agent
 ```
-
-Screenshots go to `$TMPDIR/acorn-e2e-mock-apply` (override with `E2E_OUT_DIR`).
 
 ### Update notice
 
