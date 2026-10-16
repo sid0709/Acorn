@@ -9,9 +9,9 @@ GitHub Actions workflow [`.github/workflows/docker-publish.yml`](../.github/work
 | acorn-backend  | `omnimuh730/acorn-api`   | `127.0.0.1:8083`                                                |
 | acorn-frontend | `omnimuh730/acorn-web`   | `127.0.0.1:6005` (includes packed Chrome extension on **Apps**) |
 | acorn-admin    | `omnimuh730/acorn-admin` | `127.0.0.1:6011`                                                |
-| acorn-agent    | `omnimuh730/acorn-agent` | `127.0.0.1:8090` (the extension's Run planner; no database)     |
+| acorn-agent    | `omnimuh730/acorn-agent` | `127.0.0.1:8093` (`ACORN_AGENT_PORT`; the Run planner)          |
 
-Port `6010` on the VPS is reserved for JoinedHQ admin; do not point Acorn admin there.
+Port `6010` on the VPS is reserved for JoinedHQ admin; do not point Acorn admin there. Port `8090` is JoinedHQ's embedder; the Acorn agent uses `8093` (`ACORN_AGENT_PORT`).
 
 Images are tagged with the full commit SHA (`github.sha`) and optionally `latest`. Deploy always pulls the SHA tag, never `latest`. `workflow_dispatch` input `image_sha` redeploys that SHA's existing images (rollback) without rebuilding.
 
@@ -48,7 +48,7 @@ The container gets only the `ACORN_AGENT_*` and `OPENROUTER_API_KEY` lines of `/
 | ---------------------- | ------------------------------------------------------------ |
 | `acornapply.com`       | frontend (`6005`)                                            |
 | `www.acornapply.com`   | frontend (`6005`)                                            |
-| `api.acornapply.com`   | API (`8083`), WebSocket; `/agent/v1/` → acorn-agent (`8090`) |
+| `api.acornapply.com`   | API (`8083`), WebSocket; `/agent/v1/` → acorn-agent (`8093`) |
 | `admin.acornapply.com` | acorn-admin (`6011`)                                         |
 
 Issue or renew TLS with certbot on the server after DNS points at the VPS. After a deploy, CI curls `https://api.acornapply.com/health` (`GET /health` on the API process).

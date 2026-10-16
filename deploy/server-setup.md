@@ -113,6 +113,11 @@ Variables (`vars.*`): `ACORN_ADMIN_USERNAME`, `ACORN_ADMIN_PWD`, `VITE_ACORN_API
 The agent is a fourth container but has no host name of its own: it is served on `api.acornapply.com` under `/agent/v1/`, and reaches the API privately as `http://acorn-api:8083`. The deploy itself does not touch nginx files, so do this once by hand:
 
 1. **nginx limit zone.** Make sure `/etc/nginx/conf.d/acorn-common.conf` has the `limit_req_zone ... zone=acorn_agent` line (see `deploy/nginx/conf.d/acorn-common.conf`).
-2. **nginx route.** In `/etc/nginx/sites-available/api.acornapply.com` add the `location /agent/v1/ { ... }` block from `deploy/nginx/api.acornapply.com.conf` before `location /`, then `sudo nginx -t` and `sudo systemctl reload nginx`. No DNS record or certificate is needed.
-3. **Settings (optional).** In `/opt/acorn/deploy.env` add `ACORN_AGENT_MAX_MODEL_CALLS` to bound concurrent steps. No AI key is needed: each person's own OpenRouter key is read from their profile. The default résumé offered when a page shows no job description is the one each person marked default ("Make default") in their Library on the website, so there is nothing to set here.
+2. **nginx route.** In `/etc/nginx/sites-available/api.acornapply.com` (or `/etc/nginx/sites-available/acornapply.com` if `/agent/` lives in that file) the `/agent/v1/` block must proxy to **8093**, not 8090 (JoinedHQ). The line is:
+
+   `proxy_pass http://127.0.0.1:8093;`
+
+   Copy the rest of the `location /agent/v1/ { ... }` block from `deploy/nginx/api.acornapply.com.conf` if it is missing, then `sudo nginx -t` and `sudo systemctl reload nginx`. No DNS record or certificate is needed.
+
+3. **Settings (optional).** In `/opt/acorn/deploy.env` set `ACORN_AGENT_PORT=8093` (the default) and `ACORN_AGENT_MAX_MODEL_CALLS` to bound concurrent steps. Do not set the port to 8090, 8083, 6005, 6010, 6011, 8080, or 8081. No AI key is needed: each person's own OpenRouter key is read from their profile. The default résumé offered when a page shows no job description is the one each person marked default ("Make default") in their Library on the website, so there is nothing to set here.
 4. **Check.** After the first deploy: `curl https://api.acornapply.com/agent/v1/health` should answer `{"ok":true,...,"source":"backend"}`. The Chrome extension build already points at that address.
