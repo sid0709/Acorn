@@ -26,9 +26,6 @@ export const CTA_INSTALL = "Add to Chrome";
 export const LANDING_SECTIONS = {
   agent: "auto-bid-agent",
   features: "features",
-  compare: "compare",
-  resume: "ats-resume",
-  useCases: "who-its-for",
   pricing: "pricing",
   faq: "faq",
 } as const;
@@ -158,103 +155,6 @@ export const FEATURES: LandingFeature[] = [
     icon: "lock",
     description:
       "AI runs on the OpenRouter key in your profile. Pick the model and see what each call costs.",
-  },
-];
-
-export type Comparison = { task: string; manual: string; acorn: string };
-
-export const COMPARISON: Comparison[] = [
-  {
-    task: "Filling the form",
-    manual: "Retype the same details on every site",
-    acorn: "Filled from your profile in one pass",
-  },
-  {
-    task: "Screening questions",
-    manual: "Write each answer from scratch",
-    acorn: "Drafted from your experience and the posting",
-  },
-  {
-    task: "Resume",
-    manual: "One generic resume for every role",
-    acorn: "An ATS-friendly resume tailored to each job",
-  },
-  {
-    task: "Keywords",
-    manual: "Guess what the ATS is scanning for",
-    acorn: "Matched and missing keywords before you bid",
-  },
-  {
-    task: "Follow-up",
-    manual: "Dig through your inbox for replies",
-    acorn: "Replies sorted into interviews and offers",
-  },
-  {
-    task: "Progress",
-    manual: "A spreadsheet you forget to update",
-    acorn: "Statistics updated with every bid",
-  },
-];
-
-/** What a tailored resume checks for, beside the keyword-match preview. */
-export const RESUME_POINTS = [
-  "Written for one job description, not a generic template",
-  "Plain structure and standard headings that ATS parsers read",
-  "Matched and missing keywords before you send it",
-  "Every draft kept in your library to reuse",
-] as const;
-
-export type UseCase = { title: string; icon: GlyphName; description: string };
-
-export const USE_CASES: UseCase[] = [
-  {
-    title: "Software engineers",
-    icon: "code",
-    description: "Bid on every backend, frontend, and AI role that fits, not just the first ten.",
-  },
-  {
-    title: "New grads and interns",
-    icon: "star",
-    description: "Hundreds of entry-level postings, one profile, a resume tailored to each.",
-  },
-  {
-    title: "Career switchers",
-    icon: "refresh",
-    description: "Keyword match shows how your experience maps to a new field.",
-  },
-  {
-    title: "Remote job seekers",
-    icon: "home",
-    description: "Remote roles fill fast. Auto-bid gets you in the first wave of applicants.",
-  },
-  {
-    title: "Product, design, and data",
-    icon: "grid",
-    description: "Portfolio links, case-study questions, and long forms answered for you.",
-  },
-  {
-    title: "Sales, marketing, and operations",
-    icon: "users",
-    description: "Volume roles reward volume. Send more applications without burning out.",
-  },
-];
-
-/** The agent band's promises about control. */
-export const CONTROL_POINTS: { title: string; icon: GlyphName; description: string }[] = [
-  {
-    title: "You pick the jobs",
-    icon: "filter",
-    description: "The agent bids where you point it. Skip, pause, or stop at any time.",
-  },
-  {
-    title: "Your words, your profile",
-    icon: "user",
-    description: "Every answer comes from the profile you wrote and can edit.",
-  },
-  {
-    title: "Your own AI key",
-    icon: "lock",
-    description: "Choose the model on OpenRouter and see the cost of every AI call.",
   },
 ];
 

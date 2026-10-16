@@ -1,7 +1,11 @@
 /** The glowing acorn cursor and its sparkles: a virtual cursor that chases the mouse, turns toward
- *  the way it is moving, and sheds warm particles on a canvas. Ported from the demo as it was. */
+ *  the way it is moving, and sheds warm particles on a canvas. */
 
-/** Tuning, as in the demo. */
+/** Dispatch this on `window` to throw sparks from a point on the page. */
+export const BURST_EVENT = "acorn:burst";
+export type BurstDetail = { x: number; y: number; count: number };
+
+/** Tuning. */
 const FX = {
   chase: 0.2,
   velocityFilter: 0.18,
@@ -10,7 +14,7 @@ const FX = {
   turnEase: 0.12,
   trailMinSpeed: 0.8,
   trailPerSpeed: 0.85,
-  trailMaxPerFrame: 6,
+  trailMaxPerFrame: 5,
   clickBurst: 45,
   maxParticles: 500,
   airResistance: 0.96,
@@ -18,6 +22,7 @@ const FX = {
   shrink: 0.985,
   glowBlur: 12,
   fillAlpha: 0.85,
+  minSize: 0.2,
   trail: {
     spread: 7,
     drift: 2.0,
@@ -37,22 +42,16 @@ const FX = {
     decay: 0.018,
     minDecay: 0.012,
   },
-  minSize: 0.2,
 } as const;
 
-/** The four sparkle colors, palest to deepest: sid-ui tokens the landing page registers as colors. */
-const SPARKLE_TOKENS = [
-  "--lp-orange-soft",
-  "--lp-amber",
-  "--lp-orange",
-  "--lp-orange-deep",
-] as const;
+/** Spark colors, palest to deepest, as "r, g, b". */
+const SPARK_COLORS = ["255, 245, 190", "255, 200, 60", "255, 140, 20", "255, 90, 0"] as const;
 
 const CLASS_CLICKING = "clicking";
 const CLASS_HOVERING = "hovering";
 const CLASS_LIVE = "live";
-/** What the cursor swells over, as the demo's hover targets did. */
-const HOVER_TARGETS = "a, button, [role='button'], summary, label, input, select, textarea";
+/** What the cursor swells over. */
+const HOVER_TARGETS = "a, button, summary, [data-hover]";
 
 type Particle = {
   x: number;
@@ -71,50 +70,35 @@ export type CursorFxParts = {
   /** The element that turns around the cursor's center. */
   rotator: HTMLElement;
   canvas: HTMLCanvasElement;
-  /** Where the sparkle colors are read from (the landing root). */
-  theme: HTMLElement;
 };
 
-function spawn(
-  particles: Particle[],
-  colors: string[],
-  x: number,
-  y: number,
-  isClick: boolean,
-): Particle {
+function spark(x: number, y: number, isClick: boolean): Particle {
   const angle = Math.random() * Math.PI * 2;
   const tune = isClick ? FX.click : FX.trail;
   const spread = Math.random() * tune.spread;
-  const px = x + Math.cos(angle) * spread;
-  const py = y + Math.sin(angle) * spread;
-  let vx: number;
-  let vy: number;
-  let size: number;
-  let decay: number;
+  const base = {
+    x: x + Math.cos(angle) * spread,
+    y: y + Math.sin(angle) * spread,
+    life: 1,
+    color: SPARK_COLORS[Math.floor(Math.random() * SPARK_COLORS.length)],
+  };
   if (isClick) {
     const speed = Math.random() * FX.click.speed + FX.click.minSpeed;
-    vx = Math.cos(angle) * speed;
-    vy = Math.sin(angle) * speed - FX.click.lift;
-    size = Math.random() * FX.click.size + FX.click.minSize;
-    decay = Math.random() * FX.click.decay + FX.click.minDecay;
-  } else {
-    vx = (Math.random() - 0.5) * FX.trail.drift;
-    vy = (Math.random() - 0.5) * FX.trail.drift - FX.trail.lift;
-    size = Math.random() * FX.trail.size + FX.trail.minSize;
-    decay = Math.random() * FX.trail.decay + FX.trail.minDecay;
+    return {
+      ...base,
+      vx: Math.cos(angle) * speed,
+      vy: Math.sin(angle) * speed - FX.click.lift,
+      size: Math.random() * FX.click.size + FX.click.minSize,
+      decay: Math.random() * FX.click.decay + FX.click.minDecay,
+    };
   }
-  const particle: Particle = {
-    x: px,
-    y: py,
-    vx,
-    vy,
-    size,
-    decay,
-    life: 1,
-    color: colors[Math.floor(Math.random() * colors.length)],
+  return {
+    ...base,
+    vx: (Math.random() - 0.5) * FX.trail.drift,
+    vy: (Math.random() - 0.5) * FX.trail.drift - FX.trail.lift,
+    size: Math.random() * FX.trail.size + FX.trail.minSize,
+    decay: Math.random() * FX.trail.decay + FX.trail.minDecay,
   };
-  particles.push(particle);
-  return particle;
 }
 
 function draw(ctx: CanvasRenderingContext2D, p: Particle): void {
@@ -122,24 +106,17 @@ function draw(ctx: CanvasRenderingContext2D, p: Particle): void {
   ctx.save();
   ctx.beginPath();
   ctx.arc(p.x, p.y, Math.max(p.size, 0.1), 0, Math.PI * 2);
-  ctx.shadowColor = p.color;
+  ctx.shadowColor = `rgba(${p.color}, 0.85)`;
   ctx.shadowBlur = FX.glowBlur;
-  ctx.globalAlpha = Math.max(p.life * FX.fillAlpha, 0);
-  ctx.fillStyle = p.color;
+  ctx.fillStyle = `rgba(${p.color}, ${Math.max(p.life * FX.fillAlpha, 0)})`;
   ctx.fill();
   ctx.restore();
 }
 
 /** Starts the effect and returns the function that stops it and removes every listener. */
-export function startCursorFx({ cursor, rotator, canvas, theme }: CursorFxParts): () => void {
+export function startCursorFx({ cursor, rotator, canvas }: CursorFxParts): () => void {
   const ctx = canvas.getContext("2d");
   if (!ctx) return () => undefined;
-
-  const style = getComputedStyle(theme);
-  const colors = SPARKLE_TOKENS.map((token) => style.getPropertyValue(token).trim()).filter(
-    Boolean,
-  );
-  if (colors.length === 0) return () => undefined;
 
   let width = (canvas.width = window.innerWidth);
   let height = (canvas.height = window.innerHeight);
@@ -149,10 +126,9 @@ export function startCursorFx({ cursor, rotator, canvas, theme }: CursorFxParts)
   let seen = false;
   let frame = 0;
 
-  const burst = (count: number, isClick: boolean) => {
+  const burst = (x: number, y: number, count: number, isClick: boolean) => {
     for (let i = 0; i < count; i++) {
-      if (particles.length < FX.maxParticles)
-        spawn(particles, colors, virtual.x, virtual.y, isClick);
+      if (particles.length < FX.maxParticles) particles.push(spark(x, y, isClick));
     }
   };
 
@@ -173,12 +149,16 @@ export function startCursorFx({ cursor, rotator, canvas, theme }: CursorFxParts)
   };
   const onDown = () => {
     cursor.classList.add(CLASS_CLICKING);
-    burst(FX.clickBurst, true);
+    burst(virtual.x, virtual.y, FX.clickBurst, true);
   };
   const onUp = () => cursor.classList.remove(CLASS_CLICKING);
   const onOver = (e: MouseEvent) => {
     const hit = e.target instanceof Element && e.target.closest(HOVER_TARGETS);
     cursor.classList.toggle(CLASS_HOVERING, Boolean(hit));
+  };
+  const onBurst = (e: Event) => {
+    const { x, y, count } = (e as CustomEvent<BurstDetail>).detail;
+    burst(x, y, count, true);
   };
 
   const animate = () => {
@@ -201,7 +181,8 @@ export function startCursorFx({ cursor, rotator, canvas, theme }: CursorFxParts)
 
     const speed = Math.hypot(virtual.vx, virtual.vy);
     if (seen && speed > FX.trailMinSpeed) {
-      burst(Math.min(Math.floor(speed * FX.trailPerSpeed) + 1, FX.trailMaxPerFrame), false);
+      const count = Math.min(Math.floor(speed * FX.trailPerSpeed) + 1, FX.trailMaxPerFrame);
+      burst(virtual.x, virtual.y, count, false);
     }
 
     ctx.clearRect(0, 0, width, height);
@@ -225,6 +206,7 @@ export function startCursorFx({ cursor, rotator, canvas, theme }: CursorFxParts)
   window.addEventListener("mousedown", onDown);
   window.addEventListener("mouseup", onUp);
   window.addEventListener("mouseover", onOver);
+  window.addEventListener(BURST_EVENT, onBurst);
   frame = requestAnimationFrame(animate);
 
   return () => {
@@ -234,6 +216,7 @@ export function startCursorFx({ cursor, rotator, canvas, theme }: CursorFxParts)
     window.removeEventListener("mousedown", onDown);
     window.removeEventListener("mouseup", onUp);
     window.removeEventListener("mouseover", onOver);
+    window.removeEventListener(BURST_EVENT, onBurst);
     cursor.classList.remove(CLASS_LIVE, CLASS_CLICKING, CLASS_HOVERING);
   };
 }

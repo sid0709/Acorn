@@ -1,21 +1,17 @@
 import { AcornCursor } from "./landing/acorn-cursor";
-import { AgentBand } from "./landing/agent-band";
-import { AgentFlow } from "./landing/agent-flow";
-import { AtsResume } from "./landing/ats-resume";
-import { Compare } from "./landing/compare";
+import { Facts } from "./landing/facts";
 import { Faq } from "./landing/faq";
-import { FeatureGrid } from "./landing/feature-grid";
+import { Features } from "./landing/features";
 import { FinalCta } from "./landing/final-cta";
 import { Hero } from "./landing/hero";
+import { LANDING_FONT_CLASSES } from "./landing/landing-fonts";
 import { LandingFooter } from "./landing/landing-footer";
-import { LandingNav } from "./landing/landing-nav";
+import { LandingNav } from "./landing/nav";
 import { Pricing } from "./landing/pricing";
-import { ProductPreview } from "./landing/product-preview";
-import { TrustStrip } from "./landing/trust-strip";
-import { UseCases } from "./landing/use-cases";
+import { Steps } from "./landing/steps";
 import "./landing/landing.css";
 
-/** The signed-out home page, top to bottom. */
+/** The signed-out home page, top to bottom. It has its own look and does not use the app theme. */
 export function LandingPage({
   installHref,
   downloadUrl,
@@ -24,26 +20,21 @@ export function LandingPage({
   downloadUrl: string | null;
 }) {
   return (
-    <div className="lp">
-      <AcornCursor />
-      <div className="lp-nav">
-        <LandingNav />
-      </div>
-      <main className="lp-main">
+    <div className={`ac ${LANDING_FONT_CLASSES}`}>
+      <div className="ac-bg" />
+      <div className="ac-bg-grid" />
+      <LandingNav installHref={installHref} />
+      <main className="ac-container">
         <Hero installHref={installHref} />
-        <TrustStrip />
-        <AgentFlow />
-        <ProductPreview />
-        <FeatureGrid />
-        <AgentBand />
-        <Compare />
-        <AtsResume />
-        <UseCases />
+        <Facts />
+        <Steps />
+        <Features />
         <Pricing />
         <Faq />
         <FinalCta installHref={installHref} downloadUrl={downloadUrl} />
       </main>
       <LandingFooter />
+      <AcornCursor />
     </div>
   );
 }

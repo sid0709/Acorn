@@ -1,0 +1,1198 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Acorn — Autonomous AI Job Bid Agent</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@300;400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+  
+  <style>
+    /* ==========================================================================
+       RESET & BASE THEME
+       ========================================================================== */
+    * {
+      margin: 0;
+      padding: 0;
+      box-sizing: border-box;
+      cursor: none !important; /* Managed by Acorn Virtual Cursor */
+    }
+
+    html {
+      scroll-behavior: smooth;
+    }
+
+    body {
+      min-height: 100vh;
+      background: #07050b;
+      color: #f3effa;
+      font-family: 'Plus Jakarta Sans', system-ui, -apple-system, sans-serif;
+      overflow-x: hidden;
+      position: relative;
+      selection-background-color: #ffae19;
+      selection-color: #07050b;
+    }
+
+    /* Ambient background lighting */
+    .bg-canvas {
+      position: fixed;
+      inset: 0;
+      background: 
+        radial-gradient(circle at 50% 0%, #201335 0%, transparent 65%),
+        radial-gradient(circle at 85% 30%, rgba(255, 145, 0, 0.05) 0%, transparent 40%),
+        radial-gradient(circle at 15% 70%, rgba(142, 68, 255, 0.06) 0%, transparent 50%),
+        #06040a;
+      z-index: -2;
+      pointer-events: none;
+    }
+
+    .bg-grid {
+      position: fixed;
+      inset: 0;
+      background-image: radial-gradient(rgba(255, 175, 20, 0.07) 1.2px, transparent 1.2px);
+      background-size: 38px 38px;
+      pointer-events: none;
+      z-index: -1;
+    }
+
+    /* ==========================================================================
+       ACORN VIRTUAL CURSOR & CANVAS FX
+       ========================================================================== */
+    #fx-canvas {
+      position: fixed;
+      inset: 0;
+      pointer-events: none;
+      z-index: 9998;
+      mix-blend-mode: screen;
+    }
+
+    .cursor-container {
+      position: fixed;
+      top: 0;
+      left: 0;
+      width: 0;
+      height: 0;
+      pointer-events: none;
+      z-index: 9999;
+      will-change: transform;
+    }
+
+    .cursor-rotator {
+      position: absolute;
+      top: 0;
+      left: 0;
+      width: 44px;
+      height: 44px;
+      margin-left: -22px;
+      margin-top: -22px;
+      transform-origin: center center;
+      will-change: transform;
+      filter: drop-shadow(0 0 16px rgba(255, 170, 0, 0.95))
+              drop-shadow(0 0 35px rgba(255, 100, 0, 0.65));
+      transition: scale 0.22s cubic-bezier(0.2, 0.8, 0.2, 1);
+    }
+
+    .cursor-aura {
+      position: absolute;
+      top: 50%;
+      left: 50%;
+      width: 75px;
+      height: 75px;
+      transform: translate(-50%, -50%);
+      background: radial-gradient(circle, rgba(255, 220, 100, 0.5) 0%, rgba(255, 130, 0, 0.22) 50%, transparent 70%);
+      border-radius: 50%;
+      filter: blur(10px);
+      pointer-events: none;
+      animation: pulseAura 2.2s infinite alternate ease-in-out;
+    }
+
+    @keyframes pulseAura {
+      0% { transform: translate(-50%, -50%) scale(0.9); opacity: 0.6; }
+      100% { transform: translate(-50%, -50%) scale(1.28); opacity: 1; }
+    }
+
+    .acorn-svg {
+      width: 100%;
+      height: 100%;
+      display: block;
+    }
+
+    .cursor-container.hovering .cursor-rotator {
+      scale: 1.35;
+      filter: drop-shadow(0 0 20px #ffe88c) drop-shadow(0 0 38px #ff9400);
+    }
+
+    .cursor-container.clicking .cursor-rotator {
+      scale: 0.82;
+    }
+
+    /* ==========================================================================
+       CONTAINER & LAYOUT
+       ========================================================================== */
+    .container {
+      width: 100%;
+      max-width: 1200px;
+      margin: 0 auto;
+      padding: 0 24px;
+    }
+
+    /* Nav */
+    header {
+      position: fixed;
+      top: 0;
+      left: 0;
+      right: 0;
+      z-index: 100;
+      backdrop-filter: blur(20px);
+      background: rgba(7, 5, 11, 0.7);
+      border-bottom: 1px solid rgba(255, 180, 0, 0.08);
+    }
+
+    .nav-inner {
+      height: 76px;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+    }
+
+    .brand {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      font-weight: 800;
+      font-size: 1.35rem;
+      letter-spacing: -0.5px;
+      color: #fff;
+      text-decoration: none;
+    }
+
+    .brand-icon {
+      width: 32px;
+      height: 32px;
+      filter: drop-shadow(0 0 10px #ffa200);
+    }
+
+    .nav-links {
+      display: flex;
+      gap: 32px;
+      align-items: center;
+    }
+
+    .nav-link {
+      color: #b0a5c0;
+      text-decoration: none;
+      font-size: 0.95rem;
+      font-weight: 500;
+      transition: color 0.2s;
+    }
+
+    .nav-link:hover {
+      color: #ffbe3b;
+    }
+
+    /* Buttons */
+    .btn {
+      padding: 12px 26px;
+      border-radius: 999px;
+      font-weight: 600;
+      font-size: 0.95rem;
+      text-decoration: none;
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
+      transition: all 0.25s ease;
+    }
+
+    .btn-primary {
+      background: linear-gradient(135deg, #ffb31a 0%, #ff7700 100%);
+      color: #07040a;
+      box-shadow: 0 6px 24px rgba(255, 140, 0, 0.35);
+      border: 1px solid #ffd166;
+    }
+
+    .btn-primary:hover {
+      box-shadow: 0 8px 32px rgba(255, 150, 0, 0.6);
+      transform: translateY(-2px);
+      filter: brightness(1.1);
+    }
+
+    .btn-glass {
+      background: rgba(255, 255, 255, 0.04);
+      color: #ffd885;
+      border: 1px solid rgba(255, 180, 0, 0.25);
+      backdrop-filter: blur(10px);
+    }
+
+    .btn-glass:hover {
+      background: rgba(255, 175, 0, 0.15);
+      border-color: #ffab10;
+      color: #fff;
+      transform: translateY(-2px);
+    }
+
+    /* ==========================================================================
+       HERO SECTION
+       ========================================================================== */
+    .hero {
+      padding-top: 170px;
+      padding-bottom: 90px;
+      text-align: center;
+    }
+
+    .badge {
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
+      padding: 6px 16px;
+      border-radius: 999px;
+      background: rgba(255, 175, 0, 0.08);
+      border: 1px solid rgba(255, 175, 0, 0.25);
+      font-size: 0.85rem;
+      font-weight: 600;
+      color: #ffc44d;
+      margin-bottom: 24px;
+    }
+
+    .badge-dot {
+      width: 7px;
+      height: 7px;
+      border-radius: 50%;
+      background: #38ef7d;
+      box-shadow: 0 0 10px #38ef7d;
+      animation: blink 1.6s infinite ease-in-out;
+    }
+
+    @keyframes blink {
+      0%, 100% { opacity: 0.3; }
+      50% { opacity: 1; }
+    }
+
+    h1 {
+      font-size: 4rem;
+      line-height: 1.1;
+      font-weight: 800;
+      letter-spacing: -2px;
+      margin-bottom: 22px;
+      max-width: 900px;
+      margin-left: auto;
+      margin-right: auto;
+    }
+
+    .gradient-text {
+      background: linear-gradient(135deg, #ffffff 30%, #ffc453 75%, #ff7700 100%);
+      -webkit-background-clip: text;
+      -webkit-text-fill-color: transparent;
+    }
+
+    .hero-subtitle {
+      font-size: 1.25rem;
+      color: #aba1ba;
+      line-height: 1.6;
+      max-width: 680px;
+      margin: 0 auto 36px;
+    }
+
+    .hero-cta {
+      display: flex;
+      gap: 16px;
+      justify-content: center;
+      margin-bottom: 50px;
+    }
+
+    /* ==========================================================================
+       LIVE AUTO-BID AGENT SIMULATOR (SHOWCASE CORE ANIMATION)
+       ========================================================================== */
+    .simulator-wrapper {
+      max-width: 1040px;
+      margin: 0 auto;
+      padding: 10px;
+      background: linear-gradient(180deg, rgba(255, 180, 0, 0.2) 0%, rgba(255, 180, 0, 0.02) 100%);
+      border-radius: 28px;
+      box-shadow: 0 35px 80px rgba(0, 0, 0, 0.7);
+    }
+
+    .simulator-card {
+      background: #0d0a14;
+      border: 1px solid rgba(255, 180, 0, 0.15);
+      border-radius: 20px;
+      overflow: hidden;
+      display: grid;
+      grid-template-columns: 360px 1fr;
+      text-align: left;
+    }
+
+    @media (max-width: 860px) {
+      .simulator-card { grid-template-columns: 1fr; }
+    }
+
+    /* Simulator Left Panel: Live Stream */
+    .sim-sidebar {
+      background: rgba(18, 14, 28, 0.7);
+      border-right: 1px solid rgba(255, 180, 0, 0.1);
+      padding: 24px;
+      display: flex;
+      flex-direction: column;
+      gap: 18px;
+    }
+
+    .sim-header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+      padding-bottom: 14px;
+    }
+
+    .agent-status {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      font-family: 'JetBrains Mono', monospace;
+      font-size: 0.8rem;
+      color: #38ef7d;
+    }
+
+    .job-queue {
+      display: flex;
+      flex-direction: column;
+      gap: 10px;
+    }
+
+    .queue-item {
+      padding: 14px;
+      border-radius: 12px;
+      background: rgba(255, 255, 255, 0.02);
+      border: 1px solid rgba(255, 255, 255, 0.05);
+      transition: all 0.3s ease;
+    }
+
+    .queue-item.active {
+      border-color: #ff9d00;
+      background: rgba(255, 160, 0, 0.08);
+      box-shadow: 0 0 20px rgba(255, 160, 0, 0.1);
+    }
+
+    .queue-title {
+      font-size: 0.88rem;
+      font-weight: 700;
+      color: #f1edfa;
+      margin-bottom: 4px;
+    }
+
+    .queue-meta {
+      font-size: 0.75rem;
+      color: #9287a5;
+      display: flex;
+      justify-content: space-between;
+    }
+
+    /* Simulator Right Panel: Autonomous Work Engine */
+    .sim-terminal {
+      padding: 28px;
+      display: flex;
+      flex-direction: column;
+      justify-content: space-between;
+      background: radial-gradient(circle at 100% 0%, rgba(255, 160, 0, 0.05), transparent 50%);
+    }
+
+    .step-tag {
+      font-family: 'JetBrains Mono', monospace;
+      font-size: 0.75rem;
+      color: #ffb833;
+      letter-spacing: 0.5px;
+      margin-bottom: 10px;
+    }
+
+    .bid-flow-stage {
+      display: flex;
+      flex-direction: column;
+      gap: 16px;
+      margin-bottom: 24px;
+    }
+
+    .flow-step {
+      display: flex;
+      align-items: flex-start;
+      gap: 14px;
+      opacity: 0.3;
+      transition: opacity 0.4s ease;
+    }
+
+    .flow-step.active {
+      opacity: 1;
+    }
+
+    .flow-icon {
+      width: 28px;
+      height: 28px;
+      border-radius: 50%;
+      background: rgba(255, 175, 0, 0.12);
+      border: 1px solid rgba(255, 175, 0, 0.3);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 0.85rem;
+      color: #ffc44d;
+      flex-shrink: 0;
+    }
+
+    .flow-text h4 {
+      font-size: 0.95rem;
+      font-weight: 700;
+      color: #fff;
+    }
+
+    .flow-text p {
+      font-size: 0.82rem;
+      color: #9f93b5;
+      margin-top: 3px;
+    }
+
+    .live-proposal-box {
+      background: rgba(0, 0, 0, 0.45);
+      border: 1px solid rgba(255, 175, 0, 0.2);
+      border-radius: 14px;
+      padding: 18px;
+      font-family: 'JetBrains Mono', monospace;
+      font-size: 0.84rem;
+      color: #e5def3;
+      line-height: 1.6;
+      min-height: 110px;
+      position: relative;
+    }
+
+    .typing-cursor {
+      display: inline-block;
+      width: 8px;
+      height: 15px;
+      background: #ffaa00;
+      margin-left: 4px;
+      vertical-align: middle;
+      animation: blink 0.9s infinite;
+    }
+
+    .bid-stats-footer {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      margin-top: 20px;
+      padding-top: 18px;
+      border-top: 1px solid rgba(255, 255, 255, 0.08);
+    }
+
+    .pill-stat {
+      font-size: 0.78rem;
+      color: #ffc859;
+      background: rgba(255, 175, 0, 0.08);
+      padding: 4px 12px;
+      border-radius: 20px;
+      border: 1px solid rgba(255, 175, 0, 0.2);
+    }
+
+    /* ==========================================================================
+       METRICS STRIP
+       ========================================================================== */
+    .metrics-section {
+      padding: 70px 0;
+      border-bottom: 1px solid rgba(255, 255, 255, 0.05);
+    }
+
+    .metrics-grid {
+      display: grid;
+      grid-template-columns: repeat(4, 1fr);
+      gap: 24px;
+      text-align: center;
+    }
+
+    @media (max-width: 768px) {
+      .metrics-grid { grid-template-columns: repeat(2, 1fr); }
+    }
+
+    .metric-val {
+      font-size: 2.6rem;
+      font-weight: 800;
+      color: #fff;
+      margin-bottom: 6px;
+      letter-spacing: -1px;
+    }
+
+    .metric-val span {
+      color: #ff9900;
+    }
+
+    .metric-label {
+      font-size: 0.9rem;
+      color: #958ba8;
+      font-weight: 500;
+    }
+
+    /* ==========================================================================
+       FEATURED PORTFOLIO MATCHER & SHOWCASE
+       ========================================================================== */
+    .section-title {
+      text-align: center;
+      max-width: 650px;
+      margin: 90px auto 55px;
+    }
+
+    .section-title h2 {
+      font-size: 2.6rem;
+      font-weight: 800;
+      letter-spacing: -1px;
+      margin-bottom: 14px;
+    }
+
+    .section-title p {
+      color: #a499b7;
+      font-size: 1.05rem;
+      line-height: 1.6;
+    }
+
+    .portfolio-grid {
+      display: grid;
+      grid-template-columns: repeat(3, 1fr);
+      gap: 24px;
+      margin-bottom: 100px;
+    }
+
+    @media (max-width: 900px) {
+      .portfolio-grid { grid-template-columns: 1fr; }
+    }
+
+    .portfolio-card {
+      background: rgba(255, 255, 255, 0.02);
+      border: 1px solid rgba(255, 180, 0, 0.14);
+      border-radius: 24px;
+      padding: 32px;
+      transition: all 0.3s ease;
+      position: relative;
+      overflow: hidden;
+    }
+
+    .portfolio-card:hover {
+      border-color: rgba(255, 180, 0, 0.45);
+      background: rgba(255, 180, 0, 0.035);
+      transform: translateY(-5px);
+      box-shadow: 0 20px 40px rgba(0, 0, 0, 0.4);
+    }
+
+    .platform-badge {
+      font-size: 0.75rem;
+      font-weight: 700;
+      color: #ffad19;
+      text-transform: uppercase;
+      letter-spacing: 1px;
+      margin-bottom: 14px;
+    }
+
+    .portfolio-card h3 {
+      font-size: 1.35rem;
+      margin-bottom: 10px;
+      font-weight: 700;
+      color: #fff;
+    }
+
+    .portfolio-card p {
+      font-size: 0.92rem;
+      color: #998fa9;
+      line-height: 1.6;
+      margin-bottom: 22px;
+    }
+
+    .pill-stack {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 8px;
+    }
+
+    .tech-pill {
+      font-size: 0.75rem;
+      padding: 5px 12px;
+      background: rgba(255, 255, 255, 0.04);
+      border-radius: 999px;
+      border: 1px solid rgba(255, 255, 255, 0.08);
+      color: #d1c8de;
+    }
+
+    /* ==========================================================================
+       HOW ACORN WORKS (3-STEP)
+       ========================================================================== */
+    .steps-grid {
+      display: grid;
+      grid-template-columns: repeat(3, 1fr);
+      gap: 28px;
+      margin-bottom: 120px;
+    }
+
+    @media (max-width: 860px) {
+      .steps-grid { grid-template-columns: 1fr; }
+    }
+
+    .step-box {
+      padding: 36px;
+      background: rgba(255, 255, 255, 0.015);
+      border: 1px solid rgba(255, 255, 255, 0.07);
+      border-radius: 22px;
+      position: relative;
+    }
+
+    .step-number {
+      font-size: 2.8rem;
+      font-weight: 900;
+      color: rgba(255, 175, 0, 0.2);
+      margin-bottom: 16px;
+      font-family: 'JetBrains Mono', monospace;
+    }
+
+    .step-box h3 {
+      font-size: 1.25rem;
+      font-weight: 700;
+      margin-bottom: 10px;
+      color: #fff;
+    }
+
+    .step-box p {
+      font-size: 0.92rem;
+      color: #9d91b0;
+      line-height: 1.6;
+    }
+
+    /* ==========================================================================
+       CTA CALLOUT BANNER
+       ========================================================================== */
+    .cta-banner {
+      margin-bottom: 110px;
+      padding: 64px 32px;
+      border-radius: 32px;
+      background: radial-gradient(circle at 50% 0%, rgba(255, 170, 0, 0.18) 0%, rgba(20, 14, 28, 0.9) 80%);
+      border: 1px solid rgba(255, 180, 0, 0.3);
+      text-align: center;
+      position: relative;
+      box-shadow: 0 30px 80px rgba(0, 0, 0, 0.6);
+    }
+
+    .cta-banner h2 {
+      font-size: 2.8rem;
+      font-weight: 800;
+      margin-bottom: 16px;
+      letter-spacing: -1px;
+    }
+
+    .cta-banner p {
+      color: #b7acc7;
+      max-width: 580px;
+      margin: 0 auto 32px;
+      font-size: 1.05rem;
+    }
+
+    /* Footer */
+    footer {
+      border-top: 1px solid rgba(255, 255, 255, 0.06);
+      padding: 40px 0;
+      text-align: center;
+      color: #7d728e;
+      font-size: 0.88rem;
+    }
+  </style>
+</head>
+<body>
+
+  <div class="bg-canvas"></div>
+  <div class="bg-grid"></div>
+
+  <!-- ==========================================================================
+       TOP NAVIGATION
+       ========================================================================== -->
+  <header>
+    <div class="container nav-inner">
+      <a href="#" class="brand hover-target">
+        <svg class="brand-icon" viewBox="0 0 100 100" fill="none">
+          <path d="M 50 14 C 62 14, 76 36, 83 62 C 89 82, 79 88, 66 84 C 56 80, 53 66, 50 66 C 47 66, 44 80, 34 84 C 21 88, 11 82, 17 62 C 24 36, 38 14, 50 14 Z" stroke="#ffb31a" stroke-width="8" fill="rgba(255,160,0,0.25)" />
+          <path d="M 39 63 C 44 51, 56 51, 61 63" stroke="#ffb31a" stroke-width="7" stroke-linecap="round" />
+        </svg>
+        <span>Acorn</span>
+      </a>
+
+      <nav class="nav-links">
+        <a href="#simulator" class="nav-link hover-target">Live Agent</a>
+        <a href="#showcase" class="nav-link hover-target">Portfolio Matcher</a>
+        <a href="#process" class="nav-link hover-target">Workflow</a>
+        <a href="#pricing" class="btn btn-primary hover-target">Deploy Agent</a>
+      </nav>
+    </div>
+  </header>
+
+  <!-- ==========================================================================
+       HERO SECTION
+       ========================================================================== -->
+  <main class="container">
+    <section class="hero">
+      <div class="badge hover-target">
+        <span class="badge-dot"></span>
+        Acorn 2.0 Autonomous Job Bid Engine Active
+      </div>
+
+      <h1>
+        Win top-tier freelance jobs <br />
+        <span class="gradient-text">before humans even read the brief.</span>
+      </h1>
+
+      <p class="hero-subtitle">
+        Acorn is your 24/7 AI bid agent. It analyzes client requirements, selects your most relevant portfolio case studies, writes human-tailored proposals, and submits bids in seconds.
+      </p>
+
+      <div class="hero-cta">
+        <a href="#simulator" class="btn btn-primary hover-target">
+          Watch Agent Work Live ⚡
+        </a>
+        <a href="#showcase" class="btn btn-glass hover-target">
+          Explore Portfolio Matrix
+        </a>
+      </div>
+
+      <!-- ==========================================================================
+           LIVE AUTO-BID AGENT SIMULATOR (DASHBOARD)
+           ========================================================================== -->
+      <div class="simulator-wrapper" id="simulator">
+        <div class="simulator-card">
+          <!-- Sidebar: Found Jobs Queue -->
+          <div class="sim-sidebar">
+            <div class="sim-header">
+              <span style="font-size:0.85rem; font-weight:700; color:#fff;">Live Feed</span>
+              <div class="agent-status">
+                <span class="badge-dot"></span>
+                SCANNING PLATFORMS
+              </div>
+            </div>
+
+            <div class="job-queue">
+              <div class="queue-item active hover-target" id="feed-0">
+                <div class="queue-title">Senior Fullstack Next.js & AI Architect</div>
+                <div class="queue-meta">
+                  <span>Upwork • Fixed $8,500</span>
+                  <span style="color:#ffc44d;">99.4% Match</span>
+                </div>
+              </div>
+
+              <div class="queue-item hover-target" id="feed-1">
+                <div class="queue-title">Mobile Flutter Developer - Fintech App</div>
+                <div class="queue-meta">
+                  <span>Freelancer • $95/hr</span>
+                  <span style="color:#ffc44d;">96.8% Match</span>
+                </div>
+              </div>
+
+              <div class="queue-item hover-target" id="feed-2">
+                <div class="queue-title">Web3 Smart Contract Security Audit</div>
+                <div class="queue-meta">
+                  <span>LinkedIn • $12,000</span>
+                  <span style="color:#ffc44d;">94.2% Match</span>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <!-- Main Terminal: Auto Bid Generation -->
+          <div class="sim-terminal">
+            <div>
+              <div class="step-tag hover-target">// AUTONOMOUS PROPOSAL SYNTHESIS</div>
+
+              <div class="bid-flow-stage">
+                <div class="flow-step active" id="step-1">
+                  <div class="flow-icon">1</div>
+                  <div class="flow-text">
+                    <h4>Client Brief Analyzed</h4>
+                    <p>Extracted tech stack, budget ceiling, client timezone & pain points.</p>
+                  </div>
+                </div>
+
+                <div class="flow-step active" id="step-2">
+                  <div class="flow-icon">2</div>
+                  <div class="flow-text">
+                    <h4>Dynamic Portfolio Injection</h4>
+                    <p>Paired 2 exact case studies from your repository matching client tech.</p>
+                  </div>
+                </div>
+              </div>
+
+              <!-- Live Typewriter Proposal Output -->
+              <div class="live-proposal-box hover-target">
+                <span id="proposal-text"></span><span class="typing-cursor"></span>
+              </div>
+            </div>
+
+            <div class="bid-stats-footer">
+              <span class="pill-stat hover-target" id="status-pill">⚡ Speed: 3.2s from posting to submission</span>
+              <span style="font-size: 0.82rem; color: #38ef7d; font-weight: 600;">✓ Form Fields Auto-Completed</span>
+            </div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- ==========================================================================
+         METRICS SECTION
+         ========================================================================== -->
+    <section class="metrics-section">
+      <div class="metrics-grid">
+        <div class="hover-target">
+          <div class="metric-val">$<span>4.8</span>M+</div>
+          <div class="metric-label">Contract Value Won</div>
+        </div>
+        <div class="hover-target">
+          <div class="metric-val"><span>4.6</span>s</div>
+          <div class="metric-label">Avg. Auto-Bid Speed</div>
+        </div>
+        <div class="hover-target">
+          <div class="metric-val"><span>78</span>%</div>
+          <div class="metric-label">Interview Conversion Rate</div>
+        </div>
+        <div class="hover-target">
+          <div class="metric-val"><span>24</span>/7</div>
+          <div class="metric-label">Zero-Latency Job Sniping</div>
+        </div>
+      </div>
+    </section>
+
+    <!-- ==========================================================================
+         PORTFOLIO MATCHING SHOWCASE
+         ========================================================================== -->
+    <section id="showcase">
+      <div class="section-title">
+        <h2>Smart Portfolio Synergy</h2>
+        <p>Acorn doesn't spam generic messages. It selects and embeds the exact proof points that convince clients you're the right hire.</p>
+      </div>
+
+      <div class="portfolio-grid">
+        <div class="portfolio-card hover-target">
+          <div class="platform-badge">Upwork Verified Win</div>
+          <h3>Enterprise SaaS Architecture</h3>
+          <p>Matched with a $24,000 project. Acorn highlighted multi-tenant DB benchmarks from the creator's GitHub repo.</p>
+          <div class="pill-stack">
+            <span class="tech-pill">Next.js 14</span>
+            <span class="tech-pill">PostgreSQL</span>
+            <span class="tech-pill">Turborepo</span>
+          </div>
+        </div>
+
+        <div class="portfolio-card hover-target">
+          <div class="platform-badge">LinkedIn InMail Lead</div>
+          <h3>Fintech Mobile Banking App</h3>
+          <p>Acorn spotted a CTO seeking biometric auth experts, auto-attached client NDA test demos, and secured a callback in 18 minutes.</p>
+          <div class="pill-stack">
+            <span class="tech-pill">React Native</span>
+            <span class="tech-pill">Stripe API</span>
+            <span class="tech-pill">Rust Core</span>
+          </div>
+        </div>
+
+        <div class="portfolio-card hover-target">
+          <div class="platform-badge">Freelancer Enterprise</div>
+          <h3>High-Frequency Trading API</h3>
+          <p>Submitted proposal within 4.1 seconds of release. The client hired immediately due to first-mover advantage and direct code examples.</p>
+          <div class="pill-stack">
+            <span class="tech-pill">Go (Golang)</span>
+            <span class="tech-pill">WebSockets</span>
+            <span class="tech-pill">Kafka</span>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- ==========================================================================
+         HOW IT WORKS (3 STEPS)
+         ========================================================================== -->
+    <section id="process">
+      <div class="section-title">
+        <h2>Set Up Once. Let Acorn Hunt.</h2>
+        <p>Three steps to replace 30+ hours of unpaid proposal writing each month.</p>
+      </div>
+
+      <div class="steps-grid">
+        <div class="step-box hover-target">
+          <div class="step-number">01</div>
+          <h3>Sync Skills & Projects</h3>
+          <p>Link your GitHub, Figma, personal website, or past Upwork deliverables. Acorn digests your past achievements.</p>
+        </div>
+
+        <div class="step-box hover-target">
+          <div class="step-number">02</div>
+          <h3>Define Bidding Bounds</h3>
+          <p>Set minimum hourly rates, target budget minimums, geographic preferences, and auto-bid frequency limits.</p>
+        </div>
+
+        <div class="step-box hover-target">
+          <div class="step-number">03</div>
+          <h3>Wake Up to Interviews</h3>
+          <p>Acorn scans around the clock, submits custom applications, and drops qualified client calls straight to your calendar.</p>
+        </div>
+      </div>
+    </section>
+
+    <!-- ==========================================================================
+         CTA BOTTOM CALLOUT
+         ========================================================================== -->
+    <section class="cta-banner hover-target" id="pricing">
+      <h2>Automate your client pipeline today.</h2>
+      <p>Never miss another 5-figure contract simply because you were sleeping or away from your desk.</p>
+      <a href="#" class="btn btn-primary hover-target" style="padding: 16px 36px; font-size: 1.05rem;">
+        Get Instant Access to Acorn ✦
+      </a>
+    </section>
+  </main>
+
+  <footer>
+    <p>© 2025 Acorn Technologies Inc. Autonomous Job Bidding Agent. All rights reserved.</p>
+  </footer>
+
+  <!-- ==========================================================================
+       CANVAS & VIRTUAL ACORN 'A' CURSOR (FROM YOUR CODE ENGINE)
+       ========================================================================== -->
+  <canvas id="fx-canvas"></canvas>
+
+  <div class="cursor-container" id="cursor">
+    <div class="cursor-rotator" id="cursor-rotator">
+      <div class="cursor-aura"></div>
+      <svg class="acorn-svg" viewBox="0 0 100 100" fill="none" xmlns="http://www.w3.org/2000/svg">
+        <defs>
+          <linearGradient id="acornGrad" x1="0%" y1="0%" x2="100%" y2="100%">
+            <stop offset="0%" stop-color="#ffffff" />
+            <stop offset="35%" stop-color="#ffe37a" />
+            <stop offset="85%" stop-color="#ff9000" />
+            <stop offset="100%" stop-color="#ff4800" />
+          </linearGradient>
+
+          <linearGradient id="innerGlow" x1="50%" y1="0%" x2="50%" y2="100%">
+            <stop offset="0%" stop-color="rgba(255,255,255,0.9)" />
+            <stop offset="100%" stop-color="rgba(255,165,0,0.2)" />
+          </linearGradient>
+        </defs>
+
+        <!-- Outer organic A outline -->
+        <path d="M 50 14 
+                 C 62 14, 76 36, 83 62 
+                 C 89 82, 79 88, 66 84 
+                 C 56 80, 53 66, 50 66 
+                 C 47 66, 44 80, 34 84 
+                 C 21 88, 11 82, 17 62 
+                 C 24 36, 38 14, 50 14 Z" 
+              stroke="url(#acornGrad)" 
+              stroke-width="7" 
+              stroke-linecap="round" 
+              stroke-linejoin="round"
+              fill="url(#innerGlow)" />
+
+        <!-- Inner swoosh -->
+        <path d="M 39 63 C 44 51, 56 51, 61 63" 
+              stroke="url(#acornGrad)" 
+              stroke-width="6.5" 
+              stroke-linecap="round" />
+      </svg>
+    </div>
+  </div>
+
+  <!-- ==========================================================================
+       SCRIPTS: CURSOR PHYSICS + AUTO-BID SIMULATION LOOP
+       ========================================================================== -->
+  <script>
+    // ----------------------------------------------------
+    // 1. Acorn Virtual Cursor & Particle Engine
+    // ----------------------------------------------------
+    const cursor = document.getElementById('cursor');
+    const rotator = document.getElementById('cursor-rotator');
+    const canvas = document.getElementById('fx-canvas');
+    const ctx = canvas.getContext('2d');
+
+    let width = (canvas.width = window.innerWidth);
+    let height = (canvas.height = window.innerHeight);
+
+    window.addEventListener('resize', () => {
+      width = canvas.width = window.innerWidth;
+      height = canvas.height = window.innerHeight;
+    });
+
+    const mouse = { x: width / 2, y: height / 2 };
+    const virtual = { 
+      x: width / 2, 
+      y: height / 2,
+      vx: 0,
+      vy: 0,
+      smoothVx: 0,
+      angle: 0
+    };
+
+    window.addEventListener('mousemove', (e) => {
+      mouse.x = e.clientX;
+      mouse.y = e.clientY;
+    });
+
+    const particles = [];
+
+    class Particle {
+      constructor(x, y, isClick = false) {
+        const angle = Math.random() * Math.PI * 2;
+        const spread = Math.random() * (isClick ? 14 : 7);
+        this.x = x + Math.cos(angle) * spread;
+        this.y = y + Math.sin(angle) * spread;
+
+        if (isClick) {
+          const speed = Math.random() * 4.2 + 0.8;
+          this.vx = Math.cos(angle) * speed;
+          this.vy = Math.sin(angle) * speed - 0.4;
+          this.size = Math.random() * 4.5 + 2.0;
+          this.decay = Math.random() * 0.018 + 0.012;
+        } else {
+          this.vx = (Math.random() - 0.5) * 2.0;
+          this.vy = (Math.random() - 0.5) * 2.0 - 0.5;
+          this.size = Math.random() * 3.8 + 1.2;
+          this.decay = Math.random() * 0.024 + 0.014;
+        }
+
+        this.life = 1.0;
+        this.airResistance = 0.96;
+        this.gravity = -0.035;
+
+        const colors = [
+          '255, 245, 190',
+          '255, 200, 60',
+          '255, 140, 20',
+          '255, 90, 0'
+        ];
+        this.color = colors[Math.floor(Math.random() * colors.length)];
+      }
+
+      update() {
+        this.vx *= this.airResistance;
+        this.vy *= this.airResistance;
+        this.vy += this.gravity;
+        this.x += this.vx;
+        this.y += this.vy;
+        this.life -= this.decay;
+        this.size *= 0.985;
+      }
+
+      draw(context) {
+        if (this.life <= 0 || this.size <= 0.2) return;
+        context.save();
+        context.beginPath();
+        context.arc(this.x, this.y, Math.max(this.size, 0.1), 0, Math.PI * 2);
+        context.shadowColor = `rgba(${this.color}, 0.85)`;
+        context.shadowBlur = 12;
+        context.fillStyle = `rgba(${this.color}, ${Math.max(this.life * 0.85, 0)})`;
+        context.fill();
+        context.restore();
+      }
+    }
+
+    function spawnParticles(x, y, count, isClick = false) {
+      for (let i = 0; i < count; i++) {
+        if (particles.length < 500) {
+          particles.push(new Particle(x, y, isClick));
+        }
+      }
+    }
+
+    window.addEventListener('mousedown', () => {
+      cursor.classList.add('clicking');
+      spawnParticles(virtual.x, virtual.y, 45, true);
+    });
+
+    window.addEventListener('mouseup', () => {
+      cursor.classList.remove('clicking');
+    });
+
+    document.querySelectorAll('.hover-target').forEach((el) => {
+      el.addEventListener('mouseenter', () => cursor.classList.add('hovering'));
+      el.addEventListener('mouseleave', () => cursor.classList.remove('hovering'));
+    });
+
+    function animate() {
+      const prevX = virtual.x;
+      const prevY = virtual.y;
+
+      virtual.x += (mouse.x - virtual.x) * 0.2;
+      virtual.y += (mouse.y - virtual.y) * 0.2;
+
+      virtual.vx = virtual.x - prevX;
+      virtual.vy = virtual.y - prevY;
+
+      virtual.smoothVx += (virtual.vx - virtual.smoothVx) * 0.18;
+      const targetAngle = Math.max(-45, Math.min(45, virtual.smoothVx * 4.2));
+      virtual.angle += (targetAngle - virtual.angle) * 0.12;
+
+      cursor.style.transform = `translate3d(${virtual.x}px, ${virtual.y}px, 0)`;
+      rotator.style.transform = `rotate(${virtual.angle}deg)`;
+
+      const speed = Math.hypot(virtual.vx, virtual.vy);
+      if (speed > 0.8) {
+        const particleCount = Math.min(Math.floor(speed * 0.85) + 1, 5);
+        spawnParticles(virtual.x, virtual.y, particleCount, false);
+      }
+
+      ctx.clearRect(0, 0, width, height);
+      for (let i = particles.length - 1; i >= 0; i--) {
+        const p = particles[i];
+        p.update();
+        p.draw(ctx);
+        if (p.life <= 0 || p.size <= 0.2) {
+          particles.splice(i, 1);
+        }
+      }
+
+      requestAnimationFrame(animate);
+    }
+    animate();
+
+    // ----------------------------------------------------
+    // 2. Autonomous Job Bid Typewriter Simulation Loop
+    // ----------------------------------------------------
+    const proposals = [
+      "Hey! Saw you need a Next.js AI pipeline. I built a similar system for a $5M ARR SaaS reducing latency to 140ms. Attached case study #2. Can start tomorrow.",
+      "Hi there! Reviewed your Flutter fintech spec. Solved your biometric sync challenge in my open-source project (1.2k stars). Ready for a 10-min chat?",
+      "Hello! Audited 4 Web3 DEX protocols with $80M TVL. My automated fuzzing finds edge-case reentrancy issues. Ready to audit your contracts today."
+    ];
+
+    let currentJobIdx = 0;
+    const proposalEl = document.getElementById('proposal-text');
+    const queueItems = [
+      document.getElementById('feed-0'),
+      document.getElementById('feed-1'),
+      document.getElementById('feed-2')
+    ];
+
+    function runSimulation() {
+      // Toggle active card
+      queueItems.forEach((item, idx) => {
+        item.classList.toggle('active', idx === currentJobIdx);
+      });
+
+      const text = proposals[currentJobIdx];
+      proposalEl.textContent = "";
+      let charIdx = 0;
+
+      const typeInterval = setInterval(() => {
+        if (charIdx < text.length) {
+          proposalEl.textContent += text.charAt(charIdx);
+          charIdx++;
+        } else {
+          clearInterval(typeInterval);
+          // Trigger particle burst at bid submission
+          const rect = proposalEl.getBoundingClientRect();
+          spawnParticles(rect.right, rect.bottom, 25, true);
+
+          setTimeout(() => {
+            currentJobIdx = (currentJobIdx + 1) % proposals.length;
+            runSimulation();
+          }, 3200);
+        }
+      }, 25);
+    }
+
+    // Start simulation after page loads
+    window.addEventListener('DOMContentLoaded', () => {
+      runSimulation();
+    });
+  </script>
+</body>
+</html>
