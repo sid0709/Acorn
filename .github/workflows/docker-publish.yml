@@ -49,7 +49,7 @@ env:
   PRODUCTION_API_ORIGIN: https://api.acornapply.com
   PRODUCTION_WEB_ORIGIN: https://acornapply.com
   API_HEALTH_URL: https://api.acornapply.com/health
-  AGENT_HEALTH_URL: https://agent.acornapply.com/agent/v1/health
+  AGENT_HEALTH_URL: https://api.acornapply.com/agent/v1/health
   HEALTH_ATTEMPTS: "24"
   HEALTH_SLEEP_SEC: "5"
 
@@ -404,5 +404,5 @@ jobs:
             sleep "$HEALTH_SLEEP_SEC"
             attempt=$((attempt + 1))
           done
-          echo "::warning::The agent container is running, but ${AGENT_HEALTH_URL} did not answer. Check DNS, the TLS certificate and the nginx site for agent.acornapply.com (deploy/server-setup.md)."
+          echo "::warning::The agent container is running, but ${AGENT_HEALTH_URL} did not answer. Check the /agent/v1/ block in the api.acornapply.com nginx site (deploy/server-setup.md)."
           exit 0

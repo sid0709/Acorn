@@ -108,12 +108,11 @@ Secrets (all `secrets.*`): `DOCKERHUB_TOKEN`, `DOCKERHUB_USERNAME`, `VPS_HOST`, 
 
 Variables (`vars.*`): `ACORN_ADMIN_USERNAME`, `ACORN_ADMIN_PWD`, `VITE_ACORN_API_URL`, `VITE_ACORN_WEB_URL`. Optional image names: `ACORN_API_IMAGE`, `ACORN_WEB_IMAGE`, `ACORN_ADMIN_IMAGE`.
 
-## The agent host (one time, before the first deploy that includes acorn-agent)
+## The agent route (one time, before the first deploy that includes acorn-agent)
 
-The agent is a fourth container and needs its own host name. The deploy itself does not touch DNS, certificates or nginx files, so do this once by hand:
+The agent is a fourth container but has no host name of its own: it is served on `api.acornapply.com` under `/agent/v1/`, and reaches the API privately as `http://acorn-api:8083`. The deploy itself does not touch nginx files, so do this once by hand:
 
-1. **DNS.** Add an `A` (and `AAAA` if the others have one) record `agent.acornapply.com` pointing at the VPS, like `api.acornapply.com`.
-2. **nginx.** Install the shared pieces if they are not there yet: the `limit_req_zone ... zone=acorn_agent` line in `/etc/nginx/conf.d/acorn-common.conf` (see `deploy/nginx/conf.d/acorn-common.conf`). Copy `deploy/nginx/agent.acornapply.com.conf` to `/etc/nginx/sites-available/agent.acornapply.com`, link it into `sites-enabled`, then `sudo nginx -t`.
-3. **Certificate.** `sudo certbot certonly --webroot -w /var/www/html -d agent.acornapply.com` (or `--nginx`), then `sudo systemctl reload nginx`.
-4. **Settings (optional).** In `/opt/acorn/deploy.env` add `ACORN_AGENT_MAX_MODEL_CALLS` to bound concurrent steps. No AI key is needed: each person's own OpenRouter key is read from their profile. The default résumé offered when a page shows no job description is the one each person marked default ("Make default") in their Library on the website, so there is nothing to set here.
-5. **Check.** After the first deploy: `curl https://agent.acornapply.com/agent/v1/health` should answer `{"ok":true,...,"source":"backend"}`. The Chrome extension build already points at that host.
+1. **nginx limit zone.** Make sure `/etc/nginx/conf.d/acorn-common.conf` has the `limit_req_zone ... zone=acorn_agent` line (see `deploy/nginx/conf.d/acorn-common.conf`).
+2. **nginx route.** In `/etc/nginx/sites-available/api.acornapply.com` add the `location /agent/v1/ { ... }` block from `deploy/nginx/api.acornapply.com.conf` before `location /`, then `sudo nginx -t` and `sudo systemctl reload nginx`. No DNS record or certificate is needed.
+3. **Settings (optional).** In `/opt/acorn/deploy.env` add `ACORN_AGENT_MAX_MODEL_CALLS` to bound concurrent steps. No AI key is needed: each person's own OpenRouter key is read from their profile. The default résumé offered when a page shows no job description is the one each person marked default ("Make default") in their Library on the website, so there is nothing to set here.
+4. **Check.** After the first deploy: `curl https://api.acornapply.com/agent/v1/health` should answer `{"ok":true,...,"source":"backend"}`. The Chrome extension build already points at that address.

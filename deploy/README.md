@@ -35,21 +35,20 @@ Each deploy run writes `ACORN_ADMIN_USERNAME` / `ACORN_ADMIN_PWD` into `/opt/aco
 
 The agent plans the extension's Run from screenshots. It has no database and writes nothing: each run lives in memory, and a deploy ends the runs in flight. It reads each person's profile and Library from the API with that person's own Acorn session (sent by the extension), over the Docker network, `http://acorn-api:8083`. Each person's OpenRouter key is the one in their profile, so there is no server AI key to set. It is rebuilt when `acorn-agent/*` or `backend-core/*` change.
 
-The container gets only the `ACORN_AGENT_*` and `OPENROUTER_API_KEY` lines of `/opt/acorn/deploy.env`, never the API's database or Google settings, with traces off (`ACORN_AGENT_TRACE=false`) so no screenshot or profile is written to the server's disk. See [`server-setup.md`](server-setup.md) for the one-time DNS, certificate and nginx work for `agent.acornapply.com`; until that is done the deploy still succeeds and the public agent health check only warns.
+The container gets only the `ACORN_AGENT_*` and `OPENROUTER_API_KEY` lines of `/opt/acorn/deploy.env`, never the API's database or Google settings, with traces off (`ACORN_AGENT_TRACE=false`) so no screenshot or profile is written to the server's disk. See [`server-setup.md`](server-setup.md) for the one-time nginx route that sends `/agent/v1/` on `api.acornapply.com` to the agent (no new DNS record or certificate); until that is done the deploy still succeeds and the public agent health check only warns.
 
 ## Same-host traffic
 
 - The API reaches MongoDB on the VPS itself: `MONGO_URI=mongodb://host.docker.internal:27017/` (the container's host gateway). Keep it off the public interface.
-- The website, admin and agent call the API from their servers by container name, `http://acorn-api:8083`, on the `acorn` Docker network (override with `ACORN_INTERNAL_API_URL`). Only browsers and the extension use `https://api.acornapply.com`; the extension reaches the agent at `https://agent.acornapply.com`.
+- The website, admin and agent call the API from their servers by container name, `http://acorn-api:8083`, on the `acorn` Docker network (override with `ACORN_INTERNAL_API_URL`). Only browsers and the extension use `https://api.acornapply.com`; the extension reaches the agent at `https://api.acornapply.com/agent/v1/`, which nginx sends to the agent container.
 
 ## Domains
 
-| Host                   | Upstream                |
-| ---------------------- | ----------------------- |
-| `acornapply.com`       | frontend (`6005`)       |
-| `www.acornapply.com`   | frontend (`6005`)       |
-| `api.acornapply.com`   | API (`8083`), WebSocket |
-| `admin.acornapply.com` | acorn-admin (`6011`)    |
-| `agent.acornapply.com` | acorn-agent (`8090`)    |
+| Host                   | Upstream                                                     |
+| ---------------------- | ------------------------------------------------------------ |
+| `acornapply.com`       | frontend (`6005`)                                            |
+| `www.acornapply.com`   | frontend (`6005`)                                            |
+| `api.acornapply.com`   | API (`8083`), WebSocket; `/agent/v1/` → acorn-agent (`8090`) |
+| `admin.acornapply.com` | acorn-admin (`6011`)                                         |
 
 Issue or renew TLS with certbot on the server after DNS points at the VPS. After a deploy, CI curls `https://api.acornapply.com/health` (`GET /health` on the API process).

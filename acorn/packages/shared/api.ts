@@ -28,8 +28,8 @@ export const ACORN_PRODUCTION_WEB_ORIGIN = "https://acornapply.com" as const;
 export const ACORN_PRODUCTION_WEB_WWW_ORIGIN = "https://www.acornapply.com" as const;
 /** Production API, including `/acorn` routes and the Socket.IO gateway. */
 export const ACORN_PRODUCTION_API_ORIGIN = "https://api.acornapply.com" as const;
-/** Production acorn-agent: the Run's planner, behind the same nginx as the API. */
-export const ACORN_PRODUCTION_AGENT_ORIGIN = "https://agent.acornapply.com" as const;
+/** Production acorn-agent: the Run's planner, on the API host under `/agent/v1` (nginx splits by path). */
+export const ACORN_PRODUCTION_AGENT_ORIGIN = ACORN_PRODUCTION_API_ORIGIN;
 
 /** Development builds talk to the local servers (`bun run dev`); every other build to production. */
 export const ACORN_HOSTS = {
