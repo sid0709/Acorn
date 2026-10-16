@@ -1,5 +1,5 @@
 # Public origin for canonical links, the sitemap, and robots.txt. Also baked into the extension.
-ARG VITE_ACORN_WEB_URL=https://acorn.remotepairnet.net
+ARG VITE_ACORN_WEB_URL=https://acornapply.com
 
 FROM oven/bun:1.4.2 AS build
 
@@ -16,7 +16,7 @@ RUN apt-get update \
 RUN bun install --frozen-lockfile
 
 # Extension zip for Apps → Download .zip (VITE_* from build args / acorn/.env).
-ARG VITE_ACORN_API_URL=https://acornapi.remotepairnet.net
+ARG VITE_ACORN_API_URL=https://api.acornapply.com
 ARG VITE_ACORN_WEB_URL
 ENV VITE_ACORN_API_URL=$VITE_ACORN_API_URL
 ENV VITE_ACORN_WEB_URL=$VITE_ACORN_WEB_URL

@@ -3,29 +3,25 @@
 # The extension is not an image. An extension-only push does not build or restart containers.
 # API inputs: acorn-backend, backend-core.
 # Website inputs: acorn-frontend, acorn/extension (packed .zip on Apps), packages, acorn/packages/shared, the root package manifest, and the Bun lockfile.
-# Admin inputs: acorn-admin, shared packages (same as the website), and deploy/nginx/acornadmin.remotepairnet.net.conf.
+# Admin inputs: acorn-admin, shared packages (same as the website).
+# Nginx site files are reference-only; this workflow never installs or overwrites them.
 #
-# GitHub Environment (Settings → Environments → Production), branch: main.
+# GitHub Environment: Settings → Environments → Production.
 #
-# Required environment secrets:
-#   DOCKERHUB_USERNAME  — Docker Hub user that owns the images (omnimuh730)
-#   DOCKERHUB_TOKEN     — Docker Hub access token
-#   VPS_HOST            — 45.61.176.179
-#   VPS_USER            — root
-#   VPS_SSH_KEY         — private ed25519 key authorized on the VPS
+# Required environment secrets (secrets.*):
+#   DOCKERHUB_USERNAME, DOCKERHUB_TOKEN, VPS_HOST, VPS_USER, VPS_SSH_KEY
+# Optional secret: VPS_SSH_PORT (defaults to 22), ACORN_ADMIN_SESSION_SECRET
 #
-# Optional:
-#   VPS_SSH_PORT        — default 22
-#   ACORN_API_IMAGE     — environment variable, default omnimuh730/acorn-api
-#   ACORN_WEB_IMAGE     — environment variable, default omnimuh730/acorn-web
-#   ACORN_ADMIN_IMAGE   — environment variable, default omnimuh730/acorn-admin
-#   ACORN_ADMIN_USERNAME — staff email for acorn-admin (maps to ACORN_ADMIN_EMAIL on the API)
-#   ACORN_ADMIN_PWD      — staff password (maps to ACORN_ADMIN_PASSWORD on the API)
+# Environment variables (vars.*):
+#   ACORN_API_IMAGE, ACORN_WEB_IMAGE, ACORN_ADMIN_IMAGE (optional image names)
+#   ACORN_ADMIN_USERNAME, ACORN_ADMIN_PWD
+#   VITE_ACORN_API_URL, VITE_ACORN_WEB_URL (optional; baked into the extension zip)
 #
-# Optional secret: ACORN_ADMIN_SESSION_SECRET — signs admin sessions when demo mode is off.
-# If unset, the deploy step generates one on the VPS and keeps it in deploy.env.
+# If ACORN_ADMIN_SESSION_SECRET is unset, the deploy step generates one on the VPS
+# and keeps it in deploy.env.
 #
 # App secrets stay on the VPS in /opt/acorn/deploy.env. See docker/deploy.env.example.
+# Images are tagged with github.sha (and latest). Deploy pulls the SHA tag, not latest.
 
 name: Docker publish
 
@@ -33,6 +29,11 @@ on:
   push:
     branches: [main]
   workflow_dispatch:
+    inputs:
+      image_sha:
+        description: Existing image tag (full commit SHA) to redeploy without rebuilding
+        required: false
+        type: string
 
 concurrency:
   group: acorn-docker-${{ github.ref }}
@@ -42,6 +43,11 @@ env:
   API_IMAGE: ${{ vars.ACORN_API_IMAGE || 'omnimuh730/acorn-api' }}
   WEB_IMAGE: ${{ vars.ACORN_WEB_IMAGE || 'omnimuh730/acorn-web' }}
   ADMIN_IMAGE: ${{ vars.ACORN_ADMIN_IMAGE || 'omnimuh730/acorn-admin' }}
+  PRODUCTION_API_ORIGIN: https://api.acornapply.com
+  PRODUCTION_WEB_ORIGIN: https://acornapply.com
+  API_HEALTH_URL: https://api.acornapply.com/health
+  HEALTH_ATTEMPTS: "24"
+  HEALTH_SLEEP_SEC: "5"
 
 jobs:
   build-and-push:
@@ -60,7 +66,7 @@ jobs:
 
     steps:
       - name: Checkout Acorn
-        uses: actions/checkout@v4
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           path: src/Acorn
           submodules: false
@@ -71,10 +77,29 @@ jobs:
         env:
           EVENT_NAME: ${{ github.event_name }}
           BEFORE: ${{ github.event.before }}
+          GITHUB_SHA: ${{ github.sha }}
+          ROLLBACK_SHA: ${{ github.event_name == 'workflow_dispatch' && inputs.image_sha || '' }}
         run: |
           set -euo pipefail
-          tag="sha-$(git rev-parse --short=12 HEAD)"
-          echo "image_tag=${tag}" >> "$GITHUB_OUTPUT"
+          rollback="$(printf '%s' "${ROLLBACK_SHA:-}" | tr -d '[:space:]')"
+          if [[ -n "$rollback" ]]; then
+            if [[ ! "$rollback" =~ ^[0-9a-fA-F]{40}$ ]]; then
+              echo "image_sha must be a 40-character commit SHA" >&2
+              exit 1
+            fi
+            rollback="$(printf '%s' "$rollback" | tr 'A-F' 'a-f')"
+            echo "Redeploying existing images tagged ${rollback} (no rebuild)."
+            echo "image_tag=${rollback}" >> "$GITHUB_OUTPUT"
+            echo "api=true" >> "$GITHUB_OUTPUT"
+            echo "web=true" >> "$GITHUB_OUTPUT"
+            echo "admin=true" >> "$GITHUB_OUTPUT"
+            echo "deploy=true" >> "$GITHUB_OUTPUT"
+            echo "build=false" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+
+          echo "image_tag=${GITHUB_SHA}" >> "$GITHUB_OUTPUT"
+          echo "build=true" >> "$GITHUB_OUTPUT"
 
           publish_all() {
             echo "api=true" >> "$GITHUB_OUTPUT"
@@ -119,19 +144,19 @@ jobs:
           fi
 
       - name: Set up Docker Buildx
-        if: steps.plan.outputs.deploy == 'true'
-        uses: docker/setup-buildx-action@v3
+        if: steps.plan.outputs.build == 'true' && steps.plan.outputs.deploy == 'true'
+        uses: docker/setup-buildx-action@8d2750c68a42422c14e847fe6c8ac0403b4cbd6f # v3.12.0
 
       - name: Log in to Docker Hub
-        if: steps.plan.outputs.deploy == 'true'
-        uses: docker/login-action@v3
+        if: steps.plan.outputs.build == 'true' && steps.plan.outputs.deploy == 'true'
+        uses: docker/login-action@c94ce9fb468520275223c153574b00df6fe4bcc9 # v3.7.0
         with:
           username: ${{ secrets.DOCKERHUB_USERNAME }}
           password: ${{ secrets.DOCKERHUB_TOKEN }}
 
       - name: Build and push API
-        if: steps.plan.outputs.api == 'true'
-        uses: docker/build-push-action@v6
+        if: steps.plan.outputs.build == 'true' && steps.plan.outputs.api == 'true'
+        uses: docker/build-push-action@10e90e3645eae34f1e60eeb005ba3a3d33f178e8 # v6.19.2
         with:
           context: src/Acorn
           file: src/Acorn/acorn-backend/Dockerfile
@@ -148,16 +173,16 @@ jobs:
             org.opencontainers.image.title=acorn-api
 
       - name: Build and push website
-        if: steps.plan.outputs.web == 'true'
-        uses: docker/build-push-action@v6
+        if: steps.plan.outputs.build == 'true' && steps.plan.outputs.web == 'true'
+        uses: docker/build-push-action@10e90e3645eae34f1e60eeb005ba3a3d33f178e8 # v6.19.2
         with:
           context: src/Acorn
           file: src/Acorn/acorn-frontend/Dockerfile
           push: true
           platforms: linux/amd64
           build-args: |
-            VITE_ACORN_API_URL=${{ vars.VITE_ACORN_API_URL || vars.ACORN_EXTENSION_API_URL || 'https://acornapi.remotepairnet.net' }}
-            VITE_ACORN_WEB_URL=${{ vars.VITE_ACORN_WEB_URL || vars.ACORN_EXTENSION_WEB_URL || 'https://acorn.remotepairnet.net' }}
+            VITE_ACORN_API_URL=${{ vars.VITE_ACORN_API_URL || vars.ACORN_EXTENSION_API_URL || env.PRODUCTION_API_ORIGIN }}
+            VITE_ACORN_WEB_URL=${{ vars.VITE_ACORN_WEB_URL || vars.ACORN_EXTENSION_WEB_URL || env.PRODUCTION_WEB_ORIGIN }}
           tags: |
             ${{ env.WEB_IMAGE }}:${{ steps.plan.outputs.image_tag }}
             ${{ env.WEB_IMAGE }}:latest
@@ -169,8 +194,8 @@ jobs:
             org.opencontainers.image.title=acorn-web
 
       - name: Build and push admin
-        if: steps.plan.outputs.admin == 'true'
-        uses: docker/build-push-action@v6
+        if: steps.plan.outputs.build == 'true' && steps.plan.outputs.admin == 'true'
+        uses: docker/build-push-action@10e90e3645eae34f1e60eeb005ba3a3d33f178e8 # v6.19.2
         with:
           context: src/Acorn
           file: src/Acorn/acorn-admin/Dockerfile
@@ -198,12 +223,12 @@ jobs:
 
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           submodules: false
 
       - name: Prepare deploy directory
-        uses: appleboy/ssh-action@v1.2.0
+        uses: appleboy/ssh-action@0ff4204d59e8e51228ff73bce53f80d53301dee2 # v1.2.5
         with:
           host: ${{ secrets.VPS_HOST }}
           username: ${{ secrets.VPS_USER }}
@@ -214,7 +239,7 @@ jobs:
             install -d -m 700 /opt/acorn
 
       - name: Sync deploy scripts
-        uses: appleboy/scp-action@v0.1.7
+        uses: appleboy/scp-action@917f8b81dfc1ccd331fef9e2d61bdc6c8be94634 # v0.1.7
         with:
           host: ${{ secrets.VPS_HOST }}
           username: ${{ secrets.VPS_USER }}
@@ -225,7 +250,7 @@ jobs:
           strip_components: 1
 
       - name: Sync admin credentials to deploy.env
-        uses: appleboy/ssh-action@v1.2.0
+        uses: appleboy/ssh-action@0ff4204d59e8e51228ff73bce53f80d53301dee2 # v1.2.5
         env:
           ACORN_ADMIN_USERNAME: ${{ vars.ACORN_ADMIN_USERNAME }}
           ACORN_ADMIN_PWD: ${{ vars.ACORN_ADMIN_PWD }}
@@ -241,35 +266,8 @@ jobs:
             chmod 755 /opt/acorn/sync-deploy-env.sh
             /opt/acorn/sync-deploy-env.sh
 
-      - name: Sync admin nginx site
-        if: needs.build-and-push.outputs.deploy_admin == 'true'
-        uses: appleboy/scp-action@v0.1.7
-        with:
-          host: ${{ secrets.VPS_HOST }}
-          username: ${{ secrets.VPS_USER }}
-          key: ${{ secrets.VPS_SSH_KEY }}
-          port: ${{ secrets.VPS_SSH_PORT || 22 }}
-          source: deploy/nginx/acornadmin.remotepairnet.net.conf
-          target: /tmp/
-          strip_components: 2
-
-      - name: Install admin nginx site
-        if: needs.build-and-push.outputs.deploy_admin == 'true'
-        uses: appleboy/ssh-action@v1.2.0
-        with:
-          host: ${{ secrets.VPS_HOST }}
-          username: ${{ secrets.VPS_USER }}
-          key: ${{ secrets.VPS_SSH_KEY }}
-          port: ${{ secrets.VPS_SSH_PORT || 22 }}
-          script: |
-            set -eu
-            install -m 644 /tmp/acornadmin.remotepairnet.net.conf /etc/nginx/sites-available/acornadmin.remotepairnet.net
-            ln -sf /etc/nginx/sites-available/acornadmin.remotepairnet.net /etc/nginx/sites-enabled/acornadmin.remotepairnet.net
-            nginx -t
-            systemctl reload nginx
-
       - name: Pull images and recreate containers
-        uses: appleboy/ssh-action@v1.2.0
+        uses: appleboy/ssh-action@0ff4204d59e8e51228ff73bce53f80d53301dee2 # v1.2.5
         env:
           ACORN_API_IMAGE: ${{ env.API_IMAGE }}
           ACORN_WEB_IMAGE: ${{ env.WEB_IMAGE }}
@@ -322,3 +320,23 @@ jobs:
             if [ "$api_recreate_only" = true ]; then
               API_RECREATE_ONLY=true /opt/acorn/deploy-remote.sh "$IMAGE_TAG" api
             fi
+
+      - name: Check public API health
+        env:
+          API_HEALTH_URL: ${{ env.API_HEALTH_URL }}
+          HEALTH_ATTEMPTS: ${{ env.HEALTH_ATTEMPTS }}
+          HEALTH_SLEEP_SEC: ${{ env.HEALTH_SLEEP_SEC }}
+        run: |
+          set -euo pipefail
+          attempt=1
+          while [ "$attempt" -le "$HEALTH_ATTEMPTS" ]; do
+            if curl -fsS --max-time 10 "$API_HEALTH_URL"; then
+              echo "API healthy at ${API_HEALTH_URL}"
+              exit 0
+            fi
+            echo "Attempt ${attempt}/${HEALTH_ATTEMPTS} failed; retrying in ${HEALTH_SLEEP_SEC}s"
+            sleep "$HEALTH_SLEEP_SEC"
+            attempt=$((attempt + 1))
+          done
+          echo "API health check failed: ${API_HEALTH_URL}" >&2
+          exit 1

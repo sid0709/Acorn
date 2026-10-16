@@ -22,6 +22,12 @@ export type AcornHosts = {
   agent: string;
 };
 
+/** Canonical production website. www is an alias of the same site. */
+export const ACORN_PRODUCTION_WEB_ORIGIN = "https://acornapply.com" as const;
+export const ACORN_PRODUCTION_WEB_WWW_ORIGIN = "https://www.acornapply.com" as const;
+/** Production API, including `/acorn` routes and the Socket.IO gateway. */
+export const ACORN_PRODUCTION_API_ORIGIN = "https://api.acornapply.com" as const;
+
 /** Development builds talk to the local servers (`bun run dev`); every other build to production. */
 export const ACORN_HOSTS = {
   development: {
@@ -30,8 +36,8 @@ export const ACORN_HOSTS = {
     agent: "http://127.0.0.1:8090",
   },
   production: {
-    api: "https://acornapi.remotepairnet.net",
-    web: "https://acorn.remotepairnet.net",
+    api: ACORN_PRODUCTION_API_ORIGIN,
+    web: ACORN_PRODUCTION_WEB_ORIGIN,
     agent: "http://127.0.0.1:8090",
   },
 } as const satisfies Record<string, AcornHosts>;
@@ -88,7 +94,12 @@ const LOOPBACK_HOSTS = ["localhost", "127.0.0.1"];
  */
 export function acornWebOrigins(extra: string[] = []): string[] {
   const origins = new Set<string>();
-  for (const raw of [...Object.values(ACORN_HOSTS).map((h) => h.web), ...extra]) {
+  const rawOrigins = [
+    ...Object.values(ACORN_HOSTS).map((h) => h.web),
+    ACORN_PRODUCTION_WEB_WWW_ORIGIN,
+    ...extra,
+  ];
+  for (const raw of rawOrigins) {
     try {
       const url = new URL(raw);
       origins.add(url.origin);

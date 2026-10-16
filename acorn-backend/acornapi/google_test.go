@@ -58,7 +58,7 @@ func TestExtensionGoogleStartRejectsOtherRedirects(t *testing.T) {
 	})
 	t.Cleanup(gw.Close)
 
-	rec := call(handler, http.MethodPost, "/acorn/auth/google/start", `{"redirectUri":"https://acorn.remotepairnet.net/auth/google/callback"}`, nil, "")
+	rec := call(handler, http.MethodPost, "/acorn/auth/google/start", `{"redirectUri":"https://acornapply.com/auth/google/callback"}`, nil, "")
 	if rec.Code != http.StatusBadRequest {
 		t.Fatalf("site redirect = %d, want 400", rec.Code)
 	}
