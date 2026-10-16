@@ -73,8 +73,6 @@
     "test:go": "go test ./acorn-backend/... ./acorn-agent/...",
     "vet:go": "go vet ./acorn-backend/... ./acorn-agent/...",
     "check:deps": "bun tools/check-single-node-modules.mjs",
-    "e2e:mock-apply:setup": "bun tests/e2e/mock-apply/setup.ts",
-    "e2e:mock-apply": "bun run build:acorn && bun tests/e2e/mock-apply/run.ts",
     "e2e:agent": "bun run build:acorn && bun tests/e2e/agent/run.ts",
     "prepare": "husky",
     "commitlint": "commitlint"

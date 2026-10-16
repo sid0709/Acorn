@@ -496,53 +496,6 @@ func (s *Server) recommendLibrary(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
-// coverLetter picks the Library cover letter for a posting: the only one as it
-// is, or the best of several by Jev. No cover letter in the Library is an empty
-// answer, not an error: the run leaves the field to the page.
-func (s *Server) coverLetter(w http.ResponseWriter, r *http.Request) {
-	session, ok := s.session(w, r)
-	if !ok {
-		return
-	}
-	var body struct {
-		JobDescription string `json:"jobDescription"`
-		// IDOnly answers with the chosen letter's id alone: the extension fetches the
-		// file through the versioned Library route, which it keeps cached.
-		IDOnly bool `json:"idOnly"`
-	}
-	if !decode(w, r, &body) {
-		return
-	}
-	gateway, ok := s.selectorFor(w, r, session.User.ID)
-	if !ok {
-		return
-	}
-	ctx := s.withUsage(r, session.User.ID)
-	if body.IDOnly {
-		choice, err := s.resumes.CoverLetterID(ctx, session.User.ID, body.JobDescription, gateway)
-		if errors.Is(err, resume.ErrNoCoverLetter) {
-			writeJSON(w, http.StatusOK, map[string]any{"success": true, "file": nil, "stack": nil, "reason": err.Error()})
-			return
-		}
-		if err != nil {
-			s.writeResumeErr(w, err)
-			return
-		}
-		writeJSON(w, http.StatusOK, map[string]any{"success": true, "resumeId": choice.ResumeID, "stack": choice.Stack, "reason": choice.Reason})
-		return
-	}
-	pick, err := s.resumes.CoverLetter(ctx, session.User.ID, body.JobDescription, gateway)
-	if errors.Is(err, resume.ErrNoCoverLetter) {
-		writeJSON(w, http.StatusOK, map[string]any{"success": true, "file": nil, "stack": nil, "reason": err.Error()})
-		return
-	}
-	if err != nil {
-		s.writeResumeErr(w, err)
-		return
-	}
-	writeJSON(w, http.StatusOK, map[string]any{"success": true, "file": pick.File, "stack": pick.Stack, "reason": pick.Reason})
-}
-
 func (s *Server) jobRecommendedResume(w http.ResponseWriter, r *http.Request) {
 	session, ok := s.session(w, r)
 	if !ok {

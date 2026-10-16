@@ -1,5 +1,12 @@
 import { traceFromBackground } from "../background/debug-trace-sink";
-import { LOG_KIND, LOG_LEVEL, logTab, setRunContext, type LogLevel } from "../tab-log-session";
+import {
+  LOG_KIND,
+  LOG_LEVEL,
+  appendTabLog,
+  logTab,
+  setRunContext,
+  type LogLevel,
+} from "../tab-log-session";
 
 /** A page address without its query or fragment, which can carry tokens. */
 export function logUrl(raw: string): string {
@@ -74,6 +81,20 @@ export class RunLog {
     console.info("[acorn:run]", this.runId, `#${this.step}`, `decision: ${what} — ${why}`);
     setRunContext(this.tabId, { runId: this.runId, step: this.step, page: this.page });
     logTab(this.tabId, LOG_KIND.decision, what, () => ({ what, why, evidence }), { level });
+  }
+
+  /**
+   * One file of the run's trace, for the zip the Logs tab downloads: `name` is the file's name in the
+   * run's folder, `content` its text (an image as base64). Never shown in the Logs tab.
+   */
+  agentFile(name: string, content: string): void {
+    appendTabLog(this.tabId, {
+      kind: LOG_KIND.agentFile,
+      title: name,
+      text: content,
+      step: this.step,
+      page: this.page,
+    });
   }
 
   /** Kept for callers that waited on an upload; the log is written locally as it goes. */

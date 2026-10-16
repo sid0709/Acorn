@@ -32,99 +32,14 @@ func (f *fakeModel) JSON(_ context.Context, system, user string, _ json.RawMessa
 func (f *fakeModel) Model() string { return "fake" }
 func (f *fakeModel) Ready() bool   { return true }
 
-const basePlan = `{"goal":"g","actions":[
- {"action":"fill","element_index":1,"element_indexes":null,"expected_label":"Why this role?","expected_role":"textarea","value":"draft","file":null,"reason":null,"ms":null},
- {"action":"fill","element_index":2,"element_indexes":null,"expected_label":"Did you use AI to apply?","expected_role":"combobox","value":"Yes","file":null,"reason":null,"ms":null},
- {"action":"fill","element_index":3,"element_indexes":null,"expected_label":"Name","expected_role":"textbox","value":"Jordan","file":null,"reason":null,"ms":null}
-],"forbidden_actions":[],"validation":{"required_element_indexes":[1,2,3],"stop_before_submit":true},"unresolved_items":[]}`
-
-func TestAnalyzePipeline(t *testing.T) {
-	model := &fakeModel{replies: []string{
-		basePlan,
-		`{"classifications":[{"element_index":2,"kind":"application_ai"},{"element_index":1,"kind":"other"}]}`,
-		`{"answers":[{"element_index":1,"value":"Because of the Heroku migration."},{"element_index":3,"value":"Jordan Lee"},{"element_index":99,"value":"ignored"}]}`,
-	}}
-	got, err := New(model).Analyze(context.Background(), "PROFILE", "tree", map[string]any{"job": map[string]any{"title": "Dev"}})
-	if err != nil {
-		t.Fatal(err)
-	}
-	values := map[int]string{}
-	for _, row := range planActions(got.Plan) {
-		index, _ := elementIndex(row)
-		values[index], _ = row["value"].(string)
-	}
-	if values[2] != "No" {
-		t.Errorf("AI-use answer = %q, want No", values[2])
-	}
-	// The writer rewrites prose (the textarea); a short fact keeps the planner's value.
-	if values[1] != "Because of the Heroku migration." || values[3] != "Jordan" {
-		t.Errorf("typed answers = %v, want prose rewritten and the name kept", values)
-	}
-	if !strings.Contains(model.calls[0], `"recommendedResumeAvailable": true`) {
-		t.Errorf("planner was not told a résumé can be attached:\n%s", model.calls[0])
-	}
-	if len(model.calls) != 3 {
-		t.Errorf("model calls = %d, want 3", len(model.calls))
-	}
-}
-
-func TestAnalyzeFailsOpenWhenHelpersFail(t *testing.T) {
-	model := &fakeModel{replies: []string{basePlan, "not json", "not json"}}
-	got, err := New(model).Analyze(context.Background(), "PROFILE", "tree", nil)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if v := planActions(got.Plan)[0]["value"]; v != "draft" {
-		t.Errorf("draft changed to %v", v)
-	}
-}
-
-func TestAnalyzeRejectsBadPlanAndEmptyTree(t *testing.T) {
-	if _, err := New(&fakeModel{replies: []string{`{"goal":"g"}`}}).Analyze(context.Background(), "P", "tree", nil); err == nil {
-		t.Error("plan missing fields should fail")
-	}
-	if _, err := New(&fakeModel{}).Analyze(context.Background(), "P", "  ", nil); err == nil {
-		t.Error("empty tree should fail")
-	}
-}
-
-func TestAnswerAndExtractJD(t *testing.T) {
-	svc := New(&fakeModel{replies: []string{
-		`{"answers":[{"element_index":1,"value":" Hello. "}]}`,
-		`{"hasJobDescription":true,"jobDescription":" Senior Go dev ","reason":""}`,
-		`{"hasJobDescription":false,"jobDescription":null,"reason":""}`,
-	}})
+func TestAnswer(t *testing.T) {
+	svc := New(&fakeModel{replies: []string{`{"answers":[{"element_index":1,"value":" Hello. "}]}`}})
 	qa, err := svc.Answer(context.Background(), "P", "Why?", nil)
 	if err != nil || qa.Answer != "Hello." {
 		t.Fatalf("qa = %+v err %v", qa, err)
 	}
-	jd, err := svc.ExtractJD(context.Background(), "page", nil)
-	if err != nil || !jd.HasJobDescription || *jd.JobDescription != "Senior Go dev" || jd.Reason != "Job description found" {
-		t.Fatalf("jd = %+v err %v", jd, err)
-	}
-	none, err := svc.ExtractJD(context.Background(), "page", nil)
-	if err != nil || none.HasJobDescription || none.JobDescription != nil || none.Reason != noJDReason {
-		t.Fatalf("none = %+v err %v", none, err)
-	}
-	if _, err := svc.ExtractJD(context.Background(), "", nil); err == nil {
-		t.Error("no page text should fail")
-	}
-}
-
-func TestMetaToPageText(t *testing.T) {
-	tree := map[string]any{"tag": "div", "title": "Jobs", "url": "https://x", "children": []any{
-		map[string]any{"tag": "h1", "text": "Go  Dev"},
-		map[string]any{"tag": "button", "text": "Apply"},
-		map[string]any{"tag": "p", "text": "Build things"},
-	}}
-	if got := MetaToPageText(tree); got != "Jobs\n\nhttps://x\n\nGo Dev Build things" {
-		t.Errorf("tree text = %q", got)
-	}
-	if got := MetaToPageText(" plain "); got != "plain" {
-		t.Errorf("string = %q", got)
-	}
-	if got := MetaToPageText(nil); got != "" {
-		t.Errorf("nil = %q", got)
+	if _, err := svc.Answer(context.Background(), "P", "  ", nil); err == nil {
+		t.Error("an empty question should fail")
 	}
 }
 

@@ -45,8 +45,10 @@ import {
   runningProgress,
   AGENT_STARTING_MESSAGE,
 } from "./progress";
+import { AGENT_SURVEY } from "./settings";
 import { captureSurvey } from "./survey";
 import { openAgentTab, type AgentTab } from "./tab-session";
+import { recordAgentTrace } from "./trace-log";
 import { toBase64, type ResumeFile } from "./upload";
 
 import type { PipelineProgress } from "@acorn/shared/pipeline-types";
@@ -77,6 +79,8 @@ export interface AgentRunArgs {
   /** Aborts when the person presses Stop in the sidebar. */
   signal: AbortSignal;
   stopBeforeSubmit: boolean;
+  /** Survey long pages for this run; the default is AGENT_SURVEY (off). */
+  survey?: boolean;
   /** The person's own OpenRouter key, when the extension holds one; the server has its own otherwise. */
   key?: string;
   /** The person's Acorn session: the agent reads their profile and résumés from acorn-backend with it. */
@@ -136,6 +140,7 @@ function sleeper(signal: AbortSignal) {
 }
 
 export async function runAgent(args: AgentRunArgs): Promise<RunReport> {
+  const surveyOn = args.survey ?? AGENT_SURVEY;
   const runId = crypto.randomUUID().slice(0, 8);
   const startedAt = Date.now();
   const log = new RunLog(runId, args.tabId);
@@ -308,20 +313,27 @@ export async function runAgent(args: AgentRunArgs): Promise<RunReport> {
     watchFrames(current);
     const started = await startSession(
       args.agentUrl,
-      { url: tab.url ?? "", title: tab.title ?? "", stopBeforeSubmit: args.stopBeforeSubmit },
+      {
+        url: tab.url ?? "",
+        title: tab.title ?? "",
+        stopBeforeSubmit: args.stopBeforeSubmit,
+        trace: true,
+        survey: surveyOn,
+      },
       args.key,
       args.accessToken,
     );
     sessionId = started.sessionId;
     log.event("agent-session", { resumes: started.resumes.length });
+    recordAgentTrace(log, started.trace);
 
     let results: AgentActionResult[] = [];
     let carriedNotes: string[] = [];
     let answer: string | undefined;
     let sentText = "";
-    // The first look of a page is a survey of the whole of it, so the model can plan the form at
-    // once; so is the look after the model asks for one.
-    let surveyNext = true;
+    // With surveys on (AGENT_SURVEY), the first look of a page is a survey of the whole of it, so
+    // the model can plan the form at once; so is the look after the model asks for one.
+    let surveyNext = surveyOn;
     let lastLook = "";
     for (;;) {
       checkStopped();
@@ -336,10 +348,11 @@ export async function runAgent(args: AgentRunArgs): Promise<RunReport> {
       await here.overlay.ensure();
       const info = await chrome.tabs.get(here.tabId);
       const lookKey = `${info.url ?? ""}\n${info.title ?? ""}`;
-      const surveying = surveyNext || lookKey !== lastLook;
+      const surveying = surveyOn && (surveyNext || lookKey !== lastLook);
       surveyNext = false;
       lastLook = lookKey;
       let survey: AgentSurveyScreen[] | null = null;
+      const captureStartedAt = Date.now();
       await here.overlay.hideForCapture(true);
       try {
         shot = await captureShot(here.cdp);
@@ -354,6 +367,7 @@ export async function runAgent(args: AgentRunArgs): Promise<RunReport> {
       } finally {
         await here.overlay.hideForCapture(false);
       }
+      const captureMs = Date.now() - captureStartedAt;
       checkStopped();
       if (survey) log.event("agent-survey", { screens: survey.length });
       const [focus, text] = await Promise.all([
@@ -390,6 +404,11 @@ export async function runAgent(args: AgentRunArgs): Promise<RunReport> {
       const actions = step.actions ?? [];
       if (step.survey) surveyNext = true;
       log.step = step.number;
+      recordAgentTrace(log, step.trace, {
+        seq: step.trace?.seq ?? step.number,
+        screenshot: shot.dataUrl,
+        survey: survey ?? undefined,
+      });
       log.event("agent-step", {
         number: step.number,
         status: step.status,
@@ -397,6 +416,7 @@ export async function runAgent(args: AgentRunArgs): Promise<RunReport> {
         actions: actions.map(describeAction),
         dropped: step.dropped,
         ms: Date.now() - askedAt,
+        captureMs,
         calls: step.usage.calls,
         costUsd: step.usage.cost,
         url: logUrl(info.url ?? ""),

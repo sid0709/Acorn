@@ -38,6 +38,7 @@ export const KIND_LABEL: Record<LogKind, string> = {
   api: "API",
   decision: "Decision",
   error: "Error",
+  "agent-file": "Agent file",
 };
 
 /** Entries that went wrong or were refused: what a person reads first. */
@@ -53,6 +54,8 @@ export function filterEntries(
 ): TabLogEntry[] {
   const needle = query.trim().toLowerCase();
   return entries.filter((entry) => {
+    // An Agent Run's files are for the zip; they are pictures and long model messages.
+    if (entry.kind === LOG_KIND.agentFile) return false;
     if (view === LOG_VIEW.problems && !isProblem(entry)) return false;
     if (view !== LOG_VIEW.all && view !== LOG_VIEW.problems) {
       if (!VIEW_KINDS[view].includes(entry.kind)) return false;

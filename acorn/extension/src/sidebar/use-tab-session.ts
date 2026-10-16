@@ -6,12 +6,6 @@ import {
 import { useEffect, useMemo, useState } from "react";
 
 import {
-  listCustomTabs,
-  TAB_CUSTOM_STORAGE_KEY,
-  type CustomTabMap,
-  type AcornCustomTabBinding,
-} from "../tab-custom-session";
-import {
   JOB_GENERATE_STORAGE_KEY,
   listJobGenerates,
   type JobGenerateMap,
@@ -31,22 +25,19 @@ import { MSG } from "../types";
 
 export function useTabSession(activeTabId: number | null) {
   const [tabJobs, setTabJobs] = useState<TabJobMap>({});
-  const [customTabs, setCustomTabs] = useState<CustomTabMap>({});
   const [jobGenerates, setJobGenerates] = useState<JobGenerateMap>({});
   const [pipelines, setPipelines] = useState<TabPipelineMap>({});
 
   useEffect(() => {
     let alive = true;
     void (async () => {
-      const [jobs, custom, generates, progress] = await Promise.all([
+      const [jobs, generates, progress] = await Promise.all([
         listTabJobs(),
-        listCustomTabs(),
         listJobGenerates(),
         listTabPipelines(),
       ]);
       if (!alive) return;
       setTabJobs(jobs);
-      setCustomTabs(custom);
       setJobGenerates(generates);
       setPipelines(progress);
     })();
@@ -59,10 +50,6 @@ export function useTabSession(activeTabId: number | null) {
       if (changes[TAB_JOBS_STORAGE_KEY]) {
         const next = changes[TAB_JOBS_STORAGE_KEY].newValue;
         setTabJobs(next && typeof next === "object" ? (next as TabJobMap) : {});
-      }
-      if (changes[TAB_CUSTOM_STORAGE_KEY]) {
-        const next = changes[TAB_CUSTOM_STORAGE_KEY].newValue;
-        setCustomTabs(next && typeof next === "object" ? (next as CustomTabMap) : {});
       }
       if (changes[JOB_GENERATE_STORAGE_KEY]) {
         const next = changes[JOB_GENERATE_STORAGE_KEY].newValue;
@@ -100,7 +87,6 @@ export function useTabSession(activeTabId: number | null) {
 
   const tabKey = activeTabId != null ? String(activeTabId) : null;
   const tabJob = tabKey ? (tabJobs[tabKey] ?? null) : null;
-  const customTab: AcornCustomTabBinding | null = tabKey ? (customTabs[tabKey] ?? null) : null;
   const progress = tabKey ? (pipelines[tabKey] ?? IDLE_PIPELINE_PROGRESS) : IDLE_PIPELINE_PROGRESS;
 
   const attachments = useMemo(() => {
@@ -113,15 +99,9 @@ export function useTabSession(activeTabId: number | null) {
     return next;
   }, [tabJobs, activeTabId]);
 
-  const customList = useMemo(() => {
-    return Object.values(customTabs).sort((a, b) => (a.rememberedAt < b.rememberedAt ? 1 : -1));
-  }, [customTabs]);
-
   return {
     tabJobs,
     tabJob,
-    customTab,
-    customList,
     jobGenerates,
     pipelines,
     progress,

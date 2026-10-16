@@ -1,22 +1,15 @@
 import { runAgent } from "../../agent/runner";
-import { getAgentMode, getAgentUrl } from "../../agent/settings";
-import { getAccessToken, getAcornApiUrl } from "../../auth/acorn-auth";
-import { getRunCheckpoint } from "../../pipeline/run-checkpoint";
-import { runOrchestrator } from "../../pipeline/run-orchestrator";
+import { getAgentUrl } from "../../agent/settings";
+import { getAccessToken } from "../../auth/acorn-auth";
 import { getStopBeforeSubmit } from "../../run-settings";
 import { syncAutoFocus } from "../auto-focus";
 import { answerRunOnTab, awaitRunAnswer } from "../run-answer";
 import { beginRunStop, claimRunStopTab, endRunStop, stopRunOnTab } from "../run-stop";
 import { broadcastPipelineProgress } from "../socket-connection";
 import { pinnedTabId } from "../tab-target";
-import {
-  customGenerateTabIds,
-  pipelineRunningTabIds,
-  runTabIds,
-  syncWorkKeepAlive,
-} from "../work-state";
+import { pipelineRunningTabIds, runTabIds, syncWorkKeepAlive } from "../work-state";
 
-import { SIGN_IN_FIRST, type RuntimeMessage, type SendResponse } from "./shared";
+import type { RuntimeMessage, SendResponse } from "./shared";
 
 /** Run: the whole application on this tab, in one click. */
 export function handleStartRun(
@@ -34,10 +27,6 @@ export function handleStartRun(
       sendResponse({ error: "A run is already working on this tab" });
       return;
     }
-    if (customGenerateTabIds.has(tabId)) {
-      sendResponse({ error: "Generate or Recommend is running on this tab" });
-      return;
-    }
 
     const claimed = new Set<number>([tabId]);
     const stop = beginRunStop(tabId);
@@ -51,49 +40,17 @@ export function handleStartRun(
       // The agent plans from screenshots; it reads the person's profile and résumés from
       // acorn-backend with their Acorn session, so it needs them signed in (a local development
       // agent reading files ignores the session).
-      if (await getAgentMode()) {
-        console.info("[acorn:agent] Run on tab", tabId, "→", getAgentUrl());
-        await runAgent({
-          tabId,
-          agentUrl: getAgentUrl(),
-          signal: stop.signal,
-          stopBeforeSubmit: await stopBeforeSubmitFor(message),
-          accessToken: (await getAccessToken()) ?? undefined,
-          emit: (tabIds, progress) => {
-            for (const id of tabIds) broadcastPipelineProgress(id, progress);
-          },
-          waitForAnswer: (signal) => awaitRunAnswer(claimed, signal),
-          claimTab: (id) => {
-            claimed.add(id);
-            claimRunStopTab(stop, id);
-            pipelineRunningTabIds.add(id);
-            runTabIds.add(id);
-            void syncAutoFocus();
-          },
-        });
-        return;
-      }
-      const token = await getAccessToken();
-      if (!token) {
-        broadcastPipelineProgress(tabId, {
-          phase: "error",
-          message: "Sign in required",
-          error: SIGN_IN_FIRST,
-        });
-        return;
-      }
-      await runOrchestrator({
+      console.info("[acorn:agent] Run on tab", tabId, "→", getAgentUrl());
+      await runAgent({
         tabId,
-        preferredFrameId: sender.tab ? (sender.frameId ?? null) : null,
-        apiUrl: await getAcornApiUrl(),
+        agentUrl: getAgentUrl(),
         signal: stop.signal,
-        // Continue: carry on from where the last run on this tab stopped.
-        resumeFrom: message.continueRun === true ? await getRunCheckpoint(tabId) : null,
-        // The message may ask for it (a test run); otherwise the sidebar switch decides.
         stopBeforeSubmit: await stopBeforeSubmitFor(message),
+        accessToken: (await getAccessToken()) ?? undefined,
         emit: (tabIds, progress) => {
           for (const id of tabIds) broadcastPipelineProgress(id, progress);
         },
+        waitForAnswer: (signal) => awaitRunAnswer(claimed, signal),
         claimTab: (id) => {
           claimed.add(id);
           claimRunStopTab(stop, id);

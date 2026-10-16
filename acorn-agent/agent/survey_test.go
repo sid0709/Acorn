@@ -7,6 +7,8 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"github.com/sid0709/OpenSeat/acorn-agent/applicant"
 )
 
 // surveyObservation is a look at a page of three screens, scrolled to the top.
@@ -93,9 +95,34 @@ func TestASurveyScreenOfTheWrongSizeIsRefused(t *testing.T) {
 func TestAskingForASurveyAsksTheExtensionForOneWithNoActionAndNoWait(t *testing.T) {
 	model := &scriptedModel{replies: []string{plan("a new page", nil, map[string]any{"kind": "survey"})}}
 	a := newTestAgent(t, model, &fixedDecider{}, DefaultConfig())
-	step := stepOK(t, a, start(t, a), observation(shot(t, 40)))
+	started, err := a.Start(context.Background(), "key", applicant.Auth{}, Start{URL: "https://jobs.example/apply", Title: "Apply", Survey: true})
+	if err != nil {
+		t.Fatal(err)
+	}
+	step := stepOK(t, a, started.SessionID, observation(shot(t, 40)))
 	if !step.Survey || len(step.Actions) != 0 || step.Status != StatusWorking {
 		t.Fatalf("step = %+v", step)
+	}
+}
+
+func TestARunWithoutSurveysIsNotToldOfThemAndIgnoresAnAskForOne(t *testing.T) {
+	model := &scriptedModel{replies: []string{plan("a new page", nil, map[string]any{"kind": "survey"})}}
+	a := newTestAgent(t, model, &fixedDecider{}, DefaultConfig())
+	id := start(t, a)
+	step := stepOK(t, a, id, observation(shot(t, 40)))
+	if step.Survey {
+		t.Fatalf("a survey was asked for although the run did not turn them on: %+v", step)
+	}
+	if prompt := model.requests[0].Messages[0].Text; strings.Contains(prompt, "Seeing the whole page") {
+		t.Fatal("the prompt tells the model about surveys")
+	}
+	withSurveys, err := a.Start(context.Background(), "key", applicant.Auth{}, Start{Survey: true})
+	if err != nil {
+		t.Fatal(err)
+	}
+	s, _ := a.sessions.get(withSurveys.SessionID)
+	if !strings.Contains(s.system, "Seeing the whole page") {
+		t.Fatal("a run with surveys on is not told about them")
 	}
 }
 

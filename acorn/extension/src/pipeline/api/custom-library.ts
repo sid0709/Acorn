@@ -6,7 +6,7 @@ import { loggedFetch } from "./api-log";
 import { cachedFileGet } from "./file-cache";
 import { apiError, isNestMissingRoute, readId } from "./http";
 
-import type { RuntimeAttachedFile } from "@acorn/shared/plan-runner/types";
+import type { RuntimeAttachedFile } from "@acorn/shared/attached-file";
 
 const CUSTOM_RECOMMEND_UNAVAILABLE = "Custom Recommend needs Library matching on this Acorn API.";
 
@@ -116,33 +116,4 @@ export async function fetchCustomLibraryResume(
     resumeId: responseId || id,
     label: stack || file.name,
   };
-}
-
-export async function fetchCustomLibraryResumePreview(
-  resumeId: string,
-  _apiUrl?: string,
-): Promise<string> {
-  const id = String(resumeId || "").trim();
-  if (!id) throw new Error("Missing resume id");
-  const base = (_apiUrl || (await getAcornApiUrl())).replace(/\/$/, "");
-  const res = await fetch(
-    `${base}/acorn/custom/library-resumes/${encodeURIComponent(id)}/preview`,
-    {
-      headers: await authHeaders(),
-    },
-  );
-  const data = (await res.json().catch(() => ({}))) as {
-    html?: string;
-    error?: string;
-    message?: string;
-  };
-  if (!res.ok) {
-    if (isNestMissingRoute(res.status, data)) {
-      throw new Error(CUSTOM_LIBRARY_FILE_UNAVAILABLE);
-    }
-    throw apiError(res, data, `Resume preview failed: ${res.status}`);
-  }
-  const html = typeof data.html === "string" ? data.html : "";
-  if (!html.trim()) throw new Error("Library résumé preview is empty");
-  return html;
 }

@@ -1,4 +1,3 @@
-import { FILL_MODE } from "@acorn/shared/field-issues";
 import { RUN_OUTCOME } from "@acorn/shared/run-types";
 import { describeError, describeRunFailure } from "@acorn/shared/user-messages";
 import { useEffect, useRef } from "react";
@@ -24,16 +23,13 @@ function endNotice(progress: PipelineProgress): AcornNoticePayload | null {
         });
     return {
       kind: "error",
-      title: said.title || (errored ? "Run stopped" : "Fill couldn’t finish"),
+      title: said.title || (errored ? "Run stopped" : "Run couldn’t finish"),
       detail: said.detail,
     };
   }
   if (progress.phase !== "done") return null;
   if (progress.run?.report?.outcome === RUN_OUTCOME.completed) {
     return { kind: "success", title: "Application sent", detail: progress.message };
-  }
-  if (progress.mode === FILL_MODE.refill) {
-    return { kind: "info", title: "Refill finished", detail: progress.message };
   }
   return null;
 }

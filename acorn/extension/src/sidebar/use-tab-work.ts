@@ -1,24 +1,18 @@
-import { FILL_MODE, type FillMode } from "@acorn/shared/field-issues";
 import {
   IDLE_PIPELINE_PROGRESS,
   mergePipelineProgress,
   type PipelineProgress,
 } from "@acorn/shared/pipeline-types";
 import { describeError } from "@acorn/shared/user-messages";
-import { useCallback, useEffect, useState } from "react";
+import { useCallback } from "react";
 
 import { fetchStoredJobDescription } from "../pipeline/api/job-files";
-import {
-  patchCustomTab,
-  type CustomResumeMode,
-  type AcornCustomTabBinding,
-} from "../tab-custom-session";
-import { MSG, type AcornNoticePayload, type PipelineSource } from "../types";
+import { MSG, type AcornNoticePayload } from "../types";
 
 import { pushAcornNotice } from "./acorn-notice";
 import { sendMessage } from "./runtime";
 
-import type { AcornMainTab } from "./SidebarNav";
+import type { ResumeMode } from "../tab-job-generate-session";
 import type { useTabSession } from "./use-tab-session";
 
 type TabSession = ReturnType<typeof useTabSession>;
@@ -32,33 +26,18 @@ function notify(tabId: number | null | undefined, notice: AcornNoticePayload): v
   pushAcornNotice(typeof tabId === "number" ? { ...notice, tabId } : notice);
 }
 
-/**
- * Actions that start or steer work on a Chrome tab: Fill, Remember / Forget / Focus a
- * Custom tab, and Generate / Recommend for a Fill job or a Custom tab.
- */
+/** Actions that start or steer work on a Chrome tab: Run, and Generate / Recommend for a job. */
 export function useTabWork({
   activeTabId,
-  mainTab,
   tabJob,
-  customTab,
   setPipelines,
   tabWorkBusy,
 }: {
   activeTabId: number | null;
-  mainTab: AcornMainTab;
   tabJob: TabSession["tabJob"];
-  customTab: TabSession["customTab"];
   setPipelines: TabSession["setPipelines"];
   tabWorkBusy: boolean;
 }) {
-  const [remembering, setRemembering] = useState(false);
-  const [customResumeMode, setCustomResumeMode] = useState<CustomResumeMode>("generate");
-
-  useEffect(() => {
-    if (customTab == null) return;
-    setCustomResumeMode(customTab.resumeMode);
-  }, [customTab]);
-
   const setTabProgress = useCallback(
     (tabId: number, next: PipelineProgress) => {
       setPipelines((prev) => {
@@ -70,59 +49,6 @@ export function useTabWork({
       });
     },
     [setPipelines],
-  );
-
-  const startPipeline = useCallback(
-    async (source: PipelineSource = "fill", mode: FillMode = FILL_MODE.fill) => {
-      const tabId = activeTabId;
-      if (tabWorkBusy || tabId == null) return;
-      if (source === "custom" && !customTab) {
-        notify(tabId, {
-          kind: "info",
-          title: "Remember this tab first",
-          detail: "Custom Fill only runs on a remembered tab.",
-        });
-        return;
-      }
-      setTabProgress(tabId, { phase: "fetching", message: "Starting…", mode });
-      try {
-        const res = await sendMessage<{ ok?: boolean; error?: string }>({
-          type: MSG.START_PIPELINE,
-          tabId,
-          source,
-          mode,
-        });
-        if (res?.error) {
-          const err = String(res.error);
-          if (/sign in/i.test(err)) {
-            setTabProgress(tabId, {
-              phase: "idle",
-              message: "Sign in to Acorn to run a fill",
-            });
-            notify(tabId, {
-              kind: "error",
-              title: "Sign in required",
-              detail: "Sign in to run Fill.",
-            });
-            return;
-          }
-          setTabProgress(tabId, {
-            phase: "error",
-            message: "Failed to start",
-            error: err,
-          });
-          return;
-        }
-      } catch (err) {
-        const detail = err instanceof Error ? err.message : String(err);
-        setTabProgress(tabId, {
-          phase: "error",
-          message: "Failed to start",
-          error: detail,
-        });
-      }
-    },
-    [activeTabId, customTab, tabWorkBusy, setTabProgress],
   );
 
   /** Run on the active tab; `continueRun` carries on from where the last run stopped. */
@@ -214,83 +140,8 @@ export function useTabWork({
     [activeTabId],
   );
 
-  const rememberFocusedTab = useCallback(async () => {
-    const tabId = activeTabId;
-    if (tabId == null) return;
-    setRemembering(true);
-    try {
-      const res = await sendMessage<{ ok?: boolean; error?: string }>({
-        type: MSG.REMEMBER_CUSTOM_TAB,
-        tabId,
-        resumeMode: customResumeMode,
-      });
-      if (!res?.ok) {
-        notify(tabId, {
-          kind: "error",
-          title: "Couldn’t remember tab",
-          detail: res?.error || "Try again on this page.",
-        });
-        return;
-      }
-      notify(tabId, { kind: "success", title: "Tab remembered" });
-    } catch (err) {
-      notify(tabId, {
-        kind: "error",
-        title: "Couldn’t remember tab",
-        detail: err instanceof Error ? err.message : String(err),
-      });
-    } finally {
-      setRemembering(false);
-    }
-  }, [activeTabId, customResumeMode]);
-
-  const forgetCustomTab = useCallback(async (tabId: number) => {
-    void chrome.tabs.remove(tabId).catch(() => undefined);
-    try {
-      const res = await sendMessage<{ ok?: boolean; error?: string }>({
-        type: MSG.FORGET_CUSTOM_TAB,
-        tabId,
-      });
-      if (!res?.ok) {
-        notify(tabId, {
-          kind: "error",
-          title: "Couldn’t forget tab",
-          detail: res?.error || "Try again.",
-        });
-      }
-    } catch (err) {
-      notify(tabId, {
-        kind: "error",
-        title: "Couldn’t forget tab",
-        detail: err instanceof Error ? err.message : String(err),
-      });
-    }
-  }, []);
-
-  const focusCustomTab = useCallback(async (tabId: number) => {
-    try {
-      const res = await sendMessage<{ ok?: boolean; error?: string }>({
-        type: MSG.FOCUS_CUSTOM_TAB,
-        tabId,
-      });
-      if (!res?.ok) {
-        notify(tabId, {
-          kind: "error",
-          title: "Couldn’t switch tab",
-          detail: res?.error || "That tab is no longer open.",
-        });
-      }
-    } catch (err) {
-      notify(tabId, {
-        kind: "error",
-        title: "Couldn’t switch tab",
-        detail: err instanceof Error ? err.message : String(err),
-      });
-    }
-  }, []);
-
   const startJobWork = useCallback(
-    async (mode: CustomResumeMode, opts: { continue?: boolean } = {}) => {
+    async (mode: ResumeMode, opts: { continue?: boolean } = {}) => {
       const tabId = activeTabId;
       const jobId = tabJob?.jobId ?? "";
       if (!jobId) {
@@ -312,7 +163,6 @@ export function useTabWork({
         });
         return;
       }
-      setCustomResumeMode(mode);
       try {
         const res = await sendMessage<{ ok?: boolean; error?: string }>({
           type: mode === "recommend" ? MSG.START_JOB_RECOMMEND : MSG.START_JOB_GENERATE,
@@ -339,71 +189,10 @@ export function useTabWork({
     [activeTabId, tabJob?.jobId],
   );
 
-  const startCustomWork = useCallback(
-    async (
-      mode: CustomResumeMode,
-      opts: { continue?: boolean; tab?: AcornCustomTabBinding } = {},
-    ) => {
-      const tabId = opts.tab?.tabId ?? activeTabId;
-      if (tabId == null) return;
-      if (!opts.tab && tabWorkBusy) return;
-      if (mainTab === "fill" && mode !== "recommend") {
-        await startJobWork(mode, { continue: opts.continue });
-        return;
-      }
-      if (mode !== "recommend" && !customTab && !opts.tab) return;
-      setCustomResumeMode(mode);
-      try {
-        if (!customTab && !opts.tab) {
-          const remembered = await sendMessage<{ ok?: boolean; error?: string }>({
-            type: MSG.REMEMBER_CUSTOM_TAB,
-            tabId,
-            resumeMode: mode,
-          });
-          if (!remembered?.ok) {
-            notify(tabId, {
-              kind: "error",
-              title: mode === "recommend" ? "Couldn’t recommend" : "Couldn’t generate",
-              detail: remembered?.error || "Try again on this page.",
-            });
-            return;
-          }
-        } else if ((opts.tab ?? customTab)?.resumeMode !== mode) {
-          await patchCustomTab(tabId, { resumeMode: mode });
-        }
-        const res = await sendMessage<{ ok?: boolean; error?: string }>({
-          type: mode === "recommend" ? MSG.START_CUSTOM_RECOMMEND : MSG.START_CUSTOM_GENERATE,
-          tabId,
-          continue: Boolean(opts.continue),
-        });
-        if (!res?.ok) {
-          notify(tabId, {
-            kind: "error",
-            title: mode === "recommend" ? "Couldn’t recommend" : "Couldn’t generate",
-            detail: res?.error || "Try again on this page.",
-          });
-        }
-      } catch (err) {
-        notify(tabId, {
-          kind: "error",
-          title: mode === "recommend" ? "Couldn’t recommend" : "Couldn’t generate",
-          detail: err instanceof Error ? err.message : String(err),
-        });
-      }
-    },
-    [activeTabId, customTab, mainTab, startJobWork, tabWorkBusy],
-  );
-
   return {
-    remembering,
-    startPipeline,
     startRun,
     stopRun,
     answerRun,
-    rememberFocusedTab,
-    forgetCustomTab,
-    focusCustomTab,
     startJobWork,
-    startCustomWork,
   };
 }

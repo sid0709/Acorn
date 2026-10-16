@@ -1,6 +1,8 @@
 import { logIndex, summarizeLog } from "../log-summary";
 import { LOG_KIND, type TabLogEntry } from "../tab-log-session";
 
+import { agentZipFiles, isAgentFile } from "./agent-files";
+
 /** A zip of the log: one file per entry, named by its time, kind and title, each compressed. */
 
 const ZIP_MIME = "application/zip";
@@ -164,8 +166,13 @@ export function logFileNames(entries: TabLogEntry[]): string[] {
 const SUMMARY_FILE = "00-summary.json";
 const INDEX_FILE = "01-index.json";
 
-export async function buildLogZip(entries: TabLogEntry[]): Promise<Blob> {
+/**
+ * The zip: an overview, an index, one file per entry, and `agent/<run>/` for every Agent Run in the
+ * log (its screenshots, what the model was sent and answered, its timeline and a summary).
+ */
+export async function buildLogZip(all: TabLogEntry[]): Promise<Blob> {
   const encoder = new TextEncoder();
+  const entries = all.filter((entry) => !isAgentFile(entry));
   const names = logFileNames(entries);
   const now = Date.now();
   const version = import.meta.env.VITE_ACORN_VERSION ?? "";
@@ -182,6 +189,7 @@ export async function buildLogZip(entries: TabLogEntry[]): Promise<Blob> {
       data: encoder.encode(entry.text),
       modified: new Date(entry.t),
     })),
+    ...agentZipFiles(all),
   ]);
 }
 

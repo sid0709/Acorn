@@ -16,7 +16,7 @@ import type {
   ResumeHistoryRun,
 } from "@acorn/shared/resume-history";
 import type { LibraryKind, ResumeLibraryRow } from "@acorn/shared/resume-library";
-import type { RuntimeAttachedFile } from "@acorn/shared/plan-runner/types";
+import type { RuntimeAttachedFile } from "@acorn/shared/attached-file";
 import { acornHeaders } from "@/lib/auth/headers";
 
 export type ResumeCall<T> = { ok: true; data: T } | { ok: false; message: string };

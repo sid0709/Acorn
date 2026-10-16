@@ -29,8 +29,7 @@ import (
 )
 
 const (
-	defaultHTTPAddr   = "127.0.0.1:8083"
-	defaultRuntimeKey = "runtime_file"
+	defaultHTTPAddr = "127.0.0.1:8083"
 	// defaultDatabase is Acorn's own database.
 	defaultDatabase = "AcornDB"
 	// defaultWebURL is acorn-frontend in production, where support sign-in links land.
@@ -162,13 +161,9 @@ func main() {
 		slog.Warn("Acorn debug capture also writes page HTML, applicant profiles, and AI prompts to disk", "dir", debug.Dir())
 	}
 	acornHandler, gateway := acornapi.New(accounts, p.Jobs, acorn.New(nil), acornapi.Options{
-		Resumes:       resumes,
-		Profiles:      profiles,
-		SessionCookie: config.Env("ACORN_SESSION_COOKIE", acornapi.DefaultSessionCookie),
-		Runtime: acornapi.RuntimeFile{
-			Path: config.Env("ACORN_RUNTIME_FILE_PATH", ""),
-			Key:  config.Env("ACORN_RUNTIME_FILE_KEY", defaultRuntimeKey),
-		},
+		Resumes:            resumes,
+		Profiles:           profiles,
+		SessionCookie:      config.Env("ACORN_SESSION_COOKIE", acornapi.DefaultSessionCookie),
 		KillSwitches:       p.KillSwitches,
 		Google:             oauth,
 		GoogleRedirectURL:  googleConfig.SignInRedirectURL,

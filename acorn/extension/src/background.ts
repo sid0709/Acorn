@@ -10,13 +10,10 @@ import {
   KEEP_ALIVE_ALARM,
   WORK_KEEP_ALIVE_ALARM,
   anyTabWorking,
-  customGenerateTabIds,
   pipelineRunningTabIds,
   runTabIds,
 } from "./background/work-state";
 import { bindContentScriptInjection, injectIntoOpenTabs } from "./inject-content";
-import { rekeyPipelineUsage } from "./pipeline/usage-tracker";
-import { rekeyCustomTab, refreshCustomTabMeta, unbindCustomTab } from "./tab-custom-session";
 import { rekeyTabJob, unbindTabJob } from "./tab-job-session";
 import {
   LOG_KIND,
@@ -105,7 +102,6 @@ chrome.runtime.onInstalled.addListener(enableSidePanelOnActionClick);
 
 chrome.tabs.onRemoved.addListener((tabId) => {
   void unbindTabJob(tabId);
-  void unbindCustomTab(tabId);
   void clearTabPipeline(tabId);
   void clearTabLog(tabId);
 });
@@ -117,31 +113,10 @@ chrome.tabs.onReplaced.addListener((addedTabId, removedTabId) => {
   if (runTabIds.delete(removedTabId)) {
     runTabIds.add(addedTabId);
   }
-  if (customGenerateTabIds.delete(removedTabId)) {
-    customGenerateTabIds.add(addedTabId);
-  }
-  rekeyPipelineUsage(removedTabId, addedTabId);
   void moveTabLog(removedTabId, addedTabId).catch(() => undefined);
   void rekeyTabJob(removedTabId, addedTabId);
   void rekeyUsageTab(removedTabId, addedTabId);
-  void rekeyCustomTab(removedTabId, addedTabId);
   void rekeyTabPipeline(removedTabId, addedTabId);
-});
-
-chrome.tabs.onUpdated.addListener((tabId, changeInfo, tab) => {
-  if (
-    !changeInfo.url &&
-    !changeInfo.title &&
-    !changeInfo.favIconUrl &&
-    changeInfo.status !== "complete"
-  ) {
-    return;
-  }
-  void refreshCustomTabMeta(tabId, {
-    url: tab.url,
-    title: tab.title,
-    favIconUrl: tab.favIconUrl,
-  });
 });
 
 chrome.storage.onChanged.addListener((changes) => {

@@ -6,13 +6,10 @@ import (
 	"io"
 	"log/slog"
 	"net/http"
-	"strings"
 
 	"github.com/sid0709/OpenSeat/acorn-backend/account"
 	"github.com/sid0709/OpenSeat/acorn-backend/acorn"
-	"github.com/sid0709/OpenSeat/acorn-backend/selector"
 	"github.com/sid0709/OpenSeat/backend-core/candidate"
-	"github.com/sid0709/OpenSeat/backend-core/jev"
 )
 
 func decode(w http.ResponseWriter, r *http.Request, dest any) bool {
@@ -55,145 +52,6 @@ func (s *Server) applicant(w http.ResponseWriter, r *http.Request, session accou
 	return acorn.ApplicantProfileTextWith(session.User.ID, doc.Candidate(session.User.Name, session.User.Email), doc.PlannerExtra()), true
 }
 
-func (s *Server) aiAnalyze(w http.ResponseWriter, r *http.Request) {
-	session, ok := s.session(w, r)
-	if !ok {
-		return
-	}
-	var body struct {
-		PureTree    string               `json:"pureTree"`
-		Mode        string               `json:"mode"`
-		FieldIssues acorn.FieldIssueScan `json:"fieldIssues"`
-		// History is the plans already run on this page; a Refill continues from them.
-		History    []acorn.PlanTurn  `json:"history"`
-		FormFields []acorn.FormField `json:"formFields"`
-		Page       map[string]any    `json:"page"`
-		// VerificationCode is a code the run found in the applicant's mail for this page.
-		VerificationCode string `json:"verificationCode"`
-	}
-	if !decode(w, r, &body) {
-		return
-	}
-	applicant, ok := s.applicant(w, r, session)
-	if !ok {
-		return
-	}
-	brain, ok := s.acornFor(w, r, session.User.ID)
-	if !ok {
-		return
-	}
-	password, err := s.accountPassword(r.Context(), session.User.ID)
-	if err != nil {
-		s.writeProfileErr(w, err)
-		return
-	}
-	if len(body.VerificationCode) > maxVerificationCode {
-		writeError(w, http.StatusBadRequest, "verificationCode is too long")
-		return
-	}
-	brain = brain.WithCredentials(acorn.Credentials{Password: password, VerificationCode: body.VerificationCode})
-	ctx := s.startAnalyzeRun(r, session.User.ID, applicant, body.PureTree, body.Page)
-	var result acorn.AnalyzeResult
-	switch body.Mode {
-	case acorn.ModeRefill:
-		recordFieldIssues(ctx, body.FieldIssues)
-		if body.FormFields != nil {
-			// The extension listed the flagged fields: they are planned on their own first.
-			recordFormFields(ctx, body.FormFields)
-			result, err = brain.RefillFlagged(ctx, applicant, body.PureTree, body.FieldIssues, body.FormFields, body.Page, body.History)
-		} else {
-			result, err = brain.Refill(ctx, applicant, body.PureTree, body.FieldIssues, body.Page, body.History)
-		}
-	case acorn.ModeFast:
-		if len(body.FormFields) > 0 {
-			recordFormFields(ctx, body.FormFields)
-			result, err = brain.FastPlan(ctx, applicant, body.FormFields, body.Page)
-		} else {
-			result, err = brain.FastPlanFromTree(ctx, applicant, body.PureTree, body.Page)
-			recordFormFields(ctx, result.Fields)
-		}
-	default:
-		result, err = brain.Analyze(ctx, applicant, body.PureTree, body.Page)
-	}
-	finishAnalyzeRun(ctx, result, err)
-	if err != nil {
-		writeAcornError(w, "ai-analyze", err)
-		return
-	}
-	writeJSON(w, http.StatusOK, result)
-}
-
-// matchOption picks a dropdown option through the SelectorGateway (TypeSafe Jev).
-// A failed decision is data, not an HTTP error: the extension falls back to its own matching.
-func (s *Server) matchOption(w http.ResponseWriter, r *http.Request) {
-	session, ok := s.session(w, r)
-	if !ok {
-		return
-	}
-	var body struct {
-		IntendedValue  string   `json:"intendedValue"`
-		Options        []string `json:"options"`
-		FieldLabel     string   `json:"fieldLabel"`
-		TypedQuery     string   `json:"typedQuery"`
-		AllowNotListed bool     `json:"allowNotListed"`
-		// ListComplete says the options are the field's whole list, not a search window.
-		ListComplete bool `json:"listComplete"`
-		// Multiple is a checkbox group: the answer is the set of options to check.
-		Multiple bool `json:"multiple"`
-	}
-	if !decode(w, r, &body) {
-		return
-	}
-	if strings.TrimSpace(body.IntendedValue) == "" || len(body.Options) == 0 {
-		writeError(w, http.StatusBadRequest, "intendedValue and options are required")
-		return
-	}
-	applicant, ok := s.applicant(w, r, session)
-	if !ok {
-		return
-	}
-	gateway, ok := s.selectorFor(w, r, session.User.ID)
-	if !ok {
-		return
-	}
-	ctx := s.withUsage(r, session.User.ID)
-	query := selector.OptionQuery{
-		Field: body.FieldLabel, Intended: body.IntendedValue, Typed: body.TypedQuery,
-		Options: body.Options, AllowNotListed: body.AllowNotListed, ListComplete: body.ListComplete, Applicant: applicant,
-	}
-	if body.Multiple {
-		many, err := gateway.PickMany(ctx, query)
-		if err != nil {
-			slog.Warn("acorn match-option failed", "error", err)
-			writeJSON(w, http.StatusOK, map[string]any{"ok": false, "matched_options": []string{}, "error": err.Error()})
-			return
-		}
-		writeJSON(w, http.StatusOK, map[string]any{
-			"ok": true, "matched_options": many.Options, "model": gateway.Model(), "usage": decisionUsage(gateway.Model(), many.Usage),
-		})
-		return
-	}
-	pick, err := gateway.PickOption(ctx, query)
-	if err != nil {
-		slog.Warn("acorn match-option failed", "error", err)
-		writeJSON(w, http.StatusOK, map[string]any{"ok": false, "matched_option": nil, "fallback_option": nil, "confidence": 0, "error": err.Error()})
-		return
-	}
-	writeJSON(w, http.StatusOK, map[string]any{
-		"ok": true, "matched_option": emptyNil(pick.Option), "fallback_option": emptyNil(pick.Fallback),
-		"confidence": pick.Confidence, "model": gateway.Model(), "usage": decisionUsage(gateway.Model(), pick.Usage),
-	})
-}
-
-// decisionUsage is a Jev call in the extension's AiUsageSummary shape.
-func decisionUsage(model string, usage jev.Usage) map[string]any {
-	return map[string]any{
-		"model": model, "inputTokens": usage.InputTokens, "outputTokens": usage.OutputTokens,
-		"cachedInputTokens": 0, "totalTokens": usage.InputTokens + usage.OutputTokens,
-		"costUsd": usage.Cost, "priced": true, "calls": 1,
-	}
-}
-
 func (s *Server) qa(w http.ResponseWriter, r *http.Request) {
 	session, ok := s.session(w, r)
 	if !ok {
@@ -217,52 +75,6 @@ func (s *Server) qa(w http.ResponseWriter, r *http.Request) {
 	result, err := brain.Answer(s.traceContext(r, session.User.ID), applicant, body.Question, body.Page)
 	if err != nil {
 		writeAcornError(w, "qa", err)
-		return
-	}
-	writeJSON(w, http.StatusOK, result)
-}
-
-func (s *Server) extractJD(w http.ResponseWriter, r *http.Request) {
-	session, ok := s.session(w, r)
-	if !ok {
-		return
-	}
-	var body struct {
-		PageText string `json:"pageText"`
-		Meta     any    `json:"meta"`
-	}
-	if !decode(w, r, &body) {
-		return
-	}
-	s.writeJD(w, r, session.User.ID, body.PageText, body.Meta)
-}
-
-func (s *Server) analyzeMeta(w http.ResponseWriter, r *http.Request) {
-	session, ok := s.session(w, r)
-	if !ok {
-		return
-	}
-	var body struct {
-		Meta any `json:"meta"`
-	}
-	if !decode(w, r, &body) {
-		return
-	}
-	s.writeJD(w, r, session.User.ID, "", body.Meta)
-}
-
-func (s *Server) writeJD(w http.ResponseWriter, r *http.Request, accountID, pageText string, meta any) {
-	if len([]rune(pageText)) > acorn.PageTextMaxChars {
-		writeError(w, http.StatusBadRequest, "pageText is too long")
-		return
-	}
-	brain, ok := s.acornFor(w, r, accountID)
-	if !ok {
-		return
-	}
-	result, err := brain.ExtractJD(s.withUsage(r, accountID), pageText, meta)
-	if err != nil {
-		writeAcornError(w, "extract-jd", err)
 		return
 	}
 	writeJSON(w, http.StatusOK, result)

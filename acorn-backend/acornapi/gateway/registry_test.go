@@ -23,19 +23,6 @@ func TestToken(t *testing.T) {
 	}
 }
 
-func TestCountNodes(t *testing.T) {
-	tree := map[string]any{"children": []any{
-		map[string]any{},
-		map[string]any{"children": []any{map[string]any{}, map[string]any{}}},
-	}}
-	if got := CountNodes(tree); got != 5 {
-		t.Fatalf("CountNodes = %d, want 5", got)
-	}
-	if CountNodes(nil) != 0 || CountNodes("x") != 0 {
-		t.Fatal("non-node should count 0")
-	}
-}
-
 func TestRegistryIsScopedToAccount(t *testing.T) {
 	r := NewRegistry()
 	r.clients["a1"] = &Client{ID: "a1", AccountID: "A", Type: "extension", ConnectedAt: 2}
@@ -51,17 +38,5 @@ func TestRegistryIsScopedToAccount(t *testing.T) {
 		if client.AccountID != "A" {
 			t.Fatalf("leaked %+v", client)
 		}
-	}
-	if _, ok := r.OwnedBy("b1", "A"); ok {
-		t.Fatal("account A must not own B's socket")
-	}
-	if _, ok := r.OwnedBy("a1", "A"); !ok {
-		t.Fatal("account A owns a1")
-	}
-	if ext, ok := r.Extension("A"); !ok || ext.ID != "a2" {
-		t.Fatalf("Extension(A) = %+v", ext)
-	}
-	if _, ok := r.Extension("C"); ok {
-		t.Fatal("C has no extension")
 	}
 }

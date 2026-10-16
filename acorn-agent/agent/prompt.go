@@ -17,6 +17,8 @@ var systemTemplate = template.Must(template.New("system").Parse(systemTemplateTe
 
 type systemData struct {
 	StopBeforeSubmit bool
+	// Survey is true when the run may look at a whole page as a survey of screenshots.
+	Survey bool
 	// Checks is true when a decision model checks the screen between the model's steps, so
 	// the model may plan ahead and say what each run of actions should lead to.
 	Checks     bool
@@ -37,6 +39,7 @@ func systemPrompt(start Start, snapshot applicant.Snapshot, maxActions, chunk in
 	var out strings.Builder
 	err := systemTemplate.Execute(&out, systemData{
 		StopBeforeSubmit: start.StopBeforeSubmit,
+		Survey:           start.Survey,
 		Checks:           checks,
 		MaxActions:       maxActions,
 		Chunk:            chunk,

@@ -1,29 +1,19 @@
-import { FILL_MODE } from "@acorn/shared/field-issues";
 import { isFillPhaseBusy } from "@acorn/shared/pipeline-types";
 import { CLAIM_STATUS } from "@acorn/support-chat";
 import { useEffect, useMemo, useState } from "react";
 
 import { countBusyWorkers, tabInputFromProgress } from "../acorn-face/director";
 import { useCompanionFace } from "../acorn-face/use-companion-face";
-import { customTabHasResume } from "../tab-custom-session";
 import { MSG } from "../types";
 
 import { pushAcornNotice } from "./acorn-notice";
 import { AskPanel } from "./AskPanel";
-import { hostOf } from "./custom-tab-resume";
-import { CustomPanel } from "./CustomPanel";
 import { JobsPanel } from "./JobsPanel";
 import { LogsPanel } from "./LogsPanel";
 import { NowCard } from "./NowCard";
 import { ReportDialog } from "./ReportDialog";
 import { sendMessage } from "./runtime";
-import {
-  REFILL_HINT,
-  RUN_HINT,
-  actionBarState,
-  isAnyTabWorking,
-  isGenerateBusy,
-} from "./sidebar-work-state";
+import { RUN_HINT, actionBarState, isAnyTabWorking, isGenerateBusy } from "./sidebar-work-state";
 import { SidebarHeader } from "./SidebarHeader";
 import { SidebarNav, type AcornMainTab } from "./SidebarNav";
 import { SidebarOverlays } from "./SidebarOverlays";
@@ -32,25 +22,20 @@ import { SupportPanel } from "./SupportPanel";
 import { UpdateDialog } from "./UpdateDialog";
 import { useActiveTabId } from "./use-active-tab";
 import { useAvailableUpdate } from "./use-available-update";
-import { usePlanInspect } from "./use-plan-inspect";
 import { useResumePreview } from "./use-resume-preview";
 import { useSidebarAuth } from "./use-sidebar-auth";
 import { useSocketStatus } from "./use-socket-status";
 import { useSupportClaims } from "./use-support-claims";
 import { useTabSession } from "./use-tab-session";
-import { useTabUi } from "./use-tab-ui";
 import { useTabWork } from "./use-tab-work";
 import { useWorkEndNotices } from "./use-work-end-notices";
 
-import type { JdPreview } from "./sidebar-panel-types";
 import "./SidebarApp.css";
 
 export default function SidebarApp() {
   const activeTabId = useActiveTabId();
-  const { tabJob, customTab, customList, jobGenerates, pipelines, progress, setPipelines } =
-    useTabSession(activeTabId);
+  const { tabJob, jobGenerates, pipelines, progress, setPipelines } = useTabSession(activeTabId);
 
-  const [jdPreview, setJdPreview] = useState<JdPreview | null>(null);
   const [mainTab, setMainTab] = useState<AcornMainTab>("fill");
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [qaStatus, setQaStatus] = useState({ busy: false, error: false });
@@ -78,57 +63,35 @@ export default function SidebarApp() {
     setReportRun((run) => run + 1);
     setReportOpen(true);
   };
-  const { ui, patchTabUi } = useTabUi(activeTabId, progress);
-  const { preview, setPreview, openCustomResumePreview } = useResumePreview(jobGenerates);
+  const { preview, setPreview } = useResumePreview(jobGenerates);
 
   const fillBusy = isFillPhaseBusy(progress.phase);
-  const generateBusy = isGenerateBusy(customTab, tabJob, jobGenerates);
+  const generateBusy = isGenerateBusy(tabJob, jobGenerates);
   const tabWorkBusy = fillBusy || generateBusy;
-  const anyTabWorking = isAnyTabWorking(pipelines, customList, jobGenerates);
+  const anyTabWorking = isAnyTabWorking(pipelines, jobGenerates);
   const busyCounts = useMemo(
-    () => countBusyWorkers(pipelines, customList, Object.values(jobGenerates)),
-    [pipelines, customList, jobGenerates],
+    () => countBusyWorkers(pipelines, Object.values(jobGenerates)),
+    [pipelines, jobGenerates],
   );
   const busyTotal = busyCounts.thinking + busyCounts.working;
   const workersMode =
     busyCounts.working > 0 ? "working" : busyCounts.thinking > 0 ? "thinking" : "waiting";
   useWorkEndNotices(pipelines);
 
-  const {
-    remembering,
-    startPipeline,
-    startRun,
-    stopRun,
-    answerRun,
-    rememberFocusedTab,
-    forgetCustomTab,
-    focusCustomTab,
-    startCustomWork,
-  } = useTabWork({
+  const { startRun, stopRun, answerRun } = useTabWork({
     activeTabId,
-    mainTab,
     tabJob,
-    customTab,
     setPipelines,
     tabWorkBusy,
   });
 
-  const {
-    lastFetch,
-    plan,
-    steps,
-    nodeCount,
-    visibleSteps,
-    hasMoreSteps,
-    loadMoreSteps,
-    stepsListRef,
-    inspectWindow,
-    inspectView,
-    stepSummary,
-    openInspect,
-  } = usePlanInspect({ activeTabId, ui, progress, patchTabUi });
+  const { attachedJobGenerate, runLabel } = actionBarState({
+    tabJob,
+    jobGenerates,
+    progress,
+    fillBusy,
+  });
 
-  const hasTree = Boolean(lastFetch);
   const companionMode = useCompanionFace({
     signedIn: Boolean(session),
     authBusy,
@@ -136,51 +99,23 @@ export default function SidebarApp() {
     connected,
     anyTabWorking,
     focused: tabInputFromProgress(Boolean(session), progress, {
-      status: customTab?.generateStatus ?? null,
-      label: customTab?.generateProgress?.label ?? null,
-      hasResume: customTab ? customTabHasResume(customTab) : false,
+      status: attachedJobGenerate?.generateStatus ?? null,
+      label: attachedJobGenerate?.generateProgress?.label ?? null,
+      hasResume: Boolean(
+        attachedJobGenerate?.generationId || attachedJobGenerate?.recommendedResumeId,
+      ),
     }),
     qaBusy: qaStatus.busy,
     qaError: qaStatus.error,
-    inspectOpen: Boolean(ui.inspect || preview || helpOpen),
+    inspectOpen: Boolean(preview || helpOpen),
     connectionOpen: settingsOpen,
     jobsLoading: false,
     jobsEmpty: false,
     jobsError: false,
-    customEmpty: Boolean(session) && mainTab === "custom" && customList.length === 0,
-    opening: remembering,
+    opening: false,
   });
 
-  const customLocked = mainTab === "custom" && !customTab;
-  const fillLocked = mainTab === "fill" && !tabJob;
-  const rememberFirst = "Remember this tab first";
-  const openJobFirst = "No job on this tab";
-  const actionsOff = tabWorkBusy || !session || activeTabId == null || customLocked;
-  const {
-    attachedJobGenerate,
-    fillCanContinue,
-    customCanContinue,
-    generateLabel,
-    recommendLabel,
-    fillLabel,
-    refillLabel,
-    runLabel,
-  } = actionBarState({
-    mainTab,
-    tabJob,
-    customTab,
-    jobGenerates,
-    progress,
-    fillBusy,
-    generateBusy,
-  });
-
-  const headerContext =
-    mainTab === "custom" && customTab
-      ? hostOf(customTab.url)
-      : tabJob
-        ? `${tabJob.company} · ${tabJob.title}`
-        : "No job on this tab";
+  const headerContext = tabJob ? `${tabJob.company} · ${tabJob.title}` : "No job on this tab";
   const nowActions = {
     run: {
       label: runLabel,
@@ -209,48 +144,6 @@ export default function SidebarApp() {
           }
         : null,
     answerRun: (optionId: string) => void answerRun(optionId),
-    fill: {
-      label: fillLabel,
-      title: customLocked ? rememberFirst : fillLabel,
-      disabled: actionsOff,
-      onClick: () => void startPipeline(mainTab === "custom" ? "custom" : "fill"),
-    },
-    refill: {
-      label: refillLabel,
-      title: customLocked ? rememberFirst : REFILL_HINT,
-      disabled: actionsOff,
-      onClick: () => void startPipeline(mainTab === "custom" ? "custom" : "fill", FILL_MODE.refill),
-    },
-    generate: {
-      label: generateLabel,
-      title: customLocked ? rememberFirst : fillLocked ? openJobFirst : generateLabel,
-      disabled: actionsOff || fillLocked,
-      onClick: () =>
-        void startCustomWork("generate", {
-          continue:
-            mainTab === "fill"
-              ? fillCanContinue && attachedJobGenerate?.workKind !== "recommend"
-              : customCanContinue && customTab?.workKind !== "recommend",
-        }),
-    },
-    recommend: {
-      label: recommendLabel,
-      title: recommendLabel,
-      disabled: tabWorkBusy || !session || activeTabId == null,
-      onClick: () =>
-        void startCustomWork("recommend", {
-          continue:
-            mainTab === "fill"
-              ? fillCanContinue && attachedJobGenerate?.workKind === "recommend"
-              : customCanContinue && customTab?.workKind === "recommend",
-        }),
-    },
-    remember: {
-      label: customTab ? "Tab remembered" : "Remember this tab",
-      title: "Remember this tab for Custom",
-      disabled: !session || activeTabId == null || Boolean(customTab) || tabWorkBusy,
-      onClick: () => void rememberFocusedTab(),
-    },
   };
   // Report stays available while work runs: a stuck run is exactly what people report.
   const reportDisabled = !session || activeTabId == null;
@@ -288,12 +181,10 @@ export default function SidebarApp() {
     }
   };
 
-  const nowCard = (tab: "fill" | "custom") => (
+  const nowCard = (
     <NowCard
-      mainTab={tab}
       tabJob={tabJob}
       jobGenerate={attachedJobGenerate}
-      customTab={customTab}
       progress={progress}
       fillBusy={fillBusy}
       {...nowActions}
@@ -331,7 +222,7 @@ export default function SidebarApp() {
           <main className="sidebar-scroll">
             <JobsPanel
               mainTab={mainTab}
-              nowCard={nowCard("fill")}
+              nowCard={nowCard}
               tabId={activeTabId}
               signedIn={Boolean(session)}
               socketConnected={connected}
@@ -343,19 +234,6 @@ export default function SidebarApp() {
               setQaStatus={setQaStatus}
               tabJob={tabJob}
               tabId={activeTabId}
-            />
-
-            <CustomPanel
-              mainTab={mainTab}
-              nowCard={nowCard("custom")}
-              customList={customList}
-              pipelines={pipelines}
-              activeTabId={activeTabId}
-              focusCustomTab={focusCustomTab}
-              forgetCustomTab={forgetCustomTab}
-              startCustomWork={startCustomWork}
-              openCustomResumePreview={openCustomResumePreview}
-              setJdPreview={setJdPreview}
             />
 
             <SupportPanel
@@ -382,32 +260,13 @@ export default function SidebarApp() {
           authBusy={authBusy}
           handleSignIn={handleSignIn}
           companionMode={companionMode}
-          fillBusy={fillBusy}
-          hasTree={hasTree}
-          lastFetch={lastFetch}
-          nodeCount={nodeCount}
-          plan={plan}
-          steps={steps}
-          stepSummary={stepSummary}
-          visibleSteps={visibleSteps}
-          stepsListRef={stepsListRef}
-          hasMoreSteps={hasMoreSteps}
-          loadMoreSteps={loadMoreSteps}
-          openInspect={openInspect}
         />
       )}
 
       <UpdateDialog update={availableUpdate.update} onDismiss={availableUpdate.dismiss} />
       <SidebarOverlays
-        activeTabId={activeTabId}
         preview={preview}
         setPreview={setPreview}
-        jdPreview={jdPreview}
-        setJdPreview={setJdPreview}
-        ui={ui}
-        patchTabUi={patchTabUi}
-        inspectView={inspectView}
-        inspectWindow={inspectWindow}
         helpOpen={helpOpen}
         setHelpOpen={setHelpOpen}
         busyCounts={busyCounts}

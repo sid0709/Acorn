@@ -5,25 +5,7 @@ import { authHeaders, getAcornApiUrl } from "../../auth/acorn-auth";
 import { cachedFileGet } from "./file-cache";
 import { apiError, isNestMissingRoute } from "./http";
 
-import type { RuntimeAttachedFile } from "@acorn/shared/plan-runner/types";
-
-export async function fetchRuntimeFile(_apiUrl?: string): Promise<RuntimeAttachedFile | null> {
-  const base = (_apiUrl || (await getAcornApiUrl())).replace(/\/$/, "");
-  const res = await fetch(`${base}/acorn/runtime-file`, {
-    headers: await authHeaders(),
-  });
-  const data = (await res.json().catch(() => ({}))) as {
-    file?: RuntimeAttachedFile;
-    error?: string;
-  };
-  if (!res.ok) {
-    if (res.status === 404) return null;
-    throw new Error(
-      typeof data.error === "string" ? data.error : `Runtime file failed: ${res.status}`,
-    );
-  }
-  return data.file ?? null;
-}
+import type { RuntimeAttachedFile } from "@acorn/shared/attached-file";
 
 export async function fetchRecommendedResume(
   jobId: string,

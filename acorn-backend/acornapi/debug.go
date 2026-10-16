@@ -10,7 +10,6 @@ import (
 	"time"
 	"unicode"
 
-	"github.com/sid0709/OpenSeat/acorn-backend/acorn"
 	"github.com/sid0709/OpenSeat/acorn-backend/debugtrace"
 )
 
@@ -33,41 +32,6 @@ func (s *Server) traceContext(r *http.Request, userID string) context.Context {
 		return ctx
 	}
 	return debugtrace.WithRun(ctx, s.debug.Latest(debugKey(r, userID)))
-}
-
-// startAnalyzeRun opens a run for this Analyze and saves what the planner is given:
-// the compact tree and the page block (its address included). The page's own HTML
-// never travels; the tree is all the planner reads.
-func (s *Server) startAnalyzeRun(r *http.Request, userID, applicant, pureTree string, page map[string]any) context.Context {
-	ctx := s.withUsage(r, userID)
-	if s.debug == nil {
-		return ctx
-	}
-	run := s.debug.StartRun(debugKey(r, userID), pageLabel(page))
-	run.WriteJSON("page.json", page)
-	run.WriteFile("pure-tree.txt", []byte(pureTree))
-	run.WriteFile("applicant.txt", []byte(applicant))
-	return debugtrace.WithRun(ctx, run)
-}
-
-// finishAnalyzeRun saves the plan the extension receives, or why there is none.
-// recordFormFields saves the field list the fast planner read next to its plan.
-func recordFormFields(ctx context.Context, fields any) {
-	debugtrace.RunFrom(ctx).WriteJSON("form-fields.json", fields)
-}
-
-// recordFieldIssues saves what Refill read from the page next to its plan.
-func recordFieldIssues(ctx context.Context, scan any) {
-	debugtrace.RunFrom(ctx).WriteJSON("field-issues.json", scan)
-}
-
-func finishAnalyzeRun(ctx context.Context, result acorn.AnalyzeResult, err error) {
-	run := debugtrace.RunFrom(ctx)
-	if err != nil {
-		run.WriteFile("analyze-error.txt", []byte(err.Error()))
-		return
-	}
-	run.WriteJSON("plan.json", acorn.RedactedResult(result))
 }
 
 // debugLog appends the extension's step trace to the user's current run.

@@ -172,12 +172,13 @@ func (a *Agent) Start(ctx context.Context, key string, auth applicant.Auth, star
 	}
 	a.sessions.add(&session{
 		id: id, key: key, auth: auth, start: start, snap: snap, system: system, maxActions: maxActions, fallback: fallback,
-		created: now, touched: now,
+		created: now, touched: now, wantTrace: start.Trace,
 	})
 	stacks, documents := catalog(snap.Resumes)
-	if err := a.trace.recordSession(id, system, sessionTrace{
+	startTrace, err := a.trace.recordSession(id, system, sessionTrace{
 		Started: now, Start: start, Model: a.modelName(key), ScreenModel: a.screenName(key), Config: a.cfg, Resumes: stacks, Documents: documents,
-	}); err != nil {
+	}, start.Trace)
+	if err != nil {
 		slog.Warn("trace not written", "session", id, "error", err)
 	}
 	slog.Info("run started", "session", id, "url", start.URL, "stopBeforeSubmit", start.StopBeforeSubmit,
@@ -186,7 +187,7 @@ func (a *Agent) Start(ctx context.Context, key string, auth applicant.Auth, star
 	for i, resume := range snap.Resumes {
 		infos[i] = ResumeInfo{ID: resume.ID, FileName: resume.FileName, Size: resume.Size}
 	}
-	return Started{SessionID: id, Resumes: infos}, nil
+	return Started{SessionID: id, Resumes: infos, Trace: startTrace}, nil
 }
 
 // End drops a session once the run is over.
@@ -212,8 +213,25 @@ func (a *Agent) ResumeFile(ctx context.Context, sessionID, resumeID string) (app
 	return a.applicants.ResumeFor(ctx, s.auth, resumeID)
 }
 
-// Step reads one observation and answers with what to do next.
+// Step reads one observation and answers with what to do next. When the run asked for its trace,
+// the answer also carries what was recorded since the last one (a step that failed hands its
+// entry on to the retry).
 func (a *Agent) Step(ctx context.Context, id string, obs Observation) (Step, error) {
+	step, err := a.step(ctx, id, obs)
+	if err != nil {
+		return step, err
+	}
+	if s, ok := a.sessions.get(id); ok {
+		s.mu.Lock()
+		if step.Trace = s.takeTrace(); step.Trace != nil {
+			step.Trace.Seq = s.seq
+		}
+		s.mu.Unlock()
+	}
+	return step, nil
+}
+
+func (a *Agent) step(ctx context.Context, id string, obs Observation) (Step, error) {
 	s, ok := a.sessions.get(id)
 	if !ok {
 		return Step{}, ErrNoSession
@@ -332,6 +350,8 @@ func (a *Agent) Step(ctx context.Context, id string, obs Observation) (Step, err
 
 	planned, dropped := checkActions(number, answer.Actions, obs.Viewport, s.maxActions, screens)
 	planned, surveyAsked := withoutSurvey(planned)
+	// A run that did not turn surveys on is not told they exist, and one the model asks for anyway is ignored.
+	surveyAsked = surveyAsked && s.start.Survey
 	planned = fillSecrets(planned, s.snap.Secrets)
 	planned, dropped = a.resolveUploads(ctx, s, planned, dropped)
 	status := answer.Status
@@ -394,9 +414,11 @@ func (a *Agent) record(s *session, entry stepTrace, screenshot string, calls []m
 		"status", status, "actions", len(entry.Actions), "dropped", len(entry.Dropped),
 		"stale", entry.Stale, "ms", latency, "calls", entry.Usage.Calls, "checks", entry.Usage.Checks, "cost", entry.Usage.Cost,
 		"message", clipText(entry.Message, 140), "error", entry.Error)
-	if err := a.trace.record(s.id, entry, screenshot, calls); err != nil {
+	trace, err := a.trace.record(s.id, entry, screenshot, calls, s.wantTrace)
+	if err != nil {
 		slog.Warn("trace not written", "session", s.id, "error", err)
 	}
+	s.addTrace(trace)
 }
 
 // endWithTrace finishes a run the agent itself gave up on, and records why.

@@ -1,7 +1,6 @@
 package resume
 
 import (
-	"context"
 	"testing"
 	"time"
 )
@@ -94,14 +93,5 @@ func TestStackTagFollowsItsFiles(t *testing.T) {
 	putFile(t, svc, LibraryRow{ID: "go-docx", Title: "Go", FileName: "go.docx", Size: 6})
 	if _, changed, _ := svc.LibraryFileVersioned("a", "go-pdf"); changed == first {
 		t.Fatalf("a changed file in the stack must change its tag")
-	}
-}
-
-func TestCoverLetterIDNeedsNoFile(t *testing.T) {
-	svc := New(NewMemory(), nil)
-	putFile(t, svc, LibraryRow{ID: "letter", Title: "General", FileName: "letter.docx", Kind: KindCoverLetter})
-	choice, err := svc.CoverLetterID(context.Background(), "a", "Go engineer", &fakeMatcher{})
-	if err != nil || choice.ResumeID != "letter" {
-		t.Fatalf("choice = %+v err = %v", choice, err)
 	}
 }

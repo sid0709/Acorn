@@ -4,15 +4,12 @@ import { Badge, Button, Card, Glyph, HStack, ProgressBar, Text, VStack } from "s
 
 import { AgentAsk } from "./AgentAsk";
 import { AgentStopNotice } from "./AgentStopNotice";
-import { customTabResumeLine, hostOf } from "./custom-tab-resume";
 import { GenerateProgressBar } from "./GenerateProgressBar";
 import { RunCelebration } from "./RunCelebration";
 import { RunCost } from "./RunCost";
 import { RunTimer } from "./RunTimer";
-import { JOBS_NOW_CARD_RUN_ONLY } from "./sidebar-work-state";
 import { useDefaultPassword } from "./use-default-password";
 
-import type { AcornMainTab } from "./SidebarNav";
 import type { useTabSession } from "./use-tab-session";
 import type { CustomUiProgress } from "../pipeline/custom-generate-progress";
 import type { PipelineProgress } from "@acorn/shared/pipeline-types";
@@ -31,10 +28,8 @@ export type NowAction = {
 };
 
 type NowCardProps = {
-  mainTab: Exclude<AcornMainTab, "qa">;
   tabJob: TabSession["tabJob"];
   jobGenerate: TabSession["jobGenerates"][string] | null;
-  customTab: TabSession["customTab"];
   progress: PipelineProgress;
   fillBusy: boolean;
   /** Recommend, fill, and advance until the application is done. */
@@ -45,56 +40,10 @@ type NowCardProps = {
   answerRun: (optionId: string) => void;
   /** Carries on from where the last run on this tab stopped; null when none did. */
   continueRun: NowAction | null;
-  fill: NowAction;
-  /** Fixes only the fields the page flagged after Submit / Next. */
-  refill: NowAction;
-  generate: NowAction;
-  recommend: NowAction;
-  remember: NowAction;
 };
 
 /** What the card says about the active tab, and which generate run (if any) it shows. */
-function describe({
-  mainTab,
-  tabJob,
-  jobGenerate,
-  customTab,
-  fillBusy,
-}: Pick<NowCardProps, "mainTab" | "tabJob" | "jobGenerate" | "customTab" | "fillBusy">) {
-  if (mainTab === "custom") {
-    if (!customTab) {
-      return {
-        title: "This tab isn’t remembered",
-        subtitle: "Remember it to generate or recommend a résumé, then Fill.",
-        status: null,
-        run: null,
-      };
-    }
-    const line = customTabResumeLine(customTab, fillBusy);
-    return {
-      title: customTab.title || "Untitled",
-      subtitle: hostOf(customTab.url),
-      status: line,
-      run: customTab.generateProgress ?? null,
-    };
-  }
-  if (
-    customTab &&
-    (customTab.resumeMode === "recommend" || customTab.workKind === "recommend") &&
-    (customTab.generateStatus === "queued" ||
-      customTab.generateStatus === "running" ||
-      customTab.generateStatus === "failed" ||
-      Boolean(customTab.recommendedResumeId))
-  ) {
-    const line = customTabResumeLine(customTab, fillBusy);
-    const running = customTab.generateStatus === "queued" || customTab.generateStatus === "running";
-    return {
-      title: tabJob?.title || customTab.title || "This page",
-      subtitle: tabJob?.company || hostOf(customTab.url),
-      status: line,
-      run: running ? (customTab.generateProgress ?? null) : null,
-    };
-  }
+function describe({ tabJob, jobGenerate }: Pick<NowCardProps, "tabJob" | "jobGenerate">) {
   if (!tabJob) {
     return {
       title: "No job on this tab",
@@ -128,15 +77,11 @@ function describe({
   };
 }
 
-/** Recommend's ranked Library résumés for the active tab (Custom, or the attached Fill job). */
+/** Recommend's ranked Library résumés for the active tab's attached job. */
 function recommendedTop({
-  mainTab,
-  customTab,
   jobGenerate,
-}: Pick<NowCardProps, "mainTab" | "customTab" | "jobGenerate">): RecommendedResumeRank[] {
-  if (mainTab === "custom") return customTab?.recommendedTop ?? [];
-  if (jobGenerate?.recommendedTop?.length) return jobGenerate.recommendedTop;
-  return customTab?.recommendedTop ?? [];
+}: Pick<NowCardProps, "jobGenerate">): RecommendedResumeRank[] {
+  return jobGenerate?.recommendedTop ?? [];
 }
 
 function RecommendTop({ top }: { top: RecommendedResumeRank[] }) {
@@ -292,31 +237,11 @@ function RunProgress({ run }: { run: CustomUiProgress }) {
   );
 }
 
-/**
- * The active Chrome tab at the top of Jobs and Tabs: which job or remembered page it is,
- * its résumé, any run in flight, and the actions that work on it.
- */
+/** The active Chrome tab at the top of Jobs: which job it is, its résumé, any run in flight, and the Run actions. */
 export function NowCard(props: NowCardProps) {
-  const {
-    mainTab,
-    customTab,
-    progress,
-    fillBusy,
-    run: runAction,
-    stop,
-    answerRun,
-    continueRun,
-    fill,
-    refill,
-    generate,
-    recommend,
-    remember,
-  } = props;
+  const { progress, fillBusy, run: runAction, stop, answerRun, continueRun } = props;
   const { title, subtitle, status, run } = describe(props);
   const top = run ? [] : recommendedTop(props);
-  const needsRemember = mainTab === "custom" && !customTab;
-  const hasTarget = mainTab === "custom" ? Boolean(customTab) : Boolean(props.tabJob);
-  const jobsRunOnly = mainTab === "fill" && JOBS_NOW_CARD_RUN_ONLY;
 
   return (
     <Card padding={4} className="acorn-now" elevation="low">
@@ -342,112 +267,41 @@ export function NowCard(props: NowCardProps) {
         </VStack>
         {run ? <RunProgress run={run} /> : null}
         {top.length ? <RecommendTop top={top} /> : null}
-        {fillBusy ? <ProgressBar label={progress.message || "Filling…"} isIndeterminate /> : null}
+        {fillBusy ? <ProgressBar label={progress.message || "Working…"} isIndeterminate /> : null}
         <RunStatus progress={progress} onAnswer={answerRun} />
-        {needsRemember ? (
-          <VStack gap={2}>
+        <VStack gap={2}>
+          {continueRun ? (
             <Button
               variant="primary"
-              icon={<Glyph name="pin" />}
-              label={remember.label}
-              tooltip={remember.title}
-              isDisabled={remember.disabled}
-              width="100%"
-              onClick={remember.onClick}
-            />
-            <Button
-              variant="secondary"
-              label={recommend.label}
-              tooltip={recommend.title}
-              isDisabled={recommend.disabled}
-              width="100%"
-              onClick={recommend.onClick}
-            />
-          </VStack>
-        ) : (
-          <VStack gap={2}>
-            {continueRun ? (
-              <Button
-                variant="primary"
-                icon={<Glyph name="play" />}
-                label={continueRun.label}
-                tooltip={continueRun.title}
-                isDisabled={continueRun.disabled}
-                width="100%"
-                onClick={continueRun.onClick}
-              />
-            ) : null}
-            <Button
-              variant={continueRun ? "secondary" : "primary"}
               icon={<Glyph name="play" />}
-              label={runAction.label}
-              tooltip={runAction.title}
-              isDisabled={runAction.disabled}
+              label={continueRun.label}
+              tooltip={continueRun.title}
+              isDisabled={continueRun.disabled}
               width="100%"
-              onClick={runAction.onClick}
+              onClick={continueRun.onClick}
             />
-            {stop ? (
-              <Button
-                variant="destructive"
-                icon={<Glyph name="close" />}
-                label={stop.label}
-                tooltip={stop.title}
-                isDisabled={stop.disabled}
-                width="100%"
-                onClick={stop.onClick}
-              />
-            ) : null}
-            {!jobsRunOnly ? (
-              <>
-                <Button
-                  variant="secondary"
-                  icon={<Glyph name="edit" />}
-                  label={fill.label}
-                  tooltip={fill.title}
-                  isDisabled={fill.disabled}
-                  width="100%"
-                  onClick={fill.onClick}
-                />
-                <Button
-                  variant="secondary"
-                  icon={<Glyph name="refresh" />}
-                  label={refill.label}
-                  tooltip={refill.title}
-                  isDisabled={refill.disabled}
-                  width="100%"
-                  onClick={refill.onClick}
-                />
-                {hasTarget ? (
-                  <HStack gap={2} className="acorn-now-row">
-                    <Button
-                      variant="secondary"
-                      label={generate.label}
-                      tooltip={generate.title}
-                      isDisabled={generate.disabled}
-                      onClick={generate.onClick}
-                    />
-                    <Button
-                      variant="secondary"
-                      label={recommend.label}
-                      tooltip={recommend.title}
-                      isDisabled={recommend.disabled}
-                      onClick={recommend.onClick}
-                    />
-                  </HStack>
-                ) : (
-                  <Button
-                    variant="secondary"
-                    label={recommend.label}
-                    tooltip={recommend.title}
-                    isDisabled={recommend.disabled}
-                    width="100%"
-                    onClick={recommend.onClick}
-                  />
-                )}
-              </>
-            ) : null}
-          </VStack>
-        )}
+          ) : null}
+          <Button
+            variant={continueRun ? "secondary" : "primary"}
+            icon={<Glyph name="play" />}
+            label={runAction.label}
+            tooltip={runAction.title}
+            isDisabled={runAction.disabled}
+            width="100%"
+            onClick={runAction.onClick}
+          />
+          {stop ? (
+            <Button
+              variant="destructive"
+              icon={<Glyph name="close" />}
+              label={stop.label}
+              tooltip={stop.title}
+              isDisabled={stop.disabled}
+              width="100%"
+              onClick={stop.onClick}
+            />
+          ) : null}
+        </VStack>
       </VStack>
     </Card>
   );

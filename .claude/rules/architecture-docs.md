@@ -17,19 +17,17 @@ Any change to behavior in `acorn/extension`, `acorn/packages/*`, `acorn-backend`
 
 1. Find the section the change touches:
 
-| You change                                                                   | Update section |
-| ---------------------------------------------------------------------------- | -------------- |
-| Manifest, build, env vars, service worker, content script, side panel        | §4             |
-| Sign-in, sessions, support handoff, socket events                            | §5             |
-| Per-tab storage keys or lifecycle                                            | §6             |
-| DOM serializer, frame choice, field list, field issues, page snapshot, probe | §7             |
-| Fill pipeline, plan request, choice batch, late fields, frame-navigation     | §8             |
-| Plan-step execution, control agents, dropdown logic, uploads, drift repair   | §9             |
-| Run orchestrator, account order, mail verification, limits, outcomes         | §10            |
-| Résumé gate, recommend, cover letters, file formats, generate                | §11            |
-| acorn-backend routes, config, usage, capture, collections                    | §12            |
-| Prompts, Jev questions, fast planner, writer, facts                          | §13            |
-| What data reaches which party, secrets, retention                            | §14            |
+| You change                                                                                       | Update section |
+| ------------------------------------------------------------------------------------------------ | -------------- |
+| Manifest, build, env vars, service worker, content script, side panel                            | §4             |
+| Sign-in, sessions, support handoff, socket events                                                | §5             |
+| Per-tab storage keys or lifecycle                                                                | §6             |
+| Page reading (the agent sees screenshots), what the content script does                          | §7             |
+| The agent Run: loop, input, uploads, stopping, limits, outcomes (§8 to §10 say what was removed) | §19            |
+| Résumé gate, recommend, cover letters, file formats, generate                                    | §11            |
+| acorn-backend routes, config, usage, capture, collections                                        | §12            |
+| Writer prompt, Jev questions (résumé match)                                                      | §13            |
+| What data reaches which party, secrets, retention                                                | §14            |
 
 2. Edit that section in the same commit as the code. Change the numbers, names, and file links it quotes (limits, routes, env vars, collections).
 3. If the change makes a statement in §14.4 or §15 untrue, fix or remove it. Add an entry there when you introduce a known gap.

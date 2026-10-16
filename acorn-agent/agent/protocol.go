@@ -210,6 +210,8 @@ type Step struct {
 	Usage Usage `json:"usage"`
 	// Dropped says which actions the agent refused to send and why, so the log shows it.
 	Dropped []string `json:"dropped,omitempty"`
+	// Trace is the trace of the entries recorded since the last answer, when the run asked for it.
+	Trace *Trace `json:"trace,omitempty"`
 }
 
 // Usage is the run's model use so far. Cost is everything the run has spent, the checks
@@ -231,6 +233,33 @@ type Start struct {
 	Title string `json:"title"`
 	// StopBeforeSubmit makes the run stop at the control that sends the application.
 	StopBeforeSubmit bool `json:"stopBeforeSubmit"`
+	// Trace asks for the run's trace in the answers: the files a trace folder would hold (what the
+	// model was sent and answered, how long each call took) come back with each step, for the
+	// extension to keep in its own log. The server writes and keeps nothing for it.
+	Trace bool `json:"trace,omitempty"`
+	// Survey lets the run look at a whole long page as several screenshots from top to bottom
+	// (the extension scrolls the page to take them). Off by default: the model then sees only the
+	// current screen, as a person does, and is not told surveys exist.
+	Survey bool `json:"survey,omitempty"`
+}
+
+// TraceFile is one file of a run's trace, returned to the extension. Text holds a text file;
+// Data holds an image as base64 (no data-URL prefix).
+type TraceFile struct {
+	Name string `json:"name"`
+	Text string `json:"text,omitempty"`
+	Data string `json:"data,omitempty"`
+}
+
+// Trace is what a step (or the run's start) adds to the trace. The images the extension took
+// itself (the screenshots) are not returned: only the files only the agent can make.
+type Trace struct {
+	// Seq is the entry the answer is for, as its trace files are numbered (001.json): the
+	// extension names the screenshot it took for that look the same way. Zero at the run's start.
+	Seq   int         `json:"seq,omitempty"`
+	Files []TraceFile `json:"files"`
+	// Timeline is this entry's line of timeline.txt (empty at the start of the run).
+	Timeline string `json:"timeline,omitempty"`
 }
 
 // ResumeInfo is one résumé the agent may upload.
@@ -244,4 +273,6 @@ type ResumeInfo struct {
 type Started struct {
 	SessionID string       `json:"sessionId"`
 	Resumes   []ResumeInfo `json:"resumes"`
+	// Trace holds the run's start (session.json, system.txt) when the run asked for a trace.
+	Trace *Trace `json:"trace,omitempty"`
 }

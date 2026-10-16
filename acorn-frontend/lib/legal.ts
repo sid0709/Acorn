@@ -79,7 +79,7 @@ export const PRIVACY: LegalDocument = {
       heading: "The run log and support reports",
       paragraphs: [
         "While a run goes on, the extension keeps a detailed log of what it did in your browser (the last five runs of each tab, at most 50 MB). The log stays on your device. Passwords, emailed codes, tokens, and keys are replaced before anything is written to it.",
-        "The log leaves your device only if you press Submit on a support report. It is then attached to that report so we can find out what went wrong, and it can contain page text and details from your profile. Opening the report form uploads nothing.",
+        "For an Agent Run the log also holds the screenshots the agent was shown, what the AI model was sent and answered, and how long each step took. The Download button in the Logs tab saves all of it as a file on your device. The log leaves your device only if you press Submit on a support report. It is then attached to that report so we can find out what went wrong, and it can contain page text and details from your profile. A report carries the text of the log, not the screenshots. Opening the report form uploads nothing.",
       ],
     },
     {

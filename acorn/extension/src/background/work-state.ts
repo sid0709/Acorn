@@ -2,16 +2,13 @@
 export const pipelineRunningTabIds = new Set<number>();
 /** Tabs a Run is working on (its start tab and any tab it claimed), in start order. */
 export const runTabIds = new Set<number>();
-export const customGenerateTabIds = new Set<number>();
 export const jobGenerateJobIds = new Set<string>();
 
 export const KEEP_ALIVE_ALARM = "acorn-socket-keep-alive";
 export const WORK_KEEP_ALIVE_ALARM = "acorn-work-keep-alive";
 
 export function anyTabWorking(): boolean {
-  return (
-    pipelineRunningTabIds.size > 0 || customGenerateTabIds.size > 0 || jobGenerateJobIds.size > 0
-  );
+  return pipelineRunningTabIds.size > 0 || jobGenerateJobIds.size > 0;
 }
 
 export function syncWorkKeepAlive(): void {

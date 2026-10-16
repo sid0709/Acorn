@@ -1,13 +1,12 @@
 import { useEffect } from "react";
 import { PillNav } from "sid-ui";
 
-export type AcornMainTab = "fill" | "qa" | "custom" | "support" | "logs";
+export type AcornMainTab = "fill" | "qa" | "support" | "logs";
 
 const NAV_TABS: AcornMainTab[] = ["fill", "qa", "support", "logs"];
 
 function tabFromHash(): AcornMainTab | null {
   const hash = window.location.hash.slice(1);
-  if (hash === "custom") return "fill";
   return (NAV_TABS as string[]).includes(hash) ? (hash as AcornMainTab) : null;
 }
 
