@@ -53,14 +53,17 @@ const (
 	envChecks        = "ACORN_AGENT_CHECKS"
 	envScreenModel   = "ACORN_AGENT_SCREEN_MODEL"
 	envDecisionsURL  = "ACORN_AGENT_DECISIONS_URL"
-	envChunkActions  = "ACORN_AGENT_CHUNK_ACTIONS"
-	envCheckMatch    = "ACORN_AGENT_CHECK_MATCH_PERCENT"
-	envCheckBlocked  = "ACORN_AGENT_CHECK_BLOCKED_PERCENT"
-	envCheckLoading  = "ACORN_AGENT_CHECK_LOADING_PERCENT"
-	envKeepTurns     = "ACORN_AGENT_KEEP_TURNS"
-	envKeepImages    = "ACORN_AGENT_KEEP_IMAGES"
-	envMaxStale      = "ACORN_AGENT_MAX_STALE"
-	envMaxModelCalls = "ACORN_AGENT_MAX_MODEL_CALLS"
+	// envFallbackResume names the résumé folder offered to the person when a résumé is wanted and no
+	// job description was found.
+	envFallbackResume = "DEFAULT_FALLBACK_RESUME"
+	envChunkActions   = "ACORN_AGENT_CHUNK_ACTIONS"
+	envCheckMatch     = "ACORN_AGENT_CHECK_MATCH_PERCENT"
+	envCheckBlocked   = "ACORN_AGENT_CHECK_BLOCKED_PERCENT"
+	envCheckLoading   = "ACORN_AGENT_CHECK_LOADING_PERCENT"
+	envKeepTurns      = "ACORN_AGENT_KEEP_TURNS"
+	envKeepImages     = "ACORN_AGENT_KEEP_IMAGES"
+	envMaxStale       = "ACORN_AGENT_MAX_STALE"
+	envMaxModelCalls  = "ACORN_AGENT_MAX_MODEL_CALLS"
 )
 
 // defaultOrigins are the web origins allowed besides the extension, which is always allowed.
@@ -99,6 +102,7 @@ func run() error {
 	cfg.MaxSteps = config.EnvInt(envMaxSteps, cfg.MaxSteps)
 	cfg.MaxActions = config.EnvInt(envMaxActions, cfg.MaxActions)
 	cfg.ChunkActions = config.EnvInt(envChunkActions, cfg.ChunkActions)
+	cfg.FallbackResume = config.Env(envFallbackResume, "")
 	cfg.CheckMatch = percent(envCheckMatch, cfg.CheckMatch)
 	cfg.CheckBlocked = percent(envCheckBlocked, cfg.CheckBlocked)
 	cfg.CheckLoading = percent(envCheckLoading, cfg.CheckLoading)
@@ -117,15 +121,15 @@ func run() error {
 	store := applicant.NewStore(config.Env(envDataDir, defaultDataDir), hidden...)
 
 	// The checks between a plan's runs of actions need a decision model that reads a screenshot.
+	decisionsURL := config.Env(envDecisionsURL, config.OpenRouterDecisionsURL)
 	var newScreen func(key string) agent.Screen
 	screenModel := config.Env(envScreenModel, config.ScreenDecisionModel)
-	decisionsURL := config.Env(envDecisionsURL, config.OpenRouterDecisionsURL)
 	if !isOff(config.Env(envChecks, "")) {
 		newScreen = func(key string) agent.Screen { return decide.New(key, screenModel, decisionsURL) }
 	}
 	a := agent.New(cfg, store,
 		func(key string) llm.Model { return llm.NewOpenRouter(key, model, baseURL, reasoning) },
-		func(key string) agent.Decider { return jev.New(key) },
+		func(key string) agent.Decider { return jev.NewWithURL(key, decisionsURL) },
 		newScreen,
 	)
 	defaultKey := config.Env(envOpenRouterKey, "")

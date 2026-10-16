@@ -8,6 +8,7 @@
 import {
   AGENT_STATUS,
   type AgentAction,
+  type AgentAsk,
   type AgentActionResult,
   type AgentStep,
   type AgentUsage,
@@ -32,7 +33,7 @@ import {
   startSession,
 } from "./client";
 import { runActions, type ExecutorContext } from "./executor";
-import { readFocus } from "./page-info";
+import { readFocus, readPageText } from "./page-info";
 import {
   agentRunState,
   endProgress,
@@ -52,6 +53,8 @@ export const STEP_RETRY_LIMIT = 3;
 export const STEP_RETRY_BACKOFF_MS = [2_000, 6_000, 15_000] as const;
 /** How long a tab the page opened gets to show an address before the run goes on in it. */
 export const NEW_TAB_WAIT_MS = 8_000;
+/** What the overlay's bar says while the agent waits for the person's answer. */
+export const ASK_LABEL = "Acorn has a question for you in the sidebar";
 /** What the overlay's bar says while the agent works. */
 export const OVERLAY_LABEL = "Acorn is applying on this page";
 
@@ -77,6 +80,18 @@ export interface AgentRunArgs {
   claimTab?: (tabId: number) => void;
   /** Waits between a step's retries; the defaults unless a test shortens them. */
   retryBackoffMs?: readonly number[];
+  /**
+   * Waits for the person's answer (an option id) to a question the agent asks. It rejects
+   * when the signal aborts. A run without it cannot ask, so a question ends it.
+   */
+  waitForAnswer?: (signal: AbortSignal) => Promise<string>;
+}
+
+/** A short fingerprint of a page's text, to send it only when it changed. */
+export function textFingerprint(text: string): string {
+  let hash = 5381;
+  for (let i = 0; i < text.length; i += 1) hash = ((hash << 5) + hash + text.charCodeAt(i)) | 0;
+  return `${text.length}:${hash}`;
 }
 
 /** One line for the log: what an action is, never what it typed. */
@@ -136,8 +151,8 @@ export async function runAgent(args: AgentRunArgs): Promise<RunReport> {
   const files = new Map<string, Promise<ResumeFile>>();
 
   const emit = (progress: PipelineProgress) => args.emit(tabs, progress);
-  const runState = (control?: string) =>
-    agentRunState({ runId, startedAt, step: stepNumber, control, usage: lastUsage });
+  const runState = (control?: string, ask?: AgentAsk) =>
+    agentRunState({ runId, startedAt, step: stepNumber, control, usage: lastUsage, ask });
 
   const onCreated = (tab: chrome.tabs.Tab) => {
     if (tab.openerTabId === current?.tabId && tab.id != null) pendingTab = tab.id;
@@ -250,6 +265,8 @@ export async function runAgent(args: AgentRunArgs): Promise<RunReport> {
 
     let results: AgentActionResult[] = [];
     let carriedNotes: string[] = [];
+    let answer: string | undefined;
+    let sentText = "";
     for (;;) {
       checkStopped();
       if (pendingTab != null) {
@@ -266,7 +283,18 @@ export async function runAgent(args: AgentRunArgs): Promise<RunReport> {
         await here.overlay.hideForCapture(false);
       }
       checkStopped();
-      const [focus, info] = await Promise.all([readFocus(here.cdp), chrome.tabs.get(here.tabId)]);
+      const [focus, info, text] = await Promise.all([
+        readFocus(here.cdp),
+        chrome.tabs.get(here.tabId),
+        readPageText(here.cdp),
+      ]);
+      // The page's text goes once per change: the job description may sit above the form,
+      // where a click on Apply has already scrolled past it.
+      const fingerprint = text ? textFingerprint(text) : "";
+      const pageText = fingerprint && fingerprint !== sentText ? text : undefined;
+      if (pageText) sentText = fingerprint;
+      const answered = answer;
+      answer = undefined;
       const notes = [...carriedNotes, ...here.takeNotes()];
       carriedNotes = [];
 
@@ -279,6 +307,8 @@ export async function runAgent(args: AgentRunArgs): Promise<RunReport> {
         focus,
         notes,
         results,
+        ...(pageText ? { pageText } : {}),
+        ...(answered ? { answer: answered } : {}),
       });
       checkStopped();
       stepNumber = step.number;
@@ -303,6 +333,20 @@ export async function runAgent(args: AgentRunArgs): Promise<RunReport> {
         ),
       );
       void here.overlay.setLabel(step.message || OVERLAY_LABEL);
+
+      if (step.status === AGENT_STATUS.ask && step.ask) {
+        const ask = step.ask;
+        log.event("agent-ask", { id: ask.id, options: ask.options.map((option) => option.id) });
+        if (!args.waitForAnswer) throw new Error("the run cannot ask a question here");
+        emit(runningProgress(runState(undefined, ask), ask.question));
+        void here.overlay.setLabel(ASK_LABEL);
+        answer = await args.waitForAnswer(signal);
+        checkStopped();
+        log.event("agent-answer", { id: ask.id, answer });
+        results = [];
+        void here.overlay.setLabel(OVERLAY_LABEL);
+        continue;
+      }
 
       if (step.status !== AGENT_STATUS.working) {
         log.decision(

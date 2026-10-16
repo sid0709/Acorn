@@ -14,6 +14,7 @@ export const SITE_HTML = `<!doctype html>
 </style>
 </head>
 <body>
+<!--JD-->
 <form id="form" novalidate>
   <h1>Data Engineer: Application</h1>
   <label for="name">Full name</label>
@@ -63,10 +64,21 @@ export const SITE_HTML = `<!doctype html>
 </body>
 </html>`;
 
+/** A job description, long enough for the agent to judge, shown above the form on `?jd=1`. */
+export const JOB_DESCRIPTION =
+  "We are hiring a Data Engineer to build and run our data pipelines in Python. You will design batch and streaming jobs, own their quality, and work with analysts. Requirements: five years of Python, strong SQL, and experience with cloud data warehouses.";
+
 export function startAgentSite() {
   return Bun.serve({
     port: 0,
     hostname: "127.0.0.1",
-    fetch: () => new Response(SITE_HTML, { headers: { "Content-Type": "text/html" } }),
+    fetch(req) {
+      const withJd = new URL(req.url).searchParams.has("jd");
+      const html = SITE_HTML.replace(
+        "<!--JD-->",
+        withJd ? `<p id="jd">${JOB_DESCRIPTION}</p>` : "",
+      );
+      return new Response(html, { headers: { "Content-Type": "text/html" } });
+    },
   });
 }

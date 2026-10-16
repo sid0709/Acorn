@@ -85,8 +85,12 @@ export function startFakeModel(points: () => Points, script: Script) {
 export type Verdict = { matches: number; blocked: number; loading: number };
 export type DecisionRequest = {
   model: string;
-  state: { type: string; text?: string; image_url?: { url: string } }[];
-  questions: Record<string, { type: string; instructions: string }>;
+  /** The screen checker sends parts (text and an image); Jev sends one string. */
+  state: string | { type: string; text?: string; image_url?: { url: string } }[];
+  questions: Record<
+    string,
+    { type: string; instructions: string; criteria?: Record<string, string> }
+  >;
 };
 export const decisionRequests: DecisionRequest[] = [];
 
@@ -102,8 +106,17 @@ export function startFakeDecisions(verdict: () => Verdict) {
       decisionRequests.push(request);
       const v = verdict();
       const answers: Record<string, unknown> = {};
-      for (const key of Object.keys(request.questions)) {
-        answers[key] = { type: "noul", noul: v[key as keyof Verdict] };
+      for (const [key, question] of Object.entries(request.questions)) {
+        if (key === "job_description") {
+          // Jev reads the page text: a description when it says it is hiring.
+          const text = typeof request.state === "string" ? request.state : "";
+          answers[key] = { type: "noul", noul: text.includes("We are hiring") ? 0.97 : 0.02 };
+        } else if (question.type === "choice") {
+          const first = Object.keys(question.criteria ?? {})[0] ?? "";
+          answers[key] = { type: "choice", choice: first, probabilities: { [first]: 0.99 } };
+        } else {
+          answers[key] = { type: "noul", noul: v[key as keyof Verdict] };
+        }
       }
       return Response.json({
         model: "fake/decisions",

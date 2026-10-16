@@ -7,6 +7,7 @@
 import {
   AGENT_ERROR_CODE,
   AGENT_STATUS,
+  type AgentAsk,
   type AgentStop,
   type AgentUsage,
 } from "@acorn/shared/agent-contract";
@@ -46,6 +47,8 @@ export function agentRunState(input: {
   step: number;
   control?: string;
   usage?: AgentUsage | null;
+  /** The question the run is waiting on, while it waits. */
+  ask?: AgentAsk;
 }): RunProgress {
   return {
     runId: input.runId,
@@ -59,6 +62,7 @@ export function agentRunState(input: {
     costUsd: input.usage?.cost,
     modelCalls: input.usage?.calls,
     screenChecks: input.usage?.checks,
+    ask: input.ask,
   };
 }
 

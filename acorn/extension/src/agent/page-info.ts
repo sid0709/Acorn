@@ -12,6 +12,29 @@ export const FOCUS_OPTIONS_MAX = 80;
 /** The longest value, label, or message that is reported. */
 export const FOCUS_TEXT_MAX_CHARS = 200;
 
+/** The most characters of a page's text that are sent, so a long page stays one request. */
+export const PAGE_TEXT_MAX_CHARS = 24_000;
+
+/** Runs in the page: its visible text. A screenshot may never show a job description that sits above the form. */
+export const PAGE_TEXT_SCRIPT = `(() => {
+  const body = document.body;
+  return body ? String(body.innerText || "").slice(0, ${PAGE_TEXT_MAX_CHARS}) : "";
+})()`;
+
+/** The page's visible text, or "" when the page has none or cannot be read. */
+export async function readPageText(cdp: Cdp): Promise<string> {
+  try {
+    const answer = await cdp.send<{ result?: { value?: unknown } }>("Runtime.evaluate", {
+      expression: PAGE_TEXT_SCRIPT,
+      returnByValue: true,
+    });
+    const value = answer.result?.value;
+    return typeof value === "string" ? value.trim() : "";
+  } catch {
+    return "";
+  }
+}
+
 /**
  * The page-side function. It runs in the page, so it is a string: it reads the focused
  * control, looking through shadow roots and same-origin frames, and hides what a password

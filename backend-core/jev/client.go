@@ -114,6 +114,13 @@ func Warm(ctx context.Context) {
 	}
 }
 
+// NewWithURL is a Jev client on a Decisions API at url, for a test's stand-in server.
+func NewWithURL(apiKey, url string) *Client {
+	client := New(apiKey)
+	client.url = url
+	return client
+}
+
 func (c *Client) Model() string { return c.model }
 
 // Ready reports whether the client has an API key.

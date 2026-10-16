@@ -31,6 +31,9 @@ const (
 	StatusNeedPerson = "need_person"
 	// StatusStuck: the agent cannot make progress.
 	StatusStuck = "stuck"
+	// StatusAsk: the agent asks the person a question and waits. Nothing is done until they
+	// answer; the next step carries their answer in Observation.Answer.
+	StatusAsk = "ask"
 )
 
 // Why a run ended without being done: what the page needs from the person, or why the
@@ -45,7 +48,30 @@ const (
 	StopOther        = "other"
 	StopNoChange     = "no_change"
 	StopStepLimit    = "step_limit"
+	// StopResumeChoice: no job description was found, so the agent could not choose a résumé,
+	// and the person chose to pick one themselves.
+	StopResumeChoice = "resume_choice"
 )
+
+// The answers to the question the agent asks when it cannot choose a résumé.
+const (
+	AskResume         = "resume"
+	AnswerUseFallback = "use_fallback"
+	AnswerChooseOwn   = "choose_own"
+)
+
+// AskOption is one answer the person may give.
+type AskOption struct {
+	ID    string `json:"id"`
+	Label string `json:"label"`
+}
+
+// Ask is a question for the person, with the answers they may give.
+type Ask struct {
+	ID       string      `json:"id"`
+	Question string      `json:"question"`
+	Options  []AskOption `json:"options"`
+}
 
 // StopInfo says, for the person, why the run ended without being done: Reason is one of the
 // Stop* values, Problem what the page needs or what went wrong, Action what to do about it.
@@ -82,12 +108,21 @@ type Focus struct {
 	Invalid  string   `json:"invalid,omitempty"`
 }
 
+// What a click set off beyond the click itself, for ActionResult.Opened.
+const (
+	// OpenedFilePicker: the click opened the browser's file picker. The extension intercepts it,
+	// so nothing is shown and no file is chosen; only an upload action attaches a file.
+	OpenedFilePicker = "file_picker"
+)
+
 // ActionResult is what happened to one action the agent asked for.
 type ActionResult struct {
 	ID     string `json:"id"`
 	OK     bool   `json:"ok"`
 	Error  string `json:"error,omitempty"`
 	Detail string `json:"detail,omitempty"`
+	// Opened names something the action set off that a screenshot cannot show (OpenedFilePicker).
+	Opened string `json:"opened,omitempty"`
 }
 
 // Observation is what the extension sees on one step.
@@ -101,6 +136,11 @@ type Observation struct {
 	// Notes are things the screenshot cannot show: a dialog the browser closed, a file
 	// that downloaded, a tab the page opened.
 	Notes []string `json:"notes,omitempty"`
+	// PageText is the page's visible text, sent when the page changed since the last step.
+	// The agent reads it for the job description, which a screenshot may have scrolled past.
+	PageText string `json:"pageText,omitempty"`
+	// Answer is the person's answer (an AskOption id) to the question the last step asked.
+	Answer string `json:"answer,omitempty"`
 	// Results answer the actions of the step before.
 	Results []ActionResult `json:"results,omitempty"`
 }
@@ -139,6 +179,8 @@ type Step struct {
 	Message string `json:"message"`
 	// Stop says why the run ended, when it ended as need_person or stuck.
 	Stop *StopInfo `json:"stop,omitempty"`
+	// Ask is the question the run waits on, when Status is StatusAsk.
+	Ask *Ask `json:"ask,omitempty"`
 	// Actions run in order, then the extension sends a new screenshot.
 	Actions []Action `json:"actions"`
 	// Number is this step's place in the run, from 1.

@@ -167,6 +167,9 @@ func resultLine(result ActionResult) string {
 	if result.Error != "" {
 		line += ": " + result.Error
 	}
+	if result.Opened == OpenedFilePicker {
+		line += " (this click opened a file picker that you cannot see, and no file was chosen: to attach a file, use upload at this point)"
+	}
 	if result.Detail != "" {
 		line += " (" + result.Detail + ")"
 	}

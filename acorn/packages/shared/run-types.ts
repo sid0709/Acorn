@@ -221,6 +221,8 @@ export interface RunProgress {
   costUsd?: number;
   modelCalls?: number;
   screenChecks?: number;
+  /** An agent Run waiting on the person: the question and the answers they may give. */
+  ask?: { id: string; question: string; options: { id: string; label: string }[] };
   /** While the run reads the mail: the newest emails it hands to Jev. */
   mail?: MailRow[];
   /** The run stopped partway and kept a checkpoint: Continue carries on from here. */

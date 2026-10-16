@@ -129,6 +129,8 @@ export const MSG = {
   START_RUN: "acorn:start-run",
   /** Sidebar → service worker: stop the Run working on this tab, at once. */
   STOP_RUN: "acorn:stop-run",
+  /** Sidebar → service worker: the person's answer to the question an agent Run is waiting on. */
+  ANSWER_RUN: "acorn:answer-run",
   PIPELINE_PROGRESS: "acorn:pipeline-progress",
   /** Page → service worker: answer after `ms`, timed where a hidden tab cannot slow it. */
   PAGE_DELAY: "acorn:page-delay",

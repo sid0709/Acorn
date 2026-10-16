@@ -68,6 +68,9 @@ type Config struct {
 	SessionTTL time.Duration
 	// TraceDir, when set, records every step to disk.
 	TraceDir string
+	// FallbackResume is the résumé folder offered to the person when a résumé is wanted and no
+	// job description was found ("" turns the question off). It must be a folder in the data.
+	FallbackResume string
 }
 
 // DefaultConfig is the bounds a run has when nothing else is set.
@@ -145,6 +148,10 @@ func (a *Agent) Start(ctx context.Context, key string, start Start) (Started, er
 	if !checks {
 		maxActions = min(maxActions, a.cfg.UncheckedActions)
 	}
+	fallback, err := fallbackStack(a.cfg.FallbackResume, stackNames(snap.Resumes))
+	if err != nil {
+		return Started{}, err
+	}
 	system, err := systemPrompt(start, snap, maxActions, a.cfg.ChunkActions, checks, now)
 	if err != nil {
 		return Started{}, err
@@ -154,7 +161,7 @@ func (a *Agent) Start(ctx context.Context, key string, start Start) (Started, er
 		return Started{}, err
 	}
 	a.sessions.add(&session{
-		id: id, key: key, start: start, snap: snap, system: system, maxActions: maxActions,
+		id: id, key: key, start: start, snap: snap, system: system, maxActions: maxActions, fallback: fallback,
 		created: now, touched: now,
 	})
 	stacks, documents := catalog(snap.Resumes)
@@ -213,6 +220,13 @@ func (a *Agent) Step(ctx context.Context, id string, obs Observation) (Step, err
 		a.record(s, stepTrace{Seq: s.seq, Step: s.step + 1, At: a.now(), URL: obs.URL, Title: obs.Title, Viewport: obs.Viewport, Error: err.Error(), Usage: s.usage}, obs.Screenshot, nil)
 		return Step{}, err
 	}
+	// What happened to every action sent since the model last looked, which may be several
+	// runs of one plan.
+	results := append(append([]ActionResult(nil), s.carried...), obs.Results...)
+	a.learnJD(ctx, s, obs)
+	if s.pendingUpload != nil {
+		return a.answerPending(s, obs, results, sig)
+	}
 	if s.step >= a.cfg.MaxSteps {
 		return a.endWithTrace(s, obs, 0, StatusStuck, fmt.Sprintf("The run reached its limit of %d steps.", a.cfg.MaxSteps), &StopInfo{
 			Reason:  StopStepLimit,
@@ -234,9 +248,9 @@ func (a *Agent) Step(ctx context.Context, id string, obs Observation) (Step, err
 		}), nil
 	}
 
-	// What happened to every action sent since the model last looked, which may be several
-	// runs of one plan.
-	results := append(append([]ActionResult(nil), s.carried...), obs.Results...)
+	if step, ok := a.handlePicker(ctx, s, obs, results, sig); ok {
+		return step, nil
+	}
 	if step, ok := a.continuePlan(ctx, s, obs, results, sig, stale); ok {
 		return step, nil
 	}
@@ -288,7 +302,7 @@ func (a *Agent) Step(ctx context.Context, id string, obs Observation) (Step, err
 	switch {
 	case status != StatusWorking:
 		s.plan, s.verify, s.planned, s.sent, s.parts = nil, "", 0, 0, 0
-	case len(planned) == 0:
+	case len(planned) == 0 && s.pendingUpload == nil:
 		// A working run with nothing valid to do waits and looks again; the repeat check
 		// ends it if the page never changes.
 		dropped = append(dropped, "no usable action; waiting before the next look")
@@ -315,6 +329,10 @@ func (a *Agent) Step(ctx context.Context, id string, obs Observation) (Step, err
 	a.record(s, entry, obs.Screenshot, calls)
 	if status != StatusWorking {
 		s.finished = true
+	}
+	if s.pendingUpload != nil && len(step.Actions) == 0 && status == StatusWorking {
+		s.seq++
+		return a.askStep(s, obs, results, sig, *s.pendingUpload), nil
 	}
 	return step, nil
 }
@@ -432,6 +450,14 @@ func (a *Agent) resolveUploads(ctx context.Context, s *session, actions []Action
 		if action.Kind != KindUpload {
 			kept = append(kept, action)
 			continue
+		}
+		if a.needsAsk(s, action.Resume) {
+			// Without a job description the résumé is not guessed: the upload waits for the person,
+			// and so does everything planned after it.
+			held := action
+			s.pendingUpload = &held
+			dropped = append(dropped, "upload held: no job description was found, so the applicant is asked which résumé to send")
+			break
 		}
 		resume, note, err := a.pickResume(ctx, s, action.Resume)
 		if err != nil {

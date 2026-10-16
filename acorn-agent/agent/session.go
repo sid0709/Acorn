@@ -61,6 +61,21 @@ type session struct {
 	verify string
 	// message is the model's latest line for the person, shown again while a plan runs on.
 	message string
+	// jd is the job description read from the page text, "" until one is found; jdSeen holds
+	// the pages already judged and jdChecks how many that is.
+	jd       string
+	jdSeen   map[string]bool
+	jdChecks int
+	// fallback is the résumé folder to offer when there is no job description ("" when none is set).
+	fallback string
+	// pendingUpload is an upload held until the person says which résumé to send.
+	pendingUpload *Action
+	// byID holds the actions of the model's latest plan by id, to match a result to its action.
+	byID map[string]Action
+	// pickerSeen holds the results already acted on for a file picker a click opened, and
+	// pickerTried the points where the agent has uploaded for the model, so it does so once.
+	pickerSeen  map[string]bool
+	pickerTried map[[2]int]bool
 	// planned and sent count the actions of the model's latest plan and how many went out, in
 	// how many parts.
 	planned, sent, parts int
@@ -85,7 +100,7 @@ const (
 	// maxMemoChars bounds the model's scratchpad, which is told to it on every step.
 	maxMemoChars = 2000
 	// maxJobChars bounds the job description the model records.
-	maxJobChars = 600
+	maxJobChars = 1500
 	// approxImageTokens is what a screenshot costs in the history budget.
 	approxImageTokens = 1200
 )

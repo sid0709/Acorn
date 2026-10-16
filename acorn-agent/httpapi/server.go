@@ -190,6 +190,8 @@ func writeError(w http.ResponseWriter, err error) {
 		status, code = http.StatusBadRequest, "bad_observation"
 	case errors.Is(err, applicant.ErrNoProfile):
 		status, code = http.StatusUnprocessableEntity, "no_profile"
+	case errors.Is(err, agent.ErrFallbackResume):
+		status, code = http.StatusUnprocessableEntity, "bad_fallback_resume"
 	case errors.Is(err, applicant.ErrNoResume):
 		status, code = http.StatusNotFound, "no_resume"
 	case code == llm.CodeNoKey || code == llm.CodeInvalidKey:

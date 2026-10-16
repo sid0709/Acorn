@@ -186,8 +186,13 @@ func (a *Agent) askJev(ctx context.Context, s *session, stacks []string) (string
 	if job == "" {
 		job = "(the job has not been described yet; this is the page the application started on: " + s.start.Title + ")"
 	}
+	posting := "Job the applicant is applying for:\n" + clipText(job, maxJobForChoice)
+	if s.jd != "" {
+		// The whole description, read from the page: far better to choose from than a one-line summary.
+		posting = "Job description:\n" + clipText(s.jd, maxJDChars)
+	}
 	res, err := a.newDecider(s.key).Decide(ctx, jev.Request{
-		State: "Job the applicant is applying for:\n" + clipText(job, maxJobForChoice) + "\n\nApplicant profile:\n" + clipText(s.snap.Profile, maxJobForChoice*2),
+		State: posting + "\n\nApplicant profile:\n" + clipText(s.snap.Profile, maxJobForChoice*2),
 		Questions: map[string]jev.Question{resumeQuestion: {
 			Type:         jev.TypeChoice,
 			Instructions: "Which résumé should the applicant upload for this job? Each name says what the résumé is for. Choose the one that fits the job best.",

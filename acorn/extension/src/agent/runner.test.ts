@@ -45,7 +45,8 @@ function installBrowser(answers: Record<string, unknown> = {}) {
         }
         if (method === "Page.captureScreenshot") return { data: "QUJD" };
         if (method === "Page.addScriptToEvaluateOnNewDocument") return { identifier: "script-1" };
-        return answers[method] ?? {};
+        const answer = answers[method] as unknown;
+        return typeof answer === "function" ? answer(params) : (answer ?? {});
       },
     },
     runtime: { sendMessage: () => {} },
@@ -154,6 +155,101 @@ describe("runAgent", () => {
     assert.deepEqual(progress.map((p) => p.phase).slice(-1), ["done"]);
     assert.match(progress.at(-1)?.message ?? "", /^Done · 2 steps/);
     assert.equal(progress.at(-1)?.run?.report?.outcome, "completed");
+  });
+
+  it("sends the page's text when it changes, not on every look", async () => {
+    let text = "A long job description about Python development.";
+    installBrowser({
+      "Runtime.evaluate": (params: { expression?: string }) =>
+        params.expression?.includes("innerText") ? { result: { value: text } } : {},
+    });
+    installServer([
+      working(1, [{ id: "s1a1", kind: "click", x: 5, y: 5 }]),
+      working(2, [{ id: "s2a1", kind: "click", x: 5, y: 5 }]),
+      finished("done", 3, "ok"),
+    ]);
+    const original = globalThis.fetch;
+    globalThis.fetch = (async (url: string | URL | Request, init?: RequestInit) => {
+      if (
+        String(url).endsWith("/step") &&
+        requests.filter((r) => r.path.endsWith("/step")).length === 1
+      )
+        text = "A different page entirely.";
+      return original(url, init);
+    }) as typeof fetch;
+    await run();
+    const sent = requests
+      .filter((r) => r.path.endsWith("/step"))
+      .map((r) => (r.body as { pageText?: string }).pageText);
+    assert.equal(sent[0], "A long job description about Python development.");
+    assert.equal(sent[1], undefined);
+    assert.equal(sent[2], "A different page entirely.");
+  });
+
+  it("asks the person the agent's question, waits, and sends the answer in the next look", async () => {
+    installServer([
+      {
+        status: "ask",
+        message: "Upload your default résumé?",
+        actions: null,
+        number: 1,
+        usage,
+        ask: {
+          id: "resume",
+          question: "Upload your default résumé?",
+          options: [
+            { id: "use_fallback", label: "Yes, upload it" },
+            { id: "choose_own", label: "I'll choose" },
+          ],
+        },
+      },
+      working(2, [{ id: "s2a1", kind: "click", x: 5, y: 5 }]),
+      finished("done", 3, "ok"),
+    ]);
+    const waited: string[] = [];
+    const seen: PipelineProgress[] = [];
+    const { report } = await run({
+      emit: (_tabs, p) => seen.push(p),
+      waitForAnswer: async () => {
+        // While it waits, the sidebar has been shown the question.
+        waited.push(seen.at(-1)?.run?.ask?.question ?? "");
+        return "use_fallback";
+      },
+    });
+    assert.equal(report.outcome, "completed");
+    assert.deepEqual(waited, ["Upload your default résumé?"]);
+    assert.deepEqual(
+      seen.find((p) => p.run?.ask)?.run?.ask?.options.map((o) => o.id),
+      ["use_fallback", "choose_own"],
+    );
+    const steps = requests.filter((r) => r.path.endsWith("/step"));
+    assert.equal((steps[1].body as { answer?: string }).answer, "use_fallback");
+    assert.equal((steps[2].body as { answer?: string }).answer, undefined);
+    // Nothing was clicked while the question was open.
+    assert.equal(mouse("mousePressed").length, 1);
+  });
+
+  it("stops waiting for an answer when the person presses Stop", async () => {
+    installServer([
+      {
+        status: "ask",
+        message: "q",
+        actions: null,
+        number: 1,
+        usage,
+        ask: { id: "resume", question: "q", options: [{ id: "a", label: "A" }] },
+      },
+    ]);
+    const stop = new AbortController();
+    const { report } = await run({
+      signal: stop.signal,
+      waitForAnswer: (signal) =>
+        new Promise<string>((_resolve, reject) => {
+          signal.addEventListener("abort", () => reject(new Error("stopped")));
+          stop.abort();
+        }),
+    });
+    assert.equal(report.outcome, "stopped");
   });
 
   it("hides the overlay for the screenshot and shows it again", async () => {

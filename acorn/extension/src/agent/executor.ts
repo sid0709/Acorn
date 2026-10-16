@@ -4,12 +4,18 @@
  * nothing about forms; it does what it is told and says what happened.
  */
 
+import {
+  ACTION_OPENED,
+  type ActionOpened,
+  type AgentAction,
+  type AgentActionResult,
+} from "@acorn/shared/agent-contract";
+
 import { clickAt, moveMouse, pressKeys, typeText, wheelAt } from "./input";
 import { uploadAt, type ResumeFile } from "./upload";
 
 import type { Cdp } from "./cdp";
 import type { Overlay } from "./overlay";
-import type { AgentAction, AgentActionResult } from "@acorn/shared/agent-contract";
 
 /** The pause after an action that changes the page, so what it did has drawn before the next look. */
 export const SETTLE_MS = 350;
@@ -42,7 +48,31 @@ async function glideTo(ctx: ExecutorContext, x: number, y: number): Promise<void
   await ctx.overlay.moveTo(x, y);
 }
 
-type Done = { detail?: string };
+type Done = { detail?: string; opened?: ActionOpened };
+
+/**
+ * Clicks, and says whether the click opened a file picker. The session intercepts pickers so no
+ * system dialog appears, which also hides them from a screenshot: without this the model would
+ * see a click that did nothing, and could not tell it from one that missed.
+ */
+async function clickWatchingForPicker(
+  ctx: ExecutorContext,
+  x: number,
+  y: number,
+  options: Parameters<typeof clickAt>[3],
+): Promise<Done> {
+  let opened = false;
+  const stop = ctx.cdp.onEvent((method) => {
+    if (method === "Page.fileChooserOpened") opened = true;
+  });
+  try {
+    await clickAt(ctx.cdp, x, y, options);
+    await ctx.sleep(SETTLE_MS);
+  } finally {
+    stop();
+  }
+  return opened ? { opened: ACTION_OPENED.filePicker } : {};
+}
 
 async function perform(ctx: ExecutorContext, action: AgentAction): Promise<Done> {
   const { cdp } = ctx;
@@ -55,9 +85,10 @@ async function perform(ctx: ExecutorContext, action: AgentAction): Promise<Done>
       await glideTo(ctx, x, y);
       void ctx.overlay.click();
       const count = action.kind === "double_click" ? 2 : action.kind === "triple_click" ? 3 : 1;
-      await clickAt(cdp, x, y, { button: action.kind === "right_click" ? "right" : "left", count });
-      await ctx.sleep(SETTLE_MS);
-      return {};
+      return clickWatchingForPicker(ctx, x, y, {
+        button: action.kind === "right_click" ? "right" : "left",
+        count,
+      });
     }
     case "hover": {
       const { x, y } = point(action, ctx.scale());
@@ -129,7 +160,12 @@ export async function runActions(
     ctx.checkStopped();
     try {
       const done = await perform(ctx, action);
-      results.push({ id: action.id, ok: true, ...(done.detail ? { detail: done.detail } : {}) });
+      results.push({
+        id: action.id,
+        ok: true,
+        ...(done.detail ? { detail: done.detail } : {}),
+        ...(done.opened ? { opened: done.opened } : {}),
+      });
     } catch (err) {
       ctx.checkStopped();
       failed = true;

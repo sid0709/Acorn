@@ -37,6 +37,13 @@ type tracer struct {
 // sourceCheck marks an entry the decision model answered, with no call to the driving model.
 const sourceCheck = "check"
 
+// sourcePicker marks an entry where the agent uploaded the résumé at a click that opened a
+// file picker, with no call to the driving model.
+const sourcePicker = "picker"
+
+// sourceAsk marks an entry where the run waited on the person's answer, or acted on it.
+const sourceAsk = "ask"
+
 // stepTrace is one entry of the run.
 type stepTrace struct {
 	Seq  int `json:"seq"`

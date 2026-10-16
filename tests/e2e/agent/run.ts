@@ -107,6 +107,7 @@ const agent = Bun.spawn([binary], {
     OPENROUTER_API_KEY: "e2e-not-a-real-key",
     OPENROUTER_BASE_URL: `http://127.0.0.1:${model.port}`,
     ACORN_AGENT_DECISIONS_URL: `http://127.0.0.1:${decisions.port}/`,
+    DEFAULT_FALLBACK_RESUME: "Backend",
     ACORN_AGENT_DATA_DIR: dataDir,
     ACORN_AGENT_TRACE_DIR: traceDir,
     ACORN_AGENT_REASONING: "none",
@@ -151,6 +152,7 @@ type Progress = {
     step?: number;
     costUsd?: number;
     modelCalls?: number;
+    ask?: { id: string; question: string; options: { id: string; label: string }[] };
     report?: {
       outcome: string;
       failure?: {
@@ -163,12 +165,12 @@ type Progress = {
 };
 
 let formPage: Page | null = null;
-async function newForm(): Promise<{ page: Page; tabId: number }> {
+async function newForm(query = ""): Promise<{ page: Page; tabId: number }> {
   // One form tab at a time, so the extension's lookup by address finds the right one.
   await formPage?.close();
   const page = await browser.newPage();
   formPage = page;
-  await page.goto(siteUrl);
+  await page.goto(siteUrl + query);
   await page.bringToFront();
   const at = async (selector: string) =>
     page.$eval(selector, (el) => {
@@ -495,7 +497,8 @@ try {
   );
   const asked = decisionRequests[0];
   check(
-    asked?.state.some((p) => p.image_url?.url.startsWith("data:image/jpeg;base64,")) === true &&
+    Array.isArray(asked?.state) &&
+      asked.state.some((p) => p.image_url?.url.startsWith("data:image/jpeg;base64,")) &&
       asked.questions.matches.instructions.includes("the name and email fields are filled in"),
     "the checker is shown the screenshot and what the model expected",
   );
@@ -547,6 +550,96 @@ try {
       humanFailure.agentStop.action === "Tick the box and solve the picture puzzle.",
     "a run that needs the person ends with the reason, the problem and what to do",
     humanFailure,
+  );
+
+  // 1e. No job description on any page: the agent asks which résumé before it uploads one, every
+  // time, and sends the default only when the person says yes. A second résumé folder makes it a choice.
+  await mkdir(join(dataDir, "resumes", "Data"), { recursive: true });
+  await writeFile(join(dataDir, "resumes", "Data", "Other.pdf"), "%PDF-1.4 another résumé");
+  script = (step, at) =>
+    step === 1
+      ? answer({
+          status: "working",
+          message: "Attaching my résumé",
+          actions: [upload(at.upload)],
+        })
+      : answer({ status: "done", message: "The application was received" });
+  const answerWhenAsked = (tabId: number, option: string) => async () => {
+    for (let i = 0; i < 100; i += 1) {
+      const asking = await control.evaluate(() =>
+        (window as unknown as { __progress: Progress[] }).__progress.some((p) => p.run?.ask),
+      );
+      if (asking) break;
+      await pause(100);
+    }
+    await control.evaluate(
+      (id, type, chosen) => chrome.runtime.sendMessage({ type, tabId: id, answer: chosen }),
+      tabId,
+      MSG.ANSWER_RUN,
+      option,
+    );
+  };
+  const callsBeforeAsk = requests.length;
+  const asking = await newForm();
+  const askedRun = await run(asking.tabId, answerWhenAsked(asking.tabId, "use_fallback"));
+  const question = askedRun.find((p) => p.run?.ask)?.run?.ask;
+  check(
+    question?.options.map((o) => o.id).join() === "use_fallback,choose_own" &&
+      question.question.includes("Backend"),
+    "with no job description the sidebar is asked whether to upload the default résumé",
+    question,
+  );
+  check(
+    (await pageState(asking.page)).file === "Ada-Lovelace.pdf" &&
+      askedRun.at(-1)?.run?.report?.outcome === "completed",
+    "a yes uploads the default résumé and the run carries on",
+    await pageState(asking.page),
+  );
+  check(
+    requests.length - callsBeforeAsk === 2,
+    "the model is not called while the question is open, nor for the upload itself",
+    requests.length - callsBeforeAsk,
+  );
+
+  // 1f. The person says they will choose: the run ends for them to upload, with the reason.
+  const choosing = await newForm();
+  const choseRun = await run(choosing.tabId, answerWhenAsked(choosing.tabId, "choose_own"));
+  const choseFailure = choseRun.at(-1)?.run?.report?.failure;
+  check(
+    choseFailure?.agentStop?.reason === "resume_choice" &&
+      (await pageState(choosing.page)).file === "",
+    "choosing a résumé yourself ends the run with nothing uploaded and says why",
+    choseFailure,
+  );
+
+  // 1g. A job description on the page: the résumé is chosen from it, and nobody is asked.
+  const jdCalls = requests.length;
+  const described = await newForm("?jd=1");
+  const describedRun = await run(described.tabId);
+  check(
+    !describedRun.some((p) => p.run?.ask) &&
+      (await pageState(described.page)).file === "Ada-Lovelace.pdf" &&
+      describedRun.at(-1)?.run?.report?.outcome === "completed",
+    "with a job description on the page the résumé is chosen without asking",
+    await pageState(described.page),
+  );
+  const choice = decisionRequests.find(
+    (r) => typeof r.state === "string" && "resume" in r.questions,
+  );
+  check(
+    typeof choice?.state === "string" &&
+      choice.state.includes("Job description:") &&
+      choice.state.includes("We are hiring a Data Engineer"),
+    "Jev chooses the résumé from the whole job description",
+    choice?.state,
+  );
+  const firstLook = requests[jdCalls]?.messages.at(-1)?.content;
+  const firstText = Array.isArray(firstLook)
+    ? (firstLook.find((p) => p.type === "text")?.text ?? "")
+    : String(firstLook);
+  check(
+    firstText.includes("The job description, read from the page text"),
+    "the model is told the job description on its first look",
   );
 
   // 2. Stop works, at once, and leaves the page as it is.

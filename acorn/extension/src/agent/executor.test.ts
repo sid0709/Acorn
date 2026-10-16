@@ -33,6 +33,25 @@ function context(options: { scale?: number; stopAfter?: number } = {}) {
 const click = (id: string, x = 100, y = 50): AgentAction => ({ id, kind: "click", x, y });
 
 describe("runActions", () => {
+  it("says when a click opened a file picker, which a screenshot cannot show", async () => {
+    const { ctx, cdp } = context();
+    cdp.send = ((method: string, params?: object) => {
+      if (
+        method === "Input.dispatchMouseEvent" &&
+        (params as { type?: string }).type === "mouseReleased"
+      )
+        cdp.emit("Page.fileChooserOpened", { backendNodeId: 9 });
+      return Promise.resolve({});
+    }) as typeof cdp.send;
+    const results = await runActions(ctx, [click("attach")]);
+    assert.deepEqual(results, [{ id: "attach", ok: true, opened: "file_picker" }]);
+  });
+
+  it("reports nothing extra for a click that opens no picker", async () => {
+    const { ctx } = context();
+    assert.deepEqual(await runActions(ctx, [click("plain")]), [{ id: "plain", ok: true }]);
+  });
+
   it("clicks at the screenshot point converted to page pixels, and moves the cursor there", async () => {
     const { ctx, cdp, moves } = context({ scale: 0.5 });
     const results = await runActions(ctx, [click("a", 100, 50)]);

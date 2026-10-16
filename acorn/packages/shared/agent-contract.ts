@@ -40,6 +40,8 @@ export const AGENT_STATUS = {
   done: "done",
   needPerson: "need_person",
   stuck: "stuck",
+  /** The server asks the person a question and waits: see AgentAsk. */
+  ask: "ask",
 } as const;
 
 export type AgentStatus = (typeof AGENT_STATUS)[keyof typeof AGENT_STATUS];
@@ -55,8 +57,23 @@ export const AGENT_STOP_REASON = {
   other: "other",
   noChange: "no_change",
   stepLimit: "step_limit",
+  /** No job description was found, so no résumé was chosen, and the person chose to pick one. */
+  resumeChoice: "resume_choice",
 } as const;
 export type AgentStopReason = (typeof AGENT_STOP_REASON)[keyof typeof AGENT_STOP_REASON];
+
+/** One answer the person may give to a question the agent asks. */
+export interface AgentAskOption {
+  id: string;
+  label: string;
+}
+
+/** A question the run waits on. The answer (an option id) goes back in the next observation. */
+export interface AgentAsk {
+  id: string;
+  question: string;
+  options: AgentAskOption[];
+}
 
 /** What the person is told when a run ends as need_person or stuck. */
 export interface AgentStop {
@@ -90,11 +107,19 @@ export interface AgentFocus {
   invalid?: string;
 }
 
+/** What an action set off beyond itself, that a screenshot cannot show. */
+export const ACTION_OPENED = {
+  /** A click opened the browser's file picker, which the extension intercepts: no file was chosen. */
+  filePicker: "file_picker",
+} as const;
+export type ActionOpened = (typeof ACTION_OPENED)[keyof typeof ACTION_OPENED];
+
 export interface AgentActionResult {
   id: string;
   ok: boolean;
   error?: string;
   detail?: string;
+  opened?: ActionOpened;
 }
 
 export interface AgentObservation {
@@ -106,6 +131,10 @@ export interface AgentObservation {
   focus?: AgentFocus | null;
   notes?: string[];
   results?: AgentActionResult[];
+  /** The page's visible text, sent when it changed since the last step: the job description may be in it. */
+  pageText?: string;
+  /** The person's answer (an AgentAskOption id) to the question the last step asked. */
+  answer?: string;
 }
 
 export interface AgentAction {
@@ -142,6 +171,8 @@ export interface AgentStep {
   message: string;
   /** Set when the run ended as need_person or stuck. */
   stop?: AgentStop;
+  /** Set when the status is "ask": the question to put to the person. */
+  ask?: AgentAsk;
   actions: AgentAction[] | null;
   number: number;
   usage: AgentUsage;

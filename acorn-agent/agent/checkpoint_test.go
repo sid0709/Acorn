@@ -19,6 +19,9 @@ type fakeScreen struct {
 	verdicts []screenVerdict
 	err      error
 	requests []decide.Request
+	// fileKind is what the screen says a file control takes (a file_kind question), with fileSure as its probability.
+	fileKind string
+	fileSure float64
 }
 
 type screenVerdict struct{ matches, blocked, loading float64 }
@@ -31,6 +34,15 @@ func (f *fakeScreen) Decide(_ context.Context, req decide.Request) (decide.Respo
 	f.requests = append(f.requests, req)
 	if f.err != nil {
 		return decide.Response{}, f.err
+	}
+	if _, asked := req.Questions[askFileKind]; asked {
+		return decide.Response{
+			Model: "fake-screen-1",
+			Answers: map[string]decide.Answer{askFileKind: {
+				Type: decide.TypeChoice, Choice: f.fileKind, Probabilities: map[string]float64{f.fileKind: f.fileSure},
+			}},
+			Usage: decide.Usage{InputTokens: 1200, Cost: 0.0002},
+		}, nil
 	}
 	if len(f.verdicts) == 0 {
 		return decide.Response{}, errors.New("no scripted verdict left")

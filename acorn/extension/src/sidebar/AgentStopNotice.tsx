@@ -21,6 +21,7 @@ const STOP_COPY: Record<AgentStopReason, StopCopy> = {
   [AGENT_STOP_REASON.other]: { heading: "Acorn needs you here", glyph: "user" },
   [AGENT_STOP_REASON.noChange]: { heading: "The page stopped responding", glyph: "refresh" },
   [AGENT_STOP_REASON.stepLimit]: { heading: "This application ran too long", glyph: "clock" },
+  [AGENT_STOP_REASON.resumeChoice]: { heading: "Choose your résumé", glyph: "file" },
 };
 
 /** The last step of each kind of notice: what the buttons below it do. */

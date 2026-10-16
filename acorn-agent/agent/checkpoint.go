@@ -165,6 +165,10 @@ func (a *Agent) checksOn(s *session) bool {
 func (a *Agent) takePlan(s *session, actions []Action, dropped []string) ([]Action, []string) {
 	s.plan, s.verify, s.loadWaits, s.parts = nil, "", 0, 0
 	s.planned, s.sent = len(actions), 0
+	s.byID = make(map[string]Action, len(actions))
+	for _, action := range actions {
+		s.byID[action.ID] = action
+	}
 	if len(actions) == 0 {
 		return nil, dropped
 	}

@@ -49,6 +49,11 @@ type fixedDecider struct {
 	choice string
 	err    error
 	calls  int
+	// jd is the probability the decision model gives that a page text is a job description; states
+	// are the texts it was asked about, and choiceStates the descriptions it chose a résumé from.
+	jd           float64
+	states       []string
+	choiceStates []string
 }
 
 func (d *fixedDecider) Decide(_ context.Context, req jev.Request) (jev.Response, error) {
@@ -56,7 +61,17 @@ func (d *fixedDecider) Decide(_ context.Context, req jev.Request) (jev.Response,
 	if d.err != nil {
 		return jev.Response{}, d.err
 	}
-	return jev.Response{Answers: map[string]jev.Answer{resumeQuestion: {Type: jev.TypeChoice, Choice: d.choice}}}, nil
+	answers := map[string]jev.Answer{}
+	if _, ok := req.Questions[askJobDescription]; ok {
+		p := d.jd
+		d.states = append(d.states, req.State)
+		answers[askJobDescription] = jev.Answer{Type: jev.TypeNoul, Noul: &p}
+	}
+	if _, ok := req.Questions[resumeQuestion]; ok {
+		d.choiceStates = append(d.choiceStates, req.State)
+		answers[resumeQuestion] = jev.Answer{Type: jev.TypeChoice, Choice: d.choice}
+	}
+	return jev.Response{Answers: answers}, nil
 }
 
 // shot is a flat screenshot: shade picks its brightness, marks paint dark blocks on it.
