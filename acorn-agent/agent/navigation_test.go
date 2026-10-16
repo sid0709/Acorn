@@ -30,3 +30,18 @@ func TestNavigationLetsTheModelLookWhenTheFormIsReady(t *testing.T) {
 		t.Fatalf("model calls %d, want 1", model.count())
 	}
 }
+
+func TestNavigationSkipsScrollOnApplicationFormPageText(t *testing.T) {
+	notReady := 0.05
+	screen := &fakeScreen{formReady: &notReady}
+	model := &scriptedModel{replies: []string{plan("filling", nil, click(1, 1, nil))}}
+	a := newAgentWithScreen(t, model, &fixedDecider{jd: 0.1}, screen, DefaultConfig())
+	id := start(t, a)
+	step := stepOK(t, a, id, withText(observation(shot(t, 40)), jdText))
+	if len(step.Actions) != 1 || step.Actions[0].Kind != KindClick {
+		t.Fatalf("expected model plan, got %+v", step.Actions)
+	}
+	if model.count() != 1 {
+		t.Fatalf("model calls %d, want 1 (no nav scroll)", model.count())
+	}
+}

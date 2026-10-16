@@ -94,6 +94,11 @@ func (a *Agent) learnJD(ctx context.Context, s *session, obs Observation) {
 		return
 	}
 	if *answer.Noul < jdAbove {
+		// A long page that is not a job posting is usually an application form or account
+		// flow; do not auto-scroll down hunting for Apply (that skips unfilled sections).
+		if len([]rune(text)) >= minPageTextChars {
+			s.formReady = true
+		}
 		return
 	}
 	s.jd = clipText(text, maxJDChars)
