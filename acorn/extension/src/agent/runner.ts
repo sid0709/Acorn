@@ -31,8 +31,10 @@ import {
   isRetryable,
   sendStep,
   startSession,
+  vetTarget,
 } from "./client";
 import { runActions, type ExecutorContext } from "./executor";
+import { createClickGuard, createFrameSweep, describeWindow, watchForeignFrames } from "./guard";
 import { readFocus, readPageText } from "./page-info";
 import {
   agentRunState,
@@ -148,7 +150,36 @@ export async function runAgent(args: AgentRunArgs): Promise<RunReport> {
   let lastUsage: AgentUsage | null = null;
   let stepNumber = 0;
   let pendingTab: number | null = null;
+  let pageUrl = "";
+  /** Notes from things that happened between looks (a frame the guard closed), told on the next look. */
+  const pendingNotes: string[] = [];
+  const frames: { stop: (() => void) | null; sweep: () => Promise<void> } = {
+    stop: null,
+    sweep: async () => {},
+  };
   const files = new Map<string, Promise<ResumeFile>>();
+  const vet = (target: Parameters<typeof vetTarget>[2]) =>
+    vetTarget(args.agentUrl, must(sessionId), target, signal);
+  const clickGuard = createClickGuard({
+    cdp: () => must(current).cdp,
+    vet,
+    pageUrl: () => pageUrl,
+  });
+  /** Judges the frames of another origin that appear in the tab the run is in. */
+  const watchFrames = (tab: AgentTab) => {
+    const deps = {
+      cdp: tab.cdp,
+      vet,
+      pageUrl: () => pageUrl,
+      onClosed: (note: string) => {
+        pendingNotes.push(note);
+        log.event("agent-guard", { closed: "frame" });
+      },
+    };
+    frames.stop?.();
+    frames.stop = watchForeignFrames(deps);
+    frames.sweep = createFrameSweep(deps);
+  };
 
   const emit = (progress: PipelineProgress) => args.emit(tabs, progress);
   const runState = (control?: string, ask?: AgentAsk) =>
@@ -186,6 +217,8 @@ export async function runAgent(args: AgentRunArgs): Promise<RunReport> {
     },
     sleep,
     checkStopped,
+    guard: clickGuard,
+    afterClick: () => frames.sweep(),
   };
 
   /** Moves the run into the tab the page opened, so the application goes on where it went. */
@@ -196,8 +229,21 @@ export async function runAgent(args: AgentRunArgs): Promise<RunReport> {
       await sleep(200);
       tab = await chrome.tabs.get(id);
     }
+    // A window a click opened is judged before the run goes into it: an online file source or a
+    // sign-in to one is closed, and the run stays where it was.
+    try {
+      const verdict = await vet(await describeWindow(id, pageUrl));
+      if (verdict.blocked) {
+        await chrome.tabs.remove(id).catch(() => undefined);
+        log.event("agent-guard", { closed: "window" });
+        return "A click opened a window for an online file source or a sign-in to one, and Acorn closed it. Acorn never uses those: attach a file with upload, at the button that opens this computer's file picker.";
+      }
+    } catch {
+      // A window that cannot be judged is followed, as before.
+    }
     const previous = must(current);
     current = await openAgentTab(id, hooks, OVERLAY_LABEL);
+    watchFrames(current);
     await previous.close();
     tabs.push(id);
     log.moveTo(id);
@@ -255,6 +301,7 @@ export async function runAgent(args: AgentRunArgs): Promise<RunReport> {
       stopBeforeSubmit: args.stopBeforeSubmit,
     });
     current = await openAgentTab(args.tabId, hooks, OVERLAY_LABEL);
+    watchFrames(current);
     const started = await startSession(
       args.agentUrl,
       { url: tab.url ?? "", title: tab.title ?? "", stopBeforeSubmit: args.stopBeforeSubmit },
@@ -275,6 +322,8 @@ export async function runAgent(args: AgentRunArgs): Promise<RunReport> {
         carriedNotes.push(await followNewTab(id));
       }
       const here = must(current);
+      // A frame an online file source drew over the page is gone before the screenshot is taken.
+      await frames.sweep();
       await here.overlay.ensure();
       await here.overlay.hideForCapture(true);
       try {
@@ -286,7 +335,7 @@ export async function runAgent(args: AgentRunArgs): Promise<RunReport> {
       const [focus, info, text] = await Promise.all([
         readFocus(here.cdp),
         chrome.tabs.get(here.tabId),
-        readPageText(here.cdp),
+        readPageText(here.cdp, here.tabId),
       ]);
       // The page's text goes once per change: the job description may sit above the form,
       // where a click on Apply has already scrolled past it.
@@ -295,7 +344,8 @@ export async function runAgent(args: AgentRunArgs): Promise<RunReport> {
       if (pageText) sentText = fingerprint;
       const answered = answer;
       answer = undefined;
-      const notes = [...carriedNotes, ...here.takeNotes()];
+      pageUrl = info.url ?? "";
+      const notes = [...carriedNotes, ...pendingNotes.splice(0), ...here.takeNotes()];
       carriedNotes = [];
 
       const askedAt = Date.now();
@@ -399,6 +449,7 @@ export async function runAgent(args: AgentRunArgs): Promise<RunReport> {
     return finish(report(RUN_OUTCOME.failed, failureFromError(err)));
   } finally {
     chrome.tabs.onCreated.removeListener(onCreated);
+    frames.stop?.();
     if (sessionId) await endSession(args.agentUrl, sessionId);
     await current?.close().catch(() => undefined);
   }

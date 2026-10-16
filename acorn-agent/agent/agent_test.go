@@ -54,6 +54,11 @@ type fixedDecider struct {
 	jd           float64
 	states       []string
 	choiceStates []string
+	// online is the probability the decision model gives that a described control or window is
+	// an online file source; vetStates are the descriptions it was asked about.
+	online     float64
+	vetStates  []string
+	onlineFail bool
 }
 
 func (d *fixedDecider) Decide(_ context.Context, req jev.Request) (jev.Response, error) {
@@ -66,6 +71,14 @@ func (d *fixedDecider) Decide(_ context.Context, req jev.Request) (jev.Response,
 		p := d.jd
 		d.states = append(d.states, req.State)
 		answers[askJobDescription] = jev.Answer{Type: jev.TypeNoul, Noul: &p}
+	}
+	if _, ok := req.Questions[askOnlineSource]; ok {
+		if d.onlineFail {
+			return jev.Response{}, errors.New("the decision model is down")
+		}
+		p := d.online
+		d.vetStates = append(d.vetStates, req.State)
+		answers[askOnlineSource] = jev.Answer{Type: jev.TypeNoul, Noul: &p}
 	}
 	if _, ok := req.Questions[resumeQuestion]; ok {
 		d.choiceStates = append(d.choiceStates, req.State)

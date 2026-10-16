@@ -12,6 +12,8 @@ import {
   type AgentStart,
   type AgentStarted,
   type AgentStep,
+  type AgentVetTarget,
+  type AgentVetVerdict,
 } from "@acorn/shared/agent-contract";
 
 import type { ResumeFile } from "./upload";
@@ -120,6 +122,22 @@ export async function sendStep(
     timeoutMs: STEP_TIMEOUT_MS,
   });
   return (await response.json()) as AgentStep;
+}
+
+/** Asks whether a control about to be clicked, or a window a click opened, is an online file source. */
+export async function vetTarget(
+  base: string,
+  sessionId: string,
+  target: AgentVetTarget,
+  signal: AbortSignal,
+): Promise<AgentVetVerdict> {
+  const response = await call(base, AGENT_ROUTES.vet(sessionId), {
+    method: "POST",
+    body: target,
+    signal,
+    timeoutMs: QUICK_TIMEOUT_MS,
+  });
+  return (await response.json()) as AgentVetVerdict;
 }
 
 /** Ends a run's session. A failure here changes nothing for the person, so it is not raised. */

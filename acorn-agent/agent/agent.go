@@ -68,6 +68,9 @@ type Config struct {
 	SessionTTL time.Duration
 	// TraceDir, when set, records every step to disk.
 	TraceDir string
+	// VetBlock is the probability, from the decision model, at which a control, window or frame
+	// is blocked as an online file source (0 means 0.3).
+	VetBlock float64
 	// FallbackResume is the résumé folder offered to the person when a résumé is wanted and no
 	// job description was found ("" turns the question off). It must be a folder in the data.
 	FallbackResume string

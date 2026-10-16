@@ -13,6 +13,7 @@ export const AGENT_ROUTES = {
   resume: (sessionId: string, resumeId: string) =>
     `/agent/v1/sessions/${encodeURIComponent(sessionId)}/resume?id=${encodeURIComponent(resumeId)}`,
   session: (sessionId: string) => `/agent/v1/sessions/${encodeURIComponent(sessionId)}`,
+  vet: (sessionId: string) => `/agent/v1/sessions/${encodeURIComponent(sessionId)}/vet`,
 } as const;
 
 /** Header that carries the person's OpenRouter key when the extension has one. */
@@ -105,6 +106,38 @@ export interface AgentFocus {
   multiple?: boolean;
   required?: boolean;
   invalid?: string;
+}
+
+/**
+ * What the extension reads from the page about a control about to be clicked, or a window or
+ * frame a click opened. The server's decision model judges it: a file only ever comes from this
+ * computer, never an online service. Nothing here is a judgment.
+ */
+export interface AgentVetTarget {
+  kind: "control" | "window" | "frame";
+  tag?: string;
+  type?: string;
+  role?: string;
+  text?: string;
+  label?: string;
+  title?: string;
+  alt?: string;
+  linkHost?: string;
+  idClass?: string;
+  /** The control sits in a component that holds a file input. */
+  inFileComponent?: boolean;
+  /** A window or frame: its address, title and the start of its text. */
+  url?: string;
+  windowTitle?: string;
+  excerpt?: string;
+  /** The page the click was on. */
+  pageUrl?: string;
+}
+
+export interface AgentVetVerdict {
+  blocked: boolean;
+  probability: number;
+  reason?: string;
 }
 
 /** What an action set off beyond itself, that a screenshot cannot show. */

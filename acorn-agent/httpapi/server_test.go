@@ -226,3 +226,28 @@ func TestHealthReportsWithoutLeakingTheKey(t *testing.T) {
 		t.Fatalf("health = %d %s", response.StatusCode, body)
 	}
 }
+
+func TestVetAnswersForARunAndRefusesAnUnknownOne(t *testing.T) {
+	_, ts := newServer(t, fakeModel{content: workingReply}, "server-key")
+	_, body := send(t, http.MethodPost, ts.URL+BasePath+"/sessions", agent.Start{URL: "https://jobs.example"}, nil)
+	var started agent.Started
+	if err := json.Unmarshal(body, &started); err != nil {
+		t.Fatal(err)
+	}
+	vet := func(id string, target agent.VetTarget) (int, agent.VetVerdict) {
+		response, body := send(t, http.MethodPost, ts.URL+BasePath+"/sessions/"+id+"/vet", target, nil)
+		var verdict agent.VetVerdict
+		_ = json.Unmarshal(body, &verdict)
+		return response.StatusCode, verdict
+	}
+	// The stand-in decision model gives no answer, so only a control in a file component is refused.
+	if status, verdict := vet(started.SessionID, agent.VetTarget{Kind: agent.VetControl, Tag: "button", Text: "Attach", InFileComponent: true}); status != 200 || !verdict.Blocked {
+		t.Fatalf("file component = %d %+v", status, verdict)
+	}
+	if status, verdict := vet(started.SessionID, agent.VetTarget{Kind: agent.VetControl, Tag: "button", Text: "Next"}); status != 200 || verdict.Blocked {
+		t.Fatalf("plain control = %d %+v", status, verdict)
+	}
+	if status, _ := vet("nope", agent.VetTarget{Kind: agent.VetControl}); status != http.StatusNotFound {
+		t.Fatalf("unknown run = %d", status)
+	}
+}

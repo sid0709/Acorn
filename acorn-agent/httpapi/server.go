@@ -30,6 +30,8 @@ const (
 	extensionScheme = "chrome-extension://"
 	// stepTimeout bounds one step: a model call, its retries and the repair.
 	stepTimeout = 5 * time.Minute
+	// vetTimeout bounds one check of a control or window: a click waits for it.
+	vetTimeout = 20 * time.Second
 )
 
 // Options configure the server.
@@ -66,6 +68,7 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("GET "+BasePath+"/health", s.health)
 	mux.HandleFunc("POST "+BasePath+"/sessions", s.start)
 	mux.HandleFunc("POST "+BasePath+"/sessions/{id}/step", s.step)
+	mux.HandleFunc("POST "+BasePath+"/sessions/{id}/vet", s.vet)
 	mux.HandleFunc("GET "+BasePath+"/sessions/{id}/resume", s.resume)
 	mux.HandleFunc("DELETE "+BasePath+"/sessions/{id}", s.end)
 	return s.cors(logged(mux))
@@ -114,6 +117,21 @@ func (s *Server) step(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(w, http.StatusOK, step)
+}
+
+func (s *Server) vet(w http.ResponseWriter, r *http.Request) {
+	var target agent.VetTarget
+	if !decode(w, r, &target) {
+		return
+	}
+	ctx, cancel := context.WithTimeout(r.Context(), vetTimeout)
+	defer cancel()
+	verdict, err := s.agent.Vet(ctx, r.PathValue("id"), target)
+	if err != nil {
+		writeError(w, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, verdict)
 }
 
 func (s *Server) resume(w http.ResponseWriter, r *http.Request) {

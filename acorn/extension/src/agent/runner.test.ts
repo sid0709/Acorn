@@ -161,7 +161,9 @@ describe("runAgent", () => {
     let text = "A long job description about Python development.";
     installBrowser({
       "Runtime.evaluate": (params: { expression?: string }) =>
-        params.expression?.includes("innerText") ? { result: { value: text } } : {},
+        params.expression?.includes("nodeValue")
+          ? { result: { value: { url: "https://jobs.example/apply", text, custom: 0 } } }
+          : {},
     });
     installServer([
       working(1, [{ id: "s1a1", kind: "click", x: 5, y: 5 }]),

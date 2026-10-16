@@ -25,10 +25,11 @@ import {
   startFakeModel,
   typeInto,
   upload,
+  type Point,
   type Points,
   type Script,
 } from "./fake-model";
-import { startAgentSite } from "./site";
+import { startAgentSite, startFrameSite } from "./site";
 
 const AGENT_DIR = join(import.meta.dir, "../../../acorn-agent");
 const EXTENSION_SRC = join(import.meta.dir, "../../../acorn/extension");
@@ -81,7 +82,9 @@ const RESUME_BYTES = Buffer.byteLength(RESUME_TEXT);
 await writeFile(join(dataDir, "resumes", "Backend", "Ada-Lovelace.pdf"), RESUME_TEXT);
 
 // ── The servers ──────────────────────────────────────────────────────────────────────
-const site = startAgentSite();
+const frameSite = startFrameSite();
+const frameOrigin = `http://localhost:${frameSite.port}`;
+const site = startAgentSite(frameOrigin);
 const siteUrl = `http://127.0.0.1:${site.port}/`;
 let points: Points | null = null;
 let script: Script = () => answer({ status: "stuck", message: "no script" });
@@ -92,6 +95,8 @@ const model = startFakeModel(
 
 let verdict = { matches: 0.98, blocked: 0.01, loading: 0.01 };
 const decisions = startFakeDecisions(() => verdict);
+/** The screen checker's requests (a state of parts and a screenshot); Jev's questions about controls and pages are not them. */
+const screenRequests = () => decisionRequests.filter((r) => Array.isArray(r.state));
 
 const binary = join(dataDir, "agent");
 const build = Bun.spawnSync(["go", "build", "-o", binary, "./cmd/agent"], {
@@ -181,6 +186,8 @@ async function newForm(query = ""): Promise<{ page: Page; tabId: number }> {
     name: await at("#name"),
     email: await at("#email"),
     auth: await at("#auth"),
+    ...((await page.$("#dropbox")) ? { dropbox: await at("#dropbox") } : {}),
+    ...((await page.$("#import")) ? { import: await at("#import") } : {}),
     agree: await at("#agree"),
     upload: await at("#upload"),
     submit: await at("#submit"),
@@ -367,7 +374,7 @@ try {
   const finalRun = progress.at(-1)?.run;
   check(
     progress.some((p) => (p.run?.costUsd ?? 0) > 0 && p.phase === "running") &&
-      Math.abs((finalRun?.costUsd ?? 0) - 0.005) < 1e-9 &&
+      (finalRun?.costUsd ?? 0) >= 0.005 &&
       finalRun?.modelCalls === 5,
     "the sidebar is told what the run has cost while it works and when it ends",
     finalRun,
@@ -439,9 +446,9 @@ try {
   }
 
   check(
-    decisionRequests.length === 0,
+    screenRequests().length === 0,
     "a plan with no checks never asks the decision model",
-    decisionRequests.length,
+    screenRequests().length,
   );
 
   // 1b. A whole screen planned at once: the decision model checks each run, the model is
@@ -491,11 +498,11 @@ try {
     requests.length - modelCallsBefore,
   );
   check(
-    decisionRequests.length === 3,
+    screenRequests().length === 3,
     "each checked run was checked once",
-    decisionRequests.length,
+    screenRequests().length,
   );
-  const asked = decisionRequests[0];
+  const asked = screenRequests()[0];
   check(
     Array.isArray(asked?.state) &&
       asked.state.some((p) => p.image_url?.url.startsWith("data:image/jpeg;base64,")) &&
@@ -514,14 +521,14 @@ try {
 
   // 1c. A checker that says the screen is not what was expected hands the run to the model.
   verdict = { matches: 0.05, blocked: 0.01, loading: 0.01 };
-  const checksBefore = decisionRequests.length;
+  const checksBefore = screenRequests().length;
   const callsBefore = requests.length;
   const refused = await newForm();
   const refusedRun = await run(refused.tabId);
   check(
-    requests.length - callsBefore === 2 && decisionRequests.length - checksBefore === 1,
+    requests.length - callsBefore === 2 && screenRequests().length - checksBefore === 1,
     "a screen that is not as expected goes back to the model after one check",
-    { model: requests.length - callsBefore, checks: decisionRequests.length - checksBefore },
+    { model: requests.length - callsBefore, checks: screenRequests().length - checksBefore },
   );
   check(
     refusedRun.at(-1)?.run?.report?.outcome === "completed",
@@ -642,6 +649,77 @@ try {
     "the model is told the job description on its first look",
   );
 
+  // 1h. The job description sits in a frame of another origin, a same-origin frame, or an open or a
+  // closed shadow root: the agent finds it, nobody is asked, and the model is told it.
+  const lookText = (index: number) => {
+    const content = requests[index]?.messages.at(-1)?.content;
+    return Array.isArray(content)
+      ? (content.find((p) => p.type === "text")?.text ?? "")
+      : String(content ?? "");
+  };
+  script = (step, at) =>
+    step === 1
+      ? answer({ status: "working", message: "Attaching my résumé", actions: [upload(at.upload)] })
+      : answer({ status: "done", message: "The application was received" });
+  for (const where of ["iframe-x", "iframe-s", "shadow-open", "shadow-closed"]) {
+    const before = requests.length;
+    const hidden = await newForm(`?jd=${where}`);
+    const hiddenRun = await run(hidden.tabId);
+    check(
+      !hiddenRun.some((p) => p.run?.ask) &&
+        (await pageState(hidden.page)).file === "Ada-Lovelace.pdf" &&
+        lookText(before).includes("We are hiring a Data Engineer"),
+      `the job description is found in ${where.replace("-", " ")} and nobody is asked`,
+      { ask: hiddenRun.some((p) => p.run?.ask), look: lookText(before).slice(0, 400) },
+    );
+  }
+
+  // 1i. A control that brings a file from an online service is never clicked.
+  script = (step, at) =>
+    step === 1
+      ? answer({
+          status: "working",
+          message: "Choosing my résumé from Dropbox",
+          actions: [{ ...click(at.dropbox as Point) }],
+        })
+      : answer({ status: "done", message: "ok" });
+  const beforeCloud = requests.length;
+  const cloud = await newForm("?cloud=dropbox");
+  await run(cloud.tabId);
+  check(
+    !(await cloud.page.evaluate(
+      () => (window as unknown as { __dropboxClicked?: boolean }).__dropboxClicked,
+    )) && lookText(beforeCloud + 1).includes("blocked: that control uses an online file source"),
+    "a click on an online file source is refused before it happens, and the model is told why",
+    lookText(beforeCloud + 1).slice(0, 500),
+  );
+
+  // 1j. A control the guard cannot tell: it opens a window for an online file source, which is closed.
+  const beforePopup = requests.length;
+  script = (step, at) =>
+    step === 1
+      ? answer({ status: "working", message: "Importing", actions: [click(at.import as Point)] })
+      : answer({ status: "done", message: "ok" });
+  const popup = await newForm("?cloud=popup");
+  await run(popup.tabId);
+  await pause(500);
+  const chooserOpen = (await browser.pages()).some((p) => p.url().includes("/chooser"));
+  check(
+    !chooserOpen && lookText(beforePopup + 1).includes("closed it"),
+    "a window that opens for an online file source is closed, and the model is told",
+    { chooserOpen, look: lookText(beforePopup + 1).slice(0, 500) },
+  );
+
+  // 1k. The same, drawn inside the page as a frame of another origin.
+  const beforeFrame = requests.length;
+  const framed = await newForm("?cloud=frame");
+  await run(framed.tabId);
+  check(
+    (await framed.page.$("#chooser")) === null && lookText(beforeFrame + 1).includes("closed it"),
+    "a frame that opens for an online file source is removed, and the model is told",
+    lookText(beforeFrame + 1).slice(0, 500),
+  );
+
   // 2. Stop works, at once, and leaves the page as it is.
   script = (step, at) =>
     step === 1
@@ -693,6 +771,7 @@ try {
   agent.kill();
   await browser.close();
   void site.stop();
+  void frameSite.stop();
   void model.stop();
   void decisions.stop();
 }

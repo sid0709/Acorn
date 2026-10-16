@@ -29,8 +29,10 @@ export const SITE_HTML = `<!doctype html>
   </select>
   <label><input id="agree" type="checkbox"> I agree to the privacy policy</label>
   <label>Résumé</label>
-  <button id="upload" type="button">Attach résumé</button>
-  <input id="file" type="file" hidden>
+  <div class="filebox">
+    <button id="upload" type="button">Attach résumé</button><!--CLOUD-->
+    <input id="file" type="file" hidden>
+  </div>
   <span id="fileName"></span>
   <p><button id="submit" type="submit">Submit application</button></p>
   <p id="problem" class="error" hidden></p>
@@ -64,20 +66,68 @@ export const SITE_HTML = `<!doctype html>
 </body>
 </html>`;
 
-/** A job description, long enough for the agent to judge, shown above the form on `?jd=1`. */
+/** A job description, long enough for the agent to judge, wherever the page puts it. */
 export const JOB_DESCRIPTION =
-  "We are hiring a Data Engineer to build and run our data pipelines in Python. You will design batch and streaming jobs, own their quality, and work with analysts. Requirements: five years of Python, strong SQL, and experience with cloud data warehouses.";
+  "We are hiring a Data Engineer to build and run our data pipelines in Python. You will design batch and streaming jobs, own their quality, and work with analysts and product teams across the company. Requirements: five years of Python, strong SQL, experience with cloud data warehouses, and a habit of writing tests. We offer remote work, health cover and a learning budget.";
 
-export function startAgentSite() {
+const jdPage = `<!doctype html><html><head><meta charset="utf-8"><title>Job description</title></head><body><h2>Data Engineer</h2><p>${JOB_DESCRIPTION}</p></body></html>`;
+const chooserPage = `<!doctype html><html><head><meta charset="utf-8"><title>Dropbox: choose a file</title></head><body><h2>Dropbox</h2><p>Sign in to choose a file from your cloud storage.</p></body></html>`;
+
+/** A site on another host, so its frames are of another origin and process: the job description and a file chooser. */
+export function startFrameSite() {
   return Bun.serve({
     port: 0,
     hostname: "127.0.0.1",
     fetch(req) {
-      const withJd = new URL(req.url).searchParams.has("jd");
+      const html = new URL(req.url).pathname === "/chooser" ? chooserPage : jdPage;
+      return new Response(html, { headers: { "Content-Type": "text/html" } });
+    },
+  });
+}
+
+/** Where the job description sits, by `?jd=`, and which file-source trap the page sets, by `?cloud=`. */
+function jdMarkup(kind: string, frameOrigin: string): string {
+  switch (kind) {
+    case "1":
+      return `<p id="jd">${JOB_DESCRIPTION}</p>`;
+    case "iframe-x":
+      return `<iframe src="${frameOrigin}/jd" width="700" height="60" style="border:0"></iframe>`;
+    case "iframe-s":
+      return `<iframe src="/jd-frame" width="700" height="60" style="border:0"></iframe>`;
+    case "shadow-open":
+      return `<div id="host"></div><script>document.getElementById("host").attachShadow({mode:"open"}).innerHTML = "<p>${JOB_DESCRIPTION}</p>";</script>`;
+    case "shadow-closed":
+      return `<job-post></job-post><script>customElements.define("job-post", class extends HTMLElement { constructor() { super(); this.attachShadow({mode:"closed"}).innerHTML = "<p>${JOB_DESCRIPTION}</p>"; } });</script>`;
+    default:
+      return "";
+  }
+}
+
+function cloudMarkup(kind: string, frameOrigin: string): string {
+  switch (kind) {
+    case "dropbox":
+      return `<button id="dropbox" type="button" onclick="window.__dropboxClicked = true">Dropbox</button>`;
+    case "popup":
+      return `<button id="import" type="button" onclick="window.open('${frameOrigin}/chooser', '_blank')">Import</button>`;
+    case "frame":
+      return `<button id="import" type="button" onclick="const f = document.createElement('iframe'); f.id = 'chooser'; f.src = '${frameOrigin}/chooser'; f.width = 300; f.height = 120; document.body.appendChild(f);">Import files</button>`;
+    default:
+      return "";
+  }
+}
+
+export function startAgentSite(frameOrigin = "http://localhost:0") {
+  return Bun.serve({
+    port: 0,
+    hostname: "127.0.0.1",
+    fetch(req) {
+      const url = new URL(req.url);
+      if (url.pathname === "/jd-frame")
+        return new Response(jdPage, { headers: { "Content-Type": "text/html" } });
       const html = SITE_HTML.replace(
         "<!--JD-->",
-        withJd ? `<p id="jd">${JOB_DESCRIPTION}</p>` : "",
-      );
+        jdMarkup(url.searchParams.get("jd") ?? "", frameOrigin),
+      ).replace("<!--CLOUD-->", cloudMarkup(url.searchParams.get("cloud") ?? "", frameOrigin));
       return new Response(html, { headers: { "Content-Type": "text/html" } });
     },
   });

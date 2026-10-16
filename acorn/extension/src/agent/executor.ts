@@ -11,6 +11,7 @@ import {
   type AgentActionResult,
 } from "@acorn/shared/agent-contract";
 
+import { BLOCKED_MESSAGE, type GuardVerdict } from "./guard";
 import { clickAt, moveMouse, pressKeys, typeText, wheelAt } from "./input";
 import { uploadAt, type ResumeFile } from "./upload";
 
@@ -34,6 +35,13 @@ export interface ExecutorContext {
   sleep(ms: number): Promise<void>;
   /** Throws when the person pressed Stop. */
   checkStopped(): void;
+  /**
+   * Judges the control at a point (CSS pixels) before it is clicked: a file only ever comes from
+   * this computer, never an online source. It starts while the cursor glides, so it adds no wait.
+   */
+  guard?: (x: number, y: number) => Promise<GuardVerdict>;
+  /** Runs after a click has settled: it closes a frame or window the click opened that is an online file source. */
+  afterClick?: () => Promise<void>;
   /** How long an upload waits for the click to open a file picker; the default when unset. */
   fileChooserWaitMs?: number;
 }
@@ -46,6 +54,12 @@ function point(action: AgentAction, scale: number): { x: number; y: number } {
 /** Glides the visible cursor to the point and waits for it to arrive, so a person can follow. */
 async function glideTo(ctx: ExecutorContext, x: number, y: number): Promise<void> {
   await ctx.overlay.moveTo(x, y);
+}
+
+/** Throws, so the click never happens, when the guard says the control is an online file source. */
+async function refuseIfBlocked(verdict: Promise<GuardVerdict> | undefined): Promise<void> {
+  const answer = await verdict;
+  if (answer?.blocked) throw new Error(BLOCKED_MESSAGE);
 }
 
 type Done = { detail?: string; opened?: ActionOpened };
@@ -68,6 +82,7 @@ async function clickWatchingForPicker(
   try {
     await clickAt(ctx.cdp, x, y, options);
     await ctx.sleep(SETTLE_MS);
+    await ctx.afterClick?.();
   } finally {
     stop();
   }
@@ -82,7 +97,9 @@ async function perform(ctx: ExecutorContext, action: AgentAction): Promise<Done>
     case "triple_click":
     case "right_click": {
       const { x, y } = point(action, ctx.scale());
+      const verdict = ctx.guard?.(x, y);
       await glideTo(ctx, x, y);
+      await refuseIfBlocked(verdict);
       void ctx.overlay.click();
       const count = action.kind === "double_click" ? 2 : action.kind === "triple_click" ? 3 : 1;
       return clickWatchingForPicker(ctx, x, y, {
@@ -122,7 +139,9 @@ async function perform(ctx: ExecutorContext, action: AgentAction): Promise<Done>
       const { x, y } = point(action, ctx.scale());
       if (!action.resume) throw new Error("the server named no résumé to upload");
       const file = await ctx.resume(action.resume, action.fileName ?? action.resume);
+      const verdict = ctx.guard?.(x, y);
       await glideTo(ctx, x, y);
+      await refuseIfBlocked(verdict);
       void ctx.overlay.click();
       const done = await uploadAt(cdp, x, y, file, ctx.fileChooserWaitMs);
       await ctx.sleep(SETTLE_MS);

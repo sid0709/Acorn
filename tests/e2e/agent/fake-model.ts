@@ -4,7 +4,8 @@
 // real model would need: the screenshot, the applicant, the memory, and the last results.
 
 export type Point = { x: number; y: number };
-export type Points = Record<"name" | "email" | "auth" | "agree" | "upload" | "submit", Point>;
+export type Points = Record<"name" | "email" | "auth" | "agree" | "upload" | "submit", Point> &
+  Partial<Record<"dropbox" | "import", Point>>;
 
 export type ModelRequest = {
   messages: {
@@ -111,6 +112,11 @@ export function startFakeDecisions(verdict: () => Verdict) {
           // Jev reads the page text: a description when it says it is hiring.
           const text = typeof request.state === "string" ? request.state : "";
           answers[key] = { type: "noul", noul: text.includes("We are hiring") ? 0.97 : 0.02 };
+        } else if (key === "online_source") {
+          // The decision model judges a control, window or frame: an online file source when it is a
+          // Dropbox button, or a chooser page. (A test stand-in: the real model reads the description.)
+          const text = typeof request.state === "string" ? request.state : "";
+          answers[key] = { type: "noul", noul: /Dropbox|chooser/i.test(text) ? 0.95 : 0.02 };
         } else if (question.type === "choice") {
           const first = Object.keys(question.criteria ?? {})[0] ?? "";
           answers[key] = { type: "choice", choice: first, probabilities: { [first]: 0.99 } };
