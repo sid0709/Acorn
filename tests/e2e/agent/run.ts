@@ -720,6 +720,42 @@ try {
     lookText(beforeFrame + 1).slice(0, 500),
   );
 
+  // 1l. A hidden frame from another site (a proxy the page loads for itself) is left alone.
+  const beforeHidden = requests.length;
+  const framesAsked = () =>
+    decisionRequests.filter((r) => typeof r.state === "string" && r.state.includes("A new frame"))
+      .length;
+  const askedBefore = framesAsked();
+  const proxied = await newForm("?cloud=hidden-frame");
+  await run(proxied.tabId);
+  check(
+    (await proxied.page.$("#proxy")) !== null &&
+      framesAsked() === askedBefore &&
+      !lookText(beforeHidden).includes("closed it") &&
+      !lookText(beforeHidden + 1).includes("closed it"),
+    "a hidden frame from another site is not judged, not removed, and the model is not told of one",
+    { asked: framesAsked() - askedBefore },
+  );
+
+  // 1m. The model names a résumé: it is ignored, and the job description chooses (here: the first stack).
+  script = (step, at) =>
+    step === 1
+      ? answer({
+          status: "working",
+          message: "Attaching the Data résumé",
+          actions: [{ ...upload(at.upload), resume: "Data" }],
+        })
+      : answer({ status: "done", message: "ok" });
+  const beforeNamed = requests.length;
+  const named = await newForm("?jd=1");
+  await run(named.tabId);
+  check(
+    (await pageState(named.page)).file === "Ada-Lovelace.pdf" &&
+      lookText(beforeNamed + 1).includes('You named the résumé "Data"'),
+    "a résumé the model names is ignored, the job description chooses it, and the model is told",
+    { file: (await pageState(named.page)).file, look: lookText(beforeNamed + 1).slice(0, 400) },
+  );
+
   // 2. Stop works, at once, and leaves the page as it is.
   script = (step, at) =>
     step === 1

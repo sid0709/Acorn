@@ -167,13 +167,23 @@ export async function describeWindow(tabId: number, pageUrl: string): Promise<Ag
   return { kind: "window", url: tab.url ?? "", windowTitle: tab.title ?? "", excerpt, pageUrl };
 }
 
-/** Runs in the page: the address of every frame in it, in shadow roots and same-origin frames too. */
+/**
+ * Runs in the page: the address of every frame in it that a person could see, in shadow roots and
+ * same-origin frames too. A hidden frame (a one-pixel proxy a page loads for its own scripts)
+ * cannot show a chooser or a sign-in, so it is not asked about.
+ */
 const FRAMES_SCRIPT = `(() => {
   const found = [];
+  const visible = (frame) => {
+    const box = frame.getBoundingClientRect();
+    const view = frame.ownerDocument.defaultView;
+    const style = view ? view.getComputedStyle(frame) : null;
+    return box.width >= 40 && box.height >= 40 && (!style || (style.display !== "none" && style.visibility !== "hidden"));
+  };
   const visit = (root, depth) => {
     if (depth > 6) return;
     for (const frame of root.querySelectorAll("iframe,frame")) {
-      found.push(frame.src || frame.getAttribute("src") || "");
+      if (visible(frame)) found.push(frame.src || frame.getAttribute("src") || "");
       try { if (frame.contentDocument) visit(frame.contentDocument, depth + 1); } catch (error) { /* another origin */ }
     }
     for (const el of root.querySelectorAll("*")) if (el.shadowRoot) visit(el.shadowRoot, depth + 1);
@@ -195,6 +205,14 @@ function removeFramesScript(src: string): string {
     };
     visit(document, 0);
   })(${JSON.stringify(src)})`;
+}
+
+export interface FrameWatchDeps {
+  cdp: Cdp;
+  vet: (target: AgentVetTarget) => Promise<AgentVetVerdict>;
+  pageUrl: () => string;
+  /** Called with a note for the model when a frame was closed. */
+  onClosed: (note: string) => void;
 }
 
 /**
@@ -246,73 +264,27 @@ function frameClosedNote(url: string): string {
   } catch {
     // keep the address as it is
   }
-  return `A click opened a frame from ${host} that offers an online file source or sign-in, and Acorn closed it. Acorn never uses those: attach a file with upload.`;
-}
-
-type FrameInfo = { id?: string; parentId?: string; url?: string; securityOrigin?: string };
-
-export interface FrameWatchDeps {
-  cdp: Cdp;
-  vet: (target: AgentVetTarget) => Promise<AgentVetVerdict>;
-  pageUrl: () => string;
-  /** Called with a note for the model when a frame was closed. */
-  onClosed: (note: string) => void;
+  return `A frame from ${host} showed an online file source or sign-in, and Acorn closed it. Acorn never uses those: attach a file with upload.`;
 }
 
 /**
- * Judges every frame of another origin that appears in the page (a chooser drawn over it, a
- * sign-in drawn inside it), and removes one that is an online file source. Returns a function
- * that stops watching.
+ * Runs the sweep when the browser reports a frame navigating in the page, so a frame an online
+ * file source draws is judged without waiting for the next click or look. Returns a function
+ * that stops listening.
  */
-export function watchForeignFrames(deps: FrameWatchDeps): () => void {
-  let topOrigin = "";
-  const seen = new Set<string>();
-  const closeFrame = async (frameId: string) => {
-    const owner = await deps.cdp.send<{ backendNodeId?: number }>("DOM.getFrameOwner", { frameId });
-    if (owner.backendNodeId == null) return;
-    const node = await deps.cdp.send<{ object?: { objectId?: string } }>("DOM.resolveNode", {
-      backendNodeId: owner.backendNodeId,
-    });
-    const objectId = node.object?.objectId;
-    if (!objectId) return;
-    await deps.cdp.send("Runtime.callFunctionOn", {
-      objectId,
-      functionDeclaration: "function () { this.remove(); }",
-    });
-  };
-  const judge = async (frame: FrameInfo) => {
-    if (!frame.id || !frame.url || frame.url === "about:blank") return;
-    const key = `${frame.id}\n${frame.url}`;
-    if (seen.has(key)) return;
-    seen.add(key);
-    let verdict: AgentVetVerdict;
-    try {
-      verdict = await deps.vet({ kind: "frame", url: frame.url, pageUrl: deps.pageUrl() });
-    } catch {
-      return; // a frame that cannot be judged is let be
-    }
-    if (!verdict.blocked) return;
-    try {
-      await closeFrame(frame.id);
-    } catch {
+export function watchFrameEvents(cdp: Cdp, sweep: () => Promise<void>): () => void {
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  const stop = cdp.onEvent((method, params) => {
+    if (
+      method !== "Page.frameNavigated" ||
+      !(params as { frame?: { parentId?: string } }).frame?.parentId
+    )
       return;
-    }
-    deps.onClosed(frameClosedNote(frame.url));
-  };
-  void deps.cdp
-    .send<{ frameTree?: { frame?: FrameInfo } }>("Page.getFrameTree")
-    .then((tree) => {
-      topOrigin = tree.frameTree?.frame?.securityOrigin ?? "";
-    })
-    .catch(() => undefined);
-  return deps.cdp.onEvent((method, params) => {
-    if (method !== "Page.frameNavigated") return;
-    const frame = (params as { frame?: FrameInfo }).frame;
-    if (!frame) return;
-    if (!frame.parentId) {
-      topOrigin = frame.securityOrigin ?? topOrigin;
-      return;
-    }
-    if (frame.securityOrigin && topOrigin && frame.securityOrigin !== topOrigin) void judge(frame);
+    clearTimeout(timer);
+    timer = setTimeout(() => void sweep(), 150);
   });
+  return () => {
+    clearTimeout(timer);
+    stop();
+  };
 }

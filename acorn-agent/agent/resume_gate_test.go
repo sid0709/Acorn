@@ -243,3 +243,67 @@ func TestAClickOnAFileButtonWithoutAJobDescriptionAsksToo(t *testing.T) {
 		t.Fatalf("upload = %+v", up)
 	}
 }
+
+func namedUpload(name string) string {
+	return plan("attaching", "notes", map[string]any{"kind": "upload", "x": 300, "y": 400, "resume": name})
+}
+
+func TestAResumeTheModelNamesIsIgnoredAndTheJobDescriptionChoosesIt(t *testing.T) {
+	// The model names "backend"; Jev, given the whole description, chooses "data" (resume_1).
+	decider := &fixedDecider{jd: 0.95, choice: "resume_1"}
+	model := &scriptedModel{replies: []string{namedUpload("backend"), plan("next", nil, click(1, 1, nil))}}
+	a := newTestAgent(t, model, decider, gateConfig())
+	id := start(t, a)
+	step := stepOK(t, a, id, withText(observation(shot(t, 40)), jdText))
+	if len(step.Actions) != 1 || !strings.HasPrefix(step.Actions[0].Resume, "data/") {
+		t.Fatalf("the model's pick must not win: %+v", step.Actions)
+	}
+	if len(decider.choiceStates) != 1 {
+		t.Fatalf("Jev must choose; asked %d times", len(decider.choiceStates))
+	}
+	next := observation(shot(t, 90))
+	next.Results = []ActionResult{{ID: step.Actions[0].ID, OK: true}}
+	stepOK(t, a, id, next)
+	if text := lastText(model); !strings.Contains(text, `You named the résumé "backend"`) || !strings.Contains(text, "Leave resume null") {
+		t.Fatalf("the model is not told its pick was ignored:\n%s", text)
+	}
+}
+
+func TestANamedFormatIsKeptWhenTheStackIsChosenByTheServer(t *testing.T) {
+	// The stacks are "C# + React" (resume_0) and "Go" (resume_1); Jev chooses Go.
+	for name, want := range map[string]string{
+		"docx": "Go/Ada.docx", "pdf": "Go/Ada.pdf", "C# + React docx": "Go/Ada.docx", "": "Go/Ada.pdf", "C# + React": "Go/Ada.pdf",
+	} {
+		decider := &fixedDecider{jd: 0.95, choice: "resume_1"}
+		model := &scriptedModel{replies: []string{namedUpload(name)}}
+		a := stackAgent(t, model, decider, `{"name":"Ada"}`)
+		step := stepOK(t, a, start(t, a), withText(observation(shot(t, 40)), jdText))
+		if len(step.Actions) != 1 || step.Actions[0].Resume != want {
+			t.Fatalf("named %q: %+v, want %s", name, step.Actions, want)
+		}
+	}
+}
+
+func TestACoverLetterTheModelNamesIsSentAsNamed(t *testing.T) {
+	decider := &fixedDecider{jd: 0.95, choice: "resume_1"}
+	model := &scriptedModel{replies: []string{namedUpload("Cover Letter")}}
+	a := stackAgent(t, model, decider, `{"name":"Ada"}`)
+	step := stepOK(t, a, start(t, a), withText(observation(shot(t, 40)), jdText))
+	if len(step.Actions) != 1 || !strings.HasPrefix(step.Actions[0].Resume, "Cover Letter.") || len(decider.choiceStates) != 0 {
+		t.Fatalf("step = %+v, Jev asked %d times", step.Actions, len(decider.choiceStates))
+	}
+}
+
+func TestTheStackChosenOnceIsKeptForTheRunWhateverTheModelNames(t *testing.T) {
+	decider := &fixedDecider{jd: 0.95, choice: "resume_1"}
+	model := &scriptedModel{replies: []string{namedUpload("backend"), namedUpload("backend")}}
+	a := newTestAgent(t, model, decider, gateConfig())
+	id := start(t, a)
+	first := stepOK(t, a, id, withText(observation(shot(t, 40)), jdText))
+	next := observation(shot(t, 90))
+	next.Results = []ActionResult{{ID: first.Actions[0].ID, OK: true}}
+	second := stepOK(t, a, id, next)
+	if !strings.HasPrefix(first.Actions[0].Resume, "data/") || !strings.HasPrefix(second.Actions[0].Resume, "data/") || len(decider.choiceStates) != 1 {
+		t.Fatalf("first %+v second %+v, Jev asked %d times", first.Actions, second.Actions, len(decider.choiceStates))
+	}
+}

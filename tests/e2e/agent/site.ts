@@ -107,6 +107,9 @@ function cloudMarkup(kind: string, frameOrigin: string): string {
   switch (kind) {
     case "dropbox":
       return `<button id="dropbox" type="button" onclick="window.__dropboxClicked = true">Dropbox</button>`;
+    case "hidden-frame":
+      // A one-pixel frame the page loads for its own scripts: it can show nothing, so it is not judged.
+      return `<iframe id="proxy" src="${frameOrigin}/chooser" width="1" height="1" style="position:absolute;left:-9999px"></iframe>`;
     case "popup":
       return `<button id="import" type="button" onclick="window.open('${frameOrigin}/chooser', '_blank')">Import</button>`;
     case "frame":

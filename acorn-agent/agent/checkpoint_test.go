@@ -414,3 +414,40 @@ func TestSplitPlanEndsARunAtACheckOrTheLimit(t *testing.T) {
 		t.Fatalf("empty plan = %v", got)
 	}
 }
+
+func typeAction(text string, check any) map[string]any {
+	return map[string]any{"kind": "type", "text": text, "check": check}
+}
+
+func TestTypedTextThatMovedTooFewPixelsIsStillCheckedNotTakenForNoChange(t *testing.T) {
+	// A click, then text typed into a field; the screen compares as the same, but the checker is
+	// shown it and the plan goes on without the model.
+	reply := plan("filling", "notes", click(10, 10, nil), typeAction("(424) 320-7354", "phone shows the number"), click(30, 30, nil), click(40, 40, "next field is open"))
+	model := &scriptedModel{replies: []string{reply, plan("done looking", nil, click(5, 5, nil))}}
+	screen := &fakeScreen{verdicts: []screenVerdict{sure}}
+	a := newAgentWithScreen(t, model, &fixedDecider{}, screen, DefaultConfig())
+	id := start(t, a)
+	first := stepOK(t, a, id, observation(shot(t, 40)))
+	if len(first.Actions) != 2 {
+		t.Fatalf("first run = %s", kinds(first.Actions))
+	}
+	obs := observation(shot(t, 40)) // the same pixels
+	obs.Results = []ActionResult{{ID: "s1a1", OK: true}, {ID: "s1a2", OK: true, Detail: "14 characters"}}
+	second := stepOK(t, a, id, obs)
+	if len(second.Actions) != 2 || second.Actions[0].ID != "s1a3" || model.count() != 1 || screen.calls() != 1 {
+		t.Fatalf("second = %s, model calls %d, checks %d", kinds(second.Actions), model.count(), screen.calls())
+	}
+}
+
+func TestAClickThatLeftTheScreenTheSameStillHandsTheRunBack(t *testing.T) {
+	model := &scriptedModel{replies: []string{sixClicks(), plan("recovering", nil, click(5, 5, nil))}}
+	screen := &fakeScreen{}
+	a := newAgentWithScreen(t, model, &fixedDecider{}, screen, DefaultConfig())
+	id := start(t, a)
+	stepOK(t, a, id, observation(shot(t, 40)))
+	obs := observation(shot(t, 40))
+	obs.Results = resultsFor("s1a", 1, 2)
+	if step := stepOK(t, a, id, obs); step.Message != "recovering" || screen.calls() != 0 {
+		t.Fatalf("a click that changed nothing must not be checked: %+v, checks %d", step, screen.calls())
+	}
+}

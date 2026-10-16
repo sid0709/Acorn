@@ -79,43 +79,97 @@ func stackNames(resumes []applicant.Resume) []string {
 	return names
 }
 
-// pickResume chooses the file to upload. A name the model gave that matches a file, a
-// stack or a document wins; otherwise the stack chosen earlier in the run is reused;
-// otherwise the only stack, else Jev chooses by the job the model recorded. A stack is
-// sent in its preferred format. note says what happened when the choice was not clean (Jev
-// failed and the first stack was used).
+// pickResume chooses the file to upload. A loose document the model names (a cover letter)
+// is sent as named. A résumé is never the model's pick: the résumé stack is the one chosen
+// earlier in the run, or the only stack, else the one Jev chooses from the job description (or
+// from the model's summary of the job when no description was found). A stack the model named
+// is only a hint at the format: a named format ("docx", or a file of that format) is honoured, and
+// otherwise the stack is sent in its preferred one. note says what happened when the choice was
+// not clean: Jev failed and the first stack was used, or the model named another stack.
 func (a *Agent) pickResume(ctx context.Context, s *session, requested string) (resume applicant.Resume, note string, err error) {
 	resumes := s.snap.Resumes
 	if len(resumes) == 0 {
 		return applicant.Resume{}, "", errors.New("the applicant has no résumé files")
 	}
-	if found, ok := resolve(resumes, requested); ok {
-		if found.Stack != "" {
-			s.resume = found.Stack
-		}
-		return found, "", nil
-	}
-	if found, ok := resolve(resumes, s.resume); ok && s.resume != "" {
+	if found, ok := resolve(resumes, requested); ok && found.Stack == "" {
 		return found, "", nil
 	}
 	stacks := stackNames(resumes)
-	switch len(stacks) {
-	case 0:
+	var stack string
+	switch {
+	case len(stacks) == 0:
 		return applicant.Resume{}, "", errors.New("the applicant has no résumé folders, only loose documents")
-	case 1:
-		s.resume = stacks[0]
-		found, _ := resolve(resumes, stacks[0])
-		return found, "", nil
+	case s.resume != "" && contains(stacks, s.resume):
+		stack = s.resume
+	case len(stacks) == 1:
+		stack = stacks[0]
+	default:
+		chosen, err := a.askJev(ctx, s, stacks)
+		if err != nil {
+			stack = stacks[0]
+			note = fmt.Sprintf("the résumé choice failed (%v); uploading %s", err, stacks[0])
+		} else {
+			stack = chosen
+		}
 	}
-	chosen, err := a.askJev(ctx, s, stacks)
-	if err != nil {
-		s.resume = stacks[0]
-		found, _ := resolve(resumes, stacks[0])
-		return found, fmt.Sprintf("the résumé choice failed (%v); uploading %s", err, stacks[0]), nil
+	s.resume = stack
+	if named, ok := resolve(resumes, requested); ok && !strings.EqualFold(named.Stack, stack) {
+		s.notes = append(s.notes, fmt.Sprintf("You named the résumé %q, but Acorn chooses the résumé from the job description and sent %q. Leave resume null for a résumé.", named.Stack, stack))
 	}
-	s.resume = chosen
-	found, _ := resolve(resumes, chosen)
-	return found, "", nil
+	return preferredOf(resumes, stack, requestedFormat(resumes, requested)), note, nil
+}
+
+func contains(list []string, item string) bool {
+	for _, entry := range list {
+		if entry == item {
+			return true
+		}
+	}
+	return false
+}
+
+// requestedFormat is the format a name asks for: a file's own format when the name is that
+// file's id or name, or a format after a stack's name ("Python docx"); "" when it asks for none.
+func requestedFormat(resumes []applicant.Resume, name string) string {
+	name = strings.TrimSpace(name)
+	if name == "" {
+		return ""
+	}
+	for _, resume := range resumes {
+		if strings.EqualFold(resume.ID, name) || strings.EqualFold(resume.FileName, name) {
+			return resume.Format
+		}
+	}
+	for _, format := range preferredFormats {
+		if strings.EqualFold(name, format) {
+			return format // just a format: "docx"
+		}
+	}
+	_, format := splitFormat(name)
+	return format
+}
+
+// preferredOf is the stack's file in the format asked for, or in its preferred one.
+func preferredOf(resumes []applicant.Resume, stack, format string) applicant.Resume {
+	var files []applicant.Resume
+	for _, resume := range resumes {
+		if strings.EqualFold(resume.Stack, stack) {
+			files = append(files, resume)
+		}
+	}
+	if format != "" {
+		var wanted []applicant.Resume
+		for _, file := range files {
+			if file.Format == format {
+				wanted = append(wanted, file)
+			}
+		}
+		if len(wanted) > 0 {
+			files = wanted
+		}
+	}
+	chosen, _ := preferred(files)
+	return chosen
 }
 
 // resolve finds the file a name stands for, ignoring case: a file's id or name, or a stack

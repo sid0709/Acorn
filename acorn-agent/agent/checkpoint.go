@@ -233,8 +233,9 @@ func (a *Agent) continuePlan(ctx context.Context, s *session, obs Observation, r
 		return Step{}, false
 	}
 	// A page that is loading may look the same for a moment; anything else that did not move
-	// is not what the model expected.
-	if stale > 0 && s.loadWaits == 0 {
+	// is not what the model expected. Typing and keys are the exception: a few characters in
+	// a field move too few pixels to register as a change, so the checker is asked instead.
+	if stale > 0 && s.loadWaits == 0 && !s.changedLittle(obs.Results) {
 		a.abandon(s, "The screen did not change after them, so it is not what you expected.")
 		return Step{}, false
 	}
@@ -284,6 +285,18 @@ func (a *Agent) continuePlan(ctx context.Context, s *session, obs Observation, r
 	a.record(s, entry, obs.Screenshot, []modelCall{verdict.call(nil)})
 	a.abandon(s, "The checker did not confirm the screen showed what you expected ("+expect+"): "+reason+".")
 	return Step{}, false
+}
+
+// changedLittle is whether the last run included text typed or a key pressed: an edit the pixel
+// comparison cannot be trusted to see.
+func (s *session) changedLittle(results []ActionResult) bool {
+	for _, result := range results {
+		switch s.byID[result.ID].Kind {
+		case KindType, KindKey:
+			return true
+		}
+	}
+	return false
 }
 
 // failedResults names the actions that failed, or is empty.

@@ -3,7 +3,13 @@ import { describe, it } from "node:test";
 
 import { runActions, type ExecutorContext } from "./executor.ts";
 import { fakeCdp } from "./fake-cdp.ts";
-import { BLOCKED_MESSAGE, createClickGuard, targetScript, watchForeignFrames } from "./guard.ts";
+import {
+  BLOCKED_MESSAGE,
+  createClickGuard,
+  createFrameSweep,
+  targetScript,
+  watchFrameEvents,
+} from "./guard.ts";
 
 import type { Overlay } from "./overlay.ts";
 import type { AgentVetTarget, AgentVetVerdict } from "@acorn/shared/agent-contract";
@@ -179,74 +185,87 @@ describe("the executor and the guard", () => {
   });
 });
 
-describe("watchForeignFrames", () => {
-  const navigated = (cdp: ReturnType<typeof fakeCdp>, frame: Record<string, unknown>) =>
-    cdp.emit("Page.frameNavigated", { frame });
-  const tree = {
-    "Page.getFrameTree": { frameTree: { frame: { securityOrigin: "https://jobs.example" } } },
-  };
-  const settle = () => new Promise((resolve) => setTimeout(resolve, 5));
-
-  it("closes a frame of another origin that is an online file source, and tells the model", async () => {
-    const cdp = fakeCdp({
-      ...tree,
-      "DOM.getFrameOwner": { backendNodeId: 4 },
-      "DOM.resolveNode": { object: { objectId: "obj" } },
+describe("createFrameSweep", () => {
+  /** A page that holds these frames (as the page script reports them), with its own origin. */
+  const pageWith = (frames: string[]) =>
+    fakeCdp({
+      "Runtime.evaluate": (params: { expression?: string }) =>
+        params.expression?.includes("found.push")
+          ? { result: { value: { origin: "https://jobs.example", frames } } }
+          : {},
     });
+  const removals = (cdp: ReturnType<typeof fakeCdp>) =>
+    cdp.of("Runtime.evaluate").filter((c) => String(c.params?.expression).includes(".remove()"));
+
+  it("removes a frame of another origin that is an online file source, and says so neutrally", async () => {
+    const cdp = pageWith(["https://files.example/chooser"]);
     const notes: string[] = [];
     const asked: AgentVetTarget[] = [];
-    watchForeignFrames({
+    await createFrameSweep({
       cdp,
       pageUrl: () => "https://jobs.example/apply",
       vet: async (t) => (asked.push(t), { blocked: true, probability: 0.9 }),
       onClosed: (n) => notes.push(n),
-    });
-    await settle();
-    navigated(cdp, {
-      id: "f1",
-      parentId: "top",
-      url: "https://files.example/chooser",
-      securityOrigin: "https://files.example",
-    });
-    await settle();
+    })();
     assert.equal(asked[0].kind, "frame");
     assert.equal(asked[0].url, "https://files.example/chooser");
-    assert.equal(cdp.of("Runtime.callFunctionOn").length, 1);
+    assert.equal(removals(cdp).length, 1);
     assert.match(notes[0], /files\.example/);
+    assert.doesNotMatch(notes[0], /click/i, "nobody is told they clicked what they did not");
   });
 
-  it("leaves a frame alone that the server clears, one of the page's own origin, and a blank one", async () => {
-    const cdp = fakeCdp(tree);
-    const notes: string[] = [];
-    let asked = 0;
-    watchForeignFrames({
+  it("leaves alone a frame the server clears, the page's own origin, a blank one, and a non-web one", async () => {
+    const cdp = pageWith([
+      "https://www.recaptcha.example/anchor",
+      "https://jobs.example/embed",
+      "about:blank",
+      "javascript:void(0)",
+      "",
+    ]);
+    const asked: string[] = [];
+    const sweep = createFrameSweep({
       cdp,
       pageUrl: () => "",
-      vet: async () => (asked++, { blocked: false, probability: 0.01 }),
-      onClosed: (n) => notes.push(n),
+      vet: async (t) => (asked.push(t.url ?? ""), { blocked: false, probability: 0.01 }),
+      onClosed: () => assert.fail("nothing is closed"),
     });
-    await settle();
-    navigated(cdp, {
-      id: "a",
-      parentId: "top",
-      url: "https://www.recaptcha.example/anchor",
-      securityOrigin: "https://www.recaptcha.example",
-    });
-    navigated(cdp, {
-      id: "b",
-      parentId: "top",
-      url: "https://jobs.example/embed",
-      securityOrigin: "https://jobs.example",
-    });
-    navigated(cdp, {
-      id: "c",
-      parentId: "top",
-      url: "about:blank",
-      securityOrigin: "https://x.example",
-    });
-    await settle();
-    assert.equal(asked, 1);
-    assert.equal(cdp.of("Runtime.callFunctionOn").length, 0);
-    assert.deepEqual(notes, []);
+    await sweep();
+    await sweep();
+    assert.deepEqual(
+      asked,
+      ["https://www.recaptcha.example/anchor"],
+      "each address is judged once",
+    );
+    assert.equal(removals(cdp).length, 0);
+  });
+
+  it("leaves a frame alone when the server cannot be asked", async () => {
+    const cdp = pageWith(["https://files.example/chooser"]);
+    await createFrameSweep({
+      cdp,
+      pageUrl: () => "",
+      vet: async () => Promise.reject(new Error("unreachable")),
+      onClosed: () => assert.fail("nothing is closed"),
+    })();
+    assert.equal(removals(cdp).length, 0);
+  });
+});
+
+describe("watchFrameEvents", () => {
+  const wait = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
+
+  it("sweeps when a frame inside the page navigates, once for a burst, and not for the top frame", async () => {
+    const cdp = fakeCdp();
+    let sweeps = 0;
+    const stop = watchFrameEvents(cdp, async () => void (sweeps += 1));
+    cdp.emit("Page.frameNavigated", { frame: { id: "top", url: "https://jobs.example/" } });
+    cdp.emit("Page.frameNavigated", { frame: { id: "a", parentId: "top" } });
+    cdp.emit("Page.frameNavigated", { frame: { id: "b", parentId: "top" } });
+    await wait(250);
+    assert.equal(sweeps, 1);
+    stop();
+    cdp.emit("Page.frameNavigated", { frame: { id: "c", parentId: "top" } });
+    await wait(250);
+    assert.equal(sweeps, 1, "after stop nothing is swept");
   });
 });

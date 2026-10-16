@@ -34,7 +34,7 @@ import {
   vetTarget,
 } from "./client";
 import { runActions, type ExecutorContext } from "./executor";
-import { createClickGuard, createFrameSweep, describeWindow, watchForeignFrames } from "./guard";
+import { createClickGuard, createFrameSweep, describeWindow, watchFrameEvents } from "./guard";
 import { readFocus, readPageText } from "./page-info";
 import {
   agentRunState,
@@ -177,8 +177,8 @@ export async function runAgent(args: AgentRunArgs): Promise<RunReport> {
       },
     };
     frames.stop?.();
-    frames.stop = watchForeignFrames(deps);
     frames.sweep = createFrameSweep(deps);
+    frames.stop = watchFrameEvents(tab.cdp, () => frames.sweep());
   };
 
   const emit = (progress: PipelineProgress) => args.emit(tabs, progress);
