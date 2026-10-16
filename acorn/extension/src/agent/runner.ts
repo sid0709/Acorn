@@ -47,6 +47,7 @@ import {
 } from "./progress";
 import { captureSurvey } from "./survey";
 import { openAgentTab, type AgentTab } from "./tab-session";
+import { recordAgentTrace } from "./trace-log";
 import { toBase64, type ResumeFile } from "./upload";
 
 import type { PipelineProgress } from "@acorn/shared/pipeline-types";
@@ -308,12 +309,18 @@ export async function runAgent(args: AgentRunArgs): Promise<RunReport> {
     watchFrames(current);
     const started = await startSession(
       args.agentUrl,
-      { url: tab.url ?? "", title: tab.title ?? "", stopBeforeSubmit: args.stopBeforeSubmit },
+      {
+        url: tab.url ?? "",
+        title: tab.title ?? "",
+        stopBeforeSubmit: args.stopBeforeSubmit,
+        trace: true,
+      },
       args.key,
       args.accessToken,
     );
     sessionId = started.sessionId;
     log.event("agent-session", { resumes: started.resumes.length });
+    recordAgentTrace(log, started.trace);
 
     let results: AgentActionResult[] = [];
     let carriedNotes: string[] = [];
@@ -340,6 +347,7 @@ export async function runAgent(args: AgentRunArgs): Promise<RunReport> {
       surveyNext = false;
       lastLook = lookKey;
       let survey: AgentSurveyScreen[] | null = null;
+      const captureStartedAt = Date.now();
       await here.overlay.hideForCapture(true);
       try {
         shot = await captureShot(here.cdp);
@@ -354,6 +362,7 @@ export async function runAgent(args: AgentRunArgs): Promise<RunReport> {
       } finally {
         await here.overlay.hideForCapture(false);
       }
+      const captureMs = Date.now() - captureStartedAt;
       checkStopped();
       if (survey) log.event("agent-survey", { screens: survey.length });
       const [focus, text] = await Promise.all([
@@ -390,6 +399,11 @@ export async function runAgent(args: AgentRunArgs): Promise<RunReport> {
       const actions = step.actions ?? [];
       if (step.survey) surveyNext = true;
       log.step = step.number;
+      recordAgentTrace(log, step.trace, {
+        seq: step.trace?.seq ?? step.number,
+        screenshot: shot.dataUrl,
+        survey: survey ?? undefined,
+      });
       log.event("agent-step", {
         number: step.number,
         status: step.status,
@@ -397,6 +411,7 @@ export async function runAgent(args: AgentRunArgs): Promise<RunReport> {
         actions: actions.map(describeAction),
         dropped: step.dropped,
         ms: Date.now() - askedAt,
+        captureMs,
         calls: step.usage.calls,
         costUsd: step.usage.cost,
         url: logUrl(info.url ?? ""),

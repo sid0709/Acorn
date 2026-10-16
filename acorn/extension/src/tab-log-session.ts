@@ -23,6 +23,8 @@ export const LOG_KIND = {
   decision: "decision",
   /** Something that failed and was caught: the run went on, the log says what. */
   error: "error",
+  /** One file of an Agent Run's trace (a step, a model call, a screenshot): title is its name, text its content (an image as base64). */
+  agentFile: "agent-file",
 } as const;
 
 export type LogKind = (typeof LOG_KIND)[keyof typeof LOG_KIND];

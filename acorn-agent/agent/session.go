@@ -92,6 +92,29 @@ type session struct {
 	loadWaits int
 	// checksOff is set once a check failed: the rest of the run goes without them.
 	checksOff bool
+	// wantTrace is set when the run asked for its trace in the answers, and pendingTrace is what was
+	// recorded since the last answer.
+	wantTrace    bool
+	pendingTrace *Trace
+}
+
+// addTrace keeps the trace of an entry until the next answer carries it to the extension.
+func (s *session) addTrace(trace *Trace) {
+	if trace == nil {
+		return
+	}
+	if s.pendingTrace == nil {
+		s.pendingTrace = &Trace{Files: []TraceFile{}}
+	}
+	s.pendingTrace.Files = append(s.pendingTrace.Files, trace.Files...)
+	s.pendingTrace.Timeline += trace.Timeline
+}
+
+// takeTrace is what to send with the answer, and forgets it.
+func (s *session) takeTrace() *Trace {
+	trace := s.pendingTrace
+	s.pendingTrace = nil
+	return trace
 }
 
 // Limits on what a session keeps.

@@ -119,16 +119,53 @@ func (t *tracer) folder(sessionID string) (string, error) {
 	return dir, nil
 }
 
-func writeJSON(path string, value any) error {
+// marshalJSON is the indented JSON a trace file holds.
+func marshalJSON(value any) ([]byte, error) {
 	var data bytes.Buffer
 	encoder := json.NewEncoder(&data)
 	encoder.SetIndent("", "  ")
 	encoder.SetEscapeHTML(false)
 	if err := encoder.Encode(value); err != nil {
-		return fmt.Errorf("encode %s: %w", filepath.Base(path), err)
+		return nil, fmt.Errorf("encode trace file: %w", err)
 	}
-	if err := os.WriteFile(path, data.Bytes(), 0o600); err != nil {
-		return fmt.Errorf("write %s: %w", filepath.Base(path), err)
+	return data.Bytes(), nil
+}
+
+// traceEntryFile is one file of a trace, before it is written or returned.
+type traceEntryFile struct {
+	name string
+	data []byte
+	// ship marks a file the extension cannot make itself, so it goes back with the step.
+	ship bool
+	// image marks a file that is a picture, sent as base64.
+	image bool
+}
+
+// bundle is the part of files that goes back to the extension.
+func bundle(files []traceEntryFile, timeline string) *Trace {
+	out := &Trace{Files: []TraceFile{}, Timeline: timeline}
+	for _, file := range files {
+		switch {
+		case !file.ship:
+		case file.image:
+			out.Files = append(out.Files, TraceFile{Name: file.name, Data: base64.StdEncoding.EncodeToString(file.data)})
+		default:
+			out.Files = append(out.Files, TraceFile{Name: file.name, Text: string(file.data)})
+		}
+	}
+	return out
+}
+
+// writeFiles puts files in the run's trace folder.
+func (t *tracer) writeFiles(sessionID string, files []traceEntryFile) error {
+	dir, err := t.folder(sessionID)
+	if err != nil {
+		return err
+	}
+	for _, file := range files {
+		if err := os.WriteFile(filepath.Join(dir, file.name), file.data, 0o600); err != nil {
+			return fmt.Errorf("write %s: %w", file.name, err)
+		}
 	}
 	return nil
 }
@@ -145,32 +182,34 @@ type sessionTrace struct {
 	Documents   []string `json:"otherDocuments"`
 }
 
-// recordSession writes the run's start and the prompt the model is given. The prompt shows
-// the applicant's profile with secrets as placeholders, as the model reads it.
-func (t *tracer) recordSession(sessionID, system string, info sessionTrace) error {
-	if !t.enabled() {
-		return nil
+// recordSession writes the run's start and the prompt the model is given, and returns them for
+// the extension when it asked for the trace (want). The prompt shows the applicant's profile
+// with secrets as placeholders, as the model reads it.
+func (t *tracer) recordSession(sessionID, system string, info sessionTrace, want bool) (*Trace, error) {
+	if !t.enabled() && !want {
+		return nil, nil
 	}
-	dir, err := t.folder(sessionID)
+	session, err := marshalJSON(info)
 	if err != nil {
-		return err
+		return nil, err
 	}
-	if err := os.WriteFile(filepath.Join(dir, "system.txt"), []byte(system), 0o600); err != nil {
-		return fmt.Errorf("write system.txt: %w", err)
+	files := []traceEntryFile{
+		{name: "system.txt", data: []byte(system), ship: true},
+		{name: "session.json", data: session, ship: true},
 	}
-	return writeJSON(filepath.Join(dir, "session.json"), info)
+	var failure error
+	if t.enabled() {
+		failure = t.writeFiles(sessionID, files)
+	}
+	if !want {
+		return nil, failure
+	}
+	return bundle(files, ""), failure
 }
 
-// record writes one entry. A write that fails is returned for the caller to log; it never
-// stops the run.
-func (t *tracer) record(sessionID string, entry stepTrace, screenshot string, calls []modelCall) error {
-	if !t.enabled() {
-		return nil
-	}
-	dir, err := t.folder(sessionID)
-	if err != nil {
-		return err
-	}
+// entryFiles is every file of one entry: what the page reported and the model decided, every model
+// call, the screenshot and the same screenshot with each action drawn on it, and a survey's.
+func entryFiles(entry stepTrace, screenshot string, calls []modelCall) ([]traceEntryFile, error) {
 	// The caller's actions go on to the extension; the copy written here hides secrets.
 	entry.Actions = append([]Action(nil), entry.Actions...)
 	for i, action := range entry.Actions {
@@ -179,13 +218,17 @@ func (t *tracer) record(sessionID string, entry stepTrace, screenshot string, ca
 		}
 	}
 	name := fmt.Sprintf("%03d", entry.Seq)
-	if err := writeJSON(filepath.Join(dir, name+".json"), entry); err != nil {
-		return err
+	entryJSON, err := marshalJSON(entry)
+	if err != nil {
+		return nil, err
 	}
+	files := []traceEntryFile{{name: name + ".json", data: entryJSON, ship: true}}
 	if len(calls) > 0 {
-		if err := writeJSON(filepath.Join(dir, name+".model.json"), calls); err != nil {
-			return err
+		callsJSON, err := marshalJSON(calls)
+		if err != nil {
+			return nil, err
 		}
+		files = append(files, traceEntryFile{name: name + ".model.json", data: callsJSON, ship: true})
 	}
 	if comma := strings.IndexByte(screenshot, ','); comma >= 0 {
 		extension := "jpg"
@@ -193,14 +236,10 @@ func (t *tracer) record(sessionID string, entry stepTrace, screenshot string, ca
 			extension = "png"
 		}
 		if raw, err := base64.StdEncoding.DecodeString(screenshot[comma+1:]); err == nil {
-			if err := os.WriteFile(filepath.Join(dir, name+"."+extension), raw, 0o600); err != nil {
-				return fmt.Errorf("write screenshot: %w", err)
-			}
+			files = append(files, traceEntryFile{name: name + "." + extension, data: raw, image: true})
 		}
 		if marked, err := markScreenshot(screenshot, entry.Actions); err == nil && hasPoint(entry.Actions) {
-			if err := os.WriteFile(filepath.Join(dir, name+".marked.jpg"), marked, 0o600); err != nil {
-				return fmt.Errorf("write marked screenshot: %w", err)
-			}
+			files = append(files, traceEntryFile{name: name + ".marked.jpg", data: marked, ship: true, image: true})
 		}
 	}
 	for i, screen := range entry.Survey {
@@ -209,9 +248,7 @@ func (t *tracer) record(sessionID string, entry stepTrace, screenshot string, ca
 			continue
 		}
 		stem := fmt.Sprintf("%s.survey%d", name, i+1)
-		if err := os.WriteFile(filepath.Join(dir, stem+".jpg"), raw, 0o600); err != nil {
-			return fmt.Errorf("write survey screen: %w", err)
-		}
+		files = append(files, traceEntryFile{name: stem + ".jpg", data: raw, image: true})
 		var here []Action
 		for _, action := range entry.Actions {
 			if action.ScrollTo != nil && *action.ScrollTo == screen.ScrollY {
@@ -219,12 +256,37 @@ func (t *tracer) record(sessionID string, entry stepTrace, screenshot string, ca
 			}
 		}
 		if marked, err := markScreenshot(screen.Screenshot, here); err == nil && hasPoint(here) {
-			if err := os.WriteFile(filepath.Join(dir, stem+".marked.jpg"), marked, 0o600); err != nil {
-				return fmt.Errorf("write marked survey screen: %w", err)
+			files = append(files, traceEntryFile{name: stem + ".marked.jpg", data: marked, ship: true, image: true})
+		}
+	}
+	return files, nil
+}
+
+// record writes one entry to the trace folder when there is one, and returns it for the extension
+// when the run asked for the trace (want). A write that fails is returned for the caller to log;
+// it never stops the run.
+func (t *tracer) record(sessionID string, entry stepTrace, screenshot string, calls []modelCall, want bool) (*Trace, error) {
+	if !t.enabled() && !want {
+		return nil, nil
+	}
+	files, err := entryFiles(entry, screenshot, calls)
+	if err != nil {
+		return nil, err
+	}
+	line := timelineLine(entry, calls)
+	var failure error
+	if t.enabled() {
+		failure = t.writeFiles(sessionID, files)
+		if dir, err := t.folder(sessionID); err == nil {
+			if err := appendLine(filepath.Join(dir, "timeline.txt"), line); err != nil && failure == nil {
+				failure = err
 			}
 		}
 	}
-	return appendLine(filepath.Join(dir, "timeline.txt"), timelineLine(entry, calls))
+	if !want {
+		return nil, failure
+	}
+	return bundle(files, line), failure
 }
 
 func hasPoint(actions []Action) bool {

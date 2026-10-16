@@ -227,12 +227,35 @@ export interface AgentStep {
   number: number;
   usage: AgentUsage;
   dropped?: string[];
+  /** The trace of what the server recorded since the last answer, when the run asked for it. */
+  trace?: AgentTrace;
+}
+
+/** One file of a run's trace the server made: text in `text`, an image as base64 in `data`. */
+export interface AgentTraceFile {
+  name: string;
+  text?: string;
+  data?: string;
+}
+
+/**
+ * What the server adds to the trace (the files a trace folder holds: the model's prompt and answer,
+ * how long each call took, the screenshot with the actions drawn on it). The server keeps none of it.
+ */
+export interface AgentTrace {
+  /** The entry the answer is for, as its files are numbered (001.json); absent at the run's start. */
+  seq?: number;
+  files: AgentTraceFile[];
+  /** This entry's line of the run's timeline. */
+  timeline?: string;
 }
 
 export interface AgentStart {
   url: string;
   title: string;
   stopBeforeSubmit: boolean;
+  /** Return the run's trace in the answers, for the extension to keep in its own log. */
+  trace?: boolean;
 }
 
 export interface AgentResumeInfo {
@@ -244,6 +267,8 @@ export interface AgentResumeInfo {
 export interface AgentStarted {
   sessionId: string;
   resumes: AgentResumeInfo[];
+  /** The run's start (session.json, system.txt), when the run asked for the trace. */
+  trace?: AgentTrace;
 }
 
 /** The server's stable codes beside an error (acorn-agent/httpapi and llm). */

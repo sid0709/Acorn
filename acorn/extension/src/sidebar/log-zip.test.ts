@@ -76,4 +76,50 @@ describe("buildLogZip", () => {
       [{ n: 1 }, { n: 2 }, { n: 3 }],
     );
   });
+
+  it("puts an Agent Run in its own folder, with the pictures decoded, the timeline joined, and a summary", async () => {
+    const png = btoa(String.fromCharCode(1, 2, 3, 4));
+    const file = (n: number, title: string, text: string, runId = "run-a"): TabLogEntry => ({
+      id: `f${n}`,
+      t: 1_000 * n,
+      kind: "agent-file",
+      title,
+      text,
+      runId,
+    });
+    const model = JSON.stringify([
+      {
+        latencyMs: 7000,
+        usage: { inputTokens: 18000, outputTokens: 300, cachedTokens: 16000, cost: 0.01 },
+      },
+      {
+        kind: "decision",
+        latencyMs: 900,
+        usage: { inputTokens: 500, outputTokens: 5, cost: 0.001 },
+      },
+    ]);
+    const entries: TabLogEntry[] = [
+      { id: "e1", t: 500, kind: "event", title: "run:start", text: "{}" },
+      file(1, "001.jpg", png),
+      file(2, "001.json", '{"seq":1}'),
+      file(3, "001.model.json", model),
+      file(4, "timeline.txt", "001 step 1 working\n"),
+      file(5, "timeline.txt", "002 step 2 done\n"),
+    ];
+    const rows = await readZip(await buildLogZip(entries));
+    const named = (name: string) => rows.find((row) => row.name === name);
+    // The ordinary entry is still there, and the agent files are not among the ordinary files.
+    assert.equal(rows.filter((row) => !row.name.startsWith("agent/")).length, 3);
+    assert.deepEqual([...(named("agent/run-a/001.jpg")?.data ?? [])], [1, 2, 3, 4]);
+    assert.equal(new TextDecoder().decode(named("agent/run-a/001.json")?.data), '{"seq":1}');
+    assert.equal(
+      new TextDecoder().decode(named("agent/run-a/timeline.txt")?.data),
+      "001 step 1 working\n002 step 2 done\n",
+    );
+    const summary = new TextDecoder().decode(named("agent/run-a/summary.txt")?.data);
+    assert.match(summary, /model: 1 calls, 7\.0s in all/);
+    assert.match(summary, /18000 tokens in \(16000 cached\)/);
+    assert.match(summary, /checks: 1 calls/);
+    assert.match(summary, /cost: \$0\.0110/);
+  });
 });

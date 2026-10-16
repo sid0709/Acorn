@@ -1,10 +1,12 @@
 import { summarizeLog } from "../log-summary";
+import { isAgentImage } from "../sidebar/agent-files";
 import { flushTabLogs, getTabLog } from "../tab-log-session";
 
 /** What a support report carries of the tab's log: the summary, then every entry whole. */
 async function reportLogJson(tabId: number): Promise<string> {
   await flushTabLogs();
-  const entries = await getTabLog(tabId);
+  // The Agent Run's screenshots stay on the device (the download has them): a report would be very large.
+  const entries = (await getTabLog(tabId)).filter((entry) => !isAgentImage(entry));
   const summary = summarizeLog(entries, import.meta.env.VITE_ACORN_VERSION ?? "");
   return JSON.stringify({ summary, entries });
 }

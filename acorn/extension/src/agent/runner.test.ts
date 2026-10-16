@@ -410,6 +410,7 @@ describe("runAgent", () => {
       url: "https://jobs.example/apply?token=secret",
       title: "Apply",
       stopBeforeSubmit: true,
+      trace: true,
     });
     assert.equal(requests.at(-1)?.method, "DELETE");
     assert.equal(detached, 1);
