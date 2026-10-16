@@ -142,13 +142,13 @@ The content script is declared for `<all_urls>` with `all_frames`, `match_about_
 
 Build ([`vite.config.ts`](../../extension/vite.config.ts)): Vite + `@crxjs/vite-plugin`. The version is read from `package.json`, written into the built manifest, exposed as `import.meta.env.VITE_ACORN_VERSION`, and printed on every build. `VITE_*` settings come from `acorn/.env`:
 
-| Variable                        | Effect                                                                                                                                       |
-| ------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------- |
-| `VITE_ACORN_API_URL`            | API origin. Default from `@acorn/shared/api`: `http://127.0.0.1:8083` in development, `https://api.acornapply.com` otherwise.                |
-| `VITE_ACORN_WEB_URL`            | Site origin. Default `http://localhost:6005` / `https://acornapply.com`. Used for the update check and support handoff.                      |
-| `VITE_ACORN_AGENT_URL`          | Where acorn-agent runs (§19). Default `http://127.0.0.1:8090` in every build: the server reads the applicant's files from the same machine.  |
-| `VITE_ACORN_DEBUG`              | Development builds only: always use the build's API URL (ignore the Settings value) and (no longer reports capture uploads: there are none). |
-| `VITE_ACORN_AUTO_FOCUS_SECONDS` | Seconds each run tab stays in front under Auto-Focus. The code default is **4** (`AUTO_FOCUS_DEFAULT_SECONDS`); `.env.example` says 2.       |
+| Variable                        | Effect                                                                                                                                                                      |
+| ------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `VITE_ACORN_API_URL`            | API origin. Default from `@acorn/shared/api`: `http://127.0.0.1:8083` in development, `https://api.acornapply.com` otherwise.                                               |
+| `VITE_ACORN_WEB_URL`            | Site origin. Default `http://localhost:6005` / `https://acornapply.com`. Used for the update check and support handoff.                                                     |
+| `VITE_ACORN_AGENT_URL`          | Where acorn-agent runs (§19). Default `http://127.0.0.1:8090` in a development build, `https://api.acornapply.com` otherwise (nginx sends `/agent/v1/` there to the agent). |
+| `VITE_ACORN_DEBUG`              | Development builds only: always use the build's API URL (ignore the Settings value) and (no longer reports capture uploads: there are none).                                |
+| `VITE_ACORN_AUTO_FOCUS_SECONDS` | Seconds each run tab stays in front under Auto-Focus. The code default is **4** (`AUTO_FOCUS_DEFAULT_SECONDS`); `.env.example` says 2.                                      |
 
 `bun run dev:acorn` watch-builds to `acorn/extension/dist` in development mode (old hashed files are kept so a run in progress keeps its content script); `bun run build:acorn` is the production build. File names carry no hash in either build (`assets/[name].js`): an extension that is already running keeps asking for the names of the build it was loaded from, and a rebuild that renamed them left every page opened afterwards with no content script until the extension was reloaded.
 
