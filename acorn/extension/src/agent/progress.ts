@@ -35,6 +35,7 @@ const SHARED_CODE: Record<string, string> = {
   [AGENT_ERROR_CODE.invalidKey]: ERROR_CODE.invalidKey,
   [AGENT_ERROR_CODE.noCredits]: ERROR_CODE.noCredits,
   [AGENT_ERROR_CODE.rateLimited]: ERROR_CODE.rateLimited,
+  [AGENT_ERROR_CODE.signedOut]: ERROR_CODE.signedOut,
   [AGENT_ERROR_CODE.modelError]: ERROR_CODE.providerDown,
   unreachable: LOCAL_ERROR_CODE.offline,
   timeout: LOCAL_ERROR_CODE.timeout,

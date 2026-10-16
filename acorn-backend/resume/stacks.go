@@ -72,6 +72,9 @@ func isUploaded(row LibraryRow) bool {
 	return row.Source == "" || row.Source == "uploaded"
 }
 
+// IsUploaded is isUploaded for callers outside the package.
+func IsUploaded(row LibraryRow) bool { return isUploaded(row) }
+
 // LibraryStack is one stack of a kind: its versions, preferred format first.
 type LibraryStack struct {
 	Title string

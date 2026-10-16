@@ -479,6 +479,16 @@ func PublicRow(row LibraryRow) map[string]any {
 	}
 }
 
+// AgentRow is a Library row as the agent reads it: what names and types the file, and nothing
+// else. The extracted text and skills stay here; the agent never needs them, and a Library of
+// dozens of résumés would otherwise be sent whole on every run.
+func AgentRow(row LibraryRow) map[string]any {
+	return map[string]any{
+		"id": row.ID, "kind": rowKind(row), "title": strings.TrimSpace(row.Title), "fileName": row.FileName,
+		"format": fileFormat(row.FileName), "mimeType": row.MimeType, "size": row.Size, "isPrimary": row.IsPrimary,
+	}
+}
+
 func PublicRun(row Generation) map[string]any {
 	finished := ""
 	if row.FinishedAt != nil {

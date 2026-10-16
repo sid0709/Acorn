@@ -5,8 +5,17 @@ sends a screenshot of the page, this server answers with the next mouse and keyb
 and the extension performs them. The server keeps the run's memory and decides when it is
 done, needs the person, or is stuck.
 
-It has no database. The applicant is `data/profile.json` and the files in `data/resumes/`
-(see [data/README.md](data/README.md)). It listens on this machine only.
+It has no database. Who it applies as comes from one of two places:
+
+- **acorn-backend** (production; set `ACORN_AGENT_BACKEND_URL`): the signed-in person's own profile and
+  Library. The extension sends their Acorn session with each run; the agent keeps it for that run only
+  and asks the backend (`GET /acorn/agent/applicant`, `GET /acorn/agent/resumes/:id`). To try it
+  locally, run acorn-backend and set `ACORN_AGENT_BACKEND_URL=http://127.0.0.1:8083`.
+- **Files** (development; the default): `data/profile.json` and the files in `data/resumes/`
+  (see [data/README.md](data/README.md)).
+
+Locally it listens on this machine only. In production it is the `acorn-agent` image, deployed with
+the rest (see [deploy/README.md](../deploy/README.md)).
 
 ```bash
 cp acorn-agent/.env.example acorn-agent/.env   # add OPENROUTER_API_KEY

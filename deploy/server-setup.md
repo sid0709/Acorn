@@ -107,3 +107,13 @@ Confirm a new `acorn-deploy` key login still works, then close the root session.
 Secrets (all `secrets.*`): `DOCKERHUB_TOKEN`, `DOCKERHUB_USERNAME`, `VPS_HOST`, `VPS_SSH_KEY`, `VPS_USER` (this deploy user). Optional: `VPS_SSH_PORT`, `ACORN_ADMIN_SESSION_SECRET`.
 
 Variables (`vars.*`): `ACORN_ADMIN_USERNAME`, `ACORN_ADMIN_PWD`, `VITE_ACORN_API_URL`, `VITE_ACORN_WEB_URL`. Optional image names: `ACORN_API_IMAGE`, `ACORN_WEB_IMAGE`, `ACORN_ADMIN_IMAGE`.
+
+## The agent host (one time, before the first deploy that includes acorn-agent)
+
+The agent is a fourth container and needs its own host name. The deploy itself does not touch DNS, certificates or nginx files, so do this once by hand:
+
+1. **DNS.** Add an `A` (and `AAAA` if the others have one) record `agent.acornapply.com` pointing at the VPS, like `api.acornapply.com`.
+2. **nginx.** Install the shared pieces if they are not there yet: the `limit_req_zone ... zone=acorn_agent` line in `/etc/nginx/conf.d/acorn-common.conf` (see `deploy/nginx/conf.d/acorn-common.conf`). Copy `deploy/nginx/agent.acornapply.com.conf` to `/etc/nginx/sites-available/agent.acornapply.com`, link it into `sites-enabled`, then `sudo nginx -t`.
+3. **Certificate.** `sudo certbot certonly --webroot -w /var/www/html -d agent.acornapply.com` (or `--nginx`), then `sudo systemctl reload nginx`.
+4. **Settings (optional).** In `/opt/acorn/deploy.env` add `DEFAULT_FALLBACK_RESUME=<a Library title>` if you want a default résumé offered when a page shows no job description (a person whose Library lacks it is offered their primary résumé), and `ACORN_AGENT_MAX_MODEL_CALLS` to bound concurrent steps. No AI key is needed: each person's own OpenRouter key is read from their profile.
+5. **Check.** After the first deploy: `curl https://agent.acornapply.com/agent/v1/health` should answer `{"ok":true,...,"source":"backend"}`. The Chrome extension build already points at that host.

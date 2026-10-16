@@ -263,6 +263,8 @@ func New(accounts Accounts, listings *jobs.Store, brain *acorn.Service, opts Opt
 	mux.HandleFunc("POST /acorn/resume/library/{resumeId}/primary", s.primaryLibrary)
 	mux.HandleFunc("GET /acorn/resume/library/{resumeId}/file", s.libraryFile)
 	mux.HandleFunc("GET /acorn/resume/library/{resumeId}/preview", s.libraryPreview)
+	mux.HandleFunc("GET /acorn/agent/applicant", s.agentApplicant)
+	mux.HandleFunc("GET /acorn/agent/resumes/{resumeId}", s.agentResume)
 	mux.HandleFunc("GET /acorn/profile", s.getProfile)
 	mux.HandleFunc("PUT /acorn/profile", s.putProfile)
 	mux.HandleFunc("POST /acorn/profile/from-resume", s.fillProfile)

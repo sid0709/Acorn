@@ -48,7 +48,9 @@ export function handleStartRun(
     sendResponse({ ok: true });
 
     try {
-      // The agent plans from screenshots on this computer and needs no Acorn sign-in.
+      // The agent plans from screenshots; it reads the person's profile and résumés from
+      // acorn-backend with their Acorn session, so it needs them signed in (a local development
+      // agent reading files ignores the session).
       if (await getAgentMode()) {
         console.info("[acorn:agent] Run on tab", tabId, "→", getAgentUrl());
         await runAgent({
@@ -56,6 +58,7 @@ export function handleStartRun(
           agentUrl: getAgentUrl(),
           signal: stop.signal,
           stopBeforeSubmit: await stopBeforeSubmitFor(message),
+          accessToken: (await getAccessToken()) ?? undefined,
           emit: (tabIds, progress) => {
             for (const id of tabIds) broadcastPipelineProgress(id, progress);
           },

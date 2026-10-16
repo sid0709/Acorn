@@ -3,8 +3,10 @@ import { describe, it } from "node:test";
 
 import { AGENT_STATUS, AGENT_STOP_REASON } from "@acorn/shared/agent-contract";
 import { RUN_FAILURE_REASON } from "@acorn/shared/run-types";
+import { describeRunFailure } from "@acorn/shared/user-messages";
 
-import { agentRunState, failureFromStatus } from "./progress.ts";
+import { AgentApiError } from "./client.ts";
+import { agentRunState, failureFromError, failureFromStatus } from "./progress.ts";
 
 describe("failureFromStatus", () => {
   it("carries why the agent stopped, in its own plain words, for the Now card", () => {
@@ -47,5 +49,23 @@ describe("agentRunState", () => {
   it("shows no cost before the first answer", () => {
     const run = agentRunState({ runId: "r1", startedAt: 1, step: 0, usage: null });
     assert.equal(run.costUsd, undefined);
+  });
+});
+
+describe("failureFromError", () => {
+  it("tells a person the agent refused for want of an Acorn sign-in to sign in", () => {
+    const failure = failureFromError(
+      new AgentApiError("sign in to Acorn to use your profile and résumés", "signed_out", 401),
+    );
+    assert.equal(failure.code, "signed_out");
+    assert.equal(describeRunFailure(failure).title, "You're signed out");
+    assert.equal(describeRunFailure(failure).action, "sign-in");
+  });
+
+  it("keeps the agent's own words for a backend it could not reach, or a profile not yet saved", () => {
+    for (const code of ["backend_unreachable", "no_profile"]) {
+      const failure = failureFromError(new AgentApiError("the agent's words", code, 502));
+      assert.equal(failure.label, "the agent's words");
+    }
   });
 });

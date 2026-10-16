@@ -20,6 +20,7 @@
     "https://acornapply.com/*",
     "https://www.acornapply.com/*",
     "https://api.acornapply.com/*",
+    "https://agent.acornapply.com/*",
     "http://127.0.0.1:8083/*",
     "http://127.0.0.1:8090/*",
     "http://localhost:8090/*",

@@ -262,6 +262,11 @@ export const AGENT_ERROR_CODE = {
   noProfile: "no_profile",
   noResume: "no_resume",
   badJson: "bad_json",
+  /** The person's Acorn session is missing or expired: the agent reads their profile from acorn-backend. */
+  signedOut: "signed_out",
+  /** acorn-backend could not be reached from the agent. */
+  backendUnreachable: "backend_unreachable",
+  badFallbackResume: "bad_fallback_resume",
 } as const;
 
 /** The error body every failing route sends. */

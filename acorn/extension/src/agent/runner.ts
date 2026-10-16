@@ -79,6 +79,8 @@ export interface AgentRunArgs {
   stopBeforeSubmit: boolean;
   /** The person's own OpenRouter key, when the extension holds one; the server has its own otherwise. */
   key?: string;
+  /** The person's Acorn session: the agent reads their profile and résumés from acorn-backend with it. */
+  accessToken?: string;
   emit: (tabIds: number[], progress: PipelineProgress) => void;
   /** The run went on in another tab: Stop and progress follow it. */
   claimTab?: (tabId: number) => void;
@@ -308,6 +310,7 @@ export async function runAgent(args: AgentRunArgs): Promise<RunReport> {
       args.agentUrl,
       { url: tab.url ?? "", title: tab.title ?? "", stopBeforeSubmit: args.stopBeforeSubmit },
       args.key,
+      args.accessToken,
     );
     sessionId = started.sessionId;
     log.event("agent-session", { resumes: started.resumes.length });

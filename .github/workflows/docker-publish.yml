@@ -1,9 +1,11 @@
-# Build Acorn's API, website, and admin images and push them to Docker Hub.
+# Build Acorn's API, website, admin, and agent images and push them to Docker Hub.
 # A push to main, including a merge, deploys only the images whose inputs changed.
 # The extension is not an image. An extension-only push does not build or restart containers.
 # API inputs: acorn-backend, backend-core.
 # Website inputs: acorn-frontend, acorn/extension (packed .zip on Apps), packages, acorn/packages/shared, the root package manifest, and the Bun lockfile.
 # Admin inputs: acorn-admin, shared packages (same as the website).
+# Agent inputs: acorn-agent, backend-core. The agent plans the extension's Run from screenshots and
+# reads each person's profile and Library from the API; it holds no database and no secrets of its own.
 # Nginx site files are reference-only; this workflow never installs or overwrites them.
 #
 # GitHub Environment: Settings → Environments → Production.
@@ -13,7 +15,7 @@
 # Optional secret: VPS_SSH_PORT (defaults to 22), ACORN_ADMIN_SESSION_SECRET
 #
 # Environment variables (vars.*):
-#   ACORN_API_IMAGE, ACORN_WEB_IMAGE, ACORN_ADMIN_IMAGE (optional image names)
+#   ACORN_API_IMAGE, ACORN_WEB_IMAGE, ACORN_ADMIN_IMAGE, ACORN_AGENT_IMAGE (optional image names)
 #   ACORN_ADMIN_USERNAME, ACORN_ADMIN_PWD
 #   VITE_ACORN_API_URL, VITE_ACORN_WEB_URL (optional; baked into the extension zip)
 #
@@ -43,9 +45,11 @@ env:
   API_IMAGE: ${{ vars.ACORN_API_IMAGE || 'omnimuh730/acorn-api' }}
   WEB_IMAGE: ${{ vars.ACORN_WEB_IMAGE || 'omnimuh730/acorn-web' }}
   ADMIN_IMAGE: ${{ vars.ACORN_ADMIN_IMAGE || 'omnimuh730/acorn-admin' }}
+  AGENT_IMAGE: ${{ vars.ACORN_AGENT_IMAGE || 'omnimuh730/acorn-agent' }}
   PRODUCTION_API_ORIGIN: https://api.acornapply.com
   PRODUCTION_WEB_ORIGIN: https://acornapply.com
   API_HEALTH_URL: https://api.acornapply.com/health
+  AGENT_HEALTH_URL: https://agent.acornapply.com/agent/v1/health
   HEALTH_ATTEMPTS: "24"
   HEALTH_SLEEP_SEC: "5"
 
@@ -63,6 +67,8 @@ jobs:
       deploy_api: ${{ steps.plan.outputs.api }}
       deploy_web: ${{ steps.plan.outputs.web }}
       deploy_admin: ${{ steps.plan.outputs.admin }}
+      deploy_agent: ${{ steps.plan.outputs.agent }}
+      rollback: ${{ steps.plan.outputs.rollback }}
 
     steps:
       - name: Checkout Acorn
@@ -93,6 +99,8 @@ jobs:
             echo "api=true" >> "$GITHUB_OUTPUT"
             echo "web=true" >> "$GITHUB_OUTPUT"
             echo "admin=true" >> "$GITHUB_OUTPUT"
+            echo "agent=true" >> "$GITHUB_OUTPUT"
+            echo "rollback=true" >> "$GITHUB_OUTPUT"
             echo "deploy=true" >> "$GITHUB_OUTPUT"
             echo "build=false" >> "$GITHUB_OUTPUT"
             exit 0
@@ -105,17 +113,18 @@ jobs:
             echo "api=true" >> "$GITHUB_OUTPUT"
             echo "web=true" >> "$GITHUB_OUTPUT"
             echo "admin=true" >> "$GITHUB_OUTPUT"
+            echo "agent=true" >> "$GITHUB_OUTPUT"
             echo "deploy=true" >> "$GITHUB_OUTPUT"
           }
 
           if [[ "$EVENT_NAME" == "workflow_dispatch" || -z "$BEFORE" || "$BEFORE" == 0000000000000000000000000000000000000000 ]]; then
-            echo "No previous commit to compare. Building the API, website, and admin."
+            echo "No previous commit to compare. Building the API, website, admin, and agent."
             publish_all
             exit 0
           fi
 
           if ! git fetch --depth=1 origin "$BEFORE"; then
-            echo "Could not fetch ${BEFORE}. Building the API, website, and admin."
+            echo "Could not fetch ${BEFORE}. Building the API, website, admin, and agent."
             publish_all
             exit 0
           fi
@@ -126,21 +135,24 @@ jobs:
           api=false
           web=false
           admin=false
+          agent=false
           while IFS= read -r image; do
             case "$image" in
               api) api=true ;;
               web) web=true ;;
               admin) admin=true ;;
+              agent) agent=true ;;
             esac
           done <<< "$images"
           echo "api=${api}" >> "$GITHUB_OUTPUT"
           echo "web=${web}" >> "$GITHUB_OUTPUT"
           echo "admin=${admin}" >> "$GITHUB_OUTPUT"
-          if [[ "$api" == true || "$web" == true || "$admin" == true ]]; then
+          echo "agent=${agent}" >> "$GITHUB_OUTPUT"
+          if [[ "$api" == true || "$web" == true || "$admin" == true || "$agent" == true ]]; then
             echo "deploy=true" >> "$GITHUB_OUTPUT"
           else
             echo "deploy=false" >> "$GITHUB_OUTPUT"
-            echo "No API, website, or admin inputs changed. Skipping image builds."
+            echo "No API, website, admin, or agent inputs changed. Skipping image builds."
           fi
 
       - name: Set up Docker Buildx
@@ -211,6 +223,24 @@ jobs:
             org.opencontainers.image.revision=${{ github.sha }}
             org.opencontainers.image.title=acorn-admin
 
+      - name: Build and push agent
+        if: steps.plan.outputs.build == 'true' && steps.plan.outputs.agent == 'true'
+        uses: docker/build-push-action@10e90e3645eae34f1e60eeb005ba3a3d33f178e8 # v6.19.2
+        with:
+          context: src/Acorn
+          file: src/Acorn/acorn-agent/Dockerfile
+          push: true
+          platforms: linux/amd64
+          tags: |
+            ${{ env.AGENT_IMAGE }}:${{ steps.plan.outputs.image_tag }}
+            ${{ env.AGENT_IMAGE }}:latest
+          cache-from: type=gha,scope=acorn-agent
+          cache-to: type=gha,scope=acorn-agent,mode=max
+          labels: |
+            org.opencontainers.image.source=${{ github.server_url }}/${{ github.repository }}
+            org.opencontainers.image.revision=${{ github.sha }}
+            org.opencontainers.image.title=acorn-agent
+
   deploy:
     name: Deploy to VPS
     needs: build-and-push
@@ -272,18 +302,22 @@ jobs:
           ACORN_API_IMAGE: ${{ env.API_IMAGE }}
           ACORN_WEB_IMAGE: ${{ env.WEB_IMAGE }}
           ACORN_ADMIN_IMAGE: ${{ env.ADMIN_IMAGE }}
+          ACORN_AGENT_IMAGE: ${{ env.AGENT_IMAGE }}
           DOCKERHUB_USERNAME: ${{ secrets.DOCKERHUB_USERNAME }}
           DOCKERHUB_TOKEN: ${{ secrets.DOCKERHUB_TOKEN }}
           IMAGE_TAG: ${{ needs.build-and-push.outputs.image_tag }}
           DEPLOY_API: ${{ needs.build-and-push.outputs.deploy_api }}
           DEPLOY_WEB: ${{ needs.build-and-push.outputs.deploy_web }}
           DEPLOY_ADMIN: ${{ needs.build-and-push.outputs.deploy_admin }}
+          DEPLOY_AGENT: ${{ needs.build-and-push.outputs.deploy_agent }}
+          # A rollback to a commit from before the agent existed has no agent image to pull.
+          AGENT_PULL_OPTIONAL: ${{ needs.build-and-push.outputs.rollback == 'true' }}
         with:
           host: ${{ secrets.VPS_HOST }}
           username: ${{ secrets.VPS_USER }}
           key: ${{ secrets.VPS_SSH_KEY }}
           port: ${{ secrets.VPS_SSH_PORT || 22 }}
-          envs: ACORN_API_IMAGE,ACORN_WEB_IMAGE,ACORN_ADMIN_IMAGE,DOCKERHUB_USERNAME,DOCKERHUB_TOKEN,IMAGE_TAG,DEPLOY_API,DEPLOY_WEB,DEPLOY_ADMIN
+          envs: ACORN_API_IMAGE,ACORN_WEB_IMAGE,ACORN_ADMIN_IMAGE,ACORN_AGENT_IMAGE,DOCKERHUB_USERNAME,DOCKERHUB_TOKEN,IMAGE_TAG,DEPLOY_API,DEPLOY_WEB,DEPLOY_ADMIN,DEPLOY_AGENT,AGENT_PULL_OPTIONAL
           command_timeout: 20m
           script: |
             set -eu
@@ -314,6 +348,13 @@ jobs:
                 services=admin
               fi
             fi
+            if [ "$DEPLOY_AGENT" = true ]; then
+              if [ -n "$services" ]; then
+                services="$services,agent"
+              else
+                services=agent
+              fi
+            fi
             if [ -n "$services" ]; then
               /opt/acorn/deploy-remote.sh "$IMAGE_TAG" "$services"
             fi
@@ -340,3 +381,28 @@ jobs:
           done
           echo "API health check failed: ${API_HEALTH_URL}" >&2
           exit 1
+
+      # The agent is reached from every signed-in extension through its own host. A host that is not
+      # set up yet (DNS, TLS, the nginx site) must not fail a deploy of the API: it is a warning, with
+      # the container's own health already checked on the VPS by deploy-remote.sh.
+      - name: Check public agent health
+        if: needs.build-and-push.outputs.deploy_agent == 'true'
+        env:
+          AGENT_HEALTH_URL: ${{ env.AGENT_HEALTH_URL }}
+          HEALTH_ATTEMPTS: ${{ env.HEALTH_ATTEMPTS }}
+          HEALTH_SLEEP_SEC: ${{ env.HEALTH_SLEEP_SEC }}
+        run: |
+          set -uo pipefail
+          attempt=1
+          while [ "$attempt" -le "$HEALTH_ATTEMPTS" ]; do
+            if curl -fsS --max-time 10 "$AGENT_HEALTH_URL"; then
+              echo
+              echo "Agent healthy at ${AGENT_HEALTH_URL}"
+              exit 0
+            fi
+            echo "Attempt ${attempt}/${HEALTH_ATTEMPTS} failed; retrying in ${HEALTH_SLEEP_SEC}s"
+            sleep "$HEALTH_SLEEP_SEC"
+            attempt=$((attempt + 1))
+          done
+          echo "::warning::The agent container is running, but ${AGENT_HEALTH_URL} did not answer. Check DNS, the TLS certificate and the nginx site for agent.acornapply.com (deploy/server-setup.md)."
+          exit 0

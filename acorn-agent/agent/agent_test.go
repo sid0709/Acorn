@@ -164,7 +164,7 @@ func newAgentWithScreen(t *testing.T, model *scriptedModel, decider Decider, scr
 
 func start(t *testing.T, a *Agent) string {
 	t.Helper()
-	started, err := a.Start(context.Background(), "key", Start{URL: "https://jobs.example/apply", Title: "Apply"})
+	started, err := a.Start(context.Background(), "key", applicant.Auth{}, Start{URL: "https://jobs.example/apply", Title: "Apply"})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -173,10 +173,10 @@ func start(t *testing.T, a *Agent) string {
 
 func TestStartNeedsAKeyAndTheApplicant(t *testing.T) {
 	a := newTestAgent(t, &scriptedModel{}, &fixedDecider{}, DefaultConfig())
-	if _, err := a.Start(context.Background(), "  ", Start{}); !errors.Is(err, llm.ErrNoKey) {
+	if _, err := a.Start(context.Background(), "  ", applicant.Auth{}, Start{}); !errors.Is(err, llm.ErrNoKey) {
 		t.Fatalf("no key: %v", err)
 	}
-	started, err := a.Start(context.Background(), "key", Start{})
+	started, err := a.Start(context.Background(), "key", applicant.Auth{}, Start{})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -185,7 +185,7 @@ func TestStartNeedsAKeyAndTheApplicant(t *testing.T) {
 	}
 
 	empty := New(DefaultConfig(), applicant.NewStore(t.TempDir()), func(string) llm.Model { return nil }, func(string) Decider { return nil }, nil)
-	if _, err := empty.Start(context.Background(), "key", Start{}); !errors.Is(err, applicant.ErrNoProfile) {
+	if _, err := empty.Start(context.Background(), "key", applicant.Auth{}, Start{}); !errors.Is(err, applicant.ErrNoProfile) {
 		t.Fatalf("no profile: %v", err)
 	}
 }
@@ -705,7 +705,7 @@ func TestAStackIsChosenOnceAndSentAsAPDFUnlessAnotherFormatIsNamed(t *testing.T)
 	model := &scriptedModel{replies: []string{up(nil), up("C# + React docx"), up("Cover Letter"), up("Cover Letter.docx"), up(nil)}}
 	decider := &fixedDecider{choice: "resume_0"} // "C# + React" is the first stack
 	a := stackAgent(t, model, decider, `{"name":"Ada"}`)
-	started, err := a.Start(context.Background(), "key", Start{})
+	started, err := a.Start(context.Background(), "key", applicant.Auth{}, Start{})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -733,7 +733,7 @@ func TestAStackIsChosenOnceAndSentAsAPDFUnlessAnotherFormatIsNamed(t *testing.T)
 func TestTheFirstUploadIsAPDFOfTheChosenStack(t *testing.T) {
 	model := &scriptedModel{replies: []string{answerJSON("working", "up", map[string]any{"kind": "upload", "x": 5.0, "y": 5.0})}}
 	a := stackAgent(t, model, &fixedDecider{choice: "resume_1"}, `{"name":"Ada"}`)
-	started, err := a.Start(context.Background(), "key", Start{})
+	started, err := a.Start(context.Background(), "key", applicant.Auth{}, Start{})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -756,7 +756,7 @@ func TestADocumentIsNeverChosenAsAResume(t *testing.T) {
 	})
 	model := &scriptedModel{replies: []string{answerJSON("working", "up", map[string]any{"kind": "upload", "x": 5.0, "y": 5.0})}}
 	a := stackAgent(t, model, decider, `{"name":"Ada"}`)
-	started, _ := a.Start(context.Background(), "key", Start{})
+	started, _ := a.Start(context.Background(), "key", applicant.Auth{}, Start{})
 	if _, err := a.Step(context.Background(), started.SessionID, observation(shot(t, 10))); err != nil {
 		t.Fatal(err)
 	}
@@ -785,7 +785,7 @@ func TestThePasswordIsNeverShownToTheModelOnlyTyped(t *testing.T) {
 	cfg.TraceDir = t.TempDir()
 	a := stackAgent(t, model, &fixedDecider{}, profile)
 	a.trace = &tracer{dir: cfg.TraceDir}
-	started, err := a.Start(context.Background(), "key", Start{})
+	started, err := a.Start(context.Background(), "key", applicant.Auth{}, Start{})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -834,7 +834,7 @@ func TestTheKeyInTheProfileIsTheLastResort(t *testing.T) {
 		used = key
 		return &scriptedModel{replies: []string{answerJSON("done", "ok")}}
 	}
-	started, err := a.Start(context.Background(), "", Start{})
+	started, err := a.Start(context.Background(), "", applicant.Auth{}, Start{})
 	if err != nil {
 		t.Fatalf("a profile with a key should start without one: %v", err)
 	}
@@ -845,14 +845,14 @@ func TestTheKeyInTheProfileIsTheLastResort(t *testing.T) {
 		t.Fatalf("model key = %q", used)
 	}
 	// The server's own key wins over the profile's.
-	started, _ = a.Start(context.Background(), "sk-server", Start{})
+	started, _ = a.Start(context.Background(), "sk-server", applicant.Auth{}, Start{})
 	_, _ = a.Step(context.Background(), started.SessionID, observation(shot(t, 10)))
 	if used != "sk-server" {
 		t.Fatalf("model key = %q, want the server's", used)
 	}
 	// And with neither there is nothing to call the model with.
 	bare := stackAgent(t, &scriptedModel{}, &fixedDecider{}, `{"fullName":"Ada"}`)
-	if _, err := bare.Start(context.Background(), "", Start{}); !errors.Is(err, llm.ErrNoKey) {
+	if _, err := bare.Start(context.Background(), "", applicant.Auth{}, Start{}); !errors.Is(err, llm.ErrNoKey) {
 		t.Fatalf("no key anywhere: %v", err)
 	}
 }

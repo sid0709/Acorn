@@ -251,3 +251,84 @@ func TestVetAnswersForARunAndRefusesAnUnknownOne(t *testing.T) {
 		t.Fatalf("unknown run = %d", status)
 	}
 }
+
+// tokenSource is an applicant that lives behind a sign-in: it knows one session token.
+type tokenSource struct{ asked []string }
+
+func (t *tokenSource) Kind() string { return "backend" }
+
+func (t *tokenSource) SnapshotFor(_ context.Context, auth applicant.Auth) (applicant.Snapshot, error) {
+	t.asked = append(t.asked, auth.Token)
+	switch auth.Token {
+	case "":
+		return applicant.Snapshot{}, applicant.ErrSignedOut
+	case "down":
+		return applicant.Snapshot{}, applicant.ErrBackend
+	case "no-profile":
+		return applicant.Snapshot{}, applicant.ErrNoProfile
+	}
+	return applicant.Snapshot{Profile: `{"fullName":"Ada"}`, APIKey: "sk-theirs"}, nil
+}
+
+func (t *tokenSource) ResumeFor(context.Context, applicant.Auth, string) (applicant.Resume, []byte, error) {
+	return applicant.Resume{}, nil, applicant.ErrNoResume
+}
+
+func TestTheStartOfARunCarriesThePersonsSessionToTheSource(t *testing.T) {
+	source := &tokenSource{}
+	a := agent.New(agent.DefaultConfig(), source,
+		func(string) llm.Model { return fakeModel{} }, func(string) agent.Decider { return noDecider{} }, nil)
+	ts := httptest.NewServer(New(a, Options{Source: source.Kind()}).Handler())
+	defer ts.Close()
+
+	cases := []struct {
+		name    string
+		header  map[string]string
+		status  int
+		code    string
+		token   string
+		message string
+	}{
+		{"a session", map[string]string{"Authorization": "Bearer abc123"}, 200, "", "abc123", ""},
+		{"a lower-case scheme", map[string]string{"Authorization": "bearer abc123"}, 200, "", "abc123", ""},
+		{"no session", nil, 401, "signed_out", "", "sign in to Acorn"},
+		{"something else than a bearer token", map[string]string{"Authorization": "Basic Zm9vOmJhcg=="}, 401, "signed_out", "", ""},
+		{"a backend that is down", map[string]string{"Authorization": "Bearer down"}, 502, "backend_unreachable", "down", ""},
+		{"a profile that was never saved", map[string]string{"Authorization": "Bearer no-profile"}, 422, "no_profile", "no-profile", ""},
+	}
+	for _, tc := range cases {
+		response, body := send(t, http.MethodPost, ts.URL+BasePath+"/sessions", agent.Start{URL: "https://jobs.example"}, tc.header)
+		if response.StatusCode != tc.status || (tc.code != "" && !strings.Contains(string(body), `"`+tc.code+`"`)) {
+			t.Fatalf("%s: %d %s", tc.name, response.StatusCode, body)
+		}
+		if tc.message != "" && !strings.Contains(string(body), tc.message) {
+			t.Fatalf("%s: the person is not told %q: %s", tc.name, tc.message, body)
+		}
+		if got := source.asked[len(source.asked)-1]; got != tc.token {
+			t.Fatalf("%s: the source was asked with %q, want %q", tc.name, got, tc.token)
+		}
+	}
+}
+
+func TestThePreflightAllowsTheAuthorizationHeaderForTheExtension(t *testing.T) {
+	source := &tokenSource{}
+	a := agent.New(agent.DefaultConfig(), source,
+		func(string) llm.Model { return fakeModel{} }, func(string) agent.Decider { return noDecider{} }, nil)
+	ts := httptest.NewServer(New(a, Options{}).Handler())
+	defer ts.Close()
+	response, _ := send(t, http.MethodOptions, ts.URL+BasePath+"/sessions", nil, map[string]string{"Origin": "chrome-extension://abc"})
+	if allowed := response.Header.Get("Access-Control-Allow-Headers"); !strings.Contains(allowed, "Authorization") {
+		t.Fatalf("allowed headers = %q", allowed)
+	}
+}
+
+func TestHealthSaysWhereTheApplicantComesFrom(t *testing.T) {
+	a := agent.New(agent.DefaultConfig(), &tokenSource{},
+		func(string) llm.Model { return fakeModel{} }, func(string) agent.Decider { return noDecider{} }, nil)
+	ts := httptest.NewServer(New(a, Options{Source: "backend"}).Handler())
+	defer ts.Close()
+	_, body := send(t, http.MethodGet, ts.URL+BasePath+"/health", nil, nil)
+	if !strings.Contains(string(body), `"source":"backend"`) {
+		t.Fatalf("health = %s", body)
+	}
+}

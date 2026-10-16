@@ -58,13 +58,17 @@ const (
 	envFallbackResume = "DEFAULT_FALLBACK_RESUME"
 	envChunkActions   = "ACORN_AGENT_CHUNK_ACTIONS"
 	envVetBlock       = "ACORN_AGENT_VET_BLOCK_PERCENT"
-	envCheckMatch     = "ACORN_AGENT_CHECK_MATCH_PERCENT"
-	envCheckBlocked   = "ACORN_AGENT_CHECK_BLOCKED_PERCENT"
-	envCheckLoading   = "ACORN_AGENT_CHECK_LOADING_PERCENT"
-	envKeepTurns      = "ACORN_AGENT_KEEP_TURNS"
-	envKeepImages     = "ACORN_AGENT_KEEP_IMAGES"
-	envMaxStale       = "ACORN_AGENT_MAX_STALE"
-	envMaxModelCalls  = "ACORN_AGENT_MAX_MODEL_CALLS"
+	// envBackendURL is where acorn-backend is. When set, the applicant is the signed-in person's
+	// own profile and Library there (the person's session comes with each run); otherwise it is the
+	// profile.json and résumé folder on this computer.
+	envBackendURL    = "ACORN_AGENT_BACKEND_URL"
+	envCheckMatch    = "ACORN_AGENT_CHECK_MATCH_PERCENT"
+	envCheckBlocked  = "ACORN_AGENT_CHECK_BLOCKED_PERCENT"
+	envCheckLoading  = "ACORN_AGENT_CHECK_LOADING_PERCENT"
+	envKeepTurns     = "ACORN_AGENT_KEEP_TURNS"
+	envKeepImages    = "ACORN_AGENT_KEEP_IMAGES"
+	envMaxStale      = "ACORN_AGENT_MAX_STALE"
+	envMaxModelCalls = "ACORN_AGENT_MAX_MODEL_CALLS"
 )
 
 // defaultOrigins are the web origins allowed besides the extension, which is always allowed.
@@ -120,7 +124,18 @@ func run() error {
 	reasoning := config.Env(envReasoning, defaultReasoning)
 	// Extra profile fields the model must never see, beside applicant.DefaultHiddenFields.
 	hidden := strings.Split(config.Env(envHideFields, ""), ",")
-	store := applicant.NewStore(config.Env(envDataDir, defaultDataDir), hidden...)
+	var source applicant.Source
+	location := ""
+	if backendURL := strings.TrimSpace(config.Env(envBackendURL, "")); backendURL != "" {
+		source = applicant.NewBackend(backendURL, hidden...)
+		location = backendURL
+	} else {
+		store := applicant.NewStore(config.Env(envDataDir, defaultDataDir), hidden...)
+		source = store
+		location = store.Dir()
+		// One person's own folder: a default résumé that is not in it is a mistake to report.
+		cfg.FallbackStrict = true
+	}
 
 	// The checks between a plan's runs of actions need a decision model that reads a screenshot.
 	decisionsURL := config.Env(envDecisionsURL, config.OpenRouterDecisionsURL)
@@ -129,7 +144,7 @@ func run() error {
 	if !isOff(config.Env(envChecks, "")) {
 		newScreen = func(key string) agent.Screen { return decide.New(key, screenModel, decisionsURL) }
 	}
-	a := agent.New(cfg, store,
+	a := agent.New(cfg, source,
 		func(key string) llm.Model { return llm.NewOpenRouter(key, model, baseURL, reasoning) },
 		func(key string) agent.Decider { return jev.NewWithURL(key, decisionsURL) },
 		newScreen,
@@ -141,6 +156,7 @@ func run() error {
 			DefaultKey:    defaultKey,
 			Origins:       httpConfig.Origins,
 			ModelName:     model,
+			Source:        source.Kind(),
 			MaxModelCalls: config.EnvInt(envMaxModelCalls, defaultMaxModelCalls),
 		}).Handler(),
 		ReadHeaderTimeout: 10 * time.Second,
@@ -156,7 +172,7 @@ func run() error {
 	go func() {
 		slog.Info("agent listening", "addr", httpConfig.Addr, "model", model,
 			"checks", newScreen != nil, "screenModel", screenModel,
-			"data", store.Dir(), "key", defaultKey != "", "trace", cfg.TraceDir != "")
+			"applicant", source.Kind(), "from", location, "key", defaultKey != "", "trace", cfg.TraceDir != "")
 		failed <- server.ListenAndServe()
 	}()
 	select {

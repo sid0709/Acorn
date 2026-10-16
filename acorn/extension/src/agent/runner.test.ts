@@ -390,6 +390,19 @@ describe("runAgent", () => {
     assert.ok(order.slice(1, -1).length >= 1 && order.slice(1, -1).every((o) => o === "shot"));
   });
 
+  it("starts the run with the person's Acorn session, so the agent reads their profile", async () => {
+    installServer([finished("done", 1, "ok")]);
+    let authorization = "";
+    const original = globalThis.fetch;
+    globalThis.fetch = (async (url: string | URL | Request, init?: RequestInit) => {
+      if (String(url).endsWith("/agent/v1/sessions"))
+        authorization = (init?.headers as Record<string, string>).Authorization ?? "";
+      return original(url, init);
+    }) as typeof fetch;
+    await run({ accessToken: "acorn-session" });
+    assert.equal(authorization, "Bearer acorn-session");
+  });
+
   it("starts the session on the page's address and ends it when done", async () => {
     installServer([finished("done", 1, "ok")]);
     await run({ stopBeforeSubmit: true });

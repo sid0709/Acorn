@@ -9,6 +9,7 @@ The server already has `/etc/nginx/sites-available/acornapply.com`, plus `snippe
 | `acornapply.com.conf`       | `acornapply.com`, `www.acornapply.com` | website on `127.0.0.1:6005`                                              |
 | `api.acornapply.com.conf`   | `api.acornapply.com`                   | API on `127.0.0.1:8083`, including `/acorn/socket.io` WebSocket upgrades |
 | `admin.acornapply.com.conf` | `admin.acornapply.com`                 | admin on `127.0.0.1:6011`                                                |
+| `agent.acornapply.com.conf` | `agent.acornapply.com`                 | agent on `127.0.0.1:8090` (40 MB bodies, 6 minute reads)                 |
 
 Shared pieces:
 

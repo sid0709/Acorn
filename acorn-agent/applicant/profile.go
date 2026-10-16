@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"sort"
+	"strings"
 )
 
 // Fields of Acorn's own profile export that matter to how it is read.
@@ -33,7 +34,7 @@ var secretFields = map[string]string{AccountPasswordField: AccountPasswordToken}
 // shape turns the parsed profile.json into what the model reads. A database export is
 // unwrapped to its profile; hidden fields are dropped; a secret field becomes its token and
 // its value is kept apart; empty values are dropped, so "not in the profile" reads as absent.
-func (s *Store) shape(value any) (Snapshot, error) {
+func (s *profileShaper) shape(value any) (Snapshot, error) {
 	if object, ok := value.(map[string]any); ok {
 		if inner, ok := object[wrapperField].(map[string]any); ok {
 			value = inner
@@ -54,7 +55,7 @@ func (s *Store) shape(value any) (Snapshot, error) {
 	return out, nil
 }
 
-func (s *Store) clean(value any, secrets map[string]string) any {
+func (s *profileShaper) clean(value any, secrets map[string]string) any {
 	switch v := value.(type) {
 	case map[string]any:
 		keys := make([]string, 0, len(v))
@@ -103,4 +104,20 @@ func empty(value any) bool {
 		return len(v) == 0
 	}
 	return false
+}
+
+// profileShaper turns a profile into what the model may read; the file store and the backend
+// source share it, so a profile reads the same wherever it came from.
+type profileShaper struct {
+	hidden map[string]bool
+}
+
+func newShaper(hidden []string) profileShaper {
+	set := map[string]bool{}
+	for _, name := range append(append([]string{}, DefaultHiddenFields...), hidden...) {
+		if name = strings.TrimSpace(name); name != "" {
+			set[name] = true
+		}
+	}
+	return profileShaper{hidden: set}
 }

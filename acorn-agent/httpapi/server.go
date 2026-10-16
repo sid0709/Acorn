@@ -42,6 +42,8 @@ type Options struct {
 	Origins []string
 	// ModelName is reported by the health route.
 	ModelName string
+	// Source is where the applicant is read from ("files" or "backend"), reported by the health route.
+	Source string
 	// MaxModelCalls bounds the steps being worked on at once; 0 means no bound.
 	MaxModelCalls int
 }
@@ -83,6 +85,7 @@ type errorBody struct {
 func (s *Server) health(w http.ResponseWriter, _ *http.Request) {
 	writeJSON(w, http.StatusOK, map[string]any{
 		"ok": true, "model": s.opts.ModelName, "sessions": s.agent.Sessions(), "hasKey": s.opts.DefaultKey != "",
+		"source": s.opts.Source,
 	})
 }
 
@@ -91,7 +94,7 @@ func (s *Server) start(w http.ResponseWriter, r *http.Request) {
 	if !decode(w, r, &start) {
 		return
 	}
-	started, err := s.agent.Start(r.Context(), s.key(r), start)
+	started, err := s.agent.Start(r.Context(), s.key(r), applicant.Auth{Token: bearerToken(r)}, start)
 	if err != nil {
 		writeError(w, err)
 		return
@@ -151,6 +154,15 @@ func (s *Server) end(w http.ResponseWriter, r *http.Request) {
 	w.WriteHeader(http.StatusNoContent)
 }
 
+// bearerToken is the person's Acorn session the extension sends with the start of a run.
+func bearerToken(r *http.Request) string {
+	header := strings.TrimSpace(r.Header.Get("Authorization"))
+	if len(header) > len("Bearer ") && strings.EqualFold(header[:len("Bearer ")], "Bearer ") {
+		return strings.TrimSpace(header[len("Bearer "):])
+	}
+	return ""
+}
+
 func (s *Server) key(r *http.Request) string {
 	if key := strings.TrimSpace(r.Header.Get(KeyHeader)); key != "" {
 		return key
@@ -206,6 +218,10 @@ func writeError(w http.ResponseWriter, err error) {
 		status, code = http.StatusConflict, "run_over"
 	case errors.Is(err, agent.ErrBadObservation):
 		status, code = http.StatusBadRequest, "bad_observation"
+	case errors.Is(err, applicant.ErrSignedOut):
+		status, code = http.StatusUnauthorized, "signed_out"
+	case errors.Is(err, applicant.ErrBackend):
+		status, code = http.StatusBadGateway, "backend_unreachable"
 	case errors.Is(err, applicant.ErrNoProfile):
 		status, code = http.StatusUnprocessableEntity, "no_profile"
 	case errors.Is(err, agent.ErrFallbackResume):
@@ -236,7 +252,7 @@ func (s *Server) cors(next http.Handler) http.Handler {
 		if origin := r.Header.Get("Origin"); s.allowed(origin) {
 			w.Header().Set("Access-Control-Allow-Origin", origin)
 			w.Header().Set("Vary", "Origin")
-			w.Header().Set("Access-Control-Allow-Headers", "Content-Type, "+KeyHeader)
+			w.Header().Set("Access-Control-Allow-Headers", "Content-Type, Authorization, "+KeyHeader)
 			w.Header().Set("Access-Control-Allow-Methods", "GET, POST, DELETE, OPTIONS")
 		}
 		if r.Method == http.MethodOptions {

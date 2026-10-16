@@ -53,6 +53,9 @@ func catalog(resumes []applicant.Resume) (stacks, documents []string) {
 
 // stem is a file's name without its extension, whatever case the extension is in.
 func stem(resume applicant.Resume) string {
+	if resume.Name != "" {
+		return resume.Name
+	}
 	return strings.TrimSuffix(resume.FileName, filepath.Ext(resume.FileName))
 }
 

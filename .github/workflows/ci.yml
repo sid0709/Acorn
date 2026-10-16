@@ -44,6 +44,29 @@ jobs:
         working-directory: acorn-backend
         run: go test ./...
 
+  agent:
+    name: Agent build, vet, and test
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version-file: acorn-agent/go.mod
+          cache-dependency-path: |
+            acorn-backend/go.sum
+            backend-core/go.sum
+      # The Docker image builds the agent on its own, without the Go workspace.
+      - name: Build
+        working-directory: acorn-agent
+        run: GOWORK=off go build -o /tmp/acorn-agent ./cmd/agent
+      - name: Vet
+        working-directory: acorn-agent
+        run: go vet ./...
+      - name: Test
+        working-directory: acorn-agent
+        run: go test ./...
+
   web:
     name: Web build and typecheck
     runs-on: ubuntu-latest

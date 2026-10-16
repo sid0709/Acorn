@@ -29,7 +29,8 @@ type turn struct {
 // session is one application run: the applicant, the model's memory, and its history.
 type session struct {
 	id      string
-	key     string // the person's OpenRouter key; held in memory only
+	key     string         // the person's OpenRouter key; held in memory only
+	auth    applicant.Auth // whose profile and files the run reads; held in memory only
 	start   Start
 	snap    applicant.Snapshot
 	system  string

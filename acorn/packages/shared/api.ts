@@ -16,8 +16,9 @@ export type AcornHosts = {
   /** acorn-frontend, where a new Gmail creates an Acorn account. */
   web: string;
   /**
-   * acorn-agent, which plans each step of a Run from a screenshot. It reads the applicant's
-   * profile and résumés from the machine it runs on, so every build points at this machine.
+   * acorn-agent, which plans each step of a Run from a screenshot. In production it is the
+   * hosted server, which reads the signed-in person's profile and Library from acorn-backend; a
+   * development build points at the one on this computer, which reads local files.
    */
   agent: string;
 };
@@ -27,6 +28,8 @@ export const ACORN_PRODUCTION_WEB_ORIGIN = "https://acornapply.com" as const;
 export const ACORN_PRODUCTION_WEB_WWW_ORIGIN = "https://www.acornapply.com" as const;
 /** Production API, including `/acorn` routes and the Socket.IO gateway. */
 export const ACORN_PRODUCTION_API_ORIGIN = "https://api.acornapply.com" as const;
+/** Production acorn-agent: the Run's planner, behind the same nginx as the API. */
+export const ACORN_PRODUCTION_AGENT_ORIGIN = "https://agent.acornapply.com" as const;
 
 /** Development builds talk to the local servers (`bun run dev`); every other build to production. */
 export const ACORN_HOSTS = {
@@ -38,7 +41,7 @@ export const ACORN_HOSTS = {
   production: {
     api: ACORN_PRODUCTION_API_ORIGIN,
     web: ACORN_PRODUCTION_WEB_ORIGIN,
-    agent: "http://127.0.0.1:8090",
+    agent: ACORN_PRODUCTION_AGENT_ORIGIN,
   },
 } as const satisfies Record<string, AcornHosts>;
 

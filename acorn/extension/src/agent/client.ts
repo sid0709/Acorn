@@ -54,6 +54,8 @@ type CallOptions = {
   method?: "GET" | "POST" | "DELETE";
   body?: unknown;
   key?: string;
+  /** The person's Acorn session, sent as a bearer token. */
+  token?: string;
   signal?: AbortSignal;
   timeoutMs: number;
 };
@@ -62,6 +64,7 @@ async function call(base: string, path: string, options: CallOptions): Promise<R
   const headers: Record<string, string> = {};
   if (options.body !== undefined) headers["Content-Type"] = "application/json";
   if (options.key) headers[AGENT_KEY_HEADER] = options.key;
+  if (options.token) headers.Authorization = `Bearer ${options.token}`;
   const timeout = AbortSignal.timeout(options.timeoutMs);
   const signal = options.signal ? AbortSignal.any([options.signal, timeout]) : timeout;
   let response: Response;
@@ -95,15 +98,22 @@ async function call(base: string, path: string, options: CallOptions): Promise<R
   );
 }
 
+/**
+ * Opens a run. `token` is the person's Acorn session: the agent reads their profile and Library
+ * from acorn-backend with it, and keeps it only for the run. A development agent that reads
+ * local files ignores it.
+ */
 export async function startSession(
   base: string,
   start: AgentStart,
   key?: string,
+  token?: string,
 ): Promise<AgentStarted> {
   const response = await call(base, AGENT_ROUTES.sessions, {
     method: "POST",
     body: start,
     key,
+    token,
     timeoutMs: QUICK_TIMEOUT_MS,
   });
   return (await response.json()) as AgentStarted;

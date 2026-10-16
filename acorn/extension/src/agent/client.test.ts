@@ -49,6 +49,25 @@ describe("startSession", () => {
     });
   });
 
+  it("sends the person's Acorn session as a bearer token, so the agent can read their profile", async () => {
+    const seen = stub(() => json({ sessionId: "s1", resumes: [] }));
+    await startSession(
+      "http://agent",
+      { url: "", title: "", stopBeforeSubmit: false },
+      undefined,
+      "session-token",
+    );
+    const headers = seen[0].init.headers as Record<string, string>;
+    assert.equal(headers.Authorization, "Bearer session-token");
+    assert.equal("X-OpenRouter-Key" in headers, false);
+  });
+
+  it("sends no Authorization when the person is not signed in", async () => {
+    const seen = stub(() => json({ sessionId: "s1", resumes: [] }));
+    await startSession("http://agent", { url: "", title: "", stopBeforeSubmit: false });
+    assert.equal("Authorization" in (seen[0].init.headers as Record<string, string>), false);
+  });
+
   it("sends no key header when it has none", async () => {
     const seen = stub(() => json({ sessionId: "s1", resumes: [] }));
     await startSession("http://agent", { url: "", title: "", stopBeforeSubmit: false });

@@ -214,11 +214,12 @@ func TestAnAnswerThatIsNoneOfTheOptionsIsRefused(t *testing.T) {
 	}
 }
 
-func TestAFallbackThatIsNotAFolderStopsTheRunFromStarting(t *testing.T) {
+func TestAFallbackThatIsNotAFolderStopsAStrictServerFromStarting(t *testing.T) {
 	cfg := DefaultConfig()
+	cfg.FallbackStrict = true
 	cfg.FallbackResume = "No Such Folder"
 	a := newTestAgent(t, &scriptedModel{}, &fixedDecider{}, cfg)
-	_, err := a.Start(context.Background(), "key", Start{})
+	_, err := a.Start(context.Background(), "key", applicant.Auth{}, Start{})
 	if !errors.Is(err, ErrFallbackResume) || !strings.Contains(err.Error(), "No Such Folder") || !strings.Contains(err.Error(), "data") {
 		t.Fatalf("err = %v", err)
 	}
@@ -305,5 +306,29 @@ func TestTheStackChosenOnceIsKeptForTheRunWhateverTheModelNames(t *testing.T) {
 	second := stepOK(t, a, id, next)
 	if !strings.HasPrefix(first.Actions[0].Resume, "data/") || !strings.HasPrefix(second.Actions[0].Resume, "data/") || len(decider.choiceStates) != 1 {
 		t.Fatalf("first %+v second %+v, Jev asked %d times", first.Actions, second.Actions, len(decider.choiceStates))
+	}
+}
+
+func TestAServerForManyPeopleOffersTheirPrimaryWhenTheirLibraryLacksTheConfiguredName(t *testing.T) {
+	a := &Agent{cfg: Config{FallbackResume: "AI - Full Stack"}}
+	resumes := []applicant.Resume{
+		{ID: "1", Stack: "Python", Primary: true}, {ID: "2", Stack: "Go"},
+	}
+	if got, err := a.fallbackFor(resumes); err != nil || got != "Python" {
+		t.Fatalf("no such name: %q %v, want the primary", got, err)
+	}
+	resumes = append(resumes, applicant.Resume{ID: "3", Stack: "ai - full stack"})
+	if got, err := a.fallbackFor(resumes); err != nil || got != "ai - full stack" {
+		t.Fatalf("the configured name wins, whatever its case: %q %v", got, err)
+	}
+	if got, err := (&Agent{}).fallbackFor([]applicant.Resume{{ID: "1", Stack: "Go"}}); err != nil || got != "" {
+		t.Fatalf("no name and no primary: %q %v, want none", got, err)
+	}
+}
+
+func TestAStrictServerOffersNothingWithoutAConfiguredName(t *testing.T) {
+	a := &Agent{cfg: Config{FallbackStrict: true}}
+	if got, err := a.fallbackFor([]applicant.Resume{{ID: "1", Stack: "Python", Primary: true}}); err != nil || got != "" {
+		t.Fatalf("got %q %v", got, err)
 	}
 }

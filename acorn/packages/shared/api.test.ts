@@ -3,6 +3,7 @@ import { describe, it } from "node:test";
 
 import {
   ACORN_HOSTS,
+  ACORN_PRODUCTION_AGENT_ORIGIN,
   ACORN_PRODUCTION_API_ORIGIN,
   ACORN_PRODUCTION_WEB_ORIGIN,
   ACORN_PRODUCTION_WEB_WWW_ORIGIN,
@@ -25,7 +26,8 @@ describe("acornHosts", () => {
     assert.equal(acornHosts("production").web, "https://acornapply.com");
     assert.equal(acornHosts("development").web, "http://localhost:6005");
     assert.equal(acornHosts("development").agent, "http://127.0.0.1:8090");
-    assert.equal(acornHosts("production").agent, "http://127.0.0.1:8090");
+    assert.equal(acornHosts("production").agent, ACORN_PRODUCTION_AGENT_ORIGIN);
+    assert.equal(acornHosts("production").agent, "https://agent.acornapply.com");
     assert.ok(ACORN_SOCKET_PATH.startsWith("/acorn/"));
   });
 

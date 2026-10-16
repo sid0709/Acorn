@@ -71,6 +71,11 @@ type Config struct {
 	// VetBlock is the probability, from the decision model, at which a control, window or frame
 	// is blocked as an online file source (0 means 0.3).
 	VetBlock float64
+	// FallbackStrict makes a FallbackResume that is not among the applicant's résumés an error
+	// that stops the run (one person's own folder). Without it the run goes on and offers the
+	// applicant's primary résumé instead, as the backend names it: the setting is the server's, the
+	// résumés each person's.
+	FallbackStrict bool
 	// FallbackResume is the résumé folder offered to the person when a résumé is wanted and no
 	// job description was found ("" turns the question off). It must be a folder in the data.
 	FallbackResume string
@@ -101,7 +106,7 @@ func DefaultConfig() Config {
 // runs go at once, each on its own session and its own model calls.
 type Agent struct {
 	cfg        Config
-	applicants *applicant.Store
+	applicants applicant.Source
 	newModel   func(key string) llm.Model
 	newDecider func(key string) Decider
 	// newScreen builds the decision model that checks the screen; nil means no checks.
@@ -115,7 +120,7 @@ type Agent struct {
 // newDecider the model that chooses among existing things, and newScreen the decision model
 // that checks the screen between runs of actions (nil turns the checks off); each is given
 // the run's key.
-func New(cfg Config, applicants *applicant.Store, newModel func(key string) llm.Model, newDecider func(key string) Decider, newScreen func(key string) Screen) *Agent {
+func New(cfg Config, applicants applicant.Source, newModel func(key string) llm.Model, newDecider func(key string) Decider, newScreen func(key string) Screen) *Agent {
 	now := time.Now
 	return &Agent{
 		cfg:        cfg,
@@ -132,9 +137,11 @@ func New(cfg Config, applicants *applicant.Store, newModel func(key string) llm.
 // Sessions is how many runs are live.
 func (a *Agent) Sessions() int { return a.sessions.len() }
 
-// Start opens a run on the page the person is looking at. key is their OpenRouter key.
-func (a *Agent) Start(ctx context.Context, key string, start Start) (Started, error) {
-	snap, err := a.applicants.Snapshot(ctx)
+// Start opens a run on the page the person is looking at. key is their OpenRouter key, and auth
+// is whose profile and files the run reads (the person's Acorn session when they live in the
+// backend).
+func (a *Agent) Start(ctx context.Context, key string, auth applicant.Auth, start Start) (Started, error) {
+	snap, err := a.applicants.SnapshotFor(ctx, auth)
 	if err != nil {
 		return Started{}, err
 	}
@@ -151,7 +158,7 @@ func (a *Agent) Start(ctx context.Context, key string, start Start) (Started, er
 	if !checks {
 		maxActions = min(maxActions, a.cfg.UncheckedActions)
 	}
-	fallback, err := fallbackStack(a.cfg.FallbackResume, stackNames(snap.Resumes))
+	fallback, err := a.fallbackFor(snap.Resumes)
 	if err != nil {
 		return Started{}, err
 	}
@@ -164,7 +171,7 @@ func (a *Agent) Start(ctx context.Context, key string, start Start) (Started, er
 		return Started{}, err
 	}
 	a.sessions.add(&session{
-		id: id, key: key, start: start, snap: snap, system: system, maxActions: maxActions, fallback: fallback,
+		id: id, key: key, auth: auth, start: start, snap: snap, system: system, maxActions: maxActions, fallback: fallback,
 		created: now, touched: now,
 	})
 	stacks, documents := catalog(snap.Resumes)
@@ -187,10 +194,22 @@ func (a *Agent) End(id string) { a.sessions.remove(id) }
 
 // ResumeFile is one résumé file of a live session, for the extension to put in a file input.
 func (a *Agent) ResumeFile(ctx context.Context, sessionID, resumeID string) (applicant.Resume, []byte, error) {
-	if _, ok := a.sessions.get(sessionID); !ok {
+	s, ok := a.sessions.get(sessionID)
+	if !ok {
 		return applicant.Resume{}, nil, ErrNoSession
 	}
-	return a.applicants.Resume(ctx, resumeID)
+	// Only a file this run was told about: the run reads the person's files, nobody else's.
+	known := false
+	for _, resume := range s.snap.Resumes {
+		if resume.ID == resumeID {
+			known = true
+			break
+		}
+	}
+	if !known {
+		return applicant.Resume{}, nil, applicant.ErrNoResume
+	}
+	return a.applicants.ResumeFor(ctx, s.auth, resumeID)
 }
 
 // Step reads one observation and answers with what to do next.

@@ -7,6 +7,7 @@ import (
 	"log/slog"
 	"strings"
 
+	"github.com/sid0709/OpenSeat/acorn-agent/applicant"
 	"github.com/sid0709/OpenSeat/backend-core/jev"
 )
 
@@ -33,19 +34,32 @@ const (
 // ErrFallbackResume is returned when DEFAULT_FALLBACK_RESUME names a folder that does not exist.
 var ErrFallbackResume = errors.New("DEFAULT_FALLBACK_RESUME names a résumé folder that is not in data/resumes")
 
-// fallbackStack is the résumé folder to offer when there is no job description, or "" when none
-// is set. It must be one of the stacks.
-func fallbackStack(name string, stacks []string) (string, error) {
-	name = strings.TrimSpace(name)
-	if name == "" {
-		return "", nil
-	}
-	for _, stack := range stacks {
-		if strings.EqualFold(stack, name) {
-			return stack, nil
+// fallbackFor is the résumé to offer when there is no job description, or "" when none is. The
+// configured name wins when the applicant has it. When they do not, a strict server (one
+// person's own folder) refuses to run; otherwise the applicant's primary résumé is offered, so a
+// setting made for the server never stops someone whose Library is named differently.
+func (a *Agent) fallbackFor(resumes []applicant.Resume) (string, error) {
+	stacks := stackNames(resumes)
+	name := strings.TrimSpace(a.cfg.FallbackResume)
+	if name != "" {
+		for _, stack := range stacks {
+			if strings.EqualFold(stack, name) {
+				return stack, nil
+			}
+		}
+		if a.cfg.FallbackStrict {
+			return "", fmt.Errorf("%w: %q (folders: %s)", ErrFallbackResume, name, strings.Join(stacks, ", "))
 		}
 	}
-	return "", fmt.Errorf("%w: %q (folders: %s)", ErrFallbackResume, name, strings.Join(stacks, ", "))
+	if a.cfg.FallbackStrict {
+		return "", nil
+	}
+	for _, resume := range resumes {
+		if resume.Stack != "" && resume.Primary {
+			return resume.Stack, nil
+		}
+	}
+	return "", nil
 }
 
 // learnJD reads the page's text for the job description. The first page the decision model

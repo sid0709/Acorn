@@ -54,6 +54,12 @@ type Resume struct {
 	Stack string `json:"stack"`
 	// Format is the file's extension without the dot, in lower case: "pdf".
 	Format string `json:"format"`
+	// Name is what the file is called to the model when that is not its file name: a cover
+	// letter in the Library has a title ("Cover Letter") and a file name of its own. Empty
+	// means the file name without its extension.
+	Name string `json:"name,omitempty"`
+	// Primary marks the applicant's own default among their résumés.
+	Primary bool `json:"primary,omitempty"`
 }
 
 // Snapshot is the applicant as one run sees it.
@@ -72,20 +78,14 @@ type Snapshot struct {
 // Store reads the data folder. It re-reads on every Snapshot so an edit applies to the
 // next run without restarting the server.
 type Store struct {
-	dir    string
-	hidden map[string]bool
+	dir string
+	profileShaper
 }
 
 // NewStore is a store over dir. hidden names the profile fields the model never sees,
 // added to DefaultHiddenFields.
 func NewStore(dir string, hidden ...string) *Store {
-	set := map[string]bool{}
-	for _, name := range append(append([]string{}, DefaultHiddenFields...), hidden...) {
-		if name = strings.TrimSpace(name); name != "" {
-			set[name] = true
-		}
-	}
-	return &Store{dir: dir, hidden: set}
+	return &Store{dir: dir, profileShaper: newShaper(hidden)}
 }
 
 // Dir is the data folder.
