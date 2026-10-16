@@ -285,7 +285,7 @@ describe("runAgent", () => {
       working(1, [{ id: "s1a1", kind: "click", x: 5, y: 5 }]),
       finished("done", 2, "ok"),
     ]);
-    await run();
+    await run({ survey: true });
     const first = surveyOf(0);
     assert.ok(first && first.length >= 3, `survey = ${first?.length}`);
     assert.deepEqual(
@@ -311,6 +311,18 @@ describe("runAgent", () => {
     assert.equal(surveyOf(0), undefined);
   });
 
+  it("does not survey a tall page unless surveys are on: it sees the current screen and never scrolls", async () => {
+    installTallPage(1800);
+    installServer([
+      working(1, [{ id: "s1a1", kind: "click", x: 5, y: 5 }]),
+      finished("done", 2, "ok"),
+    ]);
+    await run();
+    assert.equal(surveyOf(0), undefined);
+    assert.equal(surveyOf(1), undefined);
+    assert.equal(requests[0].body.survey, false);
+  });
+
   it("surveys again when the server asks for it", async () => {
     installTallPage(1800);
     installServer([
@@ -318,7 +330,7 @@ describe("runAgent", () => {
       working(2, [{ id: "s2a1", kind: "click", x: 5, y: 5 }]),
       finished("done", 3, "ok"),
     ]);
-    await run();
+    await run({ survey: true });
     assert.ok(surveyOf(0));
     assert.ok(surveyOf(1), "asked for a survey, the next look is one");
     assert.equal(surveyOf(2), undefined);
@@ -343,7 +355,7 @@ describe("runAgent", () => {
       if (String(url).endsWith("/step")) title = "Next page";
       return original(url, init);
     }) as typeof fetch;
-    await run();
+    await run({ survey: true });
     assert.ok(surveyOf(0));
     assert.ok(surveyOf(1), "a new page gets its own survey");
   });
@@ -411,6 +423,7 @@ describe("runAgent", () => {
       title: "Apply",
       stopBeforeSubmit: true,
       trace: true,
+      survey: false,
     });
     assert.equal(requests.at(-1)?.method, "DELETE");
     assert.equal(detached, 1);

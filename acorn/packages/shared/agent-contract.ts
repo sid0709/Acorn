@@ -256,6 +256,8 @@ export interface AgentStart {
   stopBeforeSubmit: boolean;
   /** Return the run's trace in the answers, for the extension to keep in its own log. */
   trace?: boolean;
+  /** Let the run survey a long page (several screenshots from top to bottom). Off: it sees the current screen only. */
+  survey?: boolean;
 }
 
 export interface AgentResumeInfo {

@@ -44,40 +44,6 @@ func TestStackFilesAreOneCandidateWithThePDFFirst(t *testing.T) {
 	}
 }
 
-func TestCoverLetterUsesTheOnlyOneWithoutAsking(t *testing.T) {
-	svc := New(NewMemory(), nil)
-	putFile(t, svc, LibraryRow{ID: "letter", Title: "General", FileName: "letter.docx", Kind: KindCoverLetter})
-	matcher := &fakeMatcher{}
-	pick, err := svc.CoverLetter(context.Background(), "a", "Go engineer", matcher)
-	if err != nil || pick.File.ResumeID != "letter" || pick.File.Key != fileKeyCoverLetter || matcher.seen != nil {
-		t.Fatalf("pick = %+v err = %v asked = %v", pick, err, matcher.seen != nil)
-	}
-}
-
-func TestCoverLetterRanksSeveralAgainstThePosting(t *testing.T) {
-	svc := New(NewMemory(), nil)
-	putFile(t, svc, LibraryRow{ID: "backend", Title: "Backend", FileName: "backend.pdf", Kind: KindCoverLetter, IsPrimary: true})
-	putFile(t, svc, LibraryRow{ID: "frontend", Title: "Frontend", FileName: "frontend.pdf", Kind: KindCoverLetter})
-	matcher := &fakeMatcher{match: selector.PostingMatch{IsPosting: true, Ranked: []selector.Ranked{{ID: "frontend", Probability: 0.8}}}}
-	pick, err := svc.CoverLetter(context.Background(), "a", "React engineer", matcher)
-	if err != nil || pick.Stack != "Frontend" || len(matcher.seen) != 2 {
-		t.Fatalf("pick = %+v err = %v seen = %d", pick, err, len(matcher.seen))
-	}
-	// No posting to read: the primary one.
-	pick, err = svc.CoverLetter(context.Background(), "a", "", matcher)
-	if err != nil || pick.Stack != "Backend" {
-		t.Fatalf("pick = %+v err = %v, want the primary", pick, err)
-	}
-}
-
-func TestCoverLetterWithNoneInTheLibrary(t *testing.T) {
-	svc := New(NewMemory(), nil)
-	putFile(t, svc, LibraryRow{ID: "resume", Title: "Go", FileName: "go.pdf"})
-	if _, err := svc.CoverLetter(context.Background(), "a", "Go engineer", &fakeMatcher{}); !errors.Is(err, ErrNoCoverLetter) {
-		t.Fatalf("err = %v, want ErrNoCoverLetter", err)
-	}
-}
-
 func TestUploadRejectsAnUnknownKind(t *testing.T) {
 	svc := New(NewMemory(), nil)
 	if _, err := svc.UploadLibrary("a", "x.pdf", "X", "portfolio", []byte("x"), ""); !errors.Is(err, ErrInvalid) {

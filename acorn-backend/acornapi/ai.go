@@ -10,7 +10,6 @@ import (
 	"github.com/sid0709/OpenSeat/acorn-backend/account"
 	"github.com/sid0709/OpenSeat/acorn-backend/acorn"
 	"github.com/sid0709/OpenSeat/backend-core/candidate"
-	"github.com/sid0709/OpenSeat/backend-core/jev"
 )
 
 func decode(w http.ResponseWriter, r *http.Request, dest any) bool {
@@ -51,15 +50,6 @@ func (s *Server) applicant(w http.ResponseWriter, r *http.Request, session accou
 		return acorn.ApplicantProfileText(session.User.ID, candidate.Profile{Name: session.User.Name, Email: session.User.Email}), true
 	}
 	return acorn.ApplicantProfileTextWith(session.User.ID, doc.Candidate(session.User.Name, session.User.Email), doc.PlannerExtra()), true
-}
-
-// decisionUsage is a Jev call in the extension's AiUsageSummary shape.
-func decisionUsage(model string, usage jev.Usage) map[string]any {
-	return map[string]any{
-		"model": model, "inputTokens": usage.InputTokens, "outputTokens": usage.OutputTokens,
-		"cachedInputTokens": 0, "totalTokens": usage.InputTokens + usage.OutputTokens,
-		"costUsd": usage.Cost, "priced": true, "calls": 1,
-	}
 }
 
 func (s *Server) qa(w http.ResponseWriter, r *http.Request) {

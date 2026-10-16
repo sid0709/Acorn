@@ -25,7 +25,7 @@ func TestRoutesSendEachPrefixToItsHandler(t *testing.T) {
 	cases := []struct{ method, path, want string }{
 		{"GET", "/health", "health"},
 		{"GET", "/acorn/health", "acorn"},
-		{"POST", "/acorn/ai-analyze", "acorn"},
+		{"POST", "/acorn/qa", "acorn"},
 		{"GET", gateway.Path + "/?EIO=4&transport=polling", "acorn"},
 		{"POST", acornapi.GooglePrefix + "/start", "acorn"},
 	}

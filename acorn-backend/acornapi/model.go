@@ -22,15 +22,6 @@ func (s *Server) openRouterKey(ctx context.Context, accountID string) (string, e
 	return doc.OpenrouterApiKey, nil
 }
 
-// accountPassword is the profile's default password for job-site accounts; "" when it has none.
-func (s *Server) accountPassword(ctx context.Context, accountID string) (string, error) {
-	doc, stored, err := s.profiles.Load(ctx, accountID)
-	if err != nil || !stored {
-		return "", err
-	}
-	return doc.DefaultAccountPassword, nil
-}
-
 // openRouter is the signed-in account's model. An empty profile key is not ready.
 func (s *Server) openRouter(ctx context.Context, accountID string) (*openai.Client, error) {
 	key, err := s.openRouterKey(ctx, accountID)
@@ -64,7 +55,7 @@ func (s *Server) writeProfileErr(w http.ResponseWriter, err error) {
 }
 
 // acornFor runs this request on the bound test model, or on the profile's OpenRouter
-// key: the text model writes, and Jev (the SelectorGateway) classifies questions.
+// key.
 func (s *Server) acornFor(w http.ResponseWriter, r *http.Request, accountID string) (*acorn.Service, bool) {
 	if _, ok := s.acorn.Bound(); ok {
 		return s.acorn, true
@@ -74,8 +65,7 @@ func (s *Server) acornFor(w http.ResponseWriter, r *http.Request, accountID stri
 		s.writeProfileErr(w, err)
 		return nil, false
 	}
-	gateway := selector.New(jev.New(key))
-	return s.acorn.WithModel(openai.OpenRouter(key)).WithClassifier(gateway).WithPicker(gatewayPicker{gateway}), true
+	return s.acorn.WithModel(openai.OpenRouter(key)), true
 }
 
 // resumeModel is the bound test model, or the profile's OpenRouter client.

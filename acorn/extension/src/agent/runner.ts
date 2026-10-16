@@ -45,6 +45,7 @@ import {
   runningProgress,
   AGENT_STARTING_MESSAGE,
 } from "./progress";
+import { AGENT_SURVEY } from "./settings";
 import { captureSurvey } from "./survey";
 import { openAgentTab, type AgentTab } from "./tab-session";
 import { recordAgentTrace } from "./trace-log";
@@ -78,6 +79,8 @@ export interface AgentRunArgs {
   /** Aborts when the person presses Stop in the sidebar. */
   signal: AbortSignal;
   stopBeforeSubmit: boolean;
+  /** Survey long pages for this run; the default is AGENT_SURVEY (off). */
+  survey?: boolean;
   /** The person's own OpenRouter key, when the extension holds one; the server has its own otherwise. */
   key?: string;
   /** The person's Acorn session: the agent reads their profile and résumés from acorn-backend with it. */
@@ -137,6 +140,7 @@ function sleeper(signal: AbortSignal) {
 }
 
 export async function runAgent(args: AgentRunArgs): Promise<RunReport> {
+  const surveyOn = args.survey ?? AGENT_SURVEY;
   const runId = crypto.randomUUID().slice(0, 8);
   const startedAt = Date.now();
   const log = new RunLog(runId, args.tabId);
@@ -314,6 +318,7 @@ export async function runAgent(args: AgentRunArgs): Promise<RunReport> {
         title: tab.title ?? "",
         stopBeforeSubmit: args.stopBeforeSubmit,
         trace: true,
+        survey: surveyOn,
       },
       args.key,
       args.accessToken,
@@ -326,9 +331,9 @@ export async function runAgent(args: AgentRunArgs): Promise<RunReport> {
     let carriedNotes: string[] = [];
     let answer: string | undefined;
     let sentText = "";
-    // The first look of a page is a survey of the whole of it, so the model can plan the form at
-    // once; so is the look after the model asks for one.
-    let surveyNext = true;
+    // With surveys on (AGENT_SURVEY), the first look of a page is a survey of the whole of it, so
+    // the model can plan the form at once; so is the look after the model asks for one.
+    let surveyNext = surveyOn;
     let lastLook = "";
     for (;;) {
       checkStopped();
@@ -343,7 +348,7 @@ export async function runAgent(args: AgentRunArgs): Promise<RunReport> {
       await here.overlay.ensure();
       const info = await chrome.tabs.get(here.tabId);
       const lookKey = `${info.url ?? ""}\n${info.title ?? ""}`;
-      const surveying = surveyNext || lookKey !== lastLook;
+      const surveying = surveyOn && (surveyNext || lookKey !== lastLook);
       surveyNext = false;
       lastLook = lookKey;
       let survey: AgentSurveyScreen[] | null = null;

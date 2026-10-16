@@ -43,7 +43,7 @@ func TestRunCapturesFilesCallsAndSteps(t *testing.T) {
 		Schema: json.RawMessage(`{"type":"object"}`), Output: []byte(`{"answers":"+1"}`),
 		Err: errors.New("boom"), Duration: 1500 * time.Millisecond,
 	})
-	Tracer()(context.Background(), acorn.Call{Purpose: acorn.PurposeAnalyze}) // no run: ignored
+	Tracer()(context.Background(), acorn.Call{Purpose: acorn.PurposeAnswer}) // no run: ignored
 	run.AppendSteps([]json.RawMessage{json.RawMessage(`{"event":"a"}`), json.RawMessage(`{"event":"b"}`)})
 
 	entries, err := os.ReadDir(run.Dir())

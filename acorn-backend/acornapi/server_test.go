@@ -3,7 +3,6 @@ package acornapi
 import (
 	"context"
 	"encoding/json"
-	"errors"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -270,50 +269,6 @@ func TestResumeGenerateLibraryAndHistory(t *testing.T) {
 	}
 }
 
-func TestAnalyzeUsesProfileAndNeverReturnsResumeGate(t *testing.T) {
-	plan := `{"goal":"g","actions":[],"forbidden_actions":[],"validation":{"required_element_indexes":[],"stop_before_submit":true},"unresolved_items":[]}`
-	handler, _ := newTestServer(t, fakeModel{reply: plan})
-	rec := call(handler, "POST", "/acorn/ai-analyze", `{"pureTree":"input[1]","page":{"url":"https://x"}}`, bearer("hunter"), "")
-	if rec.Code != http.StatusOK {
-		t.Fatalf("status %d: %s", rec.Code, rec.Body)
-	}
-	if !strings.Contains(rec.Body.String(), `"ok":true`) {
-		t.Fatalf("body = %s", rec.Body)
-	}
-	if got := call(handler, "POST", "/acorn/ai-analyze", `{"pureTree":""}`, bearer("hunter"), "").Code; got != http.StatusBadRequest {
-		t.Errorf("empty tree status %d, want 400", got)
-	}
-}
-
-// A refill that lists the flagged fields is still answered when only the
-// conversational planner can plan it (here: no decision model).
-func TestRefillWithFlaggedFieldsFallsBackToTheConversation(t *testing.T) {
-	plan := `{"goal":"g","actions":[{"action":"fill","element_index":4,"element_indexes":null,"expected_label":"Email","expected_role":"textbox","value":"j@example.com","file":null,"reason":null,"ms":null}],"forbidden_actions":[],"validation":{"required_element_indexes":[4],"stop_before_submit":true},"unresolved_items":[]}`
-	handler, _ := newTestServer(t, fakeModel{reply: plan})
-	issues := `"fieldIssues":{"issues":[{"elementIndex":4,"label":"Email","role":"textbox","value":"","required":true,"invalid":true,"linkedMessages":[],"nearbyMessages":[]}],"pageMessages":[]}`
-	fields := `"formFields":[{"elementIndex":4,"kind":"text","label":"Email","required":true,"issue":{"elementIndexes":[4],"value":"","invalid":true}}]`
-	rec := call(handler, "POST", "/acorn/ai-analyze", `{"pureTree":"input[4]","mode":"refill",`+issues+`,`+fields+`}`, bearer("hunter"), "")
-	if rec.Code != http.StatusOK {
-		t.Fatalf("status %d: %s", rec.Code, rec.Body)
-	}
-	for _, want := range []string{`"mode":"refill"`, `"refillPlanner":"conversation"`, `"j@example.com"`} {
-		if !strings.Contains(rec.Body.String(), want) {
-			t.Errorf("body lacks %s: %s", want, rec.Body)
-		}
-	}
-}
-
-func TestMatchOptionFailureIsData(t *testing.T) {
-	handler, _ := newTestServerWith(t, fakeModel{}, fakeDecider{err: errors.New("jev down")})
-	rec := call(handler, "POST", "/acorn/match-option", `{"intendedValue":"No","options":["Yes","No"]}`, bearer("hunter"), "")
-	if rec.Code != http.StatusOK || !strings.Contains(rec.Body.String(), `"ok":false`) {
-		t.Fatalf("got %d %s", rec.Code, rec.Body)
-	}
-	if got := call(handler, "POST", "/acorn/match-option", `{"intendedValue":"","options":[]}`, bearer("hunter"), "").Code; got != http.StatusBadRequest {
-		t.Errorf("missing fields status %d, want 400", got)
-	}
-}
-
 func TestSignInReturnsTheAccount(t *testing.T) {
 	handler, _ := newTestServer(t, fakeModel{})
 	rec := call(handler, "POST", "/acorn/auth/signin", `{"email":"j@example.com","password":"password1"}`, nil, "")
@@ -362,7 +317,7 @@ func TestAcornAIKillSwitch(t *testing.T) {
 		KillSwitches: killswitch.NewMemory(killswitch.Defaults{killswitch.AcornAI: false}),
 	})
 	t.Cleanup(gw.Close)
-	rec := call(handler, "POST", "/acorn/ai-analyze", `{"pureTree":"input[1]"}`, bearer("hunter"), "")
+	rec := call(handler, "POST", "/acorn/qa", `{"question":"Why this role?"}`, bearer("hunter"), "")
 	if rec.Code != http.StatusServiceUnavailable || !strings.Contains(rec.Body.String(), "Acorn AI") {
 		t.Fatalf("killed AI = %d %s", rec.Code, rec.Body.String())
 	}
@@ -371,9 +326,9 @@ func TestAcornAIKillSwitch(t *testing.T) {
 	}
 }
 
-func TestProfileSaveFillAndAnalyze(t *testing.T) {
+func TestProfileSaveFillAndAsk(t *testing.T) {
 	var prompt string
-	model := captureModel{fakeModel: fakeModel{reply: `{"goal":"g","actions":[],"forbidden_actions":[],"validation":{"required_element_indexes":[],"stop_before_submit":true},"unresolved_items":[]}`}, prompt: &prompt}
+	model := captureModel{fakeModel: fakeModel{reply: `{"answers":[{"element_index":1,"value":"Because I build hiring tools."}]}`}, prompt: &prompt}
 	accounts := &fakeAccounts{users: map[string]account.User{
 		"hunter": {ID: "u1", Name: "Jordan Lee", Email: "j@example.com"},
 	}}
@@ -396,11 +351,11 @@ func TestProfileSaveFillAndAnalyze(t *testing.T) {
 	if filled.Code != http.StatusOK || !strings.Contains(filled.Body.String(), "jordan@example.com") || !strings.Contains(filled.Body.String(), `"visaSponsorship":"No"`) {
 		t.Fatalf("fill = %d %s", filled.Code, filled.Body)
 	}
-	if rec := call(handler, "POST", "/acorn/ai-analyze", `{"pureTree":"input[1]"}`, bearer("hunter"), ""); rec.Code != http.StatusOK {
-		t.Fatalf("analyze = %d %s", rec.Code, rec.Body)
+	if rec := call(handler, "POST", "/acorn/qa", `{"question":"Why this role?"}`, bearer("hunter"), ""); rec.Code != http.StatusOK {
+		t.Fatalf("ask = %d %s", rec.Code, rec.Body)
 	}
 	if !strings.Contains(prompt, "jordan@example.com") || strings.Contains(prompt, "openrouterApiKey") {
-		t.Fatalf("planner prompt = %s", prompt)
+		t.Fatalf("writer prompt = %s", prompt)
 	}
 }
 
@@ -426,45 +381,9 @@ func TestSignOutRevokesTheAcornSession(t *testing.T) {
 	}
 }
 
-func TestRunReadPageAndDiagnose(t *testing.T) {
-	handler, _ := newTestServer(t, fakeModel{})
-	page := `{"runId":"r 1!","step":2,"intent":"advance","url":"https://jobs.example.com/apply?token=secret","text":"Your details",` +
-		`"controls":[{"id":7,"tag":"button","text":"Continue"}]}`
-	rec := call(handler, "POST", "/acorn/run/read-page", page, bearer("hunter"), "")
-	if rec.Code != http.StatusOK || !strings.Contains(rec.Body.String(), `"ok":true`) || !strings.Contains(rec.Body.String(), `"id":7`) {
-		t.Fatalf("read-page got %d %s", rec.Code, rec.Body)
-	}
-	if got := call(handler, "POST", "/acorn/run/read-page", `{}`, bearer("hunter"), "").Code; got != http.StatusBadRequest {
-		t.Errorf("empty read-page status %d, want 400", got)
-	}
-	rec = call(handler, "POST", "/acorn/run/diagnose", `{"stage":"advance","evidence":["Email is required"]}`, bearer("hunter"), "")
-	if rec.Code != http.StatusOK || !strings.Contains(rec.Body.String(), `"reason"`) || !strings.Contains(rec.Body.String(), "Email is required") {
-		t.Fatalf("diagnose got %d %s", rec.Code, rec.Body)
-	}
-}
-
-func TestRunReadPageFailureIsData(t *testing.T) {
-	handler, _ := newTestServerWith(t, fakeModel{}, fakeDecider{err: errors.New("jev down")})
-	rec := call(handler, "POST", "/acorn/run/read-page", `{"text":"x"}`, bearer("hunter"), "")
-	if rec.Code != http.StatusOK || !strings.Contains(rec.Body.String(), `"ok":false`) {
-		t.Fatalf("got %d %s", rec.Code, rec.Body)
-	}
-}
-
-func TestRunLogAcceptsEvents(t *testing.T) {
-	handler, _ := newTestServer(t, fakeModel{})
-	body := `{"runId":"abc","events":[{"t":1700000000000,"step":1,"event":"click","data":{"text":"Next"}}]}`
-	if got := call(handler, "POST", "/acorn/run/log", body, bearer("hunter"), "").Code; got != http.StatusNoContent {
-		t.Fatalf("status %d, want 204", got)
-	}
-	if got := call(handler, "POST", "/acorn/run/log", body, nil, "").Code; got != http.StatusUnauthorized {
-		t.Errorf("signed-out status %d, want 401", got)
-	}
-}
-
 // A Library file answers with its version tag, and with 304 when the extension
-// already holds that version; a cover letter can be named by id alone.
-func TestLibraryFileIsVersionedAndCoverLetterByID(t *testing.T) {
+// already holds that version.
+func TestLibraryFileIsVersioned(t *testing.T) {
 	handler, _ := newTestServer(t, fakeModel{})
 	upload := func(body string) string {
 		rec := call(handler, "POST", "/acorn/resume/library", body, bearer("hunter"), "")
@@ -491,11 +410,5 @@ func TestLibraryFileIsVersionedAndCoverLetterByID(t *testing.T) {
 	handler.ServeHTTP(again, req)
 	if again.Code != http.StatusNotModified || again.Body.Len() != 0 {
 		t.Fatalf("revalidate = %d %q, want 304 with no body", again.Code, again.Body)
-	}
-
-	letterID := upload(`{"fileName":"letter.txt","title":"Letter","kind":"` + resume.KindCoverLetter + `","contentBase64":"RGVhciB0ZWFt"}`)
-	rec := call(handler, "POST", "/acorn/custom/cover-letter", `{"jobDescription":"Go engineer","idOnly":true}`, bearer("hunter"), "")
-	if rec.Code != http.StatusOK || !strings.Contains(rec.Body.String(), letterID) || strings.Contains(rec.Body.String(), `"base64"`) {
-		t.Fatalf("cover letter = %d %s", rec.Code, rec.Body)
 	}
 }

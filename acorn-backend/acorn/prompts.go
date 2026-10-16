@@ -1,12 +1,8 @@
-// Package acorn is the Acorn extension's brain: it plans form fills, matches dropdown
-// options, answers free-text questions, and extracts job postings, all from the
+// Package acorn writes the answers to free-text questions the Acorn extension asks, from the
 // signed-in job hunter's Acorn profile.
 package acorn
 
-import (
-	"embed"
-	"strings"
-)
+import "embed"
 
 //go:embed prompts/*.txt
 var promptFiles embed.FS
@@ -19,12 +15,4 @@ func prompt(name string) string {
 	return string(data)
 }
 
-var (
-	analyzeSystem   = prompt("analyze_system")
-	refillSystem    = prompt("refill_system")
-	analyzeUserTail = strings.TrimSpace(prompt("analyze_user_tail"))
-	proseSystem     = prompt("prose_system")
-	identitySystem  = prompt("identity_system")
-	extractJDSystem = prompt("extract_jd_system")
-	fieldsSystem    = prompt("fields_system")
-)
+var proseSystem = prompt("prose_system")
