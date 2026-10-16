@@ -215,9 +215,6 @@ export interface AgentUsage {
   checkCost?: number;
 }
 
-/** A survey that starts where the page is now and goes down to the bottom. */
-export const SURVEY_FROM_HERE = "down";
-
 export interface AgentStep {
   status: AgentStatus;
   message: string;
@@ -225,10 +222,8 @@ export interface AgentStep {
   stop?: AgentStop;
   /** Set when the status is "ask": the question to put to the person. */
   ask?: AgentAsk;
-  /** Make the next look a survey of the page. */
+  /** Make the next look a survey of the whole page. */
   survey?: boolean;
-  /** `down` starts the survey at the current scroll position. Absent starts at the top. */
-  surveyFrom?: typeof SURVEY_FROM_HERE;
   actions: AgentAction[] | null;
   number: number;
   usage: AgentUsage;

@@ -64,13 +64,6 @@ type session struct {
 	// is what the screen should show after the chunk just sent, set only while plan holds more.
 	plan   []chunk
 	verify string
-	// held is the rest of a plan parked while the model replaces the one chunk a check rejected.
-	// repairs counts those replacements for the plan in progress: the first miss is repaired,
-	// and a second miss drops what is left.
-	held    []chunk
-	repairs int
-	// surveyedUpload holds upload results that already asked for a survey of the form below.
-	surveyedUpload map[string]bool
 	// message is the model's latest line for the person, shown again while a plan runs on.
 	message string
 	// jd is the job description read from the page text, "" until one is found; jdSeen holds

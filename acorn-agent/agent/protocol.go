@@ -24,10 +24,6 @@ const (
 	KindSurvey = "survey"
 )
 
-// SurveyFromDown starts a survey where the page is now and goes to the bottom: the form,
-// once a résumé is attached. The job description above is left out.
-const SurveyFromDown = "down"
-
 // Run statuses the agent reports with each step.
 const (
 	// StatusWorking: carry out the actions and send the next screenshot.
@@ -204,11 +200,8 @@ type Step struct {
 	Stop *StopInfo `json:"stop,omitempty"`
 	// Ask is the question the run waits on, when Status is StatusAsk.
 	Ask *Ask `json:"ask,omitempty"`
-	// Survey asks the extension to make its next look a survey of the page.
+	// Survey asks the extension to make its next look a survey of the whole page.
 	Survey bool `json:"survey,omitempty"`
-	// SurveyFrom is SurveyFromDown when the survey starts at the current scroll position.
-	// Empty starts at the top of the page.
-	SurveyFrom string `json:"surveyFrom,omitempty"`
 	// Actions run in order, then the extension sends a new screenshot.
 	Actions []Action `json:"actions"`
 	// Number is this step's place in the run, from 1.

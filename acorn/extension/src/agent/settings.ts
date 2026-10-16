@@ -13,9 +13,10 @@ export const DEFAULT_AGENT_URL = (
 ).replace(/\/$/, "");
 
 /**
- * Whether a run surveys a long page from the top on its first look. Off, so the job description
- * is not photographed before the form. After a résumé is attached the server asks for a survey
- * from where the page is down to the bottom (`surveyFrom: "down"`), which does not use this flag.
+ * Whether a run may survey a long page: scroll it from top to bottom taking a screenshot at each stop,
+ * so the model plans the whole form from one look. Off, the run sees only the current screen, as a
+ * person does, and the page does not move on its own. A survey was never shown to save calls, time,
+ * or money (see docs 19), and it scrolls the page in front of the person.
  */
 export const AGENT_SURVEY = false;
 

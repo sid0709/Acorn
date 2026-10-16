@@ -38,8 +38,7 @@ type Config struct {
 	// MaxSteps is the most steps one run may take.
 	MaxSteps int
 	// MaxActions is the most actions one answer may plan when a decision model checks the
-	// screen between runs of them. One answer covers a whole form. UncheckedActions is the
-	// most when no checker is configured.
+	// screen between runs of them; UncheckedActions is the most when none does.
 	MaxActions       int
 	UncheckedActions int
 	// ChunkActions is the most actions that run before the screen is checked.
@@ -86,7 +85,7 @@ type Config struct {
 func DefaultConfig() Config {
 	return Config{
 		MaxSteps:         150,
-		MaxActions:       40,
+		MaxActions:       12,
 		UncheckedActions: 6,
 		ChunkActions:     4,
 		CheckMatch:       0.9,
@@ -217,7 +216,7 @@ func (a *Agent) Continue(id string) (Continued, error) {
 	}
 	s.finished, s.stoppedFor = false, ""
 	s.pendingUpload = nil
-	s.plan, s.verify, s.held, s.planned, s.sent, s.parts, s.repairs = nil, "", nil, 0, 0, 0, 0
+	s.plan, s.verify, s.planned, s.sent, s.parts = nil, "", 0, 0, 0
 	s.stale, s.lastSig, s.loadWaits = 0, nil, 0
 	s.notes = append(s.notes, note)
 	slog.Info("run continued", "session", s.id, "step", s.step, "limit", s.stepLimit)
@@ -331,14 +330,6 @@ func (a *Agent) step(ctx context.Context, id string, obs Observation) (Step, err
 	if step, ok := a.continuePlan(ctx, s, obs, results, sig, stale); ok {
 		return step, nil
 	}
-	if len(s.held) == 0 && len(screens) == 0 && pendingFormSurvey(s, obs.Results) {
-		return a.askFormSurvey(s, obs, results), nil
-	}
-	// A fresh plan may be repaired once. A repair already in hand keeps its count, so a
-	// second miss drops what is left.
-	if len(s.held) == 0 {
-		s.repairs = 0
-	}
 
 	number := s.step + 1
 	notes := append(append([]string(nil), obs.Notes...), s.notes...)
@@ -372,29 +363,6 @@ func (a *Agent) step(ctx context.Context, id string, obs Observation) (Step, err
 		a.record(s, entry, obs.Screenshot, calls)
 		return Step{}, err
 	}
-	planned, dropped := checkActions(number, answer.Actions, obs.Viewport, s.maxActions, screens)
-	planned, surveyAsked := withoutSurvey(planned)
-	if a.checksOn(s) && len(s.held) == 0 && !legalAlone(planned) {
-		messages = append(messages,
-			llm.Message{Role: llm.RoleAssistant, Text: content},
-			llm.Message{Role: llm.RoleUser, Text: shortPlanNudge, Images: images},
-		)
-		answer2, content2, usage2, calls2, err2 := a.ask(ctx, s, messages)
-		s.usage.Calls++
-		s.usage.InputTokens += usage2.InputTokens
-		s.usage.OutputTokens += usage2.OutputTokens
-		s.usage.CachedTokens += usage2.CachedTokens
-		s.usage.Cost += usage2.Cost
-		calls = append(calls, calls2...)
-		entry.Usage = s.usage
-		if err2 == nil {
-			planned2, dropped2 := checkActions(number, answer2.Actions, obs.Viewport, s.maxActions, screens)
-			planned2, asked2 := withoutSurvey(planned2)
-			if len(planned2) > 1 || legalAlone(planned2) {
-				answer, content, planned, dropped, surveyAsked = answer2, content2, planned2, dropped2, asked2
-			}
-		}
-	}
 	// Only a step the model answered counts: a retry of a failed call sends the same screen.
 	s.step, s.stale, s.lastSig = number, stale, sig
 	s.carried, s.notes = nil, nil
@@ -410,30 +378,17 @@ func (a *Agent) step(ctx context.Context, id string, obs Observation) (Step, err
 	}
 	s.message = strings.TrimSpace(answer.Message)
 
+	planned, dropped := checkActions(number, answer.Actions, obs.Viewport, s.maxActions, screens)
+	planned, surveyAsked := withoutSurvey(planned)
 	// A run that did not turn surveys on is not told they exist, and one the model asks for anyway is ignored.
 	surveyAsked = surveyAsked && s.start.Survey
 	planned = fillSecrets(planned, s.snap.Secrets)
 	planned, dropped = a.resolveUploads(ctx, s, planned, dropped)
-	if len(s.held) > 0 {
-		if keepsPlace(planned) {
-			queued := flatten(s.held)
-			planned = append(planned, queued...)
-			dropped = append(dropped, fmt.Sprintf("%d queued actions still run after this repair", len(queued)))
-		} else {
-			dropped = append(dropped, "the queued plan was dropped because this answer moves to another part of the page")
-		}
-		s.held = nil
-	}
-	if len(planned) > s.maxActions {
-		dropped = append(dropped, fmt.Sprintf("%d actions were not sent: only %d run in one plan", len(planned)-s.maxActions, s.maxActions))
-		planned = planned[:s.maxActions]
-	}
-	planned, dropped = cutAfterUpload(planned, dropped)
 	status := answer.Status
 	var actions []Action
 	switch {
 	case status != StatusWorking:
-		s.plan, s.verify, s.held, s.planned, s.sent, s.parts, s.repairs = nil, "", nil, 0, 0, 0, 0
+		s.plan, s.verify, s.planned, s.sent, s.parts = nil, "", 0, 0, 0
 		// A run that ends may still scroll what the person must act on into view.
 		actions = scrollOnly(planned, maxStopScrolls)
 	case len(planned) == 0 && s.pendingUpload == nil && !surveyAsked:

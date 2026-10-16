@@ -333,34 +333,6 @@ describe("runAgent", () => {
     assert.equal(requests[0].body.survey, false);
   });
 
-  it("surveys from where the page is down to the bottom when the server asks, and not before", async () => {
-    installTallPage(2400);
-    let scrollY = 800;
-    installBrowser({
-      "Runtime.evaluate": (params: { expression?: string }) => {
-        const to = /scrollTo\(\{ top: (-?[\d.]+)/.exec(params.expression ?? "");
-        if (to) scrollY = Math.min(Math.max(0, Number(to[1])), 2400 - 600);
-        return {};
-      },
-      "Page.getLayoutMetrics": () => ({
-        cssVisualViewport: { pageX: 0, pageY: scrollY, clientWidth: 1000, clientHeight: 600 },
-        cssContentSize: { width: 1000, height: 2400 },
-      }),
-    });
-    installServer([
-      { ...working(1, []), survey: true, surveyFrom: "down" },
-      finished("done", 2, "ok"),
-    ]);
-    await run();
-    assert.equal(surveyOf(0), undefined, "the look that is asked does not survey itself");
-    const down = surveyOf(1);
-    assert.ok(down && down.length >= 2, `survey = ${down?.length}`);
-    assert.equal(down[0].scrollY, 800);
-    assert.ok(down.every((screen) => screen.scrollY >= 800));
-    const scrolls = commands.filter((c) => String(c.params?.expression).includes("scrollTo("));
-    assert.match(String(scrolls.at(-1)?.params?.expression), /top: 800/);
-  });
-
   it("surveys again when the server asks for it", async () => {
     installTallPage(1800);
     installServer([

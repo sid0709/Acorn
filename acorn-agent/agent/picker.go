@@ -133,10 +133,6 @@ func (a *Agent) handlePicker(ctx context.Context, s *session, obs Observation, r
 		ID: fmt.Sprintf("s%dp%d", s.step, len(s.pickerTried)), Kind: KindUpload,
 		X: click.X, Y: click.Y, Resume: resume.ID, FileName: resume.FileName,
 	}
-	if s.byID == nil {
-		s.byID = map[string]Action{}
-	}
-	s.byID[upload.ID] = upload
 	s.carried = results
 	s.notes = append(s.notes, fmt.Sprintf("Your click at %.0f,%.0f opened a file picker, which you cannot see, so Acorn uploaded %s there for you. Next time use upload.", *click.X, *click.Y, resume.FileName))
 	step := Step{Status: StatusWorking, Message: s.message, Actions: []Action{upload}, Number: s.step, Usage: s.usage}

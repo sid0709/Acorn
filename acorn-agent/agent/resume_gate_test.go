@@ -119,14 +119,10 @@ func TestWithoutAJobDescriptionThePersonIsAskedAndTheDefaultIsUploaded(t *testin
 		t.Fatal("the default is the person's choice: Jev must not pick")
 	}
 
-	// The model's next look says what happened, after the form below the résumé is surveyed.
+	// The model's next look says what happened.
 	next := observation(shot(t, 140))
 	next.Results = []ActionResult{{ID: up.Actions[0].ID, OK: true, Detail: "Ada.pdf, 3 bytes, through the picker"}}
-	surveyed := stepOK(t, a, id, next)
-	if !surveyed.Survey || surveyed.SurveyFrom != SurveyFromDown || len(surveyed.Actions) != 0 || model.count() != 1 {
-		t.Fatalf("survey = %+v, model calls %d", surveyed, model.count())
-	}
-	stepOK(t, a, id, observation(shot(t, 180)))
+	stepOK(t, a, id, next)
 	text := lastText(model)
 	for _, want := range []string{"No job description was found", "default résumé", "Ada.pdf"} {
 		if !strings.Contains(text, want) {
@@ -145,11 +141,7 @@ func TestThePersonIsAskedEveryTimeNotOnceForTheRun(t *testing.T) {
 	up := stepOK(t, a, id, yes)
 	look := observation(shot(t, 140))
 	look.Results = []ActionResult{{ID: up.Actions[0].ID, OK: true}}
-	surveyed := stepOK(t, a, id, look)
-	if !surveyed.Survey || surveyed.SurveyFrom != SurveyFromDown {
-		t.Fatalf("the form below the résumé is surveyed before the model looks again: %+v", surveyed)
-	}
-	second := stepOK(t, a, id, observation(shot(t, 180)))
+	second := stepOK(t, a, id, look)
 	if second.Status != StatusAsk {
 		t.Fatalf("a second upload must ask again: %+v", second)
 	}
@@ -273,11 +265,7 @@ func TestAResumeTheModelNamesIsIgnoredAndTheJobDescriptionChoosesIt(t *testing.T
 	}
 	next := observation(shot(t, 90))
 	next.Results = []ActionResult{{ID: step.Actions[0].ID, OK: true}}
-	surveyed := stepOK(t, a, id, next)
-	if !surveyed.Survey || model.count() != 1 {
-		t.Fatalf("survey = %+v, model calls %d", surveyed, model.count())
-	}
-	stepOK(t, a, id, observation(shot(t, 140)))
+	stepOK(t, a, id, next)
 	if text := lastText(model); !strings.Contains(text, `You named the résumé "backend"`) || !strings.Contains(text, "Leave resume null") {
 		t.Fatalf("the model is not told its pick was ignored:\n%s", text)
 	}
@@ -316,11 +304,7 @@ func TestTheStackChosenOnceIsKeptForTheRunWhateverTheModelNames(t *testing.T) {
 	first := stepOK(t, a, id, withText(observation(shot(t, 40)), jdText))
 	next := observation(shot(t, 90))
 	next.Results = []ActionResult{{ID: first.Actions[0].ID, OK: true}}
-	surveyed := stepOK(t, a, id, next)
-	if !surveyed.Survey {
-		t.Fatalf("survey = %+v", surveyed)
-	}
-	second := stepOK(t, a, id, observation(shot(t, 140)))
+	second := stepOK(t, a, id, next)
 	if !strings.HasPrefix(first.Actions[0].Resume, "data/") || !strings.HasPrefix(second.Actions[0].Resume, "data/") || len(decider.choiceStates) != 1 {
 		t.Fatalf("first %+v second %+v, Jev asked %d times", first.Actions, second.Actions, len(decider.choiceStates))
 	}

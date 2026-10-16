@@ -8,7 +8,6 @@ import {
   SURVEY_MAX_SCREENS,
   scrollForAction,
   surveyPositions,
-  surveyPositionsFrom,
 } from "./survey.ts";
 
 import type { Overlay } from "./overlay.ts";
@@ -34,17 +33,6 @@ describe("surveyPositions", () => {
     const positions = surveyPositions(20_000, 600);
     assert.equal(positions.length, SURVEY_MAX_SCREENS);
     assert.equal(positions[0], 0);
-  });
-
-  it("starts where the page is and goes down, leaving out what is above", () => {
-    const positions = surveyPositionsFrom(800, 2400, 600);
-    assert.equal(positions[0], 800);
-    assert.equal(positions.at(-1), 1800);
-    assert.ok(positions.every((y) => y >= 800));
-  });
-
-  it("is empty when the rest of the page is about one screen", () => {
-    assert.deepEqual(surveyPositionsFrom(1500, 2000, 600), []);
   });
 });
 

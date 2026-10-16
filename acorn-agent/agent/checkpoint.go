@@ -209,84 +209,11 @@ func (a *Agent) sendRun(s *session, runs []chunk, dropped []string) ([]Action, [
 // abandon drops the rest of the plan and tells the model why on its next look.
 func (a *Agent) abandon(s *session, reason string) {
 	left := s.planned - s.sent
-	s.plan, s.verify, s.held = nil, "", nil
+	s.plan, s.verify = nil, ""
 	if s.planned == 0 {
 		return
 	}
 	s.notes = append(s.notes, fmt.Sprintf("You planned %d actions: %d ran, %d did not. %s", s.planned, s.sent, left, reason))
-}
-
-// holdForRepair parks the rest of the plan and asks the model to replace only the chunk that
-// missed. The parked actions run after that replacement. A second miss, or a plan with nothing
-// left, drops the plan instead.
-func (a *Agent) holdForRepair(s *session, reason string) {
-	if s.repairs > 0 || len(s.plan) == 0 {
-		a.abandon(s, reason)
-		return
-	}
-	left := 0
-	for _, part := range s.plan {
-		left += len(part.actions)
-	}
-	s.held = s.plan
-	s.plan, s.verify = nil, ""
-	s.repairs++
-	s.notes = append(s.notes, fmt.Sprintf("You planned %d actions: %d ran, %d are still queued and will run after you answer. %s Reply with replacement actions for the part that missed only. Do not repeat the queued actions and do not scroll.", s.planned, s.sent, left, reason))
-}
-
-// keepsPlace is whether these actions stay on the screen the parked plan was measured on.
-// A scroll, an upload, or an empty answer moves somewhere else, so the parked coordinates
-// would land on the wrong controls.
-func keepsPlace(actions []Action) bool {
-	if len(actions) == 0 {
-		return false
-	}
-	for _, action := range actions {
-		switch action.Kind {
-		case KindScroll, KindUpload, KindSurvey:
-			return false
-		}
-	}
-	return true
-}
-
-// legalAlone is whether a one-action plan may run. Anything else on a form is sent back
-// once so the model plans the fields it can already see. A longer plan is always legal.
-func legalAlone(actions []Action) bool {
-	if len(actions) != 1 {
-		return true
-	}
-	action := actions[0]
-	switch action.Kind {
-	case KindUpload, KindScroll, KindWait, KindSurvey:
-		return true
-	case KindClick, KindDoubleClick, KindTripleClick, KindRightClick, KindHover:
-		return action.Check == ""
-	default:
-		return false
-	}
-}
-
-// cutAfterUpload drops whatever was planned after an upload. The page changes shape when a
-// file is attached, so those points are measured again on the survey that follows.
-func cutAfterUpload(actions []Action, dropped []string) ([]Action, []string) {
-	for i, action := range actions {
-		if action.Kind != KindUpload || i+1 == len(actions) {
-			continue
-		}
-		dropped = append(dropped, fmt.Sprintf("%d actions were not sent: they were planned after an upload, and the form is surveyed once the file is attached", len(actions)-i-1))
-		return actions[:i+1], dropped
-	}
-	return actions, dropped
-}
-
-// flatten is the actions of chunks, in order.
-func flatten(chunks []chunk) []Action {
-	var out []Action
-	for _, part := range chunks {
-		out = append(out, part.actions...)
-	}
-	return out
 }
 
 // continuePlan runs the next part of the model's plan if the screen shows what the model
@@ -302,14 +229,14 @@ func (a *Agent) continuePlan(ctx context.Context, s *session, obs Observation, r
 	}
 	expect := s.verify
 	if failed := failedResults(obs.Results); failed != "" {
-		a.holdForRepair(s, "The last actions failed: "+failed+".")
+		a.abandon(s, "The last actions failed: "+failed+".")
 		return Step{}, false
 	}
 	// A page that is loading may look the same for a moment; anything else that did not move
 	// is not what the model expected. Typing and keys are the exception: a few characters in
 	// a field move too few pixels to register as a change, so the checker is asked instead.
 	if stale > 0 && s.loadWaits == 0 && !s.changedLittle(obs.Results) {
-		a.holdForRepair(s, "The screen did not change after them, so it is not what you expected.")
+		a.abandon(s, "The screen did not change after them, so it is not what you expected.")
 		return Step{}, false
 	}
 	verdict, err := look(ctx, a.newScreen(s.key), obs.Screenshot, expect)
@@ -356,7 +283,7 @@ func (a *Agent) continuePlan(ctx context.Context, s *session, obs Observation, r
 		return step, true
 	}
 	a.record(s, entry, obs.Screenshot, []modelCall{verdict.call(nil)})
-	a.holdForRepair(s, "The checker did not confirm the screen showed what you expected ("+expect+"): "+reason+".")
+	a.abandon(s, "The checker did not confirm the screen showed what you expected ("+expect+"): "+reason+".")
 	return Step{}, false
 }
 
