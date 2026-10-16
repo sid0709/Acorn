@@ -21,7 +21,7 @@ import {
 } from "./messages/generate";
 import { handleMatchOption } from "./messages/match-option";
 import { handleFetchDom, handleStartPipeline } from "./messages/pipeline";
-import { handleStartRun, handleStopRun } from "./messages/run";
+import { handleAnswerRun, handleStartRun, handleStopRun } from "./messages/run";
 import { handleSelectionQa } from "./messages/selection-qa";
 import { handleSubmitSupportClaim } from "./messages/support-claim";
 import { handleSupportHandoff } from "./messages/support-session";
@@ -129,6 +129,11 @@ export function routeMessage(
   if (message.type === MSG.START_RUN) {
     handleStartRun(message, sender, sendResponse);
     return true;
+  }
+
+  if (message.type === MSG.ANSWER_RUN) {
+    handleAnswerRun(message, sender, sendResponse);
+    return false;
   }
 
   if (message.type === MSG.STOP_RUN) {

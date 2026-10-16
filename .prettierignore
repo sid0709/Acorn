@@ -15,3 +15,8 @@ next-env.d.ts
 
 # Downloaded Acorn run logs: data, not code
 logs
+
+# acorn-agent: the applicant's own files and run traces are data, and the system prompt is a Go template
+acorn-agent/data
+acorn-agent/traces
+acorn-agent/agent/prompts

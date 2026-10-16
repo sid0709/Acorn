@@ -12,3 +12,6 @@ secrets
 !**/.env.example
 # Local debug capture (ACORN_DEBUG_DIR): page HTML and applicant data.
 **/debug-runs
+# The agent's own applicant files and run traces: personal data, never in an image.
+acorn-agent/data
+acorn-agent/traces

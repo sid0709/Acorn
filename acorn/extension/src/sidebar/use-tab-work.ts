@@ -185,6 +185,35 @@ export function useTabWork({
     }
   }, [activeTabId]);
 
+  /** Gives the person's answer to the question the Run on the active tab is waiting on. */
+  const answerRun = useCallback(
+    async (answer: string) => {
+      const tabId = activeTabId;
+      if (tabId == null) return;
+      try {
+        const res = await sendMessage<{ ok?: boolean; error?: string }>({
+          type: MSG.ANSWER_RUN,
+          tabId,
+          answer,
+        });
+        if (res?.error) {
+          notify(tabId, {
+            kind: "error",
+            title: "Couldn’t send your answer",
+            detail: String(res.error),
+          });
+        }
+      } catch (err) {
+        notify(tabId, {
+          kind: "error",
+          title: "Couldn’t send your answer",
+          detail: err instanceof Error ? err.message : String(err),
+        });
+      }
+    },
+    [activeTabId],
+  );
+
   const rememberFocusedTab = useCallback(async () => {
     const tabId = activeTabId;
     if (tabId == null) return;
@@ -370,6 +399,7 @@ export function useTabWork({
     startPipeline,
     startRun,
     stopRun,
+    answerRun,
     rememberFocusedTab,
     forgetCustomTab,
     focusCustomTab,

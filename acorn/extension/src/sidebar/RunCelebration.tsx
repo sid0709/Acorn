@@ -1,3 +1,4 @@
+import { formatUsd } from "@acorn/shared/ai-usage";
 import { useState, type CSSProperties } from "react";
 import { Badge, Card, Glyph, HStack, Text, VStack } from "sid-ui";
 
@@ -86,6 +87,7 @@ export function RunCelebration({ run }: { run: RunProgress }) {
           <Stat label="Time" value={formatRunDuration(ended - run.startedAt)} />
         ) : null}
         <Stat label={pages === 1 ? "Page" : "Pages"} value={String(pages)} />
+        {run.costUsd != null ? <Stat label="Spent" value={formatUsd(run.costUsd)} /> : null}
       </HStack>
     </VStack>
   );

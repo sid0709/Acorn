@@ -204,7 +204,7 @@ func TestMintEsignAndHirePacket(t *testing.T) {
 		t.Fatalf("stored = %+v", next)
 	}
 	fallback, _, err := mintOfferEsign(nil, "app-1", "", "", now)
-	if err != nil || fallback.Esign.SignURL != "https://acorn.remotepairnet.net/offer/sign/app-1" || fallback.Status != candidate.OfferDraft {
+	if err != nil || fallback.Esign.SignURL != "https://acornapply.com/offer/sign/app-1" || fallback.Status != candidate.OfferDraft {
 		t.Fatalf("fallback = %+v err %v", fallback, err)
 	}
 	encoded, err := json.Marshal(esign)
@@ -264,7 +264,7 @@ func TestMarkEsignSignedAndDeclined(t *testing.T) {
 		Esign: &candidate.OfferEsign{
 			Status:        candidate.OfferEsignPending,
 			DocumentTitle: "Executive letter",
-			SignURL:       "https://acorn.remotepairnet.net/offer/sign/app-1",
+			SignURL:       "https://acornapply.com/offer/sign/app-1",
 			SentAt:        &sent,
 		},
 	}

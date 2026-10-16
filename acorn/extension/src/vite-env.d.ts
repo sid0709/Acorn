@@ -5,6 +5,8 @@ interface ImportMetaEnv {
   readonly VITE_ACORN_VERSION: string;
   readonly VITE_ACORN_API_URL?: string;
   readonly VITE_ACORN_WEB_URL?: string;
+  /** Where acorn-agent runs; defaults to this machine (see @acorn/shared acornHosts). */
+  readonly VITE_ACORN_AGENT_URL?: string;
   /** "true" turns on local debug capture (see acorn/.env.example). */
   readonly VITE_ACORN_DEBUG?: string;
   /** Seconds Auto-Focus keeps each run tab in front (see acorn/.env.example). */

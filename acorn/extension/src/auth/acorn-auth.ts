@@ -1,6 +1,9 @@
 import {
   ACORN_CLIENT,
   ACORN_CLIENT_HEADER,
+  ACORN_PRODUCTION_API_ORIGIN,
+  ACORN_PRODUCTION_WEB_ORIGIN,
+  ACORN_PRODUCTION_WEB_WWW_ORIGIN,
   ACORN_SOCKET_PATH,
   ACORN_SUPPORT_REDEEM_PATH,
   acornHosts,
@@ -35,7 +38,12 @@ export { STORAGE_KEYS };
 /** What every API call names this client as, for usage stats. */
 const CLIENT_NAME = `${ACORN_CLIENT.extension}/${import.meta.env.VITE_ACORN_VERSION ?? ""}`;
 
-const RETIRED_API_HOSTS = [["api", "joi", "nedhq", "com"].join(""), "acorn.remotepairnet.net"];
+const RETIRED_API_HOSTS = [
+  ["api", "joi", "nedhq", "com"].join(""),
+  new URL(ACORN_PRODUCTION_WEB_ORIGIN).host,
+  new URL(ACORN_PRODUCTION_WEB_WWW_ORIGIN).host,
+  new URL(ACORN_PRODUCTION_API_ORIGIN).host,
+];
 
 function retiredApiUrl(url: string): boolean {
   try {

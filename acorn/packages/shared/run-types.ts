@@ -168,6 +168,12 @@ export interface RunFailure {
   /** The page's own words behind the reason: flagged fields, alerts, failed steps. */
   detail: string;
   stage: RunStage;
+  /**
+   * Set when the agent ended the run itself: why (an AGENT_STOP_REASON), what the page
+   * needs or what went wrong, and what the person should do. The sidebar shows it as a
+   * "needs you" or "couldn't finish" notice.
+   */
+  agentStop?: { reason: string; problem: string; action: string };
 }
 
 export interface RunReport {
@@ -199,6 +205,8 @@ export interface RunProgress {
   endedAt?: number;
   /** 1-based count of pages visited. */
   page: number;
+  /** An agent Run: the step it is on. One page takes many steps, so this replaces the page count in the sidebar. */
+  step?: number;
   /** Refill rounds spent on the current page, and the most a page gets. */
   refills: number;
   maxRefills: number;
@@ -206,6 +214,15 @@ export interface RunProgress {
   kind?: PageKind;
   /** What the run is about to click, or just clicked. */
   control?: string;
+  /**
+   * An agent Run: what the models have cost so far, in US dollars (OpenRouter's own figure),
+   * and how many driving-model calls and screen checks that was. Unset until the first answer.
+   */
+  costUsd?: number;
+  modelCalls?: number;
+  screenChecks?: number;
+  /** An agent Run waiting on the person: the question and the answers they may give. */
+  ask?: { id: string; question: string; options: { id: string; label: string }[] };
   /** While the run reads the mail: the newest emails it hands to Jev. */
   mail?: MailRow[];
   /** The run stopped partway and kept a checkpoint: Continue carries on from here. */

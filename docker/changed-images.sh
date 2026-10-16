@@ -1,18 +1,28 @@
 #!/usr/bin/env bash
 # Read changed repo paths on stdin, one per line.
-# Print the images those paths affect: api, web, admin. The extension is not an image.
+# Print the images those paths affect: api, web, admin, agent. The extension is not an image.
+# Nginx files are reference-only and do not trigger an image rebuild.
 set -euo pipefail
 
 api=0
 web=0
 admin=0
+agent=0
 while IFS= read -r path || [[ -n "${path}" ]]; do
   [[ -z "${path}" ]] && continue
   case "${path}" in
-    acorn-backend/* | backend-core/*)
+    acorn-backend/*)
       api=1
       ;;
-    acorn-frontend/* | acorn/extension/* | tools/extension-release.mjs | docker/deploy-remote.sh | docker/sync-deploy-env.sh | .github/workflows/docker-publish.yml)
+    # backend-core is built into the API and into the agent (model ids, the decision-model client).
+    backend-core/*)
+      api=1
+      agent=1
+      ;;
+    acorn-agent/*)
+      agent=1
+      ;;
+    acorn-frontend/* | acorn/extension/* | tools/extension-release.mjs)
       web=1
       ;;
     acorn-admin/*)
@@ -22,8 +32,11 @@ while IFS= read -r path || [[ -n "${path}" ]]; do
       web=1
       admin=1
       ;;
-    deploy/nginx/acornadmin.remotepairnet.net.conf)
+    docker/deploy-remote.sh | docker/sync-deploy-env.sh | .github/workflows/docker-publish.yml)
+      api=1
+      web=1
       admin=1
+      agent=1
       ;;
   esac
 done
@@ -36,4 +49,7 @@ if [[ "${web}" == 1 ]]; then
 fi
 if [[ "${admin}" == 1 ]]; then
   printf '%s\n' admin
+fi
+if [[ "${agent}" == 1 ]]; then
+  printf '%s\n' agent
 fi

@@ -3,6 +3,8 @@ import { Card, Drawer, HStack, StatusDot, Text, TextInput, VStack } from "sid-ui
 import { DEFAULT_ACORN_API_URL, setAcornApiUrl } from "../auth/acorn-auth";
 import { ACORN_DEBUG } from "../debug-trace";
 
+import { AgentModeSwitch } from "./AgentModeSwitch";
+
 /** A debug build ignores the saved URL: only the local API records its debug runs. */
 const API_URL_HELP = ACORN_DEBUG
   ? `Debug build: always ${DEFAULT_ACORN_API_URL}, the local API that records debug runs.`
@@ -65,6 +67,7 @@ export function SettingsDrawer({
           }}
           placeholder={DEFAULT_ACORN_API_URL}
         />
+        <AgentModeSwitch />
       </VStack>
     </Drawer>
   );

@@ -35,7 +35,7 @@ const (
 	defaultDatabase = "AcornDB"
 	// defaultWebURL is acorn-frontend in production, where support sign-in links land.
 	// ACORN_WEB_URL overrides it (local development sets http://localhost:6005).
-	defaultWebURL = "https://acorn.remotepairnet.net"
+	defaultWebURL = "https://acornapply.com"
 )
 
 // acorn-frontend, plus the older UI board. The extension is not a browser origin.
@@ -46,6 +46,9 @@ var defaultOrigins = []string{
 	"http://localhost:5173",
 	"http://127.0.0.1:6010",
 	"http://localhost:6010",
+	"https://acornapply.com",
+	"https://www.acornapply.com",
+	"https://admin.acornapply.com",
 }
 
 func main() {

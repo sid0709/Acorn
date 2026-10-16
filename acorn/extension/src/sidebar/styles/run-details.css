@@ -248,3 +248,12 @@
   gap: var(--spacing-2);
   font-style: italic;
 }
+
+/* Now card: what to do when the agent stopped for the person or could not go on. */
+.agent-stop-steps {
+  margin: 0;
+  padding-left: var(--spacing-4);
+  display: flex;
+  flex-direction: column;
+  gap: var(--spacing-1);
+}

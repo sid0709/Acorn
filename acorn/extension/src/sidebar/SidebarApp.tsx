@@ -99,6 +99,7 @@ export default function SidebarApp() {
     startPipeline,
     startRun,
     stopRun,
+    answerRun,
     rememberFocusedTab,
     forgetCustomTab,
     focusCustomTab,
@@ -207,6 +208,7 @@ export default function SidebarApp() {
             onClick: () => void stopRun(),
           }
         : null,
+    answerRun: (optionId: string) => void answerRun(optionId),
     fill: {
       label: fillLabel,
       title: customLocked ? rememberFirst : fillLabel,

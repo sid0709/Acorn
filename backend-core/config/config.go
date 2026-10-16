@@ -35,7 +35,11 @@ const (
 	OpenRouterBaseURL  = "https://openrouter.ai/api/v1"
 	// JevModel is TypeSafe's decision model. Acorn's SelectorGateway sends it every
 	// pick-one decision (dropdown option, Library résumé) on the same OpenRouter key.
-	JevModel                 = "typesafe/jev-1.13"
+	JevModel = "typesafe/jev-1.13"
+	// ScreenDecisionModel is the decision model that reads a screenshot and says whether it
+	// shows what was expected (the acorn-agent's checks between steps). It is billed on input
+	// tokens only, at the same rate as GPT-6 Luna's input.
+	ScreenDecisionModel      = "openai/gpt-6-luna-decisions"
 	OpenRouterDecisionsURL   = "https://openrouter.ai/api/alpha/decisions"
 	defaultDeepSeekBaseURL   = "https://api.deepseek.com"
 	defaultDeepSeekSearchURL = "https://api.deepseek.com/anthropic"

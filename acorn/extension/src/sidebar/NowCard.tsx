@@ -2,9 +2,12 @@ import { PAGE_KIND, RUN_OUTCOME, RUN_STAGE, type MailRow } from "@acorn/shared/r
 import { describeRunFailure } from "@acorn/shared/user-messages";
 import { Badge, Button, Card, Glyph, HStack, ProgressBar, Text, VStack } from "sid-ui";
 
+import { AgentAsk } from "./AgentAsk";
+import { AgentStopNotice } from "./AgentStopNotice";
 import { customTabResumeLine, hostOf } from "./custom-tab-resume";
 import { GenerateProgressBar } from "./GenerateProgressBar";
 import { RunCelebration } from "./RunCelebration";
+import { RunCost } from "./RunCost";
 import { RunTimer } from "./RunTimer";
 import { JOBS_NOW_CARD_RUN_ONLY } from "./sidebar-work-state";
 import { useDefaultPassword } from "./use-default-password";
@@ -38,6 +41,8 @@ type NowCardProps = {
   run: NowAction;
   /** Stops the Run working on this tab; null when none is. */
   stop: NowAction | null;
+  /** Gives the person's answer to the question an agent Run waits on. */
+  answerRun: (optionId: string) => void;
   /** Carries on from where the last run on this tab stopped; null when none did. */
   continueRun: NowAction | null;
   fill: NowAction;
@@ -194,7 +199,13 @@ function PasswordLine({ password }: { password: string | null }) {
   );
 }
 
-function RunStatus({ progress }: { progress: PipelineProgress }) {
+function RunStatus({
+  progress,
+  onAnswer,
+}: {
+  progress: PipelineProgress;
+  onAnswer: (optionId: string) => void;
+}) {
   const run = progress.run;
   const failure = run?.report?.failure;
   const onAccount = run?.kind === PAGE_KIND.accountStep || failure?.stage === RUN_STAGE.account;
@@ -207,11 +218,32 @@ function RunStatus({ progress }: { progress: PipelineProgress }) {
       {run.mail?.length ? <MailList mail={run.mail} /> : null}
     </>
   );
+  if (run.ask && run.endedAt == null) {
+    return (
+      <VStack gap={1}>
+        {timer}
+        <RunCost run={run} />
+        <AgentAsk ask={run.ask} onAnswer={onAnswer} />
+        {extras}
+      </VStack>
+    );
+  }
+  if (failure?.agentStop) {
+    return (
+      <VStack gap={1}>
+        {timer}
+        <RunCost run={run} />
+        <AgentStopNotice failure={failure} />
+        {extras}
+      </VStack>
+    );
+  }
   if (failure) {
     const said = describeRunFailure(failure);
     return (
       <VStack gap={1}>
         {timer}
+        <RunCost run={run} />
         <HStack gap={2} align="center">
           <Badge variant="error" label="Run stopped" />
         </HStack>
@@ -233,11 +265,12 @@ function RunStatus({ progress }: { progress: PipelineProgress }) {
     return <RunCelebration key={run.runId} run={run} />;
   }
   const ready = run.report?.outcome === RUN_OUTCOME.readyToSubmit;
-  const parts = [`Page ${Math.max(run.page, 1)}`];
+  const parts = [run.step ? `Step ${run.step}` : `Page ${Math.max(run.page, 1)}`];
   if (run.refills > 0) parts.push(`refill ${run.refills}/${run.maxRefills}`);
   return (
     <VStack gap={1}>
       {timer}
+      <RunCost run={run} />
       {ready ? (
         <HStack gap={2} align="center">
           <Badge variant="green" label="Ready to submit" />
@@ -271,6 +304,7 @@ export function NowCard(props: NowCardProps) {
     fillBusy,
     run: runAction,
     stop,
+    answerRun,
     continueRun,
     fill,
     refill,
@@ -309,7 +343,7 @@ export function NowCard(props: NowCardProps) {
         {run ? <RunProgress run={run} /> : null}
         {top.length ? <RecommendTop top={top} /> : null}
         {fillBusy ? <ProgressBar label={progress.message || "Filling…"} isIndeterminate /> : null}
-        <RunStatus progress={progress} />
+        <RunStatus progress={progress} onAnswer={answerRun} />
         {needsRemember ? (
           <VStack gap={2}>
             <Button

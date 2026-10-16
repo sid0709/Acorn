@@ -17,9 +17,12 @@
   },
   "host_permissions": [
     "<all_urls>",
-    "https://acorn.remotepairnet.net/*",
-    "https://acornapi.remotepairnet.net/*",
+    "https://acornapply.com/*",
+    "https://www.acornapply.com/*",
+    "https://api.acornapply.com/*",
     "http://127.0.0.1:8083/*",
+    "http://127.0.0.1:8090/*",
+    "http://localhost:8090/*",
     "http://localhost:8083/*",
     "http://localhost:6005/*",
     "http://127.0.0.1:6005/*"

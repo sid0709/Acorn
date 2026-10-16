@@ -2,7 +2,7 @@
 
 Chrome extension for capturing page DOM trees, generating structured AI action plans, and running fill automation.
 
-**The backend is `acorn-backend`**, at `https://acornapi.remotepairnet.net` in production: every Acorn route is under `/acorn` (`/acorn/*`) and the Socket.IO gateway is at `/acorn/socket.io`. The Go code lives in [`acorn-backend/acorn`](../acorn-backend/acorn) and [`acorn-backend/acornapi`](../acorn-backend/acornapi/README.md). It was ported from the original TypeScript backend.
+**The backend is `acorn-backend`**, at `https://api.acornapply.com` in production: every Acorn route is under `/acorn` (`/acorn/*`) and the Socket.IO gateway is at `/acorn/socket.io`. The Go code lives in [`acorn-backend/acorn`](../acorn-backend/acorn) and [`acorn-backend/acornapi`](../acorn-backend/acornapi/README.md). It was ported from the original TypeScript backend.
 
 Engineering policy: [`policy-acorn.md`](policy-acorn.md). Parent rules: [`../rule.md`](../rule.md).
 
@@ -11,7 +11,7 @@ Engineering policy: [`policy-acorn.md`](policy-acorn.md). Parent rules: [`../rul
 ```
 ┌─────────────────────┐  socket.io /acorn/socket.io  ┌─────────────────────────┐
 │  Chrome Extension   │ ◄─────────────────────────► │  acorn-backend (Go)     │
-│  (side panel)       │                             │  acornapi.remotepairnet.net       │
+│  (side panel)       │                             │  api.acornapply.com               │
 └──────────┬──────────┘       HTTP /acorn/*          │  local: 127.0.0.1:8083  │
            │ fetch DOM                              └─────────────────────────┘
            ▼
@@ -50,14 +50,14 @@ bun install
 
 ```bash
 bun run dev:acorn     # development build, rebuilt on change: talks to 127.0.0.1:8083 and localhost:6002
-bun run build:acorn   # production build: talks to https://acornapi.remotepairnet.net
+bun run build:acorn   # production build: talks to https://api.acornapply.com
 ```
 
 1. Open `chrome://extensions`
 2. Enable **Developer mode**
 3. **Load unpacked** → select `acorn/extension/dist`
 4. Sign in on acorn-frontend (http://localhost:6005) in the same browser, open the Acorn sidebar, and choose **Continue**. Acorn follows the `acorn_session` cookie after that.
-5. The Acorn API URL is `https://acornapi.remotepairnet.net` in a production build and `http://127.0.0.1:8083` in a development build (both from `@acorn/shared/api`; override with `VITE_ACORN_API_URL` at build time). Keep the side panel open for a green **Socket connected** light — the panel holds a port so Chrome does not park the worker that owns the `/acorn/socket.io` socket. The extension prefers Engine.IO **websocket** with HTTP long-poll fallback (`path: /acorn/socket.io`, `auth.token`). nginx must proxy acornapi.remotepairnet.net to acorn-backend and return 101 on the websocket upgrade (see [`deploy/nginx/acornapi.remotepairnet.net.conf`](../deploy/nginx/acornapi.remotepairnet.net.conf)). Sign-in uses `/acorn/*` and can succeed a moment before the socket turns green. The socket token travels in the handshake `auth` payload only — query-string tokens are rejected, since URLs land in nginx access logs. Every socket joins a room keyed by the signed-in account: `dom:tree`, `pipeline:progress`, `clients:update` and every relayed command (`dom:get-content`, `dom:execute-actions`, `dom:plan-step`) stay inside that room, so a client can only ever see or drive its own account's extension. The server also sends `ai-usage:recorded` (`{ tab, entry }`) to that room each time it records an AI call, with `tab` set to the call's `X-Acorn-Tab` key; the worker keeps each tab's list in `chrome.storage.session`, so the side panel shows a tab's calls as they happen and `GET /acorn/ai-usage` (which also returns exact `costNanos` / `totalNanos`) only reconciles.
+5. The Acorn API URL is `https://api.acornapply.com` in a production build and `http://127.0.0.1:8083` in a development build (both from `@acorn/shared/api`; override with `VITE_ACORN_API_URL` at build time). Keep the side panel open for a green **Socket connected** light — the panel holds a port so Chrome does not park the worker that owns the `/acorn/socket.io` socket. The extension prefers Engine.IO **websocket** with HTTP long-poll fallback (`path: /acorn/socket.io`, `auth.token`). nginx must proxy api.acornapply.com to acorn-backend and return 101 on the websocket upgrade (see [`deploy/nginx/api.acornapply.com.conf`](../deploy/nginx/api.acornapply.com.conf)). Sign-in uses `/acorn/*` and can succeed a moment before the socket turns green. The socket token travels in the handshake `auth` payload only — query-string tokens are rejected, since URLs land in nginx access logs. Every socket joins a room keyed by the signed-in account: `dom:tree`, `pipeline:progress`, `clients:update` and every relayed command (`dom:get-content`, `dom:execute-actions`, `dom:plan-step`) stay inside that room, so a client can only ever see or drive its own account's extension. The server also sends `ai-usage:recorded` (`{ tab, entry }`) to that room each time it records an AI call, with `tab` set to the call's `X-Acorn-Tab` key; the worker keeps each tab's list in `chrome.storage.session`, so the side panel shows a tab's calls as they happen and `GET /acorn/ai-usage` (which also returns exact `costNanos` / `totalNanos`) only reconciles.
 
 ### 4. Use it
 
