@@ -16,16 +16,7 @@ const (
 )
 
 var routeFeatures = map[string]string{
-	"POST /acorn/ai-analyze":                         featureFill,
-	"POST /acorn/match-option":                       featureFill,
-	"POST /acorn/pick-options":                       featureFill,
 	"POST /acorn/qa":                                 featureAsk,
-	"POST /acorn/run/read-page":                      featureRun,
-	"POST /acorn/run/diagnose":                       featureRun,
-	"POST /acorn/run/dialog":                         featureRun,
-	"POST /acorn/run/account-outcome":                featureRun,
-	"POST /acorn/custom/extract-jd":                  featureCustomJob,
-	"POST /acorn/custom/analyze-meta":                featureCustomJob,
 	"POST /acorn/custom/generate":                    featureResumeGenerate,
 	"POST /acorn/custom/generate/{inputId}/continue": featureResumeGenerate,
 	"POST /acorn/resume/generate":                    featureResumeGenerate,
@@ -33,7 +24,6 @@ var routeFeatures = map[string]string{
 	"POST /acorn/jobs/{jobId}/generate":              featureResumeGenerate,
 	"POST /acorn/resume/library/{resumeId}/analyze":  featureResumeAnalyze,
 	"POST /acorn/custom/recommend":                   featureRecommend,
-	"POST /acorn/custom/cover-letter":                featureRecommend,
 	"POST /acorn/profile/from-resume":                featureProfileImport,
 	"POST /acorn/gmail/autolabel":                    featureGmailLabel,
 }

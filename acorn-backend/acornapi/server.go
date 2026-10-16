@@ -67,7 +67,6 @@ type Server struct {
 	accounts       Accounts
 	listings       *jobs.Store
 	acorn          *acorn.Service
-	files          RuntimeFile
 	cookie         string
 	switches       killswitch.Switches
 	google         *google.Client
@@ -95,8 +94,6 @@ type Server struct {
 type Options struct {
 	// SessionCookie is the Acorn session cookie's name.
 	SessionCookie string
-	// Runtime is the file the extension attaches when no résumé is available.
-	Runtime RuntimeFile
 	// KillSwitches turns off Acorn's model routes. Nil leaves them on.
 	KillSwitches killswitch.Switches
 	// Google is Sign in with Google. An unconfigured client answers 503.
@@ -133,7 +130,7 @@ type Options struct {
 
 func New(accounts Accounts, listings *jobs.Store, brain *acorn.Service, opts Options) (http.Handler, *gateway.Gateway) {
 	s := &Server{
-		accounts: accounts, listings: listings, acorn: brain, files: opts.Runtime,
+		accounts: accounts, listings: listings, acorn: brain,
 		cookie: opts.SessionCookie, switches: opts.KillSwitches,
 		google: opts.Google, googleRedirect: opts.GoogleRedirectURL,
 		gmail: opts.Gmail, gmailRedirect: opts.GmailRedirectURL,
@@ -179,17 +176,7 @@ func New(accounts Accounts, listings *jobs.Store, brain *acorn.Service, opts Opt
 	mux.HandleFunc("POST /acorn/auth/support/redeem", s.redeemSupportCode)
 	mux.HandleFunc("POST /acorn/auth/support/extension-code", s.supportExtensionCode)
 
-	mux.HandleFunc("POST /acorn/ai-analyze", s.requireAI(s.aiAnalyze))
-	mux.HandleFunc("POST /acorn/match-option", s.requireAI(s.matchOption))
-	mux.HandleFunc("POST /acorn/pick-options", s.requireAI(s.pickOptions))
 	mux.HandleFunc("POST /acorn/qa", s.requireAI(s.qa))
-	mux.HandleFunc("POST /acorn/run/read-page", s.requireAI(s.runReadPage))
-	mux.HandleFunc("POST /acorn/run/diagnose", s.requireAI(s.runDiagnose))
-	mux.HandleFunc("POST /acorn/run/mail-verification", s.requireAI(s.runMailVerification))
-	mux.HandleFunc("POST /acorn/run/dialog", s.requireAI(s.runDialog))
-	mux.HandleFunc("POST /acorn/run/account-outcome", s.requireAI(s.runAccountOutcome))
-	mux.HandleFunc("POST /acorn/run/log", s.runLog)
-	mux.HandleFunc("GET /acorn/runtime-file", s.runtimeFile)
 	if s.debug != nil {
 		mux.HandleFunc("POST /acorn/debug/log", s.debugLog)
 		mux.HandleFunc("POST /acorn/debug/shot", s.debugShot)
@@ -230,13 +217,10 @@ func New(accounts Accounts, listings *jobs.Store, brain *acorn.Service, opts Opt
 	mux.HandleFunc("GET /acorn/jobs/{jobId}/resume-preview", s.jobResumePreview)
 	mux.HandleFunc("GET /acorn/jobs/{jobId}/recommended-resume", s.jobRecommendedResume)
 
-	mux.HandleFunc("POST /acorn/custom/extract-jd", s.requireAI(s.extractJD))
-	mux.HandleFunc("POST /acorn/custom/analyze-meta", s.requireAI(s.analyzeMeta))
 	mux.HandleFunc("POST /acorn/custom/generate", s.requireAI(s.startGenerate))
 	mux.HandleFunc("POST /acorn/custom/generate/{inputId}/continue", s.requireAI(s.continueGenerate))
 	mux.HandleFunc("GET /acorn/custom/generate/{inputId}", s.pollGenerate)
 	mux.HandleFunc("POST /acorn/custom/recommend", s.requireAI(s.recommendLibrary))
-	mux.HandleFunc("POST /acorn/custom/cover-letter", s.requireAI(s.coverLetter))
 	mux.HandleFunc("GET /acorn/custom/library-resumes/{resumeId}/preview", s.customLibraryPreview)
 	mux.HandleFunc("GET /acorn/custom/library-resumes/{resumeId}", s.customLibraryResume)
 	mux.HandleFunc("GET /acorn/custom/resumes/{generationId}/preview", s.customGeneratedPreview)
