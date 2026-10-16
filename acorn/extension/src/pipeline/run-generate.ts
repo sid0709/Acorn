@@ -26,7 +26,7 @@ import {
   type CustomUiProgress,
 } from "./custom-generate-progress";
 
-import type { CustomGenerateStatus, CustomWorkKind } from "../tab-custom-session";
+import type { GenerateStatus, WorkKind } from "../tab-job-generate-session";
 
 const POLL_MS = 400;
 const GENERATE_TIMEOUT_MS = 5 * 60_000;
@@ -38,9 +38,9 @@ function sleep(ms: number): Promise<void> {
 export type ResumeGenerateSource = "fill" | "custom";
 
 export type ResumeGeneratePatch = {
-  workKind?: CustomWorkKind | null;
+  workKind?: WorkKind | null;
   resumeMode?: "generate" | "recommend";
-  generateStatus?: CustomGenerateStatus;
+  generateStatus?: GenerateStatus;
   generateError?: string | null;
   generateProgress?: CustomUiProgress | null;
   checkpoint?: GenerateCheckpoint | null;
@@ -53,7 +53,7 @@ export type ResumeGeneratePatch = {
 export type ResumeGenerateStore = {
   patch: (partial: ResumeGeneratePatch) => Promise<void>;
   readCheckpoint: () => Promise<GenerateCheckpoint | null>;
-  readStatus: () => Promise<CustomGenerateStatus | null>;
+  readStatus: () => Promise<GenerateStatus | null>;
 };
 
 function phaseOf(checkpoint: GenerateCheckpoint): CustomGeneratePhase {
@@ -98,7 +98,7 @@ export async function runResumeGenerate(args: {
   }
 
   const persist = async (
-    status: CustomGenerateStatus,
+    status: GenerateStatus,
     extra: ResumeGeneratePatch = {},
     poll?: CustomGeneratePoll | null,
   ) => {

@@ -1,13 +1,13 @@
 import { EXTRACT_LABEL, LOAD_JD_LABEL } from "../pipeline/custom-generate-progress";
 
-import type { CustomGenerateStatus } from "../tab-custom-session";
+import type { GenerateStatus } from "../tab-job-generate-session";
 import type { AcornFaceMode } from "@acorn/face";
 import type { PipelinePhase, PipelineProgress } from "@acorn/shared/pipeline-types";
 
 export type RowFaceInput = {
   fillPhase?: PipelinePhase | null;
   resumeSkipped?: boolean;
-  generateStatus?: CustomGenerateStatus | null;
+  generateStatus?: GenerateStatus | null;
   generateLabel?: string | null;
   hasResume?: boolean;
   blocked?: boolean;
@@ -21,7 +21,7 @@ export type TabFaceInput = {
   signedIn: boolean;
   fillPhase?: PipelinePhase | null;
   resumeSkipped?: boolean;
-  generateStatus?: CustomGenerateStatus | null;
+  generateStatus?: GenerateStatus | null;
   generateLabel?: string | null;
   hasResume?: boolean;
   hidden?: boolean;
@@ -41,18 +41,17 @@ export type CompanionFaceInput = {
   jobsLoading: boolean;
   jobsEmpty: boolean;
   jobsError: boolean;
-  customEmpty: boolean;
   opening: boolean;
   afk: boolean;
   emptyIdle: boolean;
 };
 
-function generatingThink(status?: CustomGenerateStatus | null, label?: string | null): boolean {
+function generatingThink(status?: GenerateStatus | null, label?: string | null): boolean {
   if (status === "queued") return true;
   return status === "running" && (label === EXTRACT_LABEL || label === LOAD_JD_LABEL || !label);
 }
 
-function generatingWork(status?: CustomGenerateStatus | null, label?: string | null): boolean {
+function generatingWork(status?: GenerateStatus | null, label?: string | null): boolean {
   return status === "running" && !generatingThink(status, label);
 }
 
@@ -68,7 +67,7 @@ export function holdFromFill(
 }
 
 export function holdFromGenerate(
-  status?: CustomGenerateStatus | null,
+  status?: GenerateStatus | null,
   label?: string | null,
   hasResume = false,
 ): AcornFaceMode | null {
@@ -99,20 +98,13 @@ export type BusyWorkerCounts = {
   working: number;
 };
 
-/** Unique tabs currently thinking or working (fill + Custom). */
+/** Unique tabs currently thinking or working (run + job generate). */
 export function countBusyWorkers(
   pipelines: Record<string, PipelineProgress>,
-  customTabs: Array<{
-    tabId: number;
-    generateStatus: CustomGenerateStatus;
-    generateProgress?: { label?: string } | null;
-    generationId?: string | null;
-    recommendedResumeId?: string | null;
-  }>,
   jobGenerates: Array<{
     jobId: string;
     tabId?: number | null;
-    generateStatus: CustomGenerateStatus;
+    generateStatus: GenerateStatus;
     generateProgress?: { label?: string } | null;
   }> = [],
 ): BusyWorkerCounts {
@@ -120,16 +112,6 @@ export function countBusyWorkers(
   for (const [tabId, progress] of Object.entries(pipelines)) {
     const mode = holdFromFill(progress.phase, progress.resumeUpload?.status === "skipped");
     if (mode === "thinking" || mode === "working") modes.set(tabId, mode);
-  }
-  for (const tab of customTabs) {
-    const key = String(tab.tabId);
-    if (modes.has(key)) continue;
-    const mode = holdFromGenerate(
-      tab.generateStatus,
-      tab.generateProgress?.label,
-      Boolean(tab.generationId || tab.recommendedResumeId),
-    );
-    if (mode === "thinking" || mode === "working") modes.set(key, mode);
   }
   for (const row of jobGenerates) {
     const key = row.tabId != null ? String(row.tabId) : `job:${row.jobId}`;
@@ -169,7 +151,6 @@ export function resolveCompanionHold(input: CompanionFaceInput): AcornFaceMode {
   if (input.signedIn && !input.connected) return "sad";
   if (input.jobsError) return "sad";
   if (input.jobsEmpty) return input.emptyIdle ? "sleeping" : "sad";
-  if (input.customEmpty) return "thinking";
   if (!input.signedIn) {
     if (input.authBusy) return "working";
     return input.nameFocused ? "waiting" : "sleeping";
@@ -183,7 +164,7 @@ export function tabInputFromProgress(
   signedIn: boolean,
   progress: PipelineProgress | null | undefined,
   generate?: {
-    status?: CustomGenerateStatus | null;
+    status?: GenerateStatus | null;
     label?: string | null;
     hasResume?: boolean;
   },

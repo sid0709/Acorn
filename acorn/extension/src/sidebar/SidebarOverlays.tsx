@@ -1,27 +1,12 @@
 import { FaceGuidePanel } from "./FaceGuidePanel";
-import { InspectPanel } from "./InspectPanel";
 import { ResumePreviewPanel } from "./ResumePreviewPanel";
 import { SettingsDrawer } from "./SettingsDrawer";
 
-import type {
-  BusyCounts,
-  JdPreview,
-  PlanInspect,
-  ResumePreview,
-  SidebarAuth,
-  TabUiState,
-} from "./sidebar-panel-types";
+import type { BusyCounts, ResumePreview, SidebarAuth } from "./sidebar-panel-types";
 
 interface Props {
-  activeTabId: number | null;
   preview: ResumePreview["preview"];
   setPreview: ResumePreview["setPreview"];
-  jdPreview: JdPreview | null;
-  setJdPreview: (preview: JdPreview | null) => void;
-  ui: TabUiState["ui"];
-  patchTabUi: TabUiState["patchTabUi"];
-  inspectView: PlanInspect["inspectView"];
-  inspectWindow: PlanInspect["inspectWindow"];
   helpOpen: boolean;
   setHelpOpen: (open: boolean) => void;
   busyCounts: BusyCounts;
@@ -33,17 +18,10 @@ interface Props {
   setApiUrl: SidebarAuth["setApiUrl"];
 }
 
-/** Drawers and panels over the sidebar: résumé and JD previews, inspect, the Face guide, and settings. */
+/** Drawers and panels over the sidebar: the résumé preview, the Face guide, and settings. */
 export function SidebarOverlays({
-  activeTabId,
   preview,
   setPreview,
-  jdPreview,
-  setJdPreview,
-  ui,
-  patchTabUi,
-  inspectView,
-  inspectWindow,
   helpOpen,
   setHelpOpen,
   busyCounts,
@@ -63,30 +41,6 @@ export function SidebarOverlays({
           loadHtml={preview.loadHtml}
           downloadFile={preview.downloadFile}
           onClose={() => setPreview(null)}
-        />
-      ) : null}
-
-      {jdPreview ? (
-        <InspectPanel
-          title={`Job description · ${jdPreview.title}`}
-          lines={jdPreview.text.split("\n")}
-          hasMore={false}
-          onLoadMore={() => undefined}
-          onCopy={() => navigator.clipboard.writeText(jdPreview.text)}
-          onClose={() => setJdPreview(null)}
-        />
-      ) : null}
-
-      {ui.inspect && inspectView ? (
-        <InspectPanel
-          title={ui.inspect.title}
-          lines={inspectView.lines}
-          hasMore={inspectView.hasMore}
-          onLoadMore={inspectWindow.loadMore}
-          onCopy={inspectView.copy}
-          onClose={() => {
-            if (activeTabId != null) patchTabUi(activeTabId, { inspect: null });
-          }}
         />
       ) : null}
 

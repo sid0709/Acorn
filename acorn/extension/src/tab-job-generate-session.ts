@@ -3,14 +3,18 @@ import { normalizeGenerateCheckpoint } from "@acorn/shared/generate-checkpoint";
 import { withStorageLock } from "./storage-lock";
 
 import type { CustomUiProgress } from "./pipeline/custom-generate-progress";
-import type { CustomGenerateStatus, CustomWorkKind } from "./tab-custom-session";
 import type { GenerateCheckpoint } from "@acorn/shared/generate-checkpoint";
 import type { RecommendedResumeRank } from "@acorn/shared/resume-library";
+
+export type GenerateStatus = "idle" | "queued" | "running" | "completed" | "failed";
+
+export type ResumeMode = "generate" | "recommend";
+export type WorkKind = "generate" | "recommend";
 
 export type AcornJobGenerateBinding = {
   jobId: string;
   tabId: number | null;
-  workKind: CustomWorkKind | null;
+  workKind: WorkKind | null;
   inputId: string | null;
   generationId: string | null;
   resumeId: string | null;
@@ -18,7 +22,7 @@ export type AcornJobGenerateBinding = {
   recommendedResumeStack: string | null;
   /** Recommend's best-ranked Library résumés, most probable first. */
   recommendedTop: RecommendedResumeRank[];
-  generateStatus: CustomGenerateStatus;
+  generateStatus: GenerateStatus;
   generateError: string | null;
   generateProgress: CustomUiProgress | null;
   checkpoint: GenerateCheckpoint | null;
@@ -29,11 +33,11 @@ export const JOB_GENERATE_STORAGE_KEY = "acornJobGenerates";
 
 export type JobGenerateMap = Record<string, AcornJobGenerateBinding>;
 
-function asWorkKind(value: unknown): CustomWorkKind | null {
+function asWorkKind(value: unknown): WorkKind | null {
   return value === "recommend" || value === "generate" ? value : null;
 }
 
-function asStatus(value: unknown): CustomGenerateStatus {
+function asStatus(value: unknown): GenerateStatus {
   if (value === "queued" || value === "running" || value === "completed" || value === "failed") {
     return value;
   }

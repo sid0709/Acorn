@@ -7,56 +7,6 @@ import type { GenerateEnqueueCheckpoint } from "@acorn/shared/generate-checkpoin
 const CUSTOM_EDITOR_UNAVAILABLE =
   "Custom generate needs the résumé pipeline on this Acorn API (stored config, template, and file).";
 
-const CUSTOM_EXTRACT_JD_UNAVAILABLE = "Custom generate needs JD extract on this Acorn API.";
-
-export type ExtractCustomJdResult = {
-  hasJobDescription: boolean;
-  jobDescription: string | null;
-  reason: string;
-};
-
-export type ExtractCustomJdInput = {
-  pageText: string;
-};
-
-/** Extract posting prose from the Fill AI Analyze pure tree. Does not enqueue generate. */
-export async function extractCustomJd(
-  input: ExtractCustomJdInput | string,
-  _apiUrl?: string,
-  tabId?: number | null,
-): Promise<ExtractCustomJdResult> {
-  const pageText = typeof input === "string" ? input.trim() : String(input.pageText || "").trim();
-  if (!pageText) throw new Error("No readable text on this tab");
-  const base = (_apiUrl || (await getAcornApiUrl())).replace(/\/$/, "");
-  const extractBody = { pageText };
-  const res = await fetch(`${base}/acorn/custom/extract-jd`, {
-    method: "POST",
-    headers: await authHeaders(tabId),
-    body: JSON.stringify(extractBody),
-  });
-  const data = (await res.json().catch(() => ({}))) as {
-    hasJobDescription?: unknown;
-    jobDescription?: unknown;
-    reason?: unknown;
-    error?: string;
-    message?: string;
-  };
-  if (isNestMissingRoute(res.status, data)) {
-    throw new Error(CUSTOM_EXTRACT_JD_UNAVAILABLE);
-  }
-  if (!res.ok) {
-    throw apiError(res, data, `JD extract failed: ${res.status}`);
-  }
-  const jobDescription =
-    data.jobDescription == null ? null : String(data.jobDescription).trim() || null;
-  const reason = String(data.reason || "").trim();
-  return {
-    hasJobDescription: Boolean(data.hasJobDescription) && Boolean(jobDescription),
-    jobDescription,
-    reason,
-  };
-}
-
 /**
  * Enqueue generate with extracted JD prose. The API applies the saved template
  * and stores the DOCX.

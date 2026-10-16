@@ -18,13 +18,3 @@ export async function resolvePreferredTabId(
   const [tab] = await chrome.tabs.query({ active: true, lastFocusedWindow: true });
   return tab?.id ?? null;
 }
-
-export async function closeTabsQuietly(tabIds: number[]): Promise<void> {
-  const ids = [...new Set(tabIds.filter((id) => Number.isFinite(id)))];
-  if (ids.length === 0) return;
-  try {
-    await chrome.tabs.remove(ids);
-  } catch {
-    await Promise.all(ids.map((id) => chrome.tabs.remove(id).catch(() => undefined)));
-  }
-}

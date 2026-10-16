@@ -117,32 +117,3 @@ export async function fetchCustomLibraryResume(
     label: stack || file.name,
   };
 }
-
-export async function fetchCustomLibraryResumePreview(
-  resumeId: string,
-  _apiUrl?: string,
-): Promise<string> {
-  const id = String(resumeId || "").trim();
-  if (!id) throw new Error("Missing resume id");
-  const base = (_apiUrl || (await getAcornApiUrl())).replace(/\/$/, "");
-  const res = await fetch(
-    `${base}/acorn/custom/library-resumes/${encodeURIComponent(id)}/preview`,
-    {
-      headers: await authHeaders(),
-    },
-  );
-  const data = (await res.json().catch(() => ({}))) as {
-    html?: string;
-    error?: string;
-    message?: string;
-  };
-  if (!res.ok) {
-    if (isNestMissingRoute(res.status, data)) {
-      throw new Error(CUSTOM_LIBRARY_FILE_UNAVAILABLE);
-    }
-    throw apiError(res, data, `Resume preview failed: ${res.status}`);
-  }
-  const html = typeof data.html === "string" ? data.html : "";
-  if (!html.trim()) throw new Error("Library résumé preview is empty");
-  return html;
-}
