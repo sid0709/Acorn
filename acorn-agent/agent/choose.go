@@ -343,6 +343,12 @@ func nativeList(focus *Focus) []string {
 func (a *Agent) chooseNative(ctx context.Context, s *session, obs Observation, entry stepTrace, results []ActionResult, sig []uint8, options []string) (Step, bool) {
 	sc := s.script
 	open := sc.open
+	// An option that says exactly the answer needs no judgment, and the model's own reading cannot be
+	// trusted with it: when one option is the answer and another only begins with it, a recorded run
+	// had the model split its weight between the two, and the choose never completed.
+	if index, ok := exactOption(open.choose.Text, options); ok {
+		return a.commitNative(s, obs, entry, results, sig, options[index], nil)
+	}
 	criteria := map[string]string{optionNone: "no option answers it"}
 	for i, option := range options {
 		criteria[nativeOptionPrefix+strconv.Itoa(i)] = clipText(option, maxNativeOptionChars)
@@ -351,6 +357,7 @@ func (a *Agent) chooseNative(ctx context.Context, s *session, obs Observation, e
 		Type: decide.TypeChoice,
 		Instructions: "A form has a dropdown list. Someone wants to choose the option that answers: " + strconv.Quote(open.choose.Text) + ". " +
 			"Which option is it? Choose the option whose meaning matches: for a yes or no answer, the option that says yes or no, even when it goes on to explain. " +
+			"An option that is exactly the answer beats one that only begins with it or contains it. " +
 			"Answer none if no option answers it.",
 		Criteria: criteria,
 	}}
@@ -376,13 +383,39 @@ func (a *Agent) chooseNative(ctx context.Context, s *session, obs Observation, e
 	if index < 0 {
 		return a.giveUp(s, obs, entry, open, []modelCall{check.call(err)})
 	}
+	return a.commitNative(s, obs, entry, results, sig, options[index], []modelCall{check.call(nil)})
+}
+
+// commitNative types a native list's option whole and presses Enter, then goes on to the next dropdown.
+func (a *Agent) commitNative(s *session, obs Observation, entry stepTrace, results []ActionResult, sig []uint8, option string, calls []modelCall) (Step, bool) {
+	sc := s.script
+	s.carried = withoutChoose(results)
+	s.stale, s.lastSig = 0, sig
 	sc.open = nil
-	typed := Action{ID: sc.nextID(s.seq), Kind: KindType, Text: options[index]}
+	typed := Action{ID: sc.nextID(s.seq), Kind: KindType, Text: option}
 	commit := Action{ID: sc.nextID(s.seq), Kind: KindKey, Keys: "Enter"}
 	step := Step{Status: StatusWorking, Message: s.message, Actions: a.dispatch(s, []Action{typed, commit}), Number: s.step, Usage: s.usage}
+	entry.Usage = s.usage
 	entry.Status, entry.Message, entry.Actions = step.Status, step.Message, step.Actions
-	a.record(s, entry, obs.Screenshot, []modelCall{check.call(nil)})
+	a.record(s, entry, obs.Screenshot, calls)
 	return step, true
+}
+
+// exactOption is the one option whose text is the answer, ignoring case and spacing; none when no option
+// is, or when two are.
+func exactOption(answer string, options []string) (int, bool) {
+	want := strings.Join(strings.Fields(strings.ToLower(answer)), " ")
+	found := -1
+	for i, option := range options {
+		if strings.Join(strings.Fields(strings.ToLower(option)), " ") != want {
+			continue
+		}
+		if found >= 0 {
+			return 0, false
+		}
+		found = i
+	}
+	return found, found >= 0
 }
 
 func focusLabel(focus *Focus) string {

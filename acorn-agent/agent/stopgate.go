@@ -35,7 +35,7 @@ func (a *Agent) holdStop(s *session, status string, answer reply) (string, bool)
 	if answer.Stop != nil {
 		reason = strings.TrimSpace(answer.Stop.Reason)
 	}
-	return fmt.Sprintf("You asked to stop for the applicant (%s), but the applicant is asked last. Before anyone is asked, go through the whole page from its top: fill every field you can from the applicant's details, optional ones too wherever those details answer them (links, dates, pay, address), and do every other action that does not need the applicant. The note under the screenshot says which parts of the page you have not looked at; look at them. Say in your observation what you checked. Report need_person again only when nothing fillable is left.", orOther(reason)), true
+	return fmt.Sprintf("You asked to stop for the applicant (%s), but the applicant is asked last. Before anyone is asked, go through the whole page from its top: fill every field you can from the applicant's details, optional ones too wherever those details answer them, and do every other action that does not need the applicant. The note under the screenshot says which parts of the page you have not looked at; look at them. Say in your observation what you checked. Report need_person again only when nothing fillable is left.", orOther(reason)), true
 }
 
 func orOther(reason string) string {

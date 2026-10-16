@@ -130,7 +130,7 @@ export function lookLogFields(search: MailSearch, model?: string, opened?: RawMa
   };
 }
 
-/** The sender's name without the address in angle brackets ("Reddit <no-reply@…>" is "Reddit"). */
+/** The sender's name without the address in angle brackets ("Acme <no-reply@acme.test>" is "Acme"). */
 export function senderName(from: string): string {
   const name = from.replace(/<[^>]*>/g, "").trim();
   return name || from.trim();

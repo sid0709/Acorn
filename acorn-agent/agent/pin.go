@@ -30,3 +30,19 @@ func pinFrame(actions []Action, vp Viewport, surveyScreens int) []Action {
 	}
 	return actions
 }
+
+// afterUploadNote tells the model why what it planned after an upload did not run.
+const afterUploadNote = "Your plan ran only as far as the upload. Attaching a file changes the page (a row for the file appears and what is below it moves), so what you planned after it was aimed at the page as it was before. Plan the rest on this look."
+
+// cutAfterUpload keeps a plan only as far as its first upload. The page moves after a file is attached,
+// and the points planned after it were measured on the page before, so they land on other controls: a
+// recorded run clicked the wrong field, typed into nothing, and lost the rest of its plan. It says
+// how many actions were cut.
+func cutAfterUpload(actions []Action) ([]Action, int) {
+	for i, action := range actions {
+		if action.Kind == KindUpload && i+1 < len(actions) {
+			return actions[:i+1], len(actions) - (i + 1)
+		}
+	}
+	return actions, 0
+}

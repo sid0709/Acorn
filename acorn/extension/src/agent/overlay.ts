@@ -36,6 +36,24 @@ const CLICK_PRESS_MS = 140;
 /** How long the overlay takes to fade back in after a screenshot. */
 const CAPTURE_FADE_IN_MS = 180;
 
+/** The cursor's drawn size (CSS px), and the square its artwork is drawn in (viewBox units). */
+const CURSOR_SIZE_PX = 44;
+const CURSOR_VIEWBOX = 100;
+/** The artwork's pointed end (the top of the "A", in viewBox units) and the width of the dark ring drawn around its outline. */
+const CURSOR_APEX = { x: 50, y: 14 };
+const CURSOR_EDGE_STROKE = 15;
+/**
+ * Where the cursor's tip is inside its box (CSS px): the outer edge of the dark ring at the apex.
+ * The tip, not the centre of the box, is the point the cursor stands for, so the box is placed and
+ * turned about it: a click lands where the tip is drawn, whatever the cursor's tilt or size.
+ */
+export const CURSOR_TIP_PX = {
+  x: Number(((CURSOR_APEX.x / CURSOR_VIEWBOX) * CURSOR_SIZE_PX).toFixed(2)),
+  y: Number(
+    (((CURSOR_APEX.y - CURSOR_EDGE_STROKE / 2) / CURSOR_VIEWBOX) * CURSOR_SIZE_PX).toFixed(2),
+  ),
+};
+
 const OVERLAY_CSS = `
   :host { all: initial; }
   .root { position: fixed; inset: 0; z-index: ${OVERLAY_Z_INDEX}; pointer-events: none; font: 13px/1.3 system-ui, sans-serif; opacity: 1; transition: opacity ${CAPTURE_FADE_IN_MS}ms ease-out; }
@@ -72,16 +90,16 @@ const OVERLAY_CSS = `
   }
   .cursor-container.shown { opacity: 1; }
 
-  /* Centered Inner Body - Handles orientation & scale around exact (0,0) center */
+  /* Inner body: its tip is the container's (0,0), the point the cursor stands for, and it turns and scales about the tip. */
   .cursor-rotator {
     position: absolute;
     top: 0;
     left: 0;
-    width: 44px;
-    height: 44px;
-    margin-left: -22px;
-    margin-top: -22px;
-    transform-origin: center center;
+    width: ${CURSOR_SIZE_PX}px;
+    height: ${CURSOR_SIZE_PX}px;
+    margin-left: -${CURSOR_TIP_PX.x}px;
+    margin-top: -${CURSOR_TIP_PX.y}px;
+    transform-origin: ${CURSOR_TIP_PX.x}px ${CURSOR_TIP_PX.y}px;
     will-change: transform;
     filter: drop-shadow(0 0 16px rgba(255, 170, 0, 0.95))
             drop-shadow(0 0 35px rgba(255, 100, 0, 0.65));
@@ -202,7 +220,7 @@ export const OVERLAY_SCRIPT = `(() => {
   const cursor = make("div", "cursor-container");
   const rotator = make("div", "cursor-rotator");
   const aura = make("div", "cursor-aura");
-  const svg = svgNode("svg", { class: "acorn-svg", viewBox: "0 0 100 100", fill: "none" });
+  const svg = svgNode("svg", { class: "acorn-svg", viewBox: "0 0 ${CURSOR_VIEWBOX} ${CURSOR_VIEWBOX}", fill: "none" });
   const defs = svgNode("defs", {});
   const acornGrad = svgNode("linearGradient", { id: "acornGrad", x1: "0%", y1: "0%", x2: "100%", y2: "100%" });
   acornGrad.append(
@@ -219,12 +237,12 @@ export const OVERLAY_SCRIPT = `(() => {
   defs.append(acornGrad, innerGlow);
   // Outer organic A outline (the demo's path), drawn three times: a white halo, a very dark
   // brown edge, and the amber body, so one of the rings contrasts with any page.
-  const OUTLINE = "M 50 14 C 62 14, 76 36, 83 62 C 89 82, 79 88, 66 84 C 56 80, 53 66, 50 66 C 47 66, 44 80, 34 84 C 21 88, 11 82, 17 62 C 24 36, 38 14, 50 14 Z";
+  const OUTLINE = "M ${CURSOR_APEX.x} ${CURSOR_APEX.y} C 62 14, 76 36, 83 62 C 89 82, 79 88, 66 84 C 56 80, 53 66, 50 66 C 47 66, 44 80, 34 84 C 21 88, 11 82, 17 62 C 24 36, 38 14, ${CURSOR_APEX.x} ${CURSOR_APEX.y} Z";
   const ring = (className, color, width) => svgNode("path", {
     class: className, d: OUTLINE, fill: color, stroke: color, "stroke-width": width, "stroke-linejoin": "round",
   });
   const halo = ring("halo", "#ffffff", "21");
-  const edge = ring("edge", "#3b1500", "15");
+  const edge = ring("edge", "#3b1500", "${CURSOR_EDGE_STROKE}");
   const body = svgNode("path", {
     class: "body",
     d: OUTLINE,
@@ -405,10 +423,10 @@ export const OVERLAY_SCRIPT = `(() => {
     // Outer container locks strictly to virtual (x,y)
     cursor.style.transform = "translate3d(" + virtual.x + "px, " + virtual.y + "px, 0)";
 
-    // Inner rotator turns around its own exact geometric center
+    // Inner rotator turns about the cursor's tip, so the tip stays on the point
     rotator.style.transform = "rotate(" + virtual.angle + "deg)";
 
-    // Particles spawn exactly from virtual cursor center
+    // Particles spawn exactly from the cursor's tip
     const speed = Math.hypot(virtual.vx, virtual.vy);
     if (speed > 0.8) {
       const particleCount = Math.min(Math.floor(speed * 0.85) + 1, 6);

@@ -402,6 +402,11 @@ func (a *Agent) step(ctx context.Context, id string, obs Observation) (Step, err
 
 	planned, dropped := checkActions(number, answer.Actions, obs.Viewport, s.maxActions, screens)
 	planned = pinFrame(planned, obs.Viewport, len(screens))
+	planned, cut := cutAfterUpload(planned)
+	if cut > 0 && answer.Status == StatusWorking {
+		dropped = append(dropped, fmt.Sprintf("%d planned actions after the upload were not run: the page moves after a file is attached", cut))
+		s.notes = append(s.notes, afterUploadNote)
+	}
 	planned, surveyAsked := withoutSurvey(planned)
 	// A run that did not turn surveys on is not told they exist, and one the model asks for anyway is ignored.
 	surveyAsked = surveyAsked && s.start.Survey
