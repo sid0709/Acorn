@@ -18,26 +18,27 @@ export const SITE_HTML = `<!doctype html>
 <form id="form" novalidate>
   <h1>Data Engineer: Application</h1>
   <label for="name">Full name</label>
-  <input id="name" name="name" type="text" autocomplete="off">
+  <input id="name" name="name" type="text" autocomplete="off"><!--GAP-->
   <label for="email">Email</label>
-  <input id="email" name="email" type="email" autocomplete="off">
+  <input id="email" name="email" type="email" autocomplete="off"><!--GAP-->
   <label for="auth">Are you authorized to work in the United States?</label>
   <select id="auth" name="auth">
     <option value="">Select…</option>
     <option value="yes">Yes</option>
     <option value="no">No</option>
-  </select>
-  <label><input id="agree" type="checkbox"> I agree to the privacy policy</label>
+  </select><!--GAP-->
+  <label><input id="agree" type="checkbox"> I agree to the privacy policy</label><!--GAP-->
   <label>Résumé</label>
   <div class="filebox">
     <button id="upload" type="button">Attach résumé</button><!--CLOUD-->
     <input id="file" type="file" hidden>
   </div>
-  <span id="fileName"></span>
+  <span id="fileName"></span><!--GAP-->
   <p><button id="submit" type="submit">Submit application</button></p>
   <p id="problem" class="error" hidden></p>
 </form>
 <div id="done" hidden><h1>Thanks, your application was received.</h1></div>
+<!--GROW-->
 <script>
   const $ = (id) => document.getElementById(id);
   $("upload").addEventListener("click", () => $("file").click());
@@ -127,10 +128,16 @@ export function startAgentSite(frameOrigin = "http://localhost:0") {
       const url = new URL(req.url);
       if (url.pathname === "/jd-frame")
         return new Response(jdPage, { headers: { "Content-Type": "text/html" } });
-      const html = SITE_HTML.replace(
-        "<!--JD-->",
-        jdMarkup(url.searchParams.get("jd") ?? "", frameOrigin),
-      ).replace("<!--CLOUD-->", cloudMarkup(url.searchParams.get("cloud") ?? "", frameOrigin));
+      // `?tall=1` puts a screen of space between the fields, so each is on a screen of its own;
+      // `?grow=1` makes the page 80px taller once the person types in the name field.
+      const gap = url.searchParams.has("tall") ? `<div style="height:560px"></div>` : "";
+      const grow = url.searchParams.has("grow")
+        ? `<script>document.getElementById("name").addEventListener("input", () => { const p = document.createElement("p"); p.style.height = "80px"; p.textContent = "Checking your name…"; document.getElementById("form").prepend(p); }, { once: true });</script>`
+        : "";
+      const html = SITE_HTML.replaceAll("<!--GAP-->", gap)
+        .replace("<!--GROW-->", grow)
+        .replace("<!--JD-->", jdMarkup(url.searchParams.get("jd") ?? "", frameOrigin))
+        .replace("<!--CLOUD-->", cloudMarkup(url.searchParams.get("cloud") ?? "", frameOrigin));
       return new Response(html, { headers: { "Content-Type": "text/html" } });
     },
   });

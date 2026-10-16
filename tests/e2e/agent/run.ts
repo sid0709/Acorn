@@ -20,6 +20,7 @@ import {
   checked,
   click,
   decisionRequests,
+  onSurvey,
   requests,
   startFakeDecisions,
   startFakeModel,
@@ -27,6 +28,7 @@ import {
   upload,
   type Point,
   type Points,
+  type Survey,
   type Script,
 } from "./fake-model";
 import { startAgentSite, startFrameSite } from "./site";
@@ -755,6 +757,91 @@ try {
     "a résumé the model names is ignored, the job description chooses it, and the model is told",
     { file: (await pageState(named.page)).file, look: lookText(beforeNamed + 1).slice(0, 400) },
   );
+
+  // 1n. A tall form, each field on a screen of its own: the extension surveys the whole page on the
+  // first look, the model plans the whole form from it in one answer, and the extension scrolls to
+  // each screen before acting. Two model calls for the whole form: the plan, and the last look.
+  const wholeForm = (at: Points, survey: Survey, count = 9) => {
+    const on = (p: Point) => onSurvey(survey, p);
+    const actions = [
+      { ...click(at.name), ...on(at.name) },
+      typeInto("Ada Lovelace"),
+      { ...click(at.email), ...on(at.email) },
+      checked(typeInto("ada@example.com"), "the name and email fields are filled in"),
+      { ...click(at.auth), ...on(at.auth) },
+      checked(typeInto("Yes"), "the work authorization list shows Yes"),
+      { ...click(at.agree), ...on(at.agree) },
+      checked({ ...upload(at.upload), ...on(at.upload) }, "the résumé file name is shown"),
+      { ...click(at.submit), ...on(at.submit) },
+    ];
+    return answer({
+      status: "working",
+      message: "Filling the whole form",
+      actions: actions.slice(0, count),
+    });
+  };
+  script = (step, at, survey) => {
+    if (step !== 1) return answer({ status: "done", message: "The application was received" });
+    if (!survey) throw new Error("the first look of a tall page should be a survey");
+    return wholeForm(at, survey);
+  };
+  const beforeTall = requests.length;
+  const tall = await newForm("?jd=1&tall=1");
+  const tallRun = await run(tall.tabId);
+  const tallForm = await received(tall.page);
+  const firstTall = requests[beforeTall]?.messages.at(-1)?.content;
+  const surveyImages = Array.isArray(firstTall)
+    ? firstTall.filter((p) => p.type === "image_url").length
+    : 0;
+  check(
+    JSON.stringify(tallForm) ===
+      JSON.stringify({
+        name: "Ada Lovelace",
+        email: "ada@example.com",
+        auth: "yes",
+        file: "Ada-Lovelace.pdf",
+        size: RESUME_BYTES,
+      }) && tallRun.at(-1)?.run?.report?.outcome === "completed",
+    "a tall form is planned from a survey and filled in across its screens",
+    tallForm,
+  );
+  check(
+    surveyImages >= 4 && lookText(beforeTall).includes("survey of the whole page"),
+    "the first look of a tall page is a survey of its screens",
+    { images: surveyImages },
+  );
+  check(
+    requests.length - beforeTall === 2,
+    "the whole tall form took two model calls: the plan and the last look",
+    requests.length - beforeTall,
+  );
+
+  // 1o. The page grows after the first answer: the points below it no longer mean what the survey
+  // saw, so the next action is refused, and the model is told and looks again.
+  script = (step, at, survey) =>
+    step === 1 ? wholeForm(at, survey as Survey, 4) : answer({ status: "done", message: "ok" });
+  const beforeGrow = requests.length;
+  const growing = await newForm("?jd=1&tall=1&grow=1");
+  await run(growing.tabId);
+  check(
+    lookText(beforeGrow + 1).includes("changed shape since the survey") &&
+      (await pageState(growing.page)).email === "",
+    "a page that changed shape since the survey is not acted on, and the model is told",
+    lookText(beforeGrow + 1).slice(0, 500),
+  );
+
+  // 1p. A run that ends for the person first scrolls what they must act on into view.
+  script = (_step, at) =>
+    answer({
+      status: "need_person",
+      message: "A code was sent",
+      stop: { reason: "verification", problem: "A code was sent", action: "Enter it" },
+      actions: [{ ...click(at.name), kind: "scroll", x: 300, y: 300, dy: 700 }],
+    });
+  const ending = await newForm("?tall=1");
+  await run(ending.tabId);
+  const scrolled = await ending.page.evaluate(() => window.scrollY);
+  check(scrolled > 200, "a run that ends for the person scrolls before it ends", scrolled);
 
   // 2. Stop works, at once, and leaves the page as it is.
   script = (step, at) =>

@@ -16,10 +16,10 @@ import (
 type turn struct {
 	number int
 	// text is what the model was told beside the screenshot, notes included, exactly as it
-	// was sent; image is the screenshot, dropped when the history is compacted. text stays
-	// until the turn is folded into a summary.
-	text  string
-	image string
+	// was sent; images are the screenshots (one, or a survey's), dropped when the history is
+	// compacted. text stays until the turn is folded into a summary.
+	text   string
+	images []string
 	// answer is the model's reply as JSON, replayed as its own earlier turn.
 	answer string
 	// summary is the one line that stands for the turn once it is folded away.
@@ -138,8 +138,8 @@ func (s *session) history(keepTurns, keepImages, budget int) []llm.Message {
 	}
 	for _, t := range s.turns {
 		message := llm.Message{Role: llm.RoleUser, Text: t.text}
-		if t.image != "" {
-			message.Images = []string{t.image}
+		if len(t.images) > 0 {
+			message.Images = t.images
 		} else {
 			message.Text += "\n(Screenshot no longer kept.)"
 		}
@@ -156,7 +156,7 @@ func (s *session) compact(keepTurns, keepImages, budget int) {
 		s.fold()
 	}
 	for i := 0; i < len(s.turns)-keepImages; i++ {
-		s.turns[i].image = ""
+		s.turns[i].images = nil
 	}
 	for budgetUsed(s) > budget && len(s.turns) > 1 {
 		s.fold()
@@ -181,9 +181,7 @@ func budgetUsed(s *session) int {
 	total := 0
 	for _, t := range s.turns {
 		total += (len(t.text) + len(t.answer)) / 4
-		if t.image != "" {
-			total += approxImageTokens
-		}
+		total += len(t.images) * approxImageTokens
 	}
 	for _, line := range s.folded {
 		total += len(line) / 4

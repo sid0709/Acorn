@@ -50,24 +50,27 @@ type stepTrace struct {
 	Step int `json:"step"`
 	// Source is "check" when the decision model carried the plan on; empty when the driving
 	// model looked.
-	Source      string         `json:"source,omitempty"`
-	Check       *checkTrace    `json:"check,omitempty"`
-	At          time.Time      `json:"at"`
-	URL         string         `json:"url"`
-	Title       string         `json:"title"`
-	Viewport    Viewport       `json:"viewport"`
-	Focus       *Focus         `json:"focus,omitempty"`
-	Notes       []string       `json:"notes,omitempty"`
-	Results     []ActionResult `json:"results,omitempty"`
-	Stale       int            `json:"stale"`
-	Observation string         `json:"observation"`
-	Memo        string         `json:"memo"`
-	Job         string         `json:"job"`
-	Status      string         `json:"status"`
-	Message     string         `json:"message"`
-	Stop        *StopInfo      `json:"stop,omitempty"`
-	Actions     []Action       `json:"actions"`
-	Dropped     []string       `json:"dropped,omitempty"`
+	Source string `json:"source,omitempty"`
+	// Survey is the survey the model was shown, written as images; SurveyScreens counts them.
+	Survey        []SurveyScreen `json:"-"`
+	SurveyScreens int            `json:"surveyScreens,omitempty"`
+	Check         *checkTrace    `json:"check,omitempty"`
+	At            time.Time      `json:"at"`
+	URL           string         `json:"url"`
+	Title         string         `json:"title"`
+	Viewport      Viewport       `json:"viewport"`
+	Focus         *Focus         `json:"focus,omitempty"`
+	Notes         []string       `json:"notes,omitempty"`
+	Results       []ActionResult `json:"results,omitempty"`
+	Stale         int            `json:"stale"`
+	Observation   string         `json:"observation"`
+	Memo          string         `json:"memo"`
+	Job           string         `json:"job"`
+	Status        string         `json:"status"`
+	Message       string         `json:"message"`
+	Stop          *StopInfo      `json:"stop,omitempty"`
+	Actions       []Action       `json:"actions"`
+	Dropped       []string       `json:"dropped,omitempty"`
 	// Error is why the step produced no answer (the model failed, the observation was refused).
 	Error string `json:"error,omitempty"`
 	// Usage is the run's model use up to and including this step.
@@ -197,6 +200,27 @@ func (t *tracer) record(sessionID string, entry stepTrace, screenshot string, ca
 		if marked, err := markScreenshot(screenshot, entry.Actions); err == nil && hasPoint(entry.Actions) {
 			if err := os.WriteFile(filepath.Join(dir, name+".marked.jpg"), marked, 0o600); err != nil {
 				return fmt.Errorf("write marked screenshot: %w", err)
+			}
+		}
+	}
+	for i, screen := range entry.Survey {
+		raw, ok := decodeDataURL(screen.Screenshot)
+		if !ok {
+			continue
+		}
+		stem := fmt.Sprintf("%s.survey%d", name, i+1)
+		if err := os.WriteFile(filepath.Join(dir, stem+".jpg"), raw, 0o600); err != nil {
+			return fmt.Errorf("write survey screen: %w", err)
+		}
+		var here []Action
+		for _, action := range entry.Actions {
+			if action.ScrollTo != nil && *action.ScrollTo == screen.ScrollY {
+				here = append(here, action)
+			}
+		}
+		if marked, err := markScreenshot(screen.Screenshot, here); err == nil && hasPoint(here) {
+			if err := os.WriteFile(filepath.Join(dir, stem+".marked.jpg"), marked, 0o600); err != nil {
+				return fmt.Errorf("write marked survey screen: %w", err)
 			}
 		}
 	}

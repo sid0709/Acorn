@@ -13,6 +13,7 @@ import {
 
 import { BLOCKED_MESSAGE, type GuardVerdict } from "./guard";
 import { clickAt, moveMouse, pressKeys, typeText, wheelAt } from "./input";
+import { scrollForAction } from "./survey";
 import { uploadAt, type ResumeFile } from "./upload";
 
 import type { Cdp } from "./cdp";
@@ -97,6 +98,7 @@ async function perform(ctx: ExecutorContext, action: AgentAction): Promise<Done>
     case "triple_click":
     case "right_click": {
       const { x, y } = point(action, ctx.scale());
+      await scrollForAction(cdp, action, ctx.scale(), ctx.sleep);
       const verdict = ctx.guard?.(x, y);
       await glideTo(ctx, x, y);
       await refuseIfBlocked(verdict);
@@ -109,6 +111,7 @@ async function perform(ctx: ExecutorContext, action: AgentAction): Promise<Done>
     }
     case "hover": {
       const { x, y } = point(action, ctx.scale());
+      await scrollForAction(cdp, action, ctx.scale(), ctx.sleep);
       await glideTo(ctx, x, y);
       void ctx.overlay.hover(true);
       await moveMouse(cdp, x, y);
@@ -139,6 +142,7 @@ async function perform(ctx: ExecutorContext, action: AgentAction): Promise<Done>
       const { x, y } = point(action, ctx.scale());
       if (!action.resume) throw new Error("the server named no résumé to upload");
       const file = await ctx.resume(action.resume, action.fileName ?? action.resume);
+      await scrollForAction(cdp, action, ctx.scale(), ctx.sleep);
       const verdict = ctx.guard?.(x, y);
       await glideTo(ctx, x, y);
       await refuseIfBlocked(verdict);

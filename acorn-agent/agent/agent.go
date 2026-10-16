@@ -230,6 +230,11 @@ func (a *Agent) Step(ctx context.Context, id string, obs Observation) (Step, err
 	if s.pendingUpload != nil {
 		return a.answerPending(s, obs, results, sig)
 	}
+	screens, err := checkSurvey(obs)
+	if err != nil {
+		a.record(s, stepTrace{Seq: s.seq, Step: s.step + 1, At: a.now(), URL: obs.URL, Title: obs.Title, Viewport: obs.Viewport, Error: err.Error(), Usage: s.usage}, obs.Screenshot, nil)
+		return Step{}, err
+	}
 	if s.step >= a.cfg.MaxSteps {
 		return a.endWithTrace(s, obs, 0, StatusStuck, fmt.Sprintf("The run reached its limit of %d steps.", a.cfg.MaxSteps), &StopInfo{
 			Reason:  StopStepLimit,
@@ -240,7 +245,8 @@ func (a *Agent) Step(ctx context.Context, id string, obs Observation) (Step, err
 	// A page that did not move after actions is evidence the model needs, and a run that
 	// never moves is not worth more model calls.
 	stale := 0
-	if s.step > 0 && unchanged(sig, s.lastSig) {
+	// A survey scrolls the page and comes back: the same screen again is expected, not a stall.
+	if s.step > 0 && len(screens) == 0 && unchanged(sig, s.lastSig) {
 		stale = s.stale + 1
 	}
 	if stale >= a.cfg.MaxStale {
@@ -263,15 +269,20 @@ func (a *Agent) Step(ctx context.Context, id string, obs Observation) (Step, err
 	if s.parts > 1 && s.sent == s.planned && len(s.notes) == 0 {
 		notes = append(notes, fmt.Sprintf("Your plan ran in %d parts. After each part but the last, a checker confirmed the screen showed what you expected.", s.parts))
 	}
+	images := []string{obs.Screenshot}
+	if len(screens) > 0 {
+		notes = append(notes, surveyNote(obs))
+		images = surveyImages(obs)
+	}
 	body := observationText(number, a.cfg.MaxSteps, obs, results, notes, stale)
 	messages := append([]llm.Message{{Role: llm.RoleSystem, Text: s.system}},
 		s.history(a.cfg.KeepTurns, a.cfg.KeepImages, a.cfg.HistoryTokens)...)
 	text := currentText(body, s.memo, s.job)
-	messages = append(messages, llm.Message{Role: llm.RoleUser, Text: text, Images: []string{obs.Screenshot}})
+	messages = append(messages, llm.Message{Role: llm.RoleUser, Text: text, Images: images})
 
 	entry := stepTrace{
 		Seq: s.seq, Step: number, At: a.now(), URL: obs.URL, Title: obs.Title, Viewport: obs.Viewport,
-		Focus: obs.Focus, Notes: notes, Results: results, Stale: stale,
+		Focus: obs.Focus, Notes: notes, Results: results, Stale: stale, Survey: obs.Survey, SurveyScreens: len(obs.Survey),
 	}
 	answer, content, usage, calls, err := a.ask(ctx, s, messages)
 	s.usage.Calls++
@@ -292,12 +303,16 @@ func (a *Agent) Step(ctx context.Context, id string, obs Observation) (Step, err
 	if answer.Memo != nil {
 		s.memo = clipText(strings.TrimSpace(*answer.Memo), maxMemoChars)
 	}
-	if job := strings.TrimSpace(answer.Job); job != "" {
-		s.job = clipText(job, maxJobChars)
+	// A job of null means it did not change.
+	if answer.Job != nil {
+		if job := strings.TrimSpace(*answer.Job); job != "" {
+			s.job = clipText(job, maxJobChars)
+		}
 	}
 	s.message = strings.TrimSpace(answer.Message)
 
-	planned, dropped := checkActions(number, answer.Actions, obs.Viewport, s.maxActions)
+	planned, dropped := checkActions(number, answer.Actions, obs.Viewport, s.maxActions, screens)
+	planned, surveyAsked := withoutSurvey(planned)
 	planned = fillSecrets(planned, s.snap.Secrets)
 	planned, dropped = a.resolveUploads(ctx, s, planned, dropped)
 	status := answer.Status
@@ -305,7 +320,9 @@ func (a *Agent) Step(ctx context.Context, id string, obs Observation) (Step, err
 	switch {
 	case status != StatusWorking:
 		s.plan, s.verify, s.planned, s.sent, s.parts = nil, "", 0, 0, 0
-	case len(planned) == 0 && s.pendingUpload == nil:
+		// A run that ends may still scroll what the person must act on into view.
+		actions = scrollOnly(planned, maxStopScrolls)
+	case len(planned) == 0 && s.pendingUpload == nil && !surveyAsked:
 		// A working run with nothing valid to do waits and looks again; the repeat check
 		// ends it if the page never changes.
 		dropped = append(dropped, "no usable action; waiting before the next look")
@@ -318,13 +335,13 @@ func (a *Agent) Step(ctx context.Context, id string, obs Observation) (Step, err
 	s.turns = append(s.turns, turn{
 		number:  number,
 		text:    text,
-		image:   obs.Screenshot,
+		images:  images,
 		answer:  content,
 		summary: summaryLine(number, answer, planned),
 	})
 	step := Step{
 		Status: status, Message: strings.TrimSpace(answer.Message), Stop: stopFor(status, answer), Actions: actions,
-		Number: number, Usage: s.usage, Dropped: dropped,
+		Number: number, Usage: s.usage, Dropped: dropped, Survey: surveyAsked && status == StatusWorking,
 	}
 	entry.Observation, entry.Memo, entry.Job = answer.Observation, s.memo, s.job
 	entry.Status, entry.Message, entry.Actions, entry.Dropped = status, step.Message, actions, dropped

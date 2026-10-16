@@ -9,6 +9,7 @@ import {
   AGENT_STATUS,
   type AgentAction,
   type AgentAsk,
+  type AgentSurveyScreen,
   type AgentActionResult,
   type AgentStep,
   type AgentUsage,
@@ -44,6 +45,7 @@ import {
   runningProgress,
   AGENT_STARTING_MESSAGE,
 } from "./progress";
+import { captureSurvey } from "./survey";
 import { openAgentTab, type AgentTab } from "./tab-session";
 import { toBase64, type ResumeFile } from "./upload";
 
@@ -314,6 +316,10 @@ export async function runAgent(args: AgentRunArgs): Promise<RunReport> {
     let carriedNotes: string[] = [];
     let answer: string | undefined;
     let sentText = "";
+    // The first look of a page is a survey of the whole of it, so the model can plan the form at
+    // once; so is the look after the model asks for one.
+    let surveyNext = true;
+    let lastLook = "";
     for (;;) {
       checkStopped();
       if (pendingTab != null) {
@@ -325,16 +331,30 @@ export async function runAgent(args: AgentRunArgs): Promise<RunReport> {
       // A frame an online file source drew over the page is gone before the screenshot is taken.
       await frames.sweep();
       await here.overlay.ensure();
+      const info = await chrome.tabs.get(here.tabId);
+      const lookKey = `${info.url ?? ""}\n${info.title ?? ""}`;
+      const surveying = surveyNext || lookKey !== lastLook;
+      surveyNext = false;
+      lastLook = lookKey;
+      let survey: AgentSurveyScreen[] | null = null;
       await here.overlay.hideForCapture(true);
       try {
         shot = await captureShot(here.cdp);
+        if (surveying) {
+          survey = await captureSurvey({ cdp: here.cdp, sleep, checkStopped }, shot).catch(
+            (err: unknown) => {
+              if (signal.aborted) throw err;
+              return null; // a page that cannot be surveyed is looked at one screen at a time
+            },
+          );
+        }
       } finally {
         await here.overlay.hideForCapture(false);
       }
       checkStopped();
-      const [focus, info, text] = await Promise.all([
+      if (survey) log.event("agent-survey", { screens: survey.length });
+      const [focus, text] = await Promise.all([
         readFocus(here.cdp),
-        chrome.tabs.get(here.tabId),
         readPageText(here.cdp, here.tabId),
       ]);
       // The page's text goes once per change: the job description may sit above the form,
@@ -357,6 +377,7 @@ export async function runAgent(args: AgentRunArgs): Promise<RunReport> {
         focus,
         notes,
         results,
+        ...(survey ? { survey } : {}),
         ...(pageText ? { pageText } : {}),
         ...(answered ? { answer: answered } : {}),
       });
@@ -364,6 +385,7 @@ export async function runAgent(args: AgentRunArgs): Promise<RunReport> {
       stepNumber = step.number;
       lastUsage = step.usage;
       const actions = step.actions ?? [];
+      if (step.survey) surveyNext = true;
       log.step = step.number;
       log.event("agent-step", {
         number: step.number,
@@ -405,6 +427,8 @@ export async function runAgent(args: AgentRunArgs): Promise<RunReport> {
           { step: step.number },
           step.status === AGENT_STATUS.done ? undefined : "warn",
         );
+        // A run that ends may first scroll what the person must act on into view.
+        if (actions.length > 0) await runActions(executor, actions);
         if (step.status === AGENT_STATUS.done) {
           return finish(
             report(args.stopBeforeSubmit ? RUN_OUTCOME.readyToSubmit : RUN_OUTCOME.completed),

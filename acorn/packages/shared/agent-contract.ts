@@ -155,6 +155,12 @@ export interface AgentActionResult {
   opened?: ActionOpened;
 }
 
+/** One screenshot of a survey: the page scrolled to `scrollY` (screenshot pixels). */
+export interface AgentSurveyScreen {
+  screenshot: string;
+  scrollY: number;
+}
+
 export interface AgentObservation {
   /** A data URL of the visible page. */
   screenshot: string;
@@ -164,6 +170,8 @@ export interface AgentObservation {
   focus?: AgentFocus | null;
   notes?: string[];
   results?: AgentActionResult[];
+  /** The whole page as screenshots from top to bottom, sent on the first look of a page and when asked for. */
+  survey?: AgentSurveyScreen[];
   /** The page's visible text, sent when it changed since the last step: the job description may be in it. */
   pageText?: string;
   /** The person's answer (an AgentAskOption id) to the question the last step asked. */
@@ -185,6 +193,13 @@ export interface AgentAction {
   /** A résumé id from the session's list, chosen by the server for an upload. */
   resume?: string;
   fileName?: string;
+  /**
+   * The scroll position (screenshot pixels) the page must be at before this action, because its
+   * point was measured on that screen of a survey; `pageHeight` is the page's height then, so the
+   * extension can refuse when the page has changed shape since.
+   */
+  scrollTo?: number;
+  pageHeight?: number;
 }
 
 export interface AgentUsage {
@@ -206,6 +221,8 @@ export interface AgentStep {
   stop?: AgentStop;
   /** Set when the status is "ask": the question to put to the person. */
   ask?: AgentAsk;
+  /** Make the next look a survey of the whole page. */
+  survey?: boolean;
   actions: AgentAction[] | null;
   number: number;
   usage: AgentUsage;

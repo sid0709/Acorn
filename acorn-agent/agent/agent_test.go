@@ -959,3 +959,13 @@ func TestAMarkedScreenshotShowsWhereEachActionPoints(t *testing.T) {
 		t.Errorf("the page away from the click was changed: %d %d %d", r>>8, g>>8, b>>8)
 	}
 }
+
+// shotOfSize is a flat screenshot of another size than the viewport the tests use.
+func shotOfSize(t *testing.T, width, height int) string {
+	t.Helper()
+	var buf bytes.Buffer
+	if err := jpeg.Encode(&buf, image.NewGray(image.Rect(0, 0, width, height)), nil); err != nil {
+		t.Fatal(err)
+	}
+	return "data:image/jpeg;base64," + base64.StdEncoding.EncodeToString(buf.Bytes())
+}

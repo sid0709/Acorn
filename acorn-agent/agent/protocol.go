@@ -19,6 +19,9 @@ const (
 	KindScroll      = "scroll"
 	KindUpload      = "upload"
 	KindWait        = "wait"
+	// KindSurvey is not sent to the extension: it asks for the next look to be a survey of
+	// the whole page (Step.Survey).
+	KindSurvey = "survey"
 )
 
 // Run statuses the agent reports with each step.
@@ -136,6 +139,10 @@ type Observation struct {
 	// Notes are things the screenshot cannot show: a dialog the browser closed, a file
 	// that downloaded, a tab the page opened.
 	Notes []string `json:"notes,omitempty"`
+	// Survey is the whole page as screenshots from top to bottom, each at its own scroll
+	// position, sent on the first look of a page and when the model asks. The model plans the
+	// whole form from them; each action names the screen its point is measured on.
+	Survey []SurveyScreen `json:"survey,omitempty"`
 	// PageText is the page's visible text, sent when the page changed since the last step.
 	// The agent reads it for the job description, which a screenshot may have scrolled past.
 	PageText string `json:"pageText,omitempty"`
@@ -143,6 +150,13 @@ type Observation struct {
 	Answer string `json:"answer,omitempty"`
 	// Results answer the actions of the step before.
 	Results []ActionResult `json:"results,omitempty"`
+}
+
+// SurveyScreen is one screenshot of a survey: the page scrolled to ScrollY (in screenshot
+// pixels, as Viewport.ScrollY is).
+type SurveyScreen struct {
+	Screenshot string  `json:"screenshot"`
+	ScrollY    float64 `json:"scrollY"`
 }
 
 // Action is one thing to do. Which fields apply depends on Kind; the others are nil or zero.
@@ -166,6 +180,11 @@ type Action struct {
 	Resume string `json:"resume,omitempty"`
 	// FileName is set by the agent on KindUpload once the résumé is chosen.
 	FileName string `json:"fileName,omitempty"`
+	// ScrollTo, when set, is the scroll position (screenshot pixels) the page must be at before
+	// the action, because its point was measured on that screen of a survey; PageHeight is the
+	// page's height then, so the extension can tell the page changed shape since and refuse.
+	ScrollTo   *float64 `json:"scrollTo,omitempty"`
+	PageHeight float64  `json:"pageHeight,omitempty"`
 	// Check is what the screen should show once this action has run, as the model expected.
 	// It stays on the agent: the extension never sees it.
 	Check string `json:"-"`
@@ -181,6 +200,8 @@ type Step struct {
 	Stop *StopInfo `json:"stop,omitempty"`
 	// Ask is the question the run waits on, when Status is StatusAsk.
 	Ask *Ask `json:"ask,omitempty"`
+	// Survey asks the extension to make its next look a survey of the whole page.
+	Survey bool `json:"survey,omitempty"`
 	// Actions run in order, then the extension sends a new screenshot.
 	Actions []Action `json:"actions"`
 	// Number is this step's place in the run, from 1.

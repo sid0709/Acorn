@@ -23,7 +23,7 @@ var replySchema = json.RawMessage(`{
   "properties": {
     "observation": {"type": "string"},
     "memo": {"type": ["string", "null"]},
-    "job": {"type": "string"},
+    "job": {"type": ["string", "null"]},
     "status": {"type": "string", "enum": ["working", "done", "need_person", "stuck"]},
     "message": {"type": "string"},
     "stop": {
@@ -46,9 +46,10 @@ var replySchema = json.RawMessage(`{
       "items": {
         "type": "object",
         "additionalProperties": false,
-        "required": ["kind", "x", "y", "text", "secret", "keys", "dx", "dy", "ms", "resume", "check"],
+        "required": ["kind", "screen", "x", "y", "text", "secret", "keys", "dx", "dy", "ms", "resume", "check"],
         "properties": {
-          "kind": {"type": "string", "enum": ["click", "double_click", "triple_click", "right_click", "hover", "type", "key", "scroll", "upload", "wait"]},
+          "kind": {"type": "string", "enum": ["click", "double_click", "triple_click", "right_click", "hover", "type", "key", "scroll", "upload", "wait", "survey"]},
+          "screen": {"type": ["integer", "null"]},
           "x": {"type": ["number", "null"]},
           "y": {"type": ["number", "null"]},
           "text": {"type": ["string", "null"]},
@@ -69,7 +70,7 @@ var replySchema = json.RawMessage(`{
 type reply struct {
 	Observation string        `json:"observation"`
 	Memo        *string       `json:"memo"`
-	Job         string        `json:"job"`
+	Job         *string       `json:"job"`
 	Status      string        `json:"status"`
 	Message     string        `json:"message"`
 	Stop        *StopInfo     `json:"stop"`
@@ -78,6 +79,7 @@ type reply struct {
 
 type modelAction struct {
 	Kind   string   `json:"kind"`
+	Screen *int     `json:"screen"`
 	X      *float64 `json:"x"`
 	Y      *float64 `json:"y"`
 	Text   *string  `json:"text"`
@@ -126,7 +128,7 @@ const (
 // checkActions turns the model's actions into ones the extension can run, and says why
 // it refused the rest. An action that would land outside the screenshot, type nothing, or
 // press no key is refused here, so the person's browser never receives a nonsense command.
-func checkActions(step int, raw []modelAction, vp Viewport, maxActions int) (valid []Action, dropped []string) {
+func checkActions(step int, raw []modelAction, vp Viewport, maxActions int, screens []float64) (valid []Action, dropped []string) {
 	for i, in := range raw {
 		if len(valid) == maxActions {
 			dropped = append(dropped, fmt.Sprintf("action %d (%s): only %d actions run per step", i+1, in.Kind, maxActions))
@@ -137,12 +139,39 @@ func checkActions(step int, raw []modelAction, vp Viewport, maxActions int) (val
 			dropped = append(dropped, fmt.Sprintf("action %d (%s): %s", i+1, in.Kind, reason))
 			continue
 		}
+		if reason := placeOnScreen(&action, in, vp, screens); reason != "" {
+			dropped = append(dropped, fmt.Sprintf("action %d (%s): %s", i+1, in.Kind, reason))
+			continue
+		}
 		if in.Check != nil {
 			action.Check = clipText(strings.TrimSpace(*in.Check), maxCheckChars)
 		}
 		valid = append(valid, action)
 	}
 	return valid, dropped
+}
+
+// placeOnScreen sets where the page must be scrolled for an action whose point the model
+// measured on a screen of a survey. An action on a screen the survey does not have, or on a
+// screen when there was no survey, is refused: its point means nothing on the page as it is.
+func placeOnScreen(action *Action, in modelAction, vp Viewport, screens []float64) string {
+	if in.Screen == nil {
+		return ""
+	}
+	switch in.Kind {
+	case KindClick, KindDoubleClick, KindTripleClick, KindRightClick, KindHover, KindUpload:
+	default:
+		return "" // typing and keys follow the action before them
+	}
+	if len(screens) == 0 {
+		return "it names a screen, but this look was not a survey"
+	}
+	if *in.Screen < 1 || *in.Screen > len(screens) {
+		return fmt.Sprintf("there is no screen %d (the survey has %d)", *in.Screen, len(screens))
+	}
+	scroll := screens[*in.Screen-1]
+	action.ScrollTo, action.PageHeight = &scroll, vp.PageHeight
+	return ""
 }
 
 // fill copies the fields an action of this kind uses and returns why it cannot run, if it cannot.
@@ -193,6 +222,8 @@ func fill(out *Action, in modelAction, vp Viewport) string {
 			x, y = *in.X, *in.Y
 		}
 		out.X, out.Y = &x, &y
+	case KindSurvey:
+		// Nothing to carry: the step asks the extension for a survey on its next look.
 	case KindWait:
 		ms := 1000
 		if in.Ms != nil {

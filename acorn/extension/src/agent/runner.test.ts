@@ -37,6 +37,9 @@ function installBrowser(answers: Record<string, unknown> = {}) {
       onDetach: noListeners,
       sendCommand: async (_target: unknown, method: string, params?: Record<string, unknown>) => {
         commands.push({ method, params });
+        if (method === "Page.getLayoutMetrics" && typeof answers[method] === "function") {
+          return (answers[method] as () => unknown)();
+        }
         if (method === "Page.getLayoutMetrics") {
           return {
             cssVisualViewport: { pageX: 0, pageY: 0, clientWidth: 1000, clientHeight: 600 },
@@ -254,6 +257,117 @@ describe("runAgent", () => {
     assert.equal(report.outcome, "stopped");
   });
 
+  /** A page of this height, scrolled by whatever scroll commands arrive. */
+  function installTallPage(height: number) {
+    let scrollY = 0;
+    installBrowser({
+      "Runtime.evaluate": (params: { expression?: string }) => {
+        const to = /scrollTo\(\{ top: (-?[\d.]+)/.exec(params.expression ?? "");
+        if (to) scrollY = Math.min(Number(to[1]), height - 600);
+        return {};
+      },
+      "Page.getLayoutMetrics": () => ({
+        cssVisualViewport: { pageX: 0, pageY: scrollY, clientWidth: 1000, clientHeight: 600 },
+        cssContentSize: { width: 1000, height },
+      }),
+    });
+  }
+  const surveyOf = (index: number) =>
+    (
+      requests.filter((r) => r.path.endsWith("/step"))[index]?.body as {
+        survey?: { screenshot: string; scrollY: number }[];
+      }
+    ).survey;
+
+  it("sends a survey of a tall page on the first look, scrolling through it and back", async () => {
+    installTallPage(1800);
+    installServer([
+      working(1, [{ id: "s1a1", kind: "click", x: 5, y: 5 }]),
+      finished("done", 2, "ok"),
+    ]);
+    await run();
+    const first = surveyOf(0);
+    assert.ok(first && first.length >= 3, `survey = ${first?.length}`);
+    assert.deepEqual(
+      first.map((s) => s.scrollY),
+      [...first.map((s) => s.scrollY)].sort((a, b) => a - b),
+    );
+    assert.equal(first[0].scrollY, 0);
+    // The last screen reaches the bottom of the page.
+    assert.ok(first.at(-1)!.scrollY >= 1200 - 1);
+    assert.equal(surveyOf(1), undefined, "the next look of the same page is one screen");
+    const scrolls = commands.filter((c) => String(c.params?.expression).includes("scrollTo("));
+    assert.match(
+      String(scrolls.at(-1)?.params?.expression),
+      /top: 0/,
+      "the page is put back where it was",
+    );
+  });
+
+  it("does not survey a page that is about one screen tall", async () => {
+    installTallPage(650);
+    installServer([finished("done", 1, "ok")]);
+    await run();
+    assert.equal(surveyOf(0), undefined);
+  });
+
+  it("surveys again when the server asks for it", async () => {
+    installTallPage(1800);
+    installServer([
+      { ...working(1, []), survey: true },
+      working(2, [{ id: "s2a1", kind: "click", x: 5, y: 5 }]),
+      finished("done", 3, "ok"),
+    ]);
+    await run();
+    assert.ok(surveyOf(0));
+    assert.ok(surveyOf(1), "asked for a survey, the next look is one");
+    assert.equal(surveyOf(2), undefined);
+  });
+
+  it("surveys again when the page changes address", async () => {
+    installTallPage(1800);
+    let title = "Apply";
+    (globalThis as { chrome?: { tabs: { get: unknown } } }).chrome!.tabs.get = async (
+      id: number,
+    ) => ({
+      id,
+      url: "https://jobs.example/apply",
+      title,
+    });
+    installServer([
+      working(1, [{ id: "s1a1", kind: "click", x: 5, y: 5 }]),
+      finished("done", 2, "ok"),
+    ]);
+    const original = globalThis.fetch;
+    globalThis.fetch = (async (url: string | URL | Request, init?: RequestInit) => {
+      if (String(url).endsWith("/step")) title = "Next page";
+      return original(url, init);
+    }) as typeof fetch;
+    await run();
+    assert.ok(surveyOf(0));
+    assert.ok(surveyOf(1), "a new page gets its own survey");
+  });
+
+  it("scrolls what the person must act on into view before it ends the run", async () => {
+    installTallPage(650);
+    installServer([
+      {
+        status: "need_person",
+        message: "A code was sent",
+        actions: [{ id: "s1a1", kind: "scroll", x: 300, y: 300, dx: 0, dy: 400 }],
+        number: 1,
+        usage,
+        stop: { reason: "verification", problem: "p", action: "a" },
+      },
+    ]);
+    const { report } = await run();
+    assert.equal(report.outcome, "failed");
+    const wheels = commands.filter(
+      (c) => c.method === "Input.dispatchMouseEvent" && c.params?.type === "mouseWheel",
+    );
+    assert.ok(wheels.length >= 1, "the run scrolled before it ended");
+  });
+
   it("hides the overlay for the screenshot and shows it again", async () => {
     installServer([finished("done", 1, "ok")]);
     await run();
@@ -270,7 +384,10 @@ describe("runAgent", () => {
             ? "hide"
             : "show",
       );
-    assert.deepEqual(order, ["hide", "shot", "show"]);
+    // The overlay is hidden around every shot of a look (a survey takes several), then shown again.
+    assert.equal(order[0], "hide");
+    assert.equal(order.at(-1), "show");
+    assert.ok(order.slice(1, -1).length >= 1 && order.slice(1, -1).every((o) => o === "shot"));
   });
 
   it("starts the session on the page's address and ends it when done", async () => {

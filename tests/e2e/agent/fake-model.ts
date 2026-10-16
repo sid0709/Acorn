@@ -15,7 +15,10 @@ export type ModelRequest = {
   response_format?: { type: string; json_schema?: { name: string; strict: boolean } };
 };
 
-export type Script = (step: number, points: Points) => Record<string, unknown>;
+/** What a look's text says of a survey: the size of a screen and where each is scrolled to. */
+export type Survey = { width: number; height: number; positions: number[] };
+
+export type Script = (step: number, points: Points, survey?: Survey) => Record<string, unknown>;
 
 const NULLS = {
   x: null,
@@ -28,6 +31,7 @@ const NULLS = {
   ms: null,
   resume: null,
   check: null,
+  screen: null,
 };
 const act = (kind: string, fields: Record<string, unknown> = {}) => ({ ...NULLS, kind, ...fields });
 export const click = (p: Point) => act("click", p);
@@ -54,6 +58,34 @@ export function answer(fields: Record<string, unknown>) {
 
 export const requests: ModelRequest[] = [];
 
+function lastText(request: ModelRequest): string {
+  const last = request.messages.at(-1);
+  return typeof last?.content === "string"
+    ? last.content
+    : (last?.content.find((p) => p.type === "text")?.text ?? "");
+}
+
+function surveyOf(request: ModelRequest): Survey | undefined {
+  const text = lastText(request);
+  const positions = [...text.matchAll(/screen \d+ is scrolled to (\d+) px/g)].map((m) =>
+    Number(m[1]),
+  );
+  const size = /Screenshot: (\d+)x(\d+) pixels/.exec(text);
+  return positions.length && size
+    ? { width: Number(size[1]), height: Number(size[2]), positions }
+    : undefined;
+}
+
+/** The screen a point of the page is on, and the point on that screen: what an action of a survey plan carries. */
+export function onSurvey(survey: Survey, page: Point): { screen: number; x: number; y: number } {
+  const margin = 24;
+  const index = survey.positions.findIndex(
+    (top) => page.y >= top + margin && page.y <= top + survey.height - margin,
+  );
+  if (index < 0) throw new Error(`no survey screen holds the point at ${page.y}`);
+  return { screen: index + 1, x: page.x, y: page.y - survey.positions[index] };
+}
+
 function stepOf(request: ModelRequest): number {
   const last = request.messages.at(-1);
   const text =
@@ -73,7 +105,7 @@ export function startFakeModel(points: () => Points, script: Script) {
       const request = (await req.json()) as ModelRequest;
       requests.push(request);
       const step = stepOf(request);
-      const reply = script(step, points());
+      const reply = script(step, points(), surveyOf(request));
       return Response.json({
         model: "fake/luna",
         choices: [{ message: { content: JSON.stringify(reply) }, finish_reason: "stop" }],
