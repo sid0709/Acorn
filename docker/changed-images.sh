@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
 # Read changed repo paths on stdin, one per line.
 # Print the images those paths affect: api, web, admin. The extension is not an image.
+# Nginx files are reference-only and do not trigger an image rebuild.
 set -euo pipefail
 
 api=0
@@ -12,7 +13,7 @@ while IFS= read -r path || [[ -n "${path}" ]]; do
     acorn-backend/* | backend-core/*)
       api=1
       ;;
-    acorn-frontend/* | acorn/extension/* | tools/extension-release.mjs | docker/deploy-remote.sh | docker/sync-deploy-env.sh | .github/workflows/docker-publish.yml)
+    acorn-frontend/* | acorn/extension/* | tools/extension-release.mjs)
       web=1
       ;;
     acorn-admin/*)
@@ -22,7 +23,9 @@ while IFS= read -r path || [[ -n "${path}" ]]; do
       web=1
       admin=1
       ;;
-    deploy/nginx/acornadmin.remotepairnet.net.conf)
+    docker/deploy-remote.sh | docker/sync-deploy-env.sh | .github/workflows/docker-publish.yml)
+      api=1
+      web=1
       admin=1
       ;;
   esac

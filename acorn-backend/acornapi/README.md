@@ -1,6 +1,6 @@
 # Acorn API (Go)
 
-Acorn's HTTP API, in its own service (`acorn-backend`). Go port of the browser-extension backend in `athens-backend` from [sid0709/AthensAI](https://github.com/sid0709/AthensAI): the `/acorn/*` routes and the `/acorn/socket.io` Socket.IO gateway the Acorn extension talks to. [`cmd/server`](../cmd/server) mounts this package at `acornapi.Prefix`, so in production every route is `https://acornapi.remotepairnet.net/acorn/...`.
+Acorn's HTTP API, in its own service (`acorn-backend`). Go port of the browser-extension backend in `athens-backend` from [sid0709/AthensAI](https://github.com/sid0709/AthensAI): the `/acorn/*` routes and the `/acorn/socket.io` Socket.IO gateway the Acorn extension talks to. [`cmd/server`](../cmd/server) mounts this package at `acornapi.Prefix`, so in production every route is `https://api.acornapply.com/acorn/...`.
 
 From the repo root:
 

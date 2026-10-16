@@ -73,7 +73,7 @@ Four design rules run through the whole codebase:
            │ X-Acorn-Client: extension/<version>          │ auth.token = session token
            │ X-Acorn-Tab: <per-tab uuid>                  │
            ▼                                              ▼
-┌──────────── acorn-backend (Go) — 127.0.0.1:8083 / acornapi.remotepairnet.net ───┐
+┌──────────── acorn-backend (Go) — 127.0.0.1:8083 / api.acornapply.com ───────────┐
 │ acornapi   routes, sessions, usage push, capture   gateway  per-account rooms   │
 │ acorn      planner · fast planner · refill · writer · Q&A · JD extract          │
 │ selector   SelectorGateway: every "pick one" decision goes to Jev               │
@@ -88,7 +88,7 @@ Four design rules run through the whole codebase:
 
 The other apps around it:
 
-- **acorn-frontend** (Next.js, `localhost:6005` / `acorn.remotepairnet.net`): where the user signs up, edits the profile (including the OpenRouter key, the **extension password**, and the **default account password** for job sites), uploads Library résumés and cover letters, and connects Gmail. It also serves `GET /api/extension/latest`, which the sidebar uses for its update notice.
+- **acorn-frontend** (Next.js, `localhost:6005` / `acornapply.com` and `www.acornapply.com`): where the user signs up, edits the profile (including the OpenRouter key, the **extension password**, and the **default account password** for job sites), uploads Library résumés and cover letters, and connects Gmail. It also serves `GET /api/extension/latest`, which the sidebar uses for its update notice.
 - **acorn-admin** (`:6010`): the support console. It reads support claims (with the captured session), and can open a support session as a user.
 
 ---
@@ -144,8 +144,8 @@ Build ([`vite.config.ts`](../../extension/vite.config.ts)): Vite + `@crxjs/vite-
 
 | Variable                        | Effect                                                                                                                                       |
 | ------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------- |
-| `VITE_ACORN_API_URL`            | API origin. Default from `@acorn/shared/api`: `http://127.0.0.1:8083` in development, `https://acornapi.remotepairnet.net` otherwise.        |
-| `VITE_ACORN_WEB_URL`            | Site origin. Default `http://localhost:6005` / `https://acorn.remotepairnet.net`. Used for the update check and support handoff.             |
+| `VITE_ACORN_API_URL`            | API origin. Default from `@acorn/shared/api`: `http://127.0.0.1:8083` in development, `https://api.acornapply.com` otherwise.                |
+| `VITE_ACORN_WEB_URL`            | Site origin. Default `http://localhost:6005` / `https://acornapply.com`. Used for the update check and support handoff.                      |
 | `VITE_ACORN_AGENT_URL`          | Where acorn-agent runs (§19). Default `http://127.0.0.1:8090` in every build: the server reads the applicant's files from the same machine.  |
 | `VITE_ACORN_DEBUG`              | Development builds only: always use the build's API URL (ignore the Settings value) and (no longer reports capture uploads: there are none). |
 | `VITE_ACORN_AUTO_FOCUS_SECONDS` | Seconds each run tab stays in front under Auto-Focus. The code default is **4** (`AUTO_FOCUS_DEFAULT_SECONDS`); `.env.example` says 2.       |
