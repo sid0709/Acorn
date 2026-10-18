@@ -43,7 +43,7 @@ const (
 )
 
 // Why a run ended without being done: what the page needs from the person, or why the
-// agent could not go on. The model names the first seven; the agent itself the last two.
+// agent could not go on. The model names the first eight; the agent itself the last two.
 const (
 	StopCaptcha      = "captcha"
 	StopVerification = "verification"
@@ -52,10 +52,12 @@ const (
 	StopIdentity         = "identity"
 	StopDocument         = "document"
 	StopSignIn           = "sign_in"
-	StopPageProblem      = "page_problem"
-	StopOther            = "other"
-	StopNoChange         = "no_change"
-	StopStepLimit        = "step_limit"
+	// StopAccountRejected: the site refused the sign-in, the new account and the password reset.
+	StopAccountRejected = "account_rejected"
+	StopPageProblem     = "page_problem"
+	StopOther           = "other"
+	StopNoChange        = "no_change"
+	StopStepLimit       = "step_limit"
 	// StopResumeChoice: no job description was found, so the agent could not choose a résumé,
 	// and the person chose to pick one themselves.
 	StopResumeChoice = "resume_choice"

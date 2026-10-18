@@ -83,6 +83,12 @@ type Config struct {
 	// VetBlock is the probability, from the decision model, at which a control, window or frame
 	// is blocked as an online file source (0 means 0.3).
 	VetBlock float64
+	// SingleSignOnBlock is the probability, from the decision model, at which a control, window
+	// or frame is blocked as a sign-in through another service's account (0 means 0.5).
+	SingleSignOnBlock float64
+	// AccountAttempts is how many steps may type the account password, across sign-in, sign-up
+	// and password reset, before the run ends as rejected by the site (0 means 8).
+	AccountAttempts int
 	// FallbackStrict is for one person's own folder: FallbackResume names the résumé offered, and
 	// one that is not among the applicant's résumés stops the run. Without it the offer is the
 	// applicant's default résumé (the one they marked default on their Acorn Library) and
@@ -96,25 +102,27 @@ type Config struct {
 // DefaultConfig is the bounds a run has when nothing else is set.
 func DefaultConfig() Config {
 	return Config{
-		MaxSteps:         150,
-		MaxActions:       12,
-		UncheckedActions: 6,
-		ChunkActions:     6,
-		CheckMatch:       0.9,
-		CheckBlocked:     0.2,
-		CheckLoading:     0.3,
-		CheckLoadingWait: 0.7,
-		OptionMatch:      0.7,
-		LoadWait:         time.Second,
-		MaxLoadWaits:     4,
-		StopPasses:       2,
-		DonePasses:       2,
-		DoneConfirm:      0.7,
-		KeepTurns:        8,
-		KeepImages:       3,
-		HistoryTokens:    30_000,
-		MaxStale:         6,
-		SessionTTL:       time.Hour,
+		MaxSteps:          150,
+		MaxActions:        12,
+		UncheckedActions:  6,
+		ChunkActions:      6,
+		CheckMatch:        0.9,
+		CheckBlocked:      0.2,
+		CheckLoading:      0.3,
+		CheckLoadingWait:  0.7,
+		OptionMatch:       0.7,
+		LoadWait:          time.Second,
+		MaxLoadWaits:      4,
+		StopPasses:        2,
+		DonePasses:        2,
+		DoneConfirm:       0.7,
+		SingleSignOnBlock: 0.5,
+		AccountAttempts:   8,
+		KeepTurns:         8,
+		KeepImages:        3,
+		HistoryTokens:     30_000,
+		MaxStale:          6,
+		SessionTTL:        time.Hour,
 	}
 }
 
@@ -418,7 +426,16 @@ func (a *Agent) step(ctx context.Context, id string, obs Observation) (Step, err
 	planned, surveyAsked := withoutSurvey(planned)
 	// A run that did not turn surveys on is not told they exist, and one the model asks for anyway is ignored.
 	surveyAsked = surveyAsked && s.start.Survey
+	typesSecret := entersSecret(planned, s.snap.Secrets)
 	planned = fillSecrets(planned, s.snap.Secrets)
+	// A site that keeps refusing the account (sign-in, sign-up, password reset) ends the run; it
+	// does not go round the same forms until the step limit.
+	if typesSecret {
+		s.accountSteps++
+	}
+	if rejected := a.accountRejected(s, &answer); rejected {
+		planned = nil
+	}
 	planned, dropped = a.resolveUploads(ctx, s, planned, dropped)
 	status := answer.Status
 	// "Done" is the page's confirmation, not the model's word: a done the screen does not show is sent back.
@@ -524,7 +541,7 @@ func stopFor(status string, answer reply) *StopInfo {
 		stop.Action = strings.TrimSpace(answer.Stop.Action)
 	}
 	switch stop.Reason {
-	case StopCaptcha, StopVerification, StopVerificationLink, StopIdentity, StopDocument, StopSignIn, StopPageProblem, StopOther:
+	case StopCaptcha, StopVerification, StopVerificationLink, StopIdentity, StopDocument, StopSignIn, StopAccountRejected, StopPageProblem, StopOther:
 	default:
 		stop.Reason = StopOther
 	}
@@ -623,6 +640,39 @@ func summaryLine(number int, answer reply, actions []Action) string {
 		line += " [" + strings.Join(parts, "; ") + "]"
 	}
 	return line
+}
+
+// entersSecret says whether any typed text carries a secret's placeholder.
+func entersSecret(actions []Action, secrets map[string]string) bool {
+	for _, action := range actions {
+		if action.Kind != KindType {
+			continue
+		}
+		for token := range secrets {
+			if strings.Contains(action.Text, token) {
+				return true
+			}
+		}
+	}
+	return false
+}
+
+// accountRejected ends the run, as stuck, once more steps than AccountAttempts have typed the
+// account password: the sign-in, the sign-up and the reset have all been tried and the site
+// still does not let the applicant in.
+func (a *Agent) accountRejected(s *session, answer *reply) bool {
+	if a.cfg.AccountAttempts <= 0 || s.accountSteps <= a.cfg.AccountAttempts {
+		return false
+	}
+	answer.Status = StatusStuck
+	answer.Stop = &StopInfo{
+		Reason:  StopAccountRejected,
+		Problem: "The site did not accept the sign-in, the new account or the password reset.",
+		Action:  "Sign in or create the account yourself on the page, then press Continue or Run again.",
+	}
+	answer.Message = "The site would not accept the account."
+	s.stopPasses = a.cfg.StopPasses // this stop is already the end: it is not sent back again
+	return true
 }
 
 // fillSecrets types a secret in place of its placeholder. The model only ever reads and

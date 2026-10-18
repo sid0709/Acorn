@@ -34,7 +34,7 @@ var replySchema = json.RawMessage(`{
           "additionalProperties": false,
           "required": ["reason", "problem", "action"],
           "properties": {
-            "reason": {"type": "string", "enum": ["captcha", "verification", "verification_link", "identity", "document", "sign_in", "page_problem", "other"]},
+            "reason": {"type": "string", "enum": ["captcha", "verification", "verification_link", "identity", "document", "sign_in", "account_rejected", "page_problem", "other"]},
             "problem": {"type": "string"},
             "action": {"type": "string"}
           }

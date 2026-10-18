@@ -107,6 +107,8 @@ type session struct {
 	pendingTrace *Trace
 	// donePasses counts the "done" answers sent back because the screen did not confirm a sent application.
 	donePasses int
+	// accountSteps counts the steps that typed the account password (sign-in, sign-up, reset).
+	accountSteps int
 	// stopPasses counts the stops for the applicant that were sent back to finish the page first.
 	stopPasses int
 	// script is a run of the model's actions with a dropdown to set in it, being carried out.

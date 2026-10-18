@@ -58,6 +58,8 @@ export const AGENT_STOP_REASON = {
   identity: "identity",
   document: "document",
   signIn: "sign_in",
+  /** The site refused the sign-in, the new account and the password reset. */
+  accountRejected: "account_rejected",
   pageProblem: "page_problem",
   other: "other",
   noChange: "no_change",
@@ -138,9 +140,17 @@ export interface AgentVetTarget {
   pageUrl?: string;
 }
 
+/** Why the agent refused a click or closed a window: the thing it reached. */
+export const VET_CAUSE = {
+  onlineSource: "online_source",
+  singleSignOn: "single_sign_on",
+} as const;
+export type VetCause = (typeof VET_CAUSE)[keyof typeof VET_CAUSE];
+
 export interface AgentVetVerdict {
   blocked: boolean;
   probability: number;
+  cause?: VetCause;
   reason?: string;
 }
 

@@ -39,7 +39,13 @@ import {
   vetTarget,
 } from "./client";
 import { CHANGES_THE_PAGE, runActions, type ExecutorContext } from "./executor";
-import { createClickGuard, createFrameSweep, describeWindow, watchFrameEvents } from "./guard";
+import {
+  createClickGuard,
+  createFrameSweep,
+  describeWindow,
+  watchFrameEvents,
+  windowClosedNote,
+} from "./guard";
 import { afterLook, foundIn, lookLogFields, missed, startMailSearch } from "./mail-search";
 import {
   isEmailVerificationStop,
@@ -373,7 +379,7 @@ export async function runAgent(args: AgentRunArgs): Promise<RunReport> {
       if (verdict.blocked) {
         await chrome.tabs.remove(id).catch(() => undefined);
         log.event("agent-guard", { closed: "window" });
-        return "A click opened a window for an online file source or a sign-in to one, and Acorn closed it. Acorn never uses those: attach a file with upload, at the button that opens this computer's file picker.";
+        return windowClosedNote(verdict.cause);
       }
     } catch {
       // A window that cannot be judged is followed, as before.

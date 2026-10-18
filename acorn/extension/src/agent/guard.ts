@@ -7,17 +7,50 @@
  * judged the same way and closed if it is one. There is no list of services here: the model
  * says what a control or page is.
  *
+ * The same judgment keeps the run from signing in through another service's account (single
+ * sign-on): the applicant's own e-mail and password are used, so a control or window that starts
+ * one is refused or closed.
+ *
  * A control the model is unsure about is blocked, and so is a control inside a file-upload
  * component when it cannot be checked. A window or frame that cannot be checked is let be.
  */
 
+import {
+  VET_CAUSE,
+  type AgentVetTarget,
+  type AgentVetVerdict,
+  type VetCause,
+} from "@acorn/shared/agent-contract";
+
 import type { Cdp } from "./cdp";
-import type { AgentVetTarget, AgentVetVerdict } from "@acorn/shared/agent-contract";
 
 /** What a click is told when it is refused. */
 export const BLOCKED_MESSAGE =
   "blocked: that control uses an online file source or a place to paste a document, and the applicant has not allowed those. " +
   "Attach a file with upload, at the button that opens this computer's file picker.";
+
+/** What a click is told when it would sign in through another service's account. */
+export const SIGN_ON_BLOCKED_MESSAGE =
+  "blocked: that control signs in through another service's account, and Acorn never does. " +
+  "Use the employer's own e-mail and password form, or continue as a guest if the page offers it.";
+
+/** What a window that a click opened is told when it is closed. */
+const WINDOW_CLOSED_NOTES: Record<VetCause, string> = {
+  [VET_CAUSE.onlineSource]:
+    "A click opened a window for an online file source or a sign-in to one, and Acorn closed it. Acorn never uses those: attach a file with upload, at the button that opens this computer's file picker.",
+  [VET_CAUSE.singleSignOn]:
+    "A click opened another service's sign-in, and Acorn closed it. Acorn never signs in that way: use the employer's own e-mail and password form, or continue as a guest if the page offers it.",
+};
+
+/** The refusal for a control, by why it was refused. */
+export function blockedMessage(cause?: VetCause): string {
+  return cause === VET_CAUSE.singleSignOn ? SIGN_ON_BLOCKED_MESSAGE : BLOCKED_MESSAGE;
+}
+
+/** The note for the model when a window was closed, by why. */
+export function windowClosedNote(cause?: VetCause): string {
+  return WINDOW_CLOSED_NOTES[cause ?? VET_CAUSE.onlineSource];
+}
 
 /** The longest excerpt of a new window's text that is sent. */
 export const EXCERPT_CHARS = 400;
@@ -107,6 +140,7 @@ export async function describeTargetAt(cdp: Cdp, x: number, y: number): Promise<
 export interface GuardVerdict {
   blocked: boolean;
   reason?: string;
+  cause?: VetCause;
 }
 
 export interface ClickGuardDeps {
@@ -135,7 +169,11 @@ export function createClickGuard(
       if (!verdict) {
         verdict = deps
           .vet({ kind: "control", ...rest, pageUrl: deps.pageUrl() })
-          .then((answer): GuardVerdict => ({ blocked: answer.blocked, reason: answer.reason }))
+          .then((answer): GuardVerdict => ({
+            blocked: answer.blocked,
+            reason: answer.reason,
+            cause: answer.cause,
+          }))
           // The server could not be asked: only a control in a file-upload component is refused.
           .catch((): GuardVerdict => ({
             blocked: Boolean(rest.inFileComponent),
@@ -249,7 +287,7 @@ export function createFrameSweep(deps: FrameWatchDeps): () => Promise<void> {
         }
         if (!verdict.blocked) continue;
         await deps.cdp.send("Runtime.evaluate", { expression: removeFramesScript(src) });
-        deps.onClosed(frameClosedNote(src));
+        deps.onClosed(frameClosedNote(src, verdict.cause));
       }
     } catch {
       // The page is mid-navigation, or has nothing to say.
@@ -257,12 +295,15 @@ export function createFrameSweep(deps: FrameWatchDeps): () => Promise<void> {
   };
 }
 
-function frameClosedNote(url: string): string {
+function frameClosedNote(url: string, cause?: VetCause): string {
   let host = url;
   try {
     host = new URL(url).hostname;
   } catch {
     // keep the address as it is
+  }
+  if (cause === VET_CAUSE.singleSignOn) {
+    return `A frame from ${host} offered another service's sign-in, and Acorn closed it. Acorn never signs in that way: use the employer's own e-mail and password form, or continue as a guest if the page offers it.`;
   }
   return `A frame from ${host} showed an online file source or sign-in, and Acorn closed it. Acorn never uses those: attach a file with upload.`;
 }

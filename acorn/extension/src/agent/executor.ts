@@ -14,7 +14,7 @@ import {
 } from "@acorn/shared/agent-contract";
 
 import { NO_FOCUS_MESSAGE, nothingHasFocus, scrollsAPage } from "./focus-guard";
-import { BLOCKED_MESSAGE, type GuardVerdict } from "./guard";
+import { blockedMessage, type GuardVerdict } from "./guard";
 import { clickAt, moveMouse, pressKeys, typeText, wheelAt } from "./input";
 import { watchInputEffects } from "./input-settle";
 import { scrollForAction } from "./survey";
@@ -79,7 +79,7 @@ async function glideTo(ctx: ExecutorContext, x: number, y: number): Promise<void
 /** Throws, so the click never happens, when the guard says the control is an online file source. */
 async function refuseIfBlocked(verdict: Promise<GuardVerdict> | undefined): Promise<void> {
   const answer = await verdict;
-  if (answer?.blocked) throw new Error(BLOCKED_MESSAGE);
+  if (answer?.blocked) throw new Error(blockedMessage(answer.cause));
 }
 
 type Done = { detail?: string; opened?: ActionOpened };

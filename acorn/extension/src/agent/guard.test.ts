@@ -5,10 +5,13 @@ import { runActions, type ExecutorContext } from "./executor.ts";
 import { fakeCdp } from "./fake-cdp.ts";
 import {
   BLOCKED_MESSAGE,
+  SIGN_ON_BLOCKED_MESSAGE,
+  blockedMessage,
   createClickGuard,
   createFrameSweep,
   targetScript,
   watchFrameEvents,
+  windowClosedNote,
 } from "./guard.ts";
 
 import type { Overlay } from "./overlay.ts";
@@ -267,5 +270,58 @@ describe("watchFrameEvents", () => {
     cdp.emit("Page.frameNavigated", { frame: { id: "c", parentId: "top" } });
     await wait(250);
     assert.equal(sweeps, 1, "after stop nothing is swept");
+  });
+});
+
+describe("signing in through another service's account", () => {
+  it("passes the server's cause on, so the click is told why", async () => {
+    const { guard } = guardFor(button("Continue with an account"), () => ({
+      blocked: true,
+      probability: 0.9,
+      cause: "single_sign_on",
+    }));
+    const verdict = await guard(10, 10);
+    assert.equal(verdict.blocked, true);
+    assert.equal(verdict.cause, "single_sign_on");
+  });
+
+  it("refuses the click with the sign-in message, not the file-source one", async () => {
+    const { ctx, cdp } = context(async () => ({ blocked: true, cause: "single_sign_on" }));
+    const results = await runActions(ctx, [{ id: "a", kind: "click", x: 5, y: 5 }]);
+    assert.equal(results[0].error, SIGN_ON_BLOCKED_MESSAGE);
+    assert.notEqual(results[0].error, BLOCKED_MESSAGE);
+    assert.equal(cdp.of("Input.dispatchMouseEvent").length, 0);
+  });
+
+  it("keeps the file-source message when the cause is not given", () => {
+    assert.equal(blockedMessage(), BLOCKED_MESSAGE);
+    assert.equal(blockedMessage("online_source"), BLOCKED_MESSAGE);
+    assert.match(windowClosedNote(), /online file source/);
+    assert.match(windowClosedNote("single_sign_on"), /another service/);
+  });
+
+  it("closes a frame that offers it, and says so without naming a service", async () => {
+    const cdp = fakeCdp({
+      "Runtime.evaluate": (params: { expression?: string }) =>
+        params.expression?.includes("found.push")
+          ? {
+              result: {
+                value: {
+                  origin: "https://jobs.example",
+                  frames: ["https://login.example/consent"],
+                },
+              },
+            }
+          : {},
+    });
+    const notes: string[] = [];
+    await createFrameSweep({
+      cdp,
+      pageUrl: () => "https://jobs.example/apply",
+      vet: async () => ({ blocked: true, probability: 0.9, cause: "single_sign_on" }),
+      onClosed: (n) => notes.push(n),
+    })();
+    assert.match(notes[0], /login\.example/);
+    assert.match(notes[0], /another service/);
   });
 });

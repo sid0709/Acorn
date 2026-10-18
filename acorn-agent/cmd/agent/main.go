@@ -63,6 +63,8 @@ const (
 	envFallbackResume = "DEFAULT_FALLBACK_RESUME"
 	envChunkActions   = "ACORN_AGENT_CHUNK_ACTIONS"
 	envVetBlock       = "ACORN_AGENT_VET_BLOCK_PERCENT"
+	envSignOnBlock    = "ACORN_AGENT_SSO_BLOCK_PERCENT"
+	envAccountTries   = "ACORN_AGENT_ACCOUNT_ATTEMPTS"
 	// envBackendURL is where acorn-backend is. When set, the applicant is the signed-in person's
 	// own profile and Library there (the person's session comes with each run); otherwise it is the
 	// profile.json and résumé folder on this computer.
@@ -127,6 +129,8 @@ func run() error {
 	cfg.CheckLoading = percent(envCheckLoading, cfg.CheckLoading)
 	cfg.OptionMatch = percent(envOptionMatch, cfg.OptionMatch)
 	cfg.VetBlock = percent(envVetBlock, 0.3)
+	cfg.SingleSignOnBlock = percent(envSignOnBlock, 0.5)
+	cfg.AccountAttempts = config.EnvInt(envAccountTries, cfg.AccountAttempts)
 	cfg.KeepTurns = config.EnvInt(envKeepTurns, cfg.KeepTurns)
 	cfg.KeepImages = config.EnvInt(envKeepImages, cfg.KeepImages)
 	cfg.MaxStale = config.EnvInt(envMaxStale, cfg.MaxStale)

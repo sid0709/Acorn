@@ -20,9 +20,17 @@ import (
 // about (a probability of VetBlock or more) is blocked, and so is any control inside a
 // file-upload component when it cannot be checked. A window or frame that cannot be checked is
 // let be, since a failed check must not close every page the application opens.
+//
+// The same check keeps the run from signing in through another service's account (single sign-on
+// through a social network, an e-mail or search provider, a work platform): the applicant's own
+// e-mail and password are used, and a button or window that would start one is refused or closed.
 
 const (
 	askOnlineSource = "online_source"
+	askSingleSignOn = "single_sign_on"
+	// Why a click was refused: it reached an online file source, or another service's sign-in.
+	CauseOnlineSource = "online_source"
+	CauseSingleSignOn = "single_sign_on"
 	// Kinds of thing the extension asks about.
 	VetControl = "control"
 	VetWindow  = "window"
@@ -60,6 +68,8 @@ type VetTarget struct {
 type VetVerdict struct {
 	Blocked     bool    `json:"blocked"`
 	Probability float64 `json:"probability"`
+	// Cause is why it was blocked: CauseOnlineSource or CauseSingleSignOn.
+	Cause string `json:"cause,omitempty"`
 	// Reason is for the model and the person, in plain words, when Blocked.
 	Reason string `json:"reason,omitempty"`
 }
@@ -120,6 +130,34 @@ func (t VetTarget) question() jev.Question {
 	}
 }
 
+// signOnQuestion asks whether a control, window or frame signs in with another service's account.
+func (t VetTarget) signOnQuestion() jev.Question {
+	subject := "control"
+	if t.Kind != VetControl {
+		subject = "window or frame"
+	}
+	return jev.Question{
+		Type: jev.TypeNoul,
+		Instructions: "Is this " + subject + " a way to sign in or sign up with an account of another service " +
+			"(single sign-on through a social network, an e-mail or search provider, a developer or work platform), " +
+			"instead of the employer's own e-mail and password form? " +
+			"Answer yes only for such a button, link, window or page. The employer's own sign-in, sign-up, continue or submit buttons, " +
+			"the fields of a form, and a page of the employer's own application are not one.",
+		Criteria: map[string]string{"true": "it signs in through another service's account", "false": "it does not"},
+	}
+}
+
+func (t VetTarget) questions() map[string]jev.Question {
+	return map[string]jev.Question{askOnlineSource: t.question(), askSingleSignOn: t.signOnQuestion()}
+}
+
+func (a *Agent) signOnBlockAbove() float64 {
+	if a.cfg.SingleSignOnBlock > 0 {
+		return a.cfg.SingleSignOnBlock
+	}
+	return 0.5
+}
+
 func (a *Agent) vetBlockAbove() float64 {
 	if a.cfg.VetBlock > 0 {
 		return a.cfg.VetBlock
@@ -143,7 +181,7 @@ func (a *Agent) Vet(ctx context.Context, id string, target VetTarget) (VetVerdic
 	started := a.now()
 	res, err := a.newDecider(s.key).Decide(ctx, jev.Request{
 		State:     state,
-		Questions: map[string]jev.Question{askOnlineSource: target.question()},
+		Questions: target.questions(),
 	})
 	s.usage.Checks++
 	s.usage.CheckCost += res.Usage.Cost
@@ -159,11 +197,28 @@ func (a *Agent) Vet(ctx context.Context, id string, target VetTarget) (VetVerdic
 		failed = "the decision model gave no answer"
 	default:
 		verdict.Probability = *answer.Noul
-		verdict.Blocked = verdict.Probability >= a.vetBlockAbove()
+		if verdict.Probability >= a.vetBlockAbove() {
+			verdict.Blocked, verdict.Cause = true, CauseOnlineSource
+		}
+	}
+	// Signing in through another service is judged by its own question; a checker that gave no
+	// answer to it leaves the control as the first question judged it.
+	signOn := 0.0
+	if failed == "" {
+		if other, ok := res.Answers[askSingleSignOn]; ok && other.Noul != nil {
+			signOn = *other.Noul
+		}
+		if !verdict.Blocked && signOn >= a.signOnBlockAbove() {
+			verdict.Blocked, verdict.Cause, verdict.Probability = true, CauseSingleSignOn, signOn
+			verdict.Reason = "it signs in through another service's account, and Acorn never does; use the employer's own e-mail and password"
+		}
 	}
 	if failed != "" {
 		// Only a control in a file-upload component is blocked when it cannot be checked.
 		verdict.Blocked = target.Kind == VetControl && target.InFileComponent
+		if verdict.Blocked {
+			verdict.Cause = CauseOnlineSource
+		}
 		verdict.Reason = "could not be checked"
 		slog.Warn("vet failed", "session", s.id, "kind", target.Kind, "blocked", verdict.Blocked, "error", failed)
 	}
@@ -178,7 +233,7 @@ func (a *Agent) Vet(ctx context.Context, id string, target VetTarget) (VetVerdic
 	}
 	a.recordVet(s.id, vetLine{
 		At: started, Kind: target.Kind, State: state, Probability: verdict.Probability, Blocked: verdict.Blocked,
-		Error: failed, LatencyMs: a.now().Sub(started).Milliseconds(),
+		SingleSignOn: signOn, Error: failed, LatencyMs: a.now().Sub(started).Milliseconds(),
 	})
 	return verdict, nil
 }
@@ -190,8 +245,10 @@ type vetLine struct {
 	State       string    `json:"state"`
 	Probability float64   `json:"probability"`
 	Blocked     bool      `json:"blocked"`
-	Error       string    `json:"error,omitempty"`
-	LatencyMs   int64     `json:"latencyMs"`
+	// SingleSignOn is the probability the decision model gave that it signs in through another service.
+	SingleSignOn float64 `json:"singleSignOn"`
+	Error        string  `json:"error,omitempty"`
+	LatencyMs    int64   `json:"latencyMs"`
 }
 
 func (a *Agent) recordVet(sessionID string, line vetLine) {
