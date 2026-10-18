@@ -29,7 +29,7 @@ Custom **Remember tab** binds the already-focused Chrome tab. Do not open a new 
 
 The Run is the **agent Run**: it looks at the page as a screenshot and acts with real mouse and keyboard events, planned by `acorn-agent` (see `docs/architecture/extension.md` §19). It reads the signed-in person's profile and résumés from acorn-backend with their Acorn session (§19.12). It does not create tabs (a tab the page opens is followed, not made), and it holds no per-tab state beyond its debugger session.
 
-Do not add a second way to read or fill a page. The DOM-serializing Run, the plan runner, Fill and Refill, and the in-page control agents were removed in v1.83.0; a change to how a page is filled is a change to the agent (extension `src/agent/` or `acorn-agent/`).
+Do not add a second way to read or fill a page. The DOM-serializing Run, the plan runner, Fill and Refill, and the in-page control agents were removed in v1.83.0; a change to how a page is filled is a change to the agent (extension `src/agent/` or `acorn-agent/`). The one DOM read the agent has is the **quick text pass** (`src/agent/prefill/`, §19.4m): it serializes the page with Oak's serializer, `acorn-agent` plans the plain fields in text, and the run's own mouse and keyboard type a first draft that the agent's own look then checks. It is part of the Run, off unless the build turns it on, and does not replace the screenshot loop.
 
 ---
 

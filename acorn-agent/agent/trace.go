@@ -41,6 +41,17 @@ const sourceCheck = "check"
 // file picker, with no call to the driving model.
 const sourcePicker = "picker"
 
+// sourcePrefill marks an entry where the quick text pass answered the page's plain fields, with no
+// look by the driving model.
+const sourcePrefill = "prefill"
+
+// sourceReview and sourceAdvance mark entries where the DOM-first loop reviewed the page after the first
+// draft, or picked the control that continues the application, with no look by the driving model.
+const (
+	sourceReview  = "review"
+	sourceAdvance = "advance"
+)
+
 // sourceAsk marks an entry where the run waited on the person's answer, or acted on it.
 const sourceAsk = "ask"
 

@@ -65,6 +65,17 @@ type Config struct {
 	// StopPasses is how many times a run's stop for the applicant is sent back, to finish
 	// everything that does not need them first (stopgate.go); 0 accepts every stop at once.
 	StopPasses int
+	// MaxPrefills is the most quick text passes one run may make (prefill.go).
+	MaxPrefills int
+	// MaxReviews and MaxAdvances are the most reviews and advances one run may make (review.go, advance.go).
+	MaxReviews, MaxAdvances int
+	// ReviewErrors is how sure the decision model must be that an error is showing for a page to need fixing.
+	ReviewErrors float64
+	// HumanStop is how sure it must be that only the applicant can go on for the run to stop and ask.
+	HumanStop float64
+	// AdvanceMatch is how sure it must be of the control that continues the application, and AdvanceFinal
+	// of the one that sends it, for the extension to press it.
+	AdvanceMatch, AdvanceFinal float64
 	// KeepTurns is how many recent steps stay in full when the history is compacted; older
 	// ones are folded into one line each.
 	KeepTurns int
@@ -118,6 +129,13 @@ func DefaultConfig() Config {
 		DoneConfirm:       0.7,
 		SingleSignOnBlock: 0.5,
 		AccountAttempts:   8,
+		MaxPrefills:       20,
+		MaxReviews:        80,
+		MaxAdvances:       40,
+		ReviewErrors:      0.3,
+		HumanStop:         0.85,
+		AdvanceMatch:      0.8,
+		AdvanceFinal:      0.5,
 		KeepTurns:         8,
 		KeepImages:        3,
 		HistoryTokens:     30_000,
@@ -347,6 +365,7 @@ func (a *Agent) step(ctx context.Context, id string, obs Observation) (Step, err
 		return Step{}, err
 	}
 	s.cover.see(obs.URL, obs.Viewport)
+	a.learnPrefill(s, obs)
 	// What happened to every action sent since the model last looked, which may be several
 	// runs of one plan.
 	results := withoutChoose(append(append([]ActionResult(nil), s.carried...), obs.Results...))

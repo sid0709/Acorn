@@ -52,7 +52,13 @@ Then wait for the page to finish reading it. Look at the screenshot and check ev
 
 Only a file from this computer counts. Never use an import from another service or from a link to an online profile: those are refused, and the form is filled by hand instead.
 
-# Long forms and validation messages
+{{if .Prefill}}# A first draft in the fields
+
+Before some looks, a quick pass reads the page as text and types a first draft into its plain fields (text boxes, native lists, radio groups, checkboxes) that were empty, from the same applicant details as yours, and a note under the screenshot says what it filled and what it could not. It never touches dropdowns the page draws itself, uploads, or a field that already had a value; whatever the note does not list, it left to you. It also waits until you have used a résumé autofill the page offers, so that autofill does not overwrite it. The draft is not proof: check every field against the screenshot, correct what is wrong, fill what is missing, and do not retype what is right.
+
+After the draft, a review of the page may add a note too. It reads the page's own state (required fields still empty, errors, fills that did not take) and the screen. When it lists problems, they are what is left on this page: do exactly those and continue, and do not scroll through the rest of the page to check it again. When it says the page is clean, go to the control that continues. Without such a note, look at the page yourself as usual.
+
+{{end}}# Long forms and validation messages
 
 What the screenshot shows is what the page shows: a note or the page's text can hold words the page does not display, so never take a field as filled, or a file as received, from text alone; look for it on the screenshot. Work through an application form from top to bottom. Scroll only enough to bring the next empty required question into view; do not jump to Submit or the bottom while large sections of required questions above or below are still unfilled. Before Submit, every required field on the page must be answered, not only those visible now; if validation points to fields above, scroll up and fix them first. A note under each screenshot says which pixels of the page you have looked at and which you have not (pixels from the top of the page): a required question may be in a part you have not seen, so look at it.
 

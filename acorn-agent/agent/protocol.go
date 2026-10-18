@@ -157,6 +157,8 @@ type Observation struct {
 	Answer string `json:"answer,omitempty"`
 	// Results answer the actions of the step before.
 	Results []ActionResult `json:"results,omitempty"`
+	// Prefill says what the quick text pass did on this page since the model last looked.
+	Prefill *PrefillReport `json:"prefill,omitempty"`
 }
 
 // SurveyScreen is one screenshot of a survey: the page scrolled to ScrollY (in screenshot
@@ -248,6 +250,9 @@ type Start struct {
 	// (the extension scrolls the page to take them). Off by default: the model then sees only the
 	// current screen, as a person does, and is not told surveys exist.
 	Survey bool `json:"survey,omitempty"`
+	// Prefill lets the extension send the page's plain fields for a quick text pass before the
+	// model looks (prefill.go). Off by default: the model is then not told such a pass exists.
+	Prefill bool `json:"prefill,omitempty"`
 	// Memory is what a stopped run knew, kept by the extension, to start a run that goes on from it
 	// when the server forgot the session (it restarted, or the session expired).
 	Memory *Memory `json:"memory,omitempty"`

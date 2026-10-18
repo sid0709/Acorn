@@ -111,6 +111,9 @@ type session struct {
 	accountSteps int
 	// stopPasses counts the stops for the applicant that were sent back to finish the page first.
 	stopPasses int
+	// prefills, reviews and advances count the quick text passes, reviews and advances made, which a run
+	// may make only so many of.
+	prefills, reviews, advances int
 	// script is a run of the model's actions with a dropdown to set in it, being carried out.
 	script *script
 	// cover is what the run has looked at on the page it is on, in pixels from the top.

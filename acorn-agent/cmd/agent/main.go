@@ -65,6 +65,11 @@ const (
 	envVetBlock       = "ACORN_AGENT_VET_BLOCK_PERCENT"
 	envSignOnBlock    = "ACORN_AGENT_SSO_BLOCK_PERCENT"
 	envAccountTries   = "ACORN_AGENT_ACCOUNT_ATTEMPTS"
+	envMaxPrefills    = "ACORN_AGENT_MAX_PREFILLS"
+	envMaxReviews     = "ACORN_AGENT_MAX_REVIEWS"
+	envMaxAdvances    = "ACORN_AGENT_MAX_ADVANCES"
+	envHumanStop      = "ACORN_AGENT_HUMAN_STOP_PERCENT"
+	envAdvanceMatch   = "ACORN_AGENT_ADVANCE_PERCENT"
 	// envBackendURL is where acorn-backend is. When set, the applicant is the signed-in person's
 	// own profile and Library there (the person's session comes with each run); otherwise it is the
 	// profile.json and résumé folder on this computer.
@@ -131,6 +136,11 @@ func run() error {
 	cfg.VetBlock = percent(envVetBlock, 0.3)
 	cfg.SingleSignOnBlock = percent(envSignOnBlock, 0.5)
 	cfg.AccountAttempts = config.EnvInt(envAccountTries, cfg.AccountAttempts)
+	cfg.MaxPrefills = config.EnvInt(envMaxPrefills, cfg.MaxPrefills)
+	cfg.MaxReviews = config.EnvInt(envMaxReviews, cfg.MaxReviews)
+	cfg.MaxAdvances = config.EnvInt(envMaxAdvances, cfg.MaxAdvances)
+	cfg.HumanStop = percent(envHumanStop, cfg.HumanStop)
+	cfg.AdvanceMatch = percent(envAdvanceMatch, cfg.AdvanceMatch)
 	cfg.KeepTurns = config.EnvInt(envKeepTurns, cfg.KeepTurns)
 	cfg.KeepImages = config.EnvInt(envKeepImages, cfg.KeepImages)
 	cfg.MaxStale = config.EnvInt(envMaxStale, cfg.MaxStale)

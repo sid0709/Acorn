@@ -1,0 +1,352 @@
+/**
+ * The DOM-first loop after a first draft has been typed (docs 19.4m). It reviews the page, and when the
+ * page is clean it presses the control that continues the application, all without the driving model:
+ *
+ *   review  the page says what is left (required fields empty, errors, fills that did not take); when
+ *           nothing is, the server's decision model reads the screenshot for what the page cannot say
+ *   advance the page's own buttons are listed and the decision model picks the one that continues
+ *   hand over  anything else (something left, an unsure pick, a page that did not move on) goes to the
+ *           driving model as a note that says exactly what is left
+ *
+ * A check only the person can pass ends the run asking for them; a run that stops before submitting
+ * ends where the control that sends the application was found.
+ */
+
+import {
+  ADVANCE_ACTION,
+  REVIEW_VERDICT,
+  type AgentStep,
+  type AgentTrace,
+  type AgentUsage,
+  type AgentViewport,
+} from "@acorn/shared/agent-contract";
+
+import { AgentApiError, requestAdvance, requestReview } from "../client";
+import { watchInputEffects } from "../input-settle";
+
+import { act, pointOf, type FillContext } from "./fill";
+import { askFrame, listFrames, type FrameInfo } from "./frames";
+import { PREFILL_MESSAGE, type FrameCandidates, type FrameReview } from "./messages";
+import {
+  ADVANCE_LOAD_MAX_MS,
+  ADVANCE_LOAD_POLL_MS,
+  ADVANCE_NAVIGATION_APPEAR_MS,
+  ADVANCE_NAVIGATION_BEAT_MS,
+  ADVANCE_OVERLAY_LABEL,
+  ADVANCE_STUCK_TRIES,
+  REVIEW_LOADING_WAIT_MS,
+  REVIEW_LOADING_WAITS,
+  REVIEW_OVERLAY_LABEL,
+} from "./settings";
+
+import type { ExecutorContext } from "../executor";
+import type { AgentAdvanceCandidate, AgentReviewFindings } from "@acorn/shared/agent-contract";
+
+/** What the loop did at a look. */
+export type DomFirstOutcome =
+  /** Nothing to do here: the page is not a form, the loop is off, or a call failed. The driving model looks. */
+  | { kind: "skip" }
+  /** The driving model looks, with these notes. */
+  | { kind: "notes"; notes: string[] }
+  /** A control was pressed: look at the page again, with no driving-model look. */
+  | { kind: "advanced" }
+  /** The page is still changing: it was waited for; look again. */
+  | { kind: "wait" }
+  /** The server ended the run (only the person can go on, or it is ready to submit). */
+  | { kind: "step"; step: AgentStep };
+
+export interface DomFirstDeps {
+  agentUrl: string;
+  sessionId: () => string;
+  signal: AbortSignal;
+  tabId: () => number;
+  /** The run's executor with points in the tab's own CSS pixels. */
+  executor: () => ExecutorContext;
+  sleep: (ms: number) => Promise<void>;
+  checkStopped: () => void;
+  log: (event: string, fields: Record<string, unknown>) => void;
+  recordTrace: (trace: AgentTrace | undefined, screenshot?: string) => void;
+  setLabel: (label: string) => void;
+  /** What a call cost, and how long the step took, for the run's totals. */
+  onCall: (kind: "review" | "advance", usage: AgentUsage, ms: number) => void;
+}
+
+/** The page as a look saw it. */
+export interface DomLook {
+  url: string;
+  title: string;
+  screenshot: string;
+  viewport: AgentViewport;
+  /** Labels of fills the pass made that did not take. */
+  failed: string[];
+}
+
+interface FrameControl {
+  frameId: number;
+  nodeId: number;
+  candidate: AgentAdvanceCandidate;
+}
+
+export class DomFirst {
+  /** The application was sent, or the screen says so: the driving model confirms it from here on. */
+  private submitted = false;
+  private loadingWaits = 0;
+  /** What the page looked like when a control was last pressed, and how many times it was pressed at that. */
+  private lastAdvanceKey = "";
+  private lastAdvanceText = "";
+  private tries = 0;
+  /** A page the control could not move on: left to the driving model until it changes. */
+  private stuckKey = "";
+
+  constructor(private readonly deps: DomFirstDeps) {}
+
+  /** Whether the loop has handed the rest of the run to the driving model. */
+  get finished(): boolean {
+    return this.submitted;
+  }
+
+  async afterLook(look: DomLook): Promise<DomFirstOutcome> {
+    if (this.submitted) return { kind: "skip" };
+    const frames = await listFrames(this.deps.tabId());
+    const findings = await this.readFindings(frames, look.failed);
+    if (!findings) return { kind: "skip" };
+
+    this.deps.setLabel(REVIEW_OVERLAY_LABEL);
+    const began = Date.now();
+    let review;
+    try {
+      review = await requestReview(
+        this.deps.agentUrl,
+        this.deps.sessionId(),
+        {
+          url: look.url,
+          title: look.title,
+          screenshot: look.screenshot,
+          viewport: look.viewport,
+          dom: findings,
+        },
+        this.deps.signal,
+      );
+    } catch (err) {
+      return this.failed("review", err);
+    }
+    this.deps.onCall("review", review.usage, Date.now() - began);
+    this.deps.recordTrace(review.trace, look.screenshot);
+    this.deps.log("agent-dom:review", {
+      verdict: review.verdict,
+      problems: review.problems?.length ?? 0,
+      empty: findings.empty?.length ?? 0,
+      errors: findings.errors?.length ?? 0,
+      failed: findings.failed?.length ?? 0,
+      ms: Date.now() - began,
+    });
+
+    const notes = review.note ? [review.note] : [];
+    if (review.verdict !== REVIEW_VERDICT.loading) this.loadingWaits = 0;
+    switch (review.verdict) {
+      case REVIEW_VERDICT.human:
+        return review.step ? { kind: "step", step: review.step } : { kind: "notes", notes };
+      case REVIEW_VERDICT.loading:
+        if (this.loadingWaits >= REVIEW_LOADING_WAITS) return { kind: "skip" };
+        this.loadingWaits += 1;
+        await this.deps.sleep(REVIEW_LOADING_WAIT_MS);
+        return { kind: "wait" };
+      case REVIEW_VERDICT.sent:
+        this.submitted = true;
+        return { kind: "notes", notes };
+      case REVIEW_VERDICT.clean:
+        return this.advance(frames, look, findings, notes);
+      case REVIEW_VERDICT.fix:
+        return { kind: "notes", notes };
+      default:
+        return { kind: "skip" };
+    }
+  }
+
+  private failed(what: string, err: unknown): DomFirstOutcome {
+    this.deps.checkStopped();
+    if (this.deps.signal.aborted) throw err;
+    this.deps.log(`agent-dom:${what}-error`, {
+      message: err instanceof Error ? err.message : String(err),
+      code: err instanceof AgentApiError ? err.code : "",
+    });
+    return { kind: "skip" };
+  }
+
+  /** What every frame of the tab says of itself, with the pass's failures added. Null when no frame shows a field. */
+  private async readFindings(
+    frames: FrameInfo[],
+    failed: string[],
+  ): Promise<AgentReviewFindings | null> {
+    const tabId = this.deps.tabId();
+    const answers = await Promise.all(
+      frames.map((frame) =>
+        askFrame<FrameReview>(tabId, frame.frameId, { type: PREFILL_MESSAGE.review }),
+      ),
+    );
+    const findings: Required<AgentReviewFindings> = { fields: 0, empty: [], errors: [], failed };
+    for (const answer of answers) {
+      if (!answer?.ok) continue;
+      findings.fields += answer.fields;
+      for (const label of answer.empty)
+        if (!findings.empty.includes(label)) findings.empty.push(label);
+      for (const text of answer.errors)
+        if (!findings.errors.includes(text)) findings.errors.push(text);
+    }
+    return findings.fields > 0 ? findings : null;
+  }
+
+  /** The controls of every frame that could be pressed, numbered across frames. */
+  private async listControls(frames: FrameInfo[]): Promise<FrameControl[]> {
+    const tabId = this.deps.tabId();
+    const answers = await Promise.all(
+      frames.map(async (frame) => ({
+        frameId: frame.frameId,
+        answer: await askFrame<FrameCandidates>(tabId, frame.frameId, {
+          type: PREFILL_MESSAGE.candidates,
+        }),
+      })),
+    );
+    const controls: FrameControl[] = [];
+    for (const { frameId, answer } of answers) {
+      if (!answer?.ok) continue;
+      for (const found of answer.candidates) {
+        controls.push({
+          frameId,
+          nodeId: found.nodeId,
+          candidate: {
+            ref: controls.length,
+            text: found.text,
+            kind: found.kind,
+            inForm: found.inForm,
+          },
+        });
+      }
+    }
+    return controls;
+  }
+
+  private async advance(
+    frames: FrameInfo[],
+    look: DomLook,
+    findings: AgentReviewFindings,
+    notes: string[],
+  ): Promise<DomFirstOutcome> {
+    const controls = await this.listControls(frames);
+    const key = [
+      look.url,
+      look.title,
+      findings.fields,
+      controls.map((c) => c.candidate.text).join(","),
+    ].join("|");
+    if (controls.length === 0 || key === this.stuckKey) return { kind: "notes", notes };
+    if (key === this.lastAdvanceKey) {
+      this.tries += 1;
+      if (this.tries >= ADVANCE_STUCK_TRIES) {
+        this.stuckKey = key;
+        this.deps.log("agent-dom:stuck", { tries: this.tries });
+        return {
+          kind: "notes",
+          notes: [
+            `Acorn pressed "${this.lastAdvanceText}" ${this.tries} times and the page did not move on. Look at the page and find out why: a message, a field it wants, or a control that is not the one that continues.`,
+          ],
+        };
+      }
+    } else {
+      this.tries = 0;
+    }
+
+    const began = Date.now();
+    let advance;
+    try {
+      advance = await requestAdvance(
+        this.deps.agentUrl,
+        this.deps.sessionId(),
+        {
+          url: look.url,
+          title: look.title,
+          screenshot: look.screenshot,
+          candidates: controls.map((control) => control.candidate),
+        },
+        this.deps.signal,
+      );
+    } catch (err) {
+      return this.failed("advance", err);
+    }
+    this.deps.onCall("advance", advance.usage, Date.now() - began);
+    this.deps.recordTrace(advance.trace, look.screenshot);
+    this.deps.log("agent-dom:advance", {
+      action: advance.action,
+      submit: Boolean(advance.submit),
+      controls: controls.length,
+      ms: Date.now() - began,
+    });
+    if (advance.action === ADVANCE_ACTION.readyToSubmit && advance.step) {
+      return { kind: "step", step: advance.step };
+    }
+    const chosen = controls.find((control) => control.candidate.ref === advance.ref);
+    if (advance.action !== ADVANCE_ACTION.click || !chosen) return { kind: "notes", notes };
+
+    this.deps.setLabel(ADVANCE_OVERLAY_LABEL);
+    const error = await this.press(frames, chosen);
+    this.deps.log("agent-dom:pressed", {
+      submit: Boolean(advance.submit),
+      ok: error == null,
+      ms: Date.now() - began,
+    });
+    if (error) {
+      return {
+        kind: "notes",
+        notes: [
+          `Acorn tried to press "${chosen.candidate.text}" to continue and could not: ${error}`,
+          ...notes,
+        ],
+      };
+    }
+    this.lastAdvanceKey = key;
+    this.lastAdvanceText = chosen.candidate.text;
+    // The application is on its way: the driving model confirms that it was received, as ever.
+    if (advance.submit) this.submitted = true;
+    return { kind: "advanced" };
+  }
+
+  /** Presses a control with the run's real mouse, and waits for what it sets off. Null, or why it could not. */
+  private async press(frames: FrameInfo[], control: FrameControl): Promise<string | null> {
+    const ctx: FillContext = {
+      tabId: this.deps.tabId(),
+      frames,
+      executor: this.deps.executor(),
+      sleep: this.deps.sleep,
+      checkStopped: this.deps.checkStopped,
+    };
+    const point = await pointOf(ctx, control.frameId, control.nodeId);
+    if (typeof point === "string") return point;
+    const before = (await chrome.tabs.get(ctx.tabId).catch(() => null))?.url ?? "";
+    const effects = await watchInputEffects(ctx.executor.cdp);
+    const error = await act(ctx, [{ id: "d1", kind: "click", x: point.x, y: point.y }]);
+    await effects.settle(this.deps.sleep);
+    await this.waitForLoad(before);
+    return error;
+  }
+
+  /**
+   * The page the click went to, given the time it needs to finish loading. A click that navigates is
+   * waited for from the moment the address changes or the tab says it is loading until it says it is
+   * done; one that starts nothing within ADVANCE_NAVIGATION_APPEAR_MS stayed on the page (a step the page
+   * draws itself), which its own requests have already settled.
+   */
+  private async waitForLoad(before: string): Promise<void> {
+    await this.deps.sleep(ADVANCE_NAVIGATION_BEAT_MS);
+    const began = Date.now();
+    const until = began + ADVANCE_LOAD_MAX_MS;
+    let navigating = false;
+    while (Date.now() < until) {
+      const tab = await chrome.tabs.get(this.deps.tabId()).catch(() => null);
+      if (!tab) return;
+      if (tab.url !== before || tab.status === "loading") navigating = true;
+      if (navigating && tab.status === "complete") return;
+      if (!navigating && Date.now() - began > ADVANCE_NAVIGATION_APPEAR_MS) return;
+      await this.deps.sleep(ADVANCE_LOAD_POLL_MS);
+    }
+  }
+}

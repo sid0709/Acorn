@@ -1,6 +1,8 @@
 import { formatUsd } from "@acorn/shared/ai-usage";
 import { HStack, Text, VStack } from "sid-ui";
 
+import { RunEngines } from "./RunEngines";
+
 import type { RunProgress } from "@acorn/shared/run-types";
 
 const plural = (n: number, word: string) => `${n} ${word}${n === 1 ? "" : "s"}`;
@@ -25,6 +27,7 @@ export function RunCost({ run }: { run: RunProgress }) {
         </Text>
       </HStack>
       {parts.length ? <Text type="supporting">{parts.join(" · ")}</Text> : null}
+      <RunEngines run={run} />
     </VStack>
   );
 }

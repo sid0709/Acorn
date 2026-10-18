@@ -13,6 +13,7 @@ import {
   type AgentSurveyScreen,
   type AgentActionResult,
   type AgentMemory,
+  type AgentPrefillReport,
   type AgentStep,
   type AgentUsage,
 } from "@acorn/shared/agent-contract";
@@ -56,6 +57,10 @@ import {
   waitForMailVerification,
 } from "./mail-verification";
 import { readFocus, readPageText } from "./page-info";
+import { DomFirst, type DomFirstOutcome } from "./prefill/dom-first";
+import { PrefillGate } from "./prefill/fields";
+import { runPrefill } from "./prefill/run";
+import { PREFILL_OVERLAY_LABEL, prefillEnabled } from "./prefill/settings";
 import {
   agentRunState,
   endProgress,
@@ -76,6 +81,7 @@ import { toBase64, type ResumeFile } from "./upload";
 
 import type { KeptRun } from "./kept-run";
 import type { PipelineProgress } from "@acorn/shared/pipeline-types";
+import type { RunProgress } from "@acorn/shared/run-types";
 
 /** The most times one step is sent again when the model is busy or briefly down. */
 export const STEP_RETRY_LIMIT = 3;
@@ -109,6 +115,8 @@ export interface AgentRunArgs {
   stopBeforeSubmit: boolean;
   /** Survey long pages for this run; the default is AGENT_SURVEY (off). */
   survey?: boolean;
+  /** Make a quick text pass over a page's plain fields before the model looks; the default is AGENT_PREFILL (off). */
+  prefill?: boolean;
   /** The person's own OpenRouter key, when the extension holds one; the server has its own otherwise. */
   key?: string;
   /** The person's Acorn session: the agent reads their profile and résumés from acorn-backend with it. */
@@ -197,6 +205,7 @@ function sleeper(signal: AbortSignal) {
 
 export async function runAgent(args: AgentRunArgs): Promise<RunReport> {
   const surveyOn = args.survey ?? AGENT_SURVEY;
+  const prefillOn = prefillEnabled(args.prefill);
   // A continued run writes to the same log and trace folder as the run it takes up.
   const runId = args.resume?.runId ?? crypto.randomUUID().slice(0, 8);
   const workTabId = args.resume?.tabId ?? args.tabId;
@@ -245,6 +254,12 @@ export async function runAgent(args: AgentRunArgs): Promise<RunReport> {
     sweep: async () => {},
   };
   const files = new Map<string, Promise<ResumeFile>>();
+  /** Which fields the quick text pass has been asked about, so each is asked once. */
+  const prefillGate = new PrefillGate();
+  /** The last decision logged about the pass, so a look that decides the same is not logged again. */
+  let lastPrefillDecision = "";
+  /** What the pass did since the model last looked; it goes with the next look and is then cleared. */
+  let prefillReport: AgentPrefillReport | undefined;
   const vet = (target: Parameters<typeof vetTarget>[2]) =>
     vetTarget(args.agentUrl, must(sessionId), target, signal);
   const clickGuard = createClickGuard({
@@ -269,8 +284,54 @@ export async function runAgent(args: AgentRunArgs): Promise<RunReport> {
   };
 
   const emit = (progress: PipelineProgress) => args.emit(tabs, progress);
+  /** What the DOM quick pass has done so far; the image agent's share is the rest of the run. */
+  const domStats = {
+    passes: 0,
+    calls: 0,
+    checks: 0,
+    costUsd: 0,
+    ms: 0,
+    filled: 0,
+    failed: 0,
+    reviews: 0,
+    advances: 0,
+  };
+  let domWorking = false;
+  /** When the pass that is typing now began, so its time shows while it works. */
+  let domPassStartedAt: number | null = null;
+  let imageMs = 0;
+  const engines = (): Pick<RunProgress, "dom" | "image"> => {
+    const imageCalls = Math.max(
+      0,
+      (lastUsage?.calls ?? 0) - domStats.calls + ((lastUsage?.checks ?? 0) - domStats.checks),
+    );
+    const imageCost = Math.max(0, (lastUsage?.cost ?? 0) - domStats.costUsd);
+    return {
+      dom: prefillOn
+        ? {
+            rounds: domStats.passes,
+            calls: domStats.calls + domStats.checks,
+            reviews: domStats.reviews,
+            advances: domStats.advances,
+            costUsd: domStats.costUsd,
+            ms: domStats.ms + (domPassStartedAt == null ? 0 : Date.now() - domPassStartedAt),
+            filled: domStats.filled,
+            failed: domStats.failed,
+            active: domWorking,
+          }
+        : undefined,
+      image: {
+        rounds: stepNumber,
+        calls: imageCalls,
+        costUsd: imageCost,
+        ms: imageMs,
+        active: !domWorking,
+      },
+    };
+  };
   const runState = (control?: string, ask?: AgentAsk) =>
     agentRunState({
+      ...engines(),
       runId,
       startedAt,
       step: stepNumber,
@@ -279,6 +340,87 @@ export async function runAgent(args: AgentRunArgs): Promise<RunReport> {
       ask,
       mail: mailSearch,
     });
+
+  /**
+   * Makes the quick text pass over the page's plain fields, when there are enough empty ones that it has
+   * not been asked about. Whatever goes wrong in it is logged and the run goes on to the model's own look;
+   * only the person's Stop ends it. Says whether it typed anything, which moves the page.
+   */
+  const prefillPage = async (here: AgentTab): Promise<boolean> => {
+    if (!prefillOn || domFirst?.finished) return false;
+    const passStartedAt = Date.now();
+    const callsBefore = lastUsage?.calls ?? 0;
+    const costBefore = lastUsage?.cost ?? 0;
+    try {
+      const outcome = await runPrefill({
+        agentUrl: args.agentUrl,
+        sessionId: must(sessionId),
+        gate: prefillGate,
+        tabId: here.tabId,
+        executor: passExecutor,
+        signal,
+        sleep,
+        checkStopped,
+        onDecision: (decision, fresh) => {
+          const key = `${decision}:${fresh}`;
+          if (key === lastPrefillDecision) return;
+          lastPrefillDecision = key;
+          log.event("agent-prefill:decision", { decision, fresh });
+        },
+        onFilling: () => {
+          domWorking = true;
+          domPassStartedAt = passStartedAt;
+          void here.overlay.setLabel(PREFILL_OVERLAY_LABEL);
+        },
+        onFill: (done, total, status, ms) => {
+          log.event("agent-prefill:fill", { done, total, status, ms });
+          domStats.filled += status === "filled" ? 1 : 0;
+          domStats.failed += status === "failed" ? 1 : 0;
+          emit(runningProgress(runState(), `Filling the plain fields (${done}/${total})`));
+        },
+      });
+      if (!outcome) return false;
+      lastUsage = outcome.plan.usage;
+      domStats.passes += 1;
+      domStats.calls += outcome.plan.usage.calls - callsBefore;
+      domStats.costUsd += outcome.plan.usage.cost - costBefore;
+      domStats.ms += Date.now() - passStartedAt;
+      recordAgentTrace(log, outcome.plan.trace);
+      prefillReport = outcome.report;
+      log.event("agent-prefill", {
+        filled: outcome.report.filled?.length ?? 0,
+        failed: outcome.report.failed?.length ?? 0,
+        skipped: outcome.skipped,
+        dropped: outcome.plan.dropped?.length ?? 0,
+        calls: outcome.plan.usage.calls,
+        costUsd: outcome.plan.usage.cost,
+      });
+      void here.overlay.setLabel(OVERLAY_LABEL);
+      return (outcome.report.filled?.length ?? 0) > 0;
+    } catch (err) {
+      checkStopped();
+      if (signal.aborted) throw err;
+      log.event("agent-prefill:error", {
+        message: err instanceof Error ? err.message : String(err),
+        code: err instanceof AgentApiError ? err.code : "",
+      });
+      void here.overlay.setLabel(OVERLAY_LABEL);
+      return false;
+    } finally {
+      domWorking = false;
+      domPassStartedAt = null;
+    }
+  };
+
+  /**
+   * Gets the page ready to be looked at: the quick text pass types a first draft into the plain fields
+   * (it scrolls to each one), then a page is looked at from its top. A run that starts, or a click that
+   * opens another page, must not begin in the middle of a form whose first questions lie above the screen.
+   */
+  const readyThePage = async (here: AgentTab, newPage: boolean): Promise<void> => {
+    const typed = await prefillPage(here);
+    if (newPage || typed) await scrollToTop(here.cdp, sleep);
+  };
 
   /**
    * Reads the applicant's Gmail for the code or link the site said it sent, showing what is read.
@@ -381,6 +523,60 @@ export async function runAgent(args: AgentRunArgs): Promise<RunReport> {
     afterClick: () => frames.sweep(),
   };
 
+  // The DOM-first loop measures in CSS pixels of the tab, not of a screenshot. Its quick pass clicks only
+  // form fields, so the guard that keeps a click off a file source has nothing to judge there; pressing
+  // the control that continues keeps it.
+  const domExecutor = Object.create(executor, { scale: { value: () => 1 } }) as ExecutorContext;
+  const passExecutor = Object.create(domExecutor, {
+    guard: { value: undefined },
+  }) as ExecutorContext;
+  const domFirst = prefillOn
+    ? new DomFirst({
+        agentUrl: args.agentUrl,
+        sessionId: () => must(sessionId),
+        signal,
+        tabId: () => must(current).tabId,
+        executor: () => domExecutor,
+        sleep,
+        checkStopped,
+        log: (event, fields) => log.event(event, fields),
+        recordTrace: (trace, screenshot) =>
+          recordAgentTrace(
+            log,
+            trace,
+            trace && screenshot ? { seq: trace.seq ?? 0, screenshot } : undefined,
+          ),
+        setLabel: (label) => void current?.overlay.setLabel(label),
+        onCall: (kind, usage, ms) => {
+          domStats.checks += (usage.checks ?? 0) - (lastUsage?.checks ?? 0);
+          domStats.costUsd += usage.cost - (lastUsage?.cost ?? 0);
+          domStats.ms += ms;
+          if (kind === "review") domStats.reviews += 1;
+          else domStats.advances += 1;
+          lastUsage = usage;
+        },
+      })
+    : null;
+
+  /** The DOM-first loop's turn at a look: review the page and press its next control, or say what is left. */
+  const domFirstLook = async (
+    here: AgentTab,
+    url: string,
+    title: string,
+    snap: Shot,
+  ): Promise<DomFirstOutcome> => {
+    if (!domFirst || domFirst.finished) return { kind: "skip" };
+    const outcome = await domFirst.afterLook({
+      url,
+      title,
+      screenshot: snap.dataUrl,
+      viewport: snap.viewport,
+      failed: (prefillReport?.failed ?? []).map((line) => line.label),
+    });
+    void here.overlay.setLabel(OVERLAY_LABEL);
+    return outcome;
+  };
+
   /** Moves the run into the tab the page opened, so the application goes on where it went. */
   const followNewTab = async (id: number): Promise<string> => {
     const deadline = Date.now() + NEW_TAB_WAIT_MS;
@@ -427,6 +623,51 @@ export async function runAgent(args: AgentRunArgs): Promise<RunReport> {
         await sleep(backoff[Math.min(attempt, backoff.length - 1)]);
       }
     }
+  };
+
+  /**
+   * What a look comes to: the DOM-first loop reviews the page after the first draft and presses its next
+   * control, and only what it cannot settle reaches the driving model, with a note saying what is left.
+   * "again" looks at the page afresh with no driving-model look; "step" is the server's answer.
+   */
+  const answerLook = async (look: {
+    here: AgentTab;
+    url: string;
+    title: string;
+    shot: Shot;
+    focus: Awaited<ReturnType<typeof readFocus>>;
+    survey: AgentSurveyScreen[] | null;
+    pageText: string | undefined;
+    answered: string | undefined;
+    notes: string[];
+    results: AgentActionResult[];
+  }): Promise<
+    { kind: "again"; advanced: boolean } | { kind: "step"; step: AgentStep; askedAt: number }
+  > => {
+    const dom = look.answered
+      ? ({ kind: "skip" } as const)
+      : await domFirstLook(look.here, look.url, look.title, look.shot);
+    if (dom.kind === "advanced" || dom.kind === "wait") {
+      if (dom.kind === "advanced") prefillReport = undefined;
+      return { kind: "again", advanced: dom.kind === "advanced" };
+    }
+    if (dom.kind === "notes") look.notes.push(...dom.notes);
+    const askedAt = Date.now();
+    if (dom.kind === "step") return { kind: "step", step: dom.step, askedAt };
+    const step = await askWithRetry({
+      screenshot: look.shot.dataUrl,
+      url: look.url,
+      title: look.title,
+      viewport: look.shot.viewport,
+      focus: look.focus,
+      notes: look.notes,
+      results: look.results,
+      ...(look.survey ? { survey: look.survey } : {}),
+      ...(look.pageText ? { pageText: look.pageText } : {}),
+      ...(look.answered ? { answer: look.answered } : {}),
+      prefill: prefillReport,
+    });
+    return { kind: "step", step, askedAt };
   };
 
   const finish = (report: RunReport, resumable = false): RunReport => {
@@ -476,6 +717,7 @@ export async function runAgent(args: AgentRunArgs): Promise<RunReport> {
       url: logUrl(tab.url ?? ""),
       stopBeforeSubmit,
       continued: Boolean(args.resume),
+      prefill: prefillOn,
     });
     current = await openAgentTab(workTabId, hooks, OVERLAY_LABEL);
     watchFrames(current);
@@ -517,6 +759,7 @@ export async function runAgent(args: AgentRunArgs): Promise<RunReport> {
           stopBeforeSubmit,
           trace: true,
           survey: surveyOn,
+          prefill: prefillOn,
           ...(restoredMemory ? { memory: restoredMemory } : {}),
         },
         args.key,
@@ -552,9 +795,7 @@ export async function runAgent(args: AgentRunArgs): Promise<RunReport> {
       const surveying = surveyOn && (surveyNext || newPage);
       surveyNext = false;
       lastLook = lookKey;
-      // A page is first looked at from its top: a run that starts, or a click that opens another page,
-      // must not begin in the middle of a form whose first questions lie above the screen.
-      if (newPage) await scrollToTop(here.cdp, sleep);
+      await readyThePage(here, newPage);
       // A scroll still running (a key, a click, a list scrolling itself into view) is waited out.
       await waitForScrollRest(here.cdp, sleep);
       let survey: AgentSurveyScreen[] | null = null;
@@ -592,22 +833,29 @@ export async function runAgent(args: AgentRunArgs): Promise<RunReport> {
       const notes = [...carriedNotes, ...pendingNotes.splice(0), ...here.takeNotes()];
       carriedNotes = [];
 
-      const askedAt = Date.now();
-      const step = await askWithRetry({
-        screenshot: shot.dataUrl,
+      const taken = await answerLook({
+        here,
         url: info.url ?? "",
         title: info.title ?? "",
-        viewport: shot.viewport,
+        shot,
         focus,
+        survey,
+        pageText,
+        answered,
         notes,
         results,
-        ...(survey ? { survey } : {}),
-        ...(pageText ? { pageText } : {}),
-        ...(answered ? { answer: answered } : {}),
       });
+      if (taken.kind === "again") {
+        carriedNotes = notes;
+        if (taken.advanced) results = [];
+        continue;
+      }
+      const { step, askedAt } = taken;
+      prefillReport = undefined;
       checkStopped();
       stepNumber = step.number;
       lastUsage = step.usage;
+      imageMs += Date.now() - askedAt;
       const actions = step.actions ?? [];
       if (step.survey) surveyNext = true;
       log.step = step.number;

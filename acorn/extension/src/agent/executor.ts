@@ -191,12 +191,14 @@ async function perform(ctx: ExecutorContext, action: AgentAction): Promise<Done>
 export async function runActions(
   ctx: ExecutorContext,
   actions: AgentAction[],
+  options: { settle?: boolean } = {},
 ): Promise<AgentActionResult[]> {
   const results: AgentActionResult[] = [];
   let failed = false;
-  // A step that types is looked at only once the page has answered what the typing asked of it.
+  // A step that types is looked at only once the page has answered what the typing asked of it. A
+  // caller that runs many small batches in a row (the quick text pass) waits once, at the end.
   const typing = actions.some((action) => action.kind === "type" || action.kind === "key");
-  const effects = typing ? await watchInputEffects(ctx.cdp) : null;
+  const effects = typing && options.settle !== false ? await watchInputEffects(ctx.cdp) : null;
   for (const action of actions) {
     if (failed) {
       results.push({

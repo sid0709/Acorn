@@ -30,6 +30,8 @@ const (
 	extensionScheme = "chrome-extension://"
 	// stepTimeout bounds one step: a model call, its retries and the repair.
 	stepTimeout = 5 * time.Minute
+	// prefillTimeout bounds one quick text pass: a single model call over text.
+	prefillTimeout = 90 * time.Second
 	// vetTimeout bounds one check of a control or window: a click waits for it.
 	vetTimeout = 20 * time.Second
 )
@@ -70,6 +72,9 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("GET "+BasePath+"/health", s.health)
 	mux.HandleFunc("POST "+BasePath+"/sessions", s.start)
 	mux.HandleFunc("POST "+BasePath+"/sessions/{id}/step", s.step)
+	mux.HandleFunc("POST "+BasePath+"/sessions/{id}/prefill", s.prefill)
+	mux.HandleFunc("POST "+BasePath+"/sessions/{id}/review", s.review)
+	mux.HandleFunc("POST "+BasePath+"/sessions/{id}/advance", s.advance)
 	mux.HandleFunc("POST "+BasePath+"/sessions/{id}/continue", s.continueRun)
 	mux.HandleFunc("GET "+BasePath+"/sessions/{id}/memory", s.memory)
 	mux.HandleFunc("POST "+BasePath+"/sessions/{id}/vet", s.vet)
@@ -122,6 +127,56 @@ func (s *Server) step(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(w, http.StatusOK, step)
+}
+
+func (s *Server) prefill(w http.ResponseWriter, r *http.Request) {
+	var req agent.PrefillRequest
+	if !decode(w, r, &req) {
+		return
+	}
+	ctx, cancel := context.WithTimeout(r.Context(), prefillTimeout)
+	defer cancel()
+	if !s.acquire(ctx) {
+		writeError(w, ctx.Err())
+		return
+	}
+	defer s.release()
+	plan, err := s.agent.Prefill(ctx, r.PathValue("id"), req)
+	if err != nil {
+		writeError(w, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, plan)
+}
+
+func (s *Server) review(w http.ResponseWriter, r *http.Request) {
+	var req agent.ReviewRequest
+	if !decode(w, r, &req) {
+		return
+	}
+	ctx, cancel := context.WithTimeout(r.Context(), vetTimeout)
+	defer cancel()
+	result, err := s.agent.Review(ctx, r.PathValue("id"), req)
+	if err != nil {
+		writeError(w, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, result)
+}
+
+func (s *Server) advance(w http.ResponseWriter, r *http.Request) {
+	var req agent.AdvanceRequest
+	if !decode(w, r, &req) {
+		return
+	}
+	ctx, cancel := context.WithTimeout(r.Context(), vetTimeout)
+	defer cancel()
+	result, err := s.agent.Advance(ctx, r.PathValue("id"), req)
+	if err != nil {
+		writeError(w, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, result)
 }
 
 func (s *Server) continueRun(w http.ResponseWriter, r *http.Request) {
@@ -238,6 +293,13 @@ func writeError(w http.ResponseWriter, err error) {
 		status, code = http.StatusConflict, "run_over"
 	case errors.Is(err, agent.ErrBadObservation):
 		status, code = http.StatusBadRequest, "bad_observation"
+	case errors.Is(err, agent.ErrBadPrefill):
+		status, code = http.StatusBadRequest, "bad_prefill"
+	case errors.Is(err, agent.ErrPrefillBusy):
+		status, code = http.StatusConflict, "prefill_busy"
+	case errors.Is(err, agent.ErrPrefillOff), errors.Is(err, agent.ErrPrefillLimit),
+		errors.Is(err, agent.ErrReviewLimit), errors.Is(err, agent.ErrAdvanceLimit):
+		status, code = http.StatusConflict, "prefill_unavailable"
 	case errors.Is(err, applicant.ErrSignedOut):
 		status, code = http.StatusUnauthorized, "signed_out"
 	case errors.Is(err, applicant.ErrBackend):

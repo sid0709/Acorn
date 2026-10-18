@@ -1,5 +1,6 @@
 import { traceFromPage } from "../debug-trace";
 
+import { initPrefillBridge } from "./prefill-bridge";
 import { initSupportHandoff } from "./support-handoff";
 
 // A failure in the extension's own page code is written to the tab's log. The page's
@@ -53,4 +54,5 @@ if (!contentScriptAlive()) {
   contentWindow[CONTENT_BOOT] = () => Boolean(chrome.runtime?.id);
 
   startSafely("support-handoff", initSupportHandoff);
+  startSafely("prefill-bridge", initPrefillBridge);
 }
