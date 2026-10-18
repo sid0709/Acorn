@@ -7,7 +7,10 @@
     "dev": "vite build --watch --mode development",
     "build": "tsc && vite build",
     "lint": "eslint . --max-warnings=0",
-    "lint:fix": "eslint . --fix --max-warnings=0"
+    "lint:fix": "eslint . --fix --max-warnings=0",
+    "typecheck": "tsc --noEmit",
+    "format:check": "prettier --check src",
+    "test": "bun run format:check && bun run lint && bun run typecheck"
   },
   "dependencies": {
     "@acorn/app-theme": "workspace:*",

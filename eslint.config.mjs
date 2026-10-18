@@ -23,11 +23,7 @@ export default defineConfig([
   },
   {
     // These files stay out of the build tsconfig. Type-aware rules need a project, so skip them.
-    files: [
-      "**/extension/**/*.test.ts",
-      "**/extension/vite.config.ts",
-      "**/acorn-face/tools/**/*.ts",
-    ],
+    files: ["**/extension/vite.config.ts", "**/acorn-face/tools/**/*.ts"],
     extends: [tseslint.configs.disableTypeChecked],
     languageOptions: {
       parserOptions: {
