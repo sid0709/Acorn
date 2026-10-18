@@ -50,6 +50,9 @@ type session struct {
 	lastSig []uint8
 	// stale counts steps in a row where the screen did not change.
 	stale int
+	// repeatSteps counts the steps in a row that only pressed the spot (repeatX, repeatY), repeatClicks the presses.
+	repeatSteps, repeatClicks int
+	repeatX, repeatY          float64
 	// resume is the résumé chosen for this run, once chosen.
 	resume string
 	usage  Usage

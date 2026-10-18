@@ -87,6 +87,7 @@ const (
 	envKeepTurns     = "ACORN_AGENT_KEEP_TURNS"
 	envKeepImages    = "ACORN_AGENT_KEEP_IMAGES"
 	envMaxStale      = "ACORN_AGENT_MAX_STALE"
+	envRepeatSteps   = "ACORN_AGENT_REPEAT_STEPS"
 	envMaxModelCalls = "ACORN_AGENT_MAX_MODEL_CALLS"
 	envAgentPort     = "ACORN_AGENT_PORT"
 )
@@ -156,6 +157,7 @@ func run() error {
 	cfg.KeepTurns = config.EnvInt(envKeepTurns, cfg.KeepTurns)
 	cfg.KeepImages = config.EnvInt(envKeepImages, cfg.KeepImages)
 	cfg.MaxStale = config.EnvInt(envMaxStale, cfg.MaxStale)
+	cfg.RepeatSteps = config.EnvInt(envRepeatSteps, cfg.RepeatSteps)
 	if !isOff(config.Env(envTrace, "")) {
 		cfg.TraceDir = config.Env(envTraceDir, defaultTraceDir)
 	}

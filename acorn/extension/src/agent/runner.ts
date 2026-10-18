@@ -373,8 +373,16 @@ export async function runAgent(args: AgentRunArgs): Promise<RunReport> {
           domPassStartedAt = passStartedAt;
           void here.overlay.setLabel(PREFILL_OVERLAY_LABEL);
         },
-        onFill: (done, total, status, ms) => {
-          log.event("agent-prefill:fill", { done, total, status, ms });
+        onFill: (done, total, status, ms, label, error) => {
+          // Why a field did not take is logged, with what the page showed taken out: the log holds no answers.
+          log.event("agent-prefill:fill", {
+            done,
+            total,
+            status,
+            ms,
+            label,
+            ...(error ? { error: error.replace(/"[^"]*"/g, '"…"') } : {}),
+          });
           domStats.filled += status === "filled" ? 1 : 0;
           domStats.failed += status === "failed" ? 1 : 0;
           emit(runningProgress(runState(), `Filling the plain fields (${done}/${total})`));

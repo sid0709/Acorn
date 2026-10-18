@@ -53,6 +53,25 @@ button{margin:20px 8px 0 0;padding:10px 18px;font:inherit}fieldset{margin:14px 0
 <button id="go" type="submit">Save and Continue</button></form></div>`,
         );
       }
+      // A date drawn as two segments: each a transparent input under a display layer that shows its value,
+      // so a click lands on the layer and the layer hands focus to the input beneath it.
+      if (url.pathname === "/dates") {
+        return page(
+          "Work experience",
+          `<style>.seg{position:relative;display:inline-block;width:70px;height:36px;border:1px solid #888;margin-right:6px}
+.seg input{position:absolute;inset:0;width:100%;height:100%;border:0;opacity:0.02;box-sizing:border-box}
+.seg .shown{position:absolute;inset:0;display:flex;align-items:center;padding-left:8px}</style>
+<h1>Work experience</h1>
+<label for="jt">Job title *</label><input type="text" id="jt" name="job_title" required>
+<fieldset><legend>From *</legend>
+<div class="seg" id="m"><input role="spinbutton" aria-label="Month" id="mi" maxlength="2"><div class="shown" aria-hidden="true">MM</div></div>/
+<div class="seg" id="y"><input role="spinbutton" aria-label="Year" id="yi" maxlength="4"><div class="shown" aria-hidden="true">YYYY</div></div></fieldset>
+<div id="msg" role="alert"></div>
+<form onsubmit="event.preventDefault();var m=+mi.value,y=+yi.value;if(m>=1&&m<=12&&y>=1950){location.href='/done'}else{msg.textContent='Error: Invalid Date'}"><button type="submit">Save and Continue</button></form>
+<script>for(const[b,i]of[['m','mi'],['y','yi']]){const box=document.getElementById(b),inp=document.getElementById(i),shown=box.querySelector('.shown');
+box.addEventListener('click',()=>inp.focus());inp.addEventListener('input',()=>{shown.textContent=inp.value||(b==='m'?'MM':'YYYY')})}</script>`,
+        );
+      }
       if (url.pathname === "/step2") {
         return page(
           "Apply: questions",
@@ -84,6 +103,7 @@ button{margin:20px 8px 0 0;padding:10px 18px;font:inherit}fieldset{margin:14px 0
     server,
     url: `http://127.0.0.1:${server.port}/`,
     gatedUrl: `http://127.0.0.1:${server.port}/gated`,
+    datesUrl: `http://127.0.0.1:${server.port}/dates`,
     honeypotUrl: `http://127.0.0.1:${server.port}/honeypot`,
   };
 }

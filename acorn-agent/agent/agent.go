@@ -98,6 +98,9 @@ type Config struct {
 	// MaxStale is how many steps in a row the screen may stay the same before the run is
 	// declared stuck without asking the model again.
 	MaxStale int
+	// RepeatSteps is how many steps in a row may only press one spot before the model is told to find
+	// another way. Zero never tells it.
+	RepeatSteps int
 	// SessionTTL is how long an untouched session is kept.
 	SessionTTL time.Duration
 	// TraceDir, when set, records every step to disk.
@@ -156,6 +159,7 @@ func DefaultConfig() Config {
 		KeepImages:         3,
 		HistoryTokens:      30_000,
 		MaxStale:           6,
+		RepeatSteps:        2,
 		SessionTTL:         time.Hour,
 	}
 }
@@ -484,6 +488,9 @@ func (a *Agent) step(ctx context.Context, id string, obs Observation) (Step, err
 
 	planned, dropped := checkActions(number, answer.Actions, obs.Viewport, s.maxActions, screens)
 	planned = pinFrame(planned, obs.Viewport, len(screens))
+	if answer.Status == StatusWorking {
+		a.noteRepeat(s, planned)
+	}
 	planned, cut := cutAfterUpload(planned)
 	if cut > 0 && answer.Status == StatusWorking {
 		dropped = append(dropped, fmt.Sprintf("%d planned actions after the upload were not run: the page moves after a file is attached", cut))

@@ -54,7 +54,14 @@ export interface PrefillArgs {
   /** Called when the pass is about to type, so the overlay can say so. */
   onFilling?: () => void;
   /** Called after each fill with how many are done of how many, what came of it and how long it took. */
-  onFill?: (done: number, total: number, status: FillOutcome["status"], ms: number) => void;
+  onFill?: (
+    done: number,
+    total: number,
+    status: FillOutcome["status"],
+    ms: number,
+    label: string,
+    error?: string,
+  ) => void;
 }
 
 /** What a field that took too long is reported as. */
@@ -139,7 +146,14 @@ export async function runPrefill(args: PrefillArgs): Promise<PrefillOutcome | nu
       TOO_SLOW,
     );
     done += 1;
-    args.onFill?.(done, fills.length, outcome.status, Date.now() - began);
+    args.onFill?.(
+      done,
+      fills.length,
+      outcome.status,
+      Date.now() - began,
+      label,
+      outcome.status === "failed" ? outcome.error : undefined,
+    );
     if (outcome.status === "filled") filled.push({ label, value: outcome.shown });
     else if (outcome.status === "failed") failed.push({ label, error: outcome.error });
     else skipped += 1;

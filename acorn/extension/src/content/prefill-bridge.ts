@@ -130,7 +130,39 @@ function hits(target: Element, point: Element | null): boolean {
   if (target.contains(point) || point.contains(target)) return true;
   const control = target as HTMLInputElement;
   if (Array.from(control.labels ?? []).some((label) => label.contains(point))) return true;
-  return isTwin(target, point);
+  return isTwin(target, point) || isOwnLayer(target, point);
+}
+
+/** How many times the field's own area the wrapper of its drawn layers may take: a page-wide layer is not its own. */
+const OWN_LAYER_MAX_AREA_RATIO = 4;
+const CONTROL_SELECTOR = "input:not([type=hidden]), select, textarea";
+
+/**
+ * A layer a widget draws over its own field (a formatted display over a transparent input): it sits in the
+ * smallest wrapper that holds this one field and no other, and covers most of the field's box. A click on
+ * it is a click on the field, so it does not count as something covering it. A banner or a dialog is in
+ * no such wrapper, and a neighbouring field's wrapper holds that field too.
+ */
+function isOwnLayer(target: Element, point: Element): boolean {
+  if (!target.matches(CONTROL_SELECTOR)) return false;
+  const field = target.getBoundingClientRect();
+  const fits = (el: Element) => {
+    const box = el.getBoundingClientRect();
+    return box.width * box.height <= OWN_LAYER_MAX_AREA_RATIO * field.width * field.height;
+  };
+  let wrapper: Element = target;
+  while (
+    wrapper.parentElement &&
+    wrapper.parentElement.querySelectorAll(CONTROL_SELECTOR).length === 1 &&
+    fits(wrapper.parentElement)
+  ) {
+    wrapper = wrapper.parentElement;
+  }
+  return (
+    wrapper !== target &&
+    wrapper.contains(point) &&
+    mostlyOverlap(target.getBoundingClientRect(), point.getBoundingClientRect())
+  );
 }
 
 /**
