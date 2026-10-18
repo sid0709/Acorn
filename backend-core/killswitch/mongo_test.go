@@ -31,19 +31,19 @@ func TestMongoOverrideRoundTrip(t *testing.T) {
 	t.Cleanup(func() {
 		_ = client.Database(dbName).Drop(context.Background())
 	})
-	store := NewStore(client, dbName, Defaults{JobImports: true})
-	if !store.Enabled(ctx, JobImports) {
+	store := NewStore(client, dbName, Defaults{AcornAI: true})
+	if !store.Enabled(ctx, AcornAI) {
 		t.Fatal("env default should be on")
 	}
 	now := time.Date(2026, 10, 5, 15, 0, 0, 0, time.UTC)
-	result, err := store.Set(ctx, JobImports, false, "roosebelt", "pause imports", now)
+	result, err := store.Set(ctx, AcornAI, false, "roosebelt", "pause ai", now)
 	if err != nil {
 		t.Fatalf("set: %v", err)
 	}
 	if result.AuditID == "" || result.State.Enabled {
 		t.Fatalf("result = %+v", result)
 	}
-	if store.Enabled(ctx, JobImports) {
+	if store.Enabled(ctx, AcornAI) {
 		t.Fatal("override should disable signup")
 	}
 }

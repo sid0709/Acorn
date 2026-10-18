@@ -11,7 +11,6 @@ export const ROUTES = {
   resumeHistory: "/resume/history",
   connections: "/connections",
   connectGmail: "/connections/gmail",
-  billing: "/billing",
   supportLanding: "/auth/support",
   supportSession: "/support-session",
 } as const;

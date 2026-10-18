@@ -62,7 +62,6 @@ export const PRIVACY: LegalDocument = {
         "Application activity: the jobs you apply to through the extension and their status.",
         "Settings you save, including the OpenRouter API key you add to your profile and the default password you choose for accounts the agent creates on job sites for you.",
         "Google account data, only if you choose to connect it. See the Google user data section.",
-        "Billing details: your plan and payment status. Card numbers are handled by our payment processor, not stored by us.",
         "Basic technical data such as browser type and error logs, used to keep the service working.",
       ],
     },
@@ -159,7 +158,6 @@ export const PRIVACY: LegalDocument = {
       heading: "How we use other information",
       items: [
         "To run the service: build resumes, autofill forms, and answer screening questions on your behalf.",
-        "To process payments and manage your plan.",
         "To secure accounts, prevent abuse, and fix problems.",
         "To contact you about your account and important changes to the service.",
       ],
@@ -168,7 +166,7 @@ export const PRIVACY: LegalDocument = {
       heading: "Sharing",
       paragraphs: ["We do not sell your personal information. We share it only with:"],
       items: [
-        "Service providers that help us run Acorn, such as hosting, payment processing, and AI model providers (through OpenRouter) that process resume, job-posting, and page content to generate answers. They may use the data only to provide their service.",
+        "Service providers that help us run Acorn, such as hosting and AI model providers (through OpenRouter) that process resume, job-posting, and page content to generate answers. They may use the data only to provide their service.",
         "Employers and job sites, but only the application details you choose to submit through the extension.",
         "Authorities, when the law requires it.",
       ],
@@ -255,12 +253,6 @@ export const TERMS: LegalDocument = {
       heading: "Connected Google services",
       paragraphs: [
         "If you connect Gmail or Google Calendar, you authorize Acorn to use that access as described in the Privacy Policy. You can disconnect at any time, and your use of Google services remains subject to Google's own terms.",
-      ],
-    },
-    {
-      heading: "Plans and payment",
-      paragraphs: [
-        "Paid plans are billed in advance for the interval you choose and renew until canceled. You can cancel at any time and keep access until the end of the paid period. Fees are non-refundable except where the law requires otherwise.",
       ],
     },
     {

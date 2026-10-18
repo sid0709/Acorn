@@ -15,35 +15,31 @@ type AccountSource interface {
 }
 
 // AccountExport is GET /v1/auth/account/export. It is JSON, not a ZIP.
-// Password hashes, session tokens, calendar refresh tokens, and Stripe secrets
+// Password hashes, session tokens, and calendar refresh tokens,
 // are never fields on this type.
 type AccountExport struct {
-	ExportedAt    time.Time `json:"exportedAt"`
-	User          User      `json:"user"`
-	Profile       any       `json:"profile,omitempty"`
-	Resumes       any       `json:"resumes"`
-	SavedJobs     any       `json:"savedJobs"`
-	Applications  any       `json:"applications"`
-	Interviews    any       `json:"interviews"`
-	Calendar      any       `json:"calendarConnections"`
-	Messages      any       `json:"messages"`
-	SavedSearches any       `json:"savedSearches"`
-	Transactions  any       `json:"transactions"`
+	ExportedAt   time.Time `json:"exportedAt"`
+	User         User      `json:"user"`
+	Profile      any       `json:"profile,omitempty"`
+	Resumes      any       `json:"resumes"`
+	SavedJobs    any       `json:"savedJobs"`
+	Applications any       `json:"applications"`
+	Interviews   any       `json:"interviews"`
+	Calendar     any       `json:"calendarConnections"`
+	Messages     any       `json:"messages"`
 }
 
 // EmptyExport is an account with no other rows yet.
 func EmptyExport(user User, now time.Time) AccountExport {
 	return AccountExport{
-		ExportedAt:    now.UTC(),
-		User:          User{ID: user.ID, Name: user.Name, Email: user.Email, Role: user.Role},
-		Resumes:       []any{},
-		SavedJobs:     []any{},
-		Applications:  []any{},
-		Interviews:    []any{},
-		Calendar:      []any{},
-		Messages:      []any{},
-		SavedSearches: []any{},
-		Transactions:  map[string]any{},
+		ExportedAt:   now.UTC(),
+		User:         User{ID: user.ID, Name: user.Name, Email: user.Email, Role: user.Role},
+		Resumes:      []any{},
+		SavedJobs:    []any{},
+		Applications: []any{},
+		Interviews:   []any{},
+		Calendar:     []any{},
+		Messages:     []any{},
 	}
 }
 

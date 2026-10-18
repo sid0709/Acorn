@@ -11,38 +11,32 @@ import (
 )
 
 func TestLoadDefaultsReadsEnv(t *testing.T) {
-	t.Setenv(envJobImports, "")
-	t.Setenv(envAcornAI, "on")
-	t.Setenv(envScoutSubmissions, "0")
-	t.Setenv(envCheckout, "disabled")
-	got := LoadDefaults()
-	if got[ScoutSubmissions] || got[Checkout] {
-		t.Fatalf("off switches still on: %+v", got)
+	t.Setenv(envAcornAI, "")
+	if got := LoadDefaults(); !got[AcornAI] {
+		t.Fatalf("an unset switch is off: %+v", got)
 	}
-	if !got[JobImports] || !got[AcornAI] {
-		t.Fatalf("unset/on switches off: %+v", got)
+	t.Setenv(envAcornAI, "0")
+	if got := LoadDefaults(); got[AcornAI] {
+		t.Fatalf("an off switch is still on: %+v", got)
 	}
 }
 
 func TestMemoryOverrideBeatsEnv(t *testing.T) {
 	ctx := context.Background()
-	mem := NewMemory(Defaults{JobImports: true, ScoutSubmissions: false})
-	if !mem.Enabled(ctx, JobImports) {
-		t.Fatal("job_imports env default should be on")
-	}
-	if mem.Enabled(ctx, ScoutSubmissions) {
-		t.Fatal("scout env default should be off")
+	mem := NewMemory(Defaults{AcornAI: true})
+	if !mem.Enabled(ctx, AcornAI) {
+		t.Fatal("acorn_ai env default should be on")
 	}
 	now := time.Date(2026, 10, 5, 12, 0, 0, 0, time.UTC)
-	result, err := mem.Set(ctx, JobImports, false, "roosebelt", "incident", now)
+	result, err := mem.Set(ctx, AcornAI, false, "roosebelt", "incident", now)
 	if err != nil {
 		t.Fatal(err)
 	}
 	if result.State.Enabled || result.State.Source != sourceOverride || result.AuditID == "" {
 		t.Fatalf("set = %+v", result)
 	}
-	if mem.Enabled(ctx, JobImports) {
-		t.Fatal("mongo override should turn job_imports off")
+	if mem.Enabled(ctx, AcornAI) {
+		t.Fatal("mongo override should turn acorn_ai off")
 	}
 	list, err := mem.List(ctx)
 	if err != nil {
@@ -52,7 +46,7 @@ func TestMemoryOverrideBeatsEnv(t *testing.T) {
 		t.Fatalf("list len = %d", len(list))
 	}
 	audits := mem.Audits()
-	if len(audits) != 1 || audits[0].Action != auditActionDisable || audits[0].SubjectID != string(JobImports) {
+	if len(audits) != 1 || audits[0].Action != auditActionDisable || audits[0].SubjectID != string(AcornAI) {
 		t.Fatalf("audits = %+v", audits)
 	}
 }
@@ -68,26 +62,26 @@ func TestCacheReusesFetchUntilTTL(t *testing.T) {
 	calls := 0
 	now := time.Date(2026, 10, 5, 12, 0, 0, 0, time.UTC)
 	store := &Store{
-		defaults: complete(Defaults{JobImports: true}),
+		defaults: complete(Defaults{AcornAI: true}),
 		cacheTTL: time.Second,
 		now:      func() time.Time { return now },
 		fetch: func(context.Context) (map[Name]document, error) {
 			calls++
-			return map[Name]document{JobImports: {ID: string(JobImports), Enabled: false}}, nil
+			return map[Name]document{AcornAI: {ID: string(AcornAI), Enabled: false}}, nil
 		},
 	}
 	ctx := context.Background()
-	if store.Enabled(ctx, JobImports) {
+	if store.Enabled(ctx, AcornAI) {
 		t.Fatal("override should disable signup")
 	}
-	if store.Enabled(ctx, JobImports) {
+	if store.Enabled(ctx, AcornAI) {
 		t.Fatal("second read should still be off")
 	}
 	if calls != 1 {
 		t.Fatalf("fetch calls = %d, want 1", calls)
 	}
 	now = now.Add(2 * time.Second)
-	if store.Enabled(ctx, JobImports) {
+	if store.Enabled(ctx, AcornAI) {
 		t.Fatal("after TTL should still be off")
 	}
 	if calls != 2 {
@@ -99,45 +93,45 @@ func TestFetchErrorKeepsStaleCache(t *testing.T) {
 	calls := 0
 	now := time.Date(2026, 10, 5, 12, 0, 0, 0, time.UTC)
 	store := &Store{
-		defaults: complete(Defaults{JobImports: true}),
+		defaults: complete(Defaults{AcornAI: true}),
 		cacheTTL: time.Second,
 		now:      func() time.Time { return now },
 		fetch: func(context.Context) (map[Name]document, error) {
 			calls++
 			if calls == 1 {
-				return map[Name]document{JobImports: {ID: string(JobImports), Enabled: false}}, nil
+				return map[Name]document{AcornAI: {ID: string(AcornAI), Enabled: false}}, nil
 			}
 			return nil, errors.New("mongo down")
 		},
 	}
 	ctx := context.Background()
-	if store.Enabled(ctx, JobImports) {
+	if store.Enabled(ctx, AcornAI) {
 		t.Fatal("first read")
 	}
 	now = now.Add(2 * time.Second)
-	if store.Enabled(ctx, JobImports) {
+	if store.Enabled(ctx, AcornAI) {
 		t.Fatal("stale cache should keep signup off")
 	}
 }
 
 func TestFetchErrorWithoutCacheUsesEnv(t *testing.T) {
 	store := &Store{
-		defaults: complete(Defaults{JobImports: true}),
+		defaults: complete(Defaults{AcornAI: true}),
 		cacheTTL: time.Second,
 		fetch: func(context.Context) (map[Name]document, error) {
 			return nil, errors.New("mongo down")
 		},
 	}
-	if !store.Enabled(context.Background(), JobImports) {
+	if !store.Enabled(context.Background(), AcornAI) {
 		t.Fatal("env default should stay on when mongo has never answered")
 	}
 }
 
 func TestWriteDisabledAndGuard(t *testing.T) {
-	mem := NewMemory(Defaults{JobImports: false})
+	mem := NewMemory(Defaults{AcornAI: false})
 	rec := httptest.NewRecorder()
-	WriteDisabled(rec, JobImports)
-	if rec.Code != http.StatusServiceUnavailable || !strings.Contains(rec.Body.String(), "Job imports") {
+	WriteDisabled(rec, AcornAI)
+	if rec.Code != http.StatusServiceUnavailable || !strings.Contains(rec.Body.String(), "Acorn AI") {
 		t.Fatalf("disabled = %d %s", rec.Code, rec.Body.String())
 	}
 
@@ -145,12 +139,12 @@ func TestWriteDisabledAndGuard(t *testing.T) {
 		w.WriteHeader(http.StatusNoContent)
 	})
 	blocked := httptest.NewRecorder()
-	Guard(mem, JobImports, inner).ServeHTTP(blocked, httptest.NewRequest(http.MethodPost, "/v1/admin/job-imports", nil))
+	Guard(mem, AcornAI, inner).ServeHTTP(blocked, httptest.NewRequest(http.MethodPost, "/acorn/analyze", nil))
 	if blocked.Code != http.StatusServiceUnavailable {
 		t.Fatalf("guard off = %d", blocked.Code)
 	}
 	open := httptest.NewRecorder()
-	Guard(nil, JobImports, inner).ServeHTTP(open, httptest.NewRequest(http.MethodPost, "/v1/admin/job-imports", nil))
+	Guard(nil, AcornAI, inner).ServeHTTP(open, httptest.NewRequest(http.MethodPost, "/acorn/analyze", nil))
 	if open.Code != http.StatusNoContent {
 		t.Fatalf("nil switches = %d", open.Code)
 	}
@@ -158,11 +152,11 @@ func TestWriteDisabledAndGuard(t *testing.T) {
 
 func TestCheck(t *testing.T) {
 	ctx := context.Background()
-	if err := Check(ctx, nil, Checkout); err != nil {
+	if err := Check(ctx, nil, AcornAI); err != nil {
 		t.Fatal(err)
 	}
-	mem := NewMemory(Defaults{Checkout: false})
-	if err := Check(ctx, mem, Checkout); !errors.Is(err, ErrDisabled) {
+	mem := NewMemory(Defaults{AcornAI: false})
+	if err := Check(ctx, mem, AcornAI); !errors.Is(err, ErrDisabled) {
 		t.Fatalf("err = %v", err)
 	}
 }
@@ -171,7 +165,7 @@ func TestKnownAndMessage(t *testing.T) {
 	if !Known(AcornAI) || Known("nope") {
 		t.Fatal("Known")
 	}
-	if Message(JobImports) == "" || Message("x") == "" {
+	if Message(AcornAI) == "" || Message("x") == "" {
 		t.Fatal("Message")
 	}
 }

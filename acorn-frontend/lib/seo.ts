@@ -1,5 +1,4 @@
 import type { Metadata } from "next";
-import { PLANS } from "./billing";
 import { BRAND, siteUrl } from "./config";
 import { ALL_KEYWORDS } from "./keywords";
 import { FAQS, FEATURES, POSITIONING, SLOGAN } from "./landing";
@@ -12,7 +11,6 @@ export const SITE_TITLE = `${BRAND}: No. 1 AI Auto-Bid Agent for Job Seekers | A
 export const SITE_DESCRIPTION =
   "Acorn is the No. 1 auto-bid agent for job seekers. Its AI applies to jobs for you: ATS-friendly resumes, autofilled forms, screening answers, and reply tracking.";
 
-const PRICE_CURRENCY = "USD";
 const SITE_LOCALE = "en_US";
 const OPERATING_SYSTEMS = "Chrome, Edge, Brave, Arc";
 
@@ -22,7 +20,6 @@ export const PRIVATE_PATHS = [
   ROUTES.profile,
   ROUTES.resume,
   ROUTES.connections,
-  ROUTES.billing,
   ROUTES.supportSession,
   "/auth/",
   "/api/",
@@ -79,7 +76,6 @@ export function rootMetadata(): Metadata {
 export function homeStructuredData() {
   const home = absoluteUrl(ROUTES.home);
   const organizationId = `${home}#organization`;
-  const prices = PLANS.map((plan) => plan.price.monthly);
   return {
     "@context": "https://schema.org",
     "@graph": [
@@ -112,13 +108,6 @@ export function homeStructuredData() {
         featureList: FEATURES.map((feature) => feature.title),
         operatingSystem: OPERATING_SYSTEMS,
         publisher: { "@id": organizationId },
-        offers: {
-          "@type": "AggregateOffer",
-          priceCurrency: PRICE_CURRENCY,
-          lowPrice: Math.min(...prices),
-          highPrice: Math.max(...prices),
-          offerCount: PLANS.length,
-        },
       },
       {
         "@type": "FAQPage",

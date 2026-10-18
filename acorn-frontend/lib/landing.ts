@@ -1,6 +1,5 @@
 import type { GlyphName } from "sid-ui";
 import { DOWNLOADS } from "./apps";
-import { PLANS, formatPrice } from "./billing";
 import { BRAND } from "./config";
 
 /**
@@ -26,14 +25,12 @@ export const CTA_INSTALL = "Add to Chrome";
 export const LANDING_SECTIONS = {
   agent: "auto-bid-agent",
   features: "features",
-  pricing: "pricing",
   faq: "faq",
 } as const;
 
 export const LANDING_NAV = [
   { label: "Auto-bid", id: LANDING_SECTIONS.agent },
   { label: "Features", id: LANDING_SECTIONS.features },
-  { label: "Pricing", id: LANDING_SECTIONS.pricing },
   { label: "FAQ", id: LANDING_SECTIONS.faq },
 ] as const;
 
@@ -160,8 +157,6 @@ export const FEATURES: LandingFeature[] = [
 
 export type Faq = { question: string; answer: string };
 
-const freePlan = PLANS[0];
-const paidFrom = PLANS.filter((plan) => plan.price.monthly > 0).map((plan) => plan.price.yearly);
 const browserName = (name: string) => name.replace(`${BRAND} for `, "");
 const availableBrowsers = DOWNLOADS.filter((target) => target.availability === "available")
   .map((target) => browserName(target.name))
@@ -198,10 +193,6 @@ export const FAQS: Faq[] = [
     question: "What makes a resume ATS-friendly?",
     answer:
       "Applicant tracking systems read your resume before a person does. They favor standard section headings, a simple single-column layout, and the same words the job description uses. Acorn writes each draft that way and shows which of the posting's keywords you cover.",
-  },
-  {
-    question: "Is Acorn free?",
-    answer: `Yes. The Free plan includes ${freePlan.features.slice(0, -1).join(", ")}. Paid plans start at ${formatPrice(Math.min(...paidFrom))} a month, billed yearly.`,
   },
   {
     question: "Which AI model does Acorn use?",

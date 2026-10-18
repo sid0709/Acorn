@@ -13,12 +13,9 @@ import (
 	"github.com/sid0709/OpenSeat/backend-core/candidate"
 	"github.com/sid0709/OpenSeat/backend-core/config"
 	"github.com/sid0709/OpenSeat/backend-core/database"
-	"github.com/sid0709/OpenSeat/backend-core/employer"
 	"github.com/sid0709/OpenSeat/backend-core/jobs"
 	"github.com/sid0709/OpenSeat/backend-core/jobscam"
 	"github.com/sid0709/OpenSeat/backend-core/killswitch"
-	"github.com/sid0709/OpenSeat/backend-core/scout"
-	"github.com/sid0709/OpenSeat/backend-core/staff"
 	"go.mongodb.org/mongo-driver/v2/mongo"
 	"golang.org/x/sync/errgroup"
 )
@@ -30,9 +27,6 @@ type Platform struct {
 	Jobs     *jobs.Store
 	Accounts *auth.Store
 	People   *candidate.Store
-	Hiring   *employer.Store
-	Scouts   *scout.Store
-	Staff    *staff.Store
 	// AISettings holds the OpenAI settings staff save for Acorn.
 	AISettings *aisettings.Store
 	// KillSwitches are runtime feature toggles. Env is the default; Mongo can override.
@@ -74,20 +68,14 @@ func Open(ctx context.Context, db config.Database, opts Options) (*Platform, err
 	listings.SetScamHolds(scamHolds)
 	accounts := auth.NewStore(client, db.DestDB, db.CompaniesCollection)
 	people := candidate.NewStore(client, db.DestDB, newJobsCatalog(listings), accounts, calendar)
-	hiring := employer.NewStore(client, db.DestDB, listings, people, accounts)
-	scouts := scout.NewStore(client, db.DestDB, accounts, listings, people, scout.NewHTTPFetcher())
-	moderation := staff.NewStore(client, db.DestDB, db.CompaniesCollection, listings)
-	accounts.SetUserData(newAccountEraser(people, scouts, listings, hiring))
-	listings.SetCompanyRefs(companiesInUse(accounts, scouts))
+	accounts.SetUserData(newAccountEraser(people, listings))
+	listings.SetCompanyRefs(companiesInUse(accounts))
 
 	p := &Platform{
 		client:   client,
 		Jobs:     listings,
 		Accounts: accounts,
 		People:   people,
-		Hiring:   hiring,
-		Scouts:   scouts,
-		Staff:    moderation,
 
 		AISettings:   aisettings.NewStore(client, db.DestDB, box),
 		KillSwitches: killswitch.NewStore(client, db.DestDB, killswitch.LoadDefaults()),
@@ -117,9 +105,6 @@ func (p *Platform) ensureIndexes(ctx context.Context) error {
 	}{
 		{"auth", p.Accounts},
 		{"candidate", p.People},
-		{"employer", p.Hiring},
-		{"staff", p.Staff},
-		{"scout", p.Scouts},
 		{"jobscam", p.ScamHolds},
 	}
 	// Each store owns its own collections, so the builds run side by side
