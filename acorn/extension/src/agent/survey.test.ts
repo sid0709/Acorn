@@ -76,6 +76,31 @@ describe("scrollForAction", () => {
     assert.equal(y(), 1000);
   });
 
+  it("puts a pinned point's page back where its screenshot was taken, and leaves a page that has not moved alone", async () => {
+    const pinned = (scrollTo: number): AgentAction => ({
+      id: "a",
+      kind: "click",
+      x: 10,
+      y: 10,
+      scrollTo,
+    });
+    const moved = page(4000);
+    await scrollForAction(moved.cdp, pinned(500), 1, instant); // the page is at 0: it is put back to 500
+    assert.equal(moved.y(), 500);
+    const still = page(4000);
+    await scrollForAction(still.cdp, pinned(0), 1, instant);
+    assert.equal(
+      still.cdp.of("Runtime.evaluate").length,
+      0,
+      "a page that has not moved costs no scroll",
+    );
+  });
+
+  it("does not hold a pinned point to the page's height, which changes as a form is filled", async () => {
+    const { cdp } = page(5000);
+    await scrollForAction(cdp, { id: "a", kind: "click", x: 1, y: 1, scrollTo: 300 }, 1, instant);
+  });
+
   it("refuses when the page has grown or shrunk since the survey, so no point below it is trusted", async () => {
     const { cdp } = page(2000 + LAYOUT_TOLERANCE_PX + 20);
     await assert.rejects(

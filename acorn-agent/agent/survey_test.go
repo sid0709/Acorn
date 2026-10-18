@@ -15,6 +15,7 @@ import (
 func surveyObservation(t *testing.T) Observation {
 	t.Helper()
 	obs := observation(shot(t, 40))
+	obs.Viewport.PageHeight = 2400
 	obs.Survey = []SurveyScreen{
 		{Screenshot: shot(t, 40), ScrollY: 0},
 		{Screenshot: shot(t, 120), ScrollY: 680},
@@ -74,12 +75,18 @@ func TestAnActionOnAScreenThatDoesNotExistIsRefused(t *testing.T) {
 	}
 }
 
-func TestAScreenWithoutASurveyIsRefusedBecauseItsPointMeansNothing(t *testing.T) {
-	model := &scriptedModel{replies: []string{plan("planning", nil, onScreen(2, 20, 20, nil), click(5, 5, nil))}}
+func TestAScreenIndexOnASingleScreenshotIsIgnored(t *testing.T) {
+	model := &scriptedModel{replies: []string{plan("planning", nil, onScreen(0, 20, 20, nil), onScreen(2, 5, 5, nil))}}
 	a := newTestAgent(t, model, &fixedDecider{}, DefaultConfig())
 	step := stepOK(t, a, start(t, a), observation(shot(t, 40)))
-	if len(step.Actions) != 1 || !strings.Contains(strings.Join(step.Dropped, " "), "was not a survey") {
-		t.Fatalf("step = %+v", step)
+	if len(step.Actions) != 2 {
+		t.Fatalf("actions = %s, dropped = %v", kinds(step.Actions), step.Dropped)
+	}
+	for i, action := range step.Actions {
+		// A single screenshot has no screens to scroll between; its points are pinned to where it was taken.
+		if action.ScrollTo == nil || *action.ScrollTo != 0 || action.PageHeight != 0 {
+			t.Fatalf("action %d scrollTo = %v pageHeight = %v", i+1, action.ScrollTo, action.PageHeight)
+		}
 	}
 }
 
@@ -144,7 +151,7 @@ func TestARunThatEndsMayStillScrollWhatThePersonMustActOnIntoView(t *testing.T) 
 	scroll := func(dy float64) map[string]any { return map[string]any{"kind": "scroll", "x": 100, "y": 100, "dy": dy} }
 	reply = plan("A code was sent", nil, scroll(300), click(5, 5, nil), scroll(200), scroll(100))
 	reply = strings.Replace(reply, `"status":"working"`, `"status":"need_person"`, 1)
-	a := newTestAgent(t, &scriptedModel{replies: []string{reply}}, &fixedDecider{}, DefaultConfig())
+	a := newTestAgent(t, &scriptedModel{replies: []string{reply}}, &fixedDecider{}, stopsAtOnce())
 	step := stepOK(t, a, start(t, a), observation(shot(t, 40)))
 	if step.Status != StatusNeedPerson || len(step.Actions) != 2 || step.Actions[0].Kind != KindScroll || step.Actions[1].Kind != KindScroll {
 		t.Fatalf("step = %+v actions = %s", step, kinds(step.Actions))

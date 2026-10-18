@@ -159,27 +159,6 @@ func (s *Store) List(ctx context.Context, userID string) ([]Mailbox, error) {
 	return out, nil
 }
 
-// ForAddress is the mailbox that receives mail sent to email: the one connected
-// for that address, else the default mailbox, else the first one. False when
-// the account connected none.
-func ForAddress(boxes []Mailbox, email string) (Mailbox, bool) {
-	if len(boxes) == 0 {
-		return Mailbox{}, false
-	}
-	email = strings.TrimSpace(email)
-	for _, box := range boxes {
-		if email != "" && strings.EqualFold(box.Email, email) {
-			return box, true
-		}
-	}
-	for _, box := range boxes {
-		if box.IsDefault {
-			return box, true
-		}
-	}
-	return boxes[0], true
-}
-
 func (s *Store) StartConnect(ctx context.Context, userID, email, label, redirect, verifier, challenge, state string, now time.Time, reauthorize bool) (string, error) {
 	if !s.Ready() {
 		return "", ErrNotConfigured
@@ -417,6 +396,27 @@ func anyDefault(boxes []Mailbox) bool {
 		}
 	}
 	return false
+}
+
+// ForAddress is the mailbox that receives mail sent to email: the one connected
+// for that address, else the default mailbox, else the first one. False when
+// the account connected none.
+func ForAddress(boxes []Mailbox, email string) (Mailbox, bool) {
+	if len(boxes) == 0 {
+		return Mailbox{}, false
+	}
+	email = strings.TrimSpace(email)
+	for _, box := range boxes {
+		if email != "" && strings.EqualFold(box.Email, email) {
+			return box, true
+		}
+	}
+	for _, box := range boxes {
+		if box.IsDefault {
+			return box, true
+		}
+	}
+	return boxes[0], true
 }
 
 func normalizeEmail(email string) string {

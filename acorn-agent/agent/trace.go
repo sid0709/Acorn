@@ -286,7 +286,7 @@ func (t *tracer) record(sessionID string, entry stepTrace, screenshot string, ca
 	if !want {
 		return nil, failure
 	}
-	return bundle(files, line), failure
+	return bundle(files, line+"\n"), failure
 }
 
 func hasPoint(actions []Action) bool {

@@ -9,7 +9,8 @@ const (
 	featureResumeAnalyze  = "resume_analyze"
 	featureRecommend      = "recommend"
 	featureProfileImport  = "profile_import"
-	featureGmailLabel     = "gmail_label"
+	featureGmailLabel        = "gmail_label"
+	featureRunMailVerification = "run_mail_verification"
 )
 
 var routeFeatures = map[string]string{
@@ -23,6 +24,7 @@ var routeFeatures = map[string]string{
 	"POST /acorn/custom/recommend":                   featureRecommend,
 	"POST /acorn/profile/from-resume":                featureProfileImport,
 	"POST /acorn/gmail/autolabel":                    featureGmailLabel,
+	"POST /acorn/run/mail-verification":              featureRunMailVerification,
 }
 
 // featureForRoute is the feature a route pattern belongs to, or the pattern itself.

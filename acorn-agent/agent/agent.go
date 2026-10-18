@@ -51,8 +51,20 @@ type Config struct {
 	// to wait and look again instead of asking the model; it waits LoadWait, at most
 	// MaxLoadWaits times in a row.
 	CheckLoadingWait float64
-	LoadWait         time.Duration
-	MaxLoadWaits     int
+	// OptionMatch is how sure the checker must be of which option of an open dropdown answers a
+	// choose action (a probability) for the agent to pick it.
+	OptionMatch  float64
+	LoadWait     time.Duration
+	MaxLoadWaits int
+	// DonePasses is how many times a "done" the screen does not confirm (no thank-you or confirmation) is
+	// sent back to the model before the run is reported as one that could not confirm (donegate.go);
+	// negative accepts every "done". DoneConfirm is how sure the checker must be that the screen shows a
+	// sent application (a probability).
+	DonePasses  int
+	DoneConfirm float64
+	// StopPasses is how many times a run's stop for the applicant is sent back, to finish
+	// everything that does not need them first (stopgate.go); 0 accepts every stop at once.
+	StopPasses int
 	// KeepTurns is how many recent steps stay in full when the history is compacted; older
 	// ones are folded into one line each.
 	KeepTurns int
@@ -87,13 +99,17 @@ func DefaultConfig() Config {
 		MaxSteps:         150,
 		MaxActions:       12,
 		UncheckedActions: 6,
-		ChunkActions:     4,
+		ChunkActions:     6,
 		CheckMatch:       0.9,
 		CheckBlocked:     0.2,
 		CheckLoading:     0.3,
 		CheckLoadingWait: 0.7,
+		OptionMatch:      0.7,
 		LoadWait:         time.Second,
 		MaxLoadWaits:     4,
+		StopPasses:       2,
+		DonePasses:       2,
+		DoneConfirm:      0.7,
 		KeepTurns:        8,
 		KeepImages:       3,
 		HistoryTokens:    30_000,
@@ -172,7 +188,7 @@ func (a *Agent) Start(ctx context.Context, key string, auth applicant.Auth, star
 	}
 	a.sessions.add(&session{
 		id: id, key: key, auth: auth, start: start, snap: snap, system: system, maxActions: maxActions, fallback: fallback,
-		created: now, touched: now, wantTrace: start.Trace,
+		created: now, touched: now, wantTrace: start.Trace, stepLimit: a.cfg.MaxSteps,
 	})
 	stacks, documents := catalog(snap.Resumes)
 	startTrace, err := a.trace.recordSession(id, system, sessionTrace{
@@ -192,6 +208,37 @@ func (a *Agent) Start(ctx context.Context, key string, auth applicant.Auth, star
 
 // End drops a session once the run is over.
 func (a *Agent) End(id string) { a.sessions.remove(id) }
+
+// Continue takes a run that stopped back up where it was, with everything the model knows: its
+// notes, the job it recorded, the history, the résumé chosen, and the cost so far. The run may have
+// ended because it needed the person, got stuck, reached its step limit, or was stopped or cut off
+// by the person or the connection; the next step is told which, so the model looks at the screen
+// as it is now. A session that expired or was ended is gone (ErrNoSession): the caller starts a new
+// run.
+func (a *Agent) Continue(id string) (Continued, error) {
+	s, ok := a.sessions.get(id)
+	if !ok {
+		return Continued{}, ErrNoSession
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.touched = a.now()
+	note := "The run was paused and the applicant pressed Continue. The actions you last planned may not have run. Judge by the screenshot, not by your memory of the plan."
+	if s.finished {
+		note = fmt.Sprintf("You stopped the run (%s). The applicant has pressed Continue, so they may have changed the page since. Look at the screen as it is now and carry on from your notes; do not redo what they say is done.", clipText(s.stoppedFor, maxSummaryChars))
+	}
+	if s.step >= s.stepLimit {
+		s.stepLimit += a.cfg.MaxSteps
+	}
+	s.finished, s.stoppedFor = false, ""
+	s.pendingUpload = nil
+	s.plan, s.verify, s.planned, s.sent, s.parts = nil, "", 0, 0, 0
+	s.stale, s.lastSig, s.loadWaits = 0, nil, 0
+	s.script = nil
+	s.notes = append(s.notes, note)
+	slog.Info("run continued", "session", s.id, "step", s.step, "limit", s.stepLimit)
+	return Continued{Number: s.step, Usage: s.usage}, nil
+}
 
 // ResumeFile is one résumé file of a live session, for the extension to put in a file input.
 func (a *Agent) ResumeFile(ctx context.Context, sessionID, resumeID string) (applicant.Resume, []byte, error) {
@@ -260,9 +307,10 @@ func (a *Agent) step(ctx context.Context, id string, obs Observation) (Step, err
 		a.record(s, stepTrace{Seq: s.seq, Step: s.step + 1, At: a.now(), URL: obs.URL, Title: obs.Title, Viewport: obs.Viewport, Error: err.Error(), Usage: s.usage}, obs.Screenshot, nil)
 		return Step{}, err
 	}
+	s.cover.see(obs.URL, obs.Viewport)
 	// What happened to every action sent since the model last looked, which may be several
 	// runs of one plan.
-	results := append(append([]ActionResult(nil), s.carried...), obs.Results...)
+	results := withoutChoose(append(append([]ActionResult(nil), s.carried...), obs.Results...))
 	a.learnJD(ctx, s, obs)
 	if s.pendingUpload != nil {
 		return a.answerPending(s, obs, results, sig)
@@ -272,11 +320,11 @@ func (a *Agent) step(ctx context.Context, id string, obs Observation) (Step, err
 		a.record(s, stepTrace{Seq: s.seq, Step: s.step + 1, At: a.now(), URL: obs.URL, Title: obs.Title, Viewport: obs.Viewport, Error: err.Error(), Usage: s.usage}, obs.Screenshot, nil)
 		return Step{}, err
 	}
-	if s.step >= a.cfg.MaxSteps {
-		return a.endWithTrace(s, obs, 0, StatusStuck, fmt.Sprintf("The run reached its limit of %d steps.", a.cfg.MaxSteps), &StopInfo{
+	if s.step >= s.stepLimit {
+		return a.endWithTrace(s, obs, 0, StatusStuck, fmt.Sprintf("The run reached its limit of %d steps.", s.stepLimit), &StopInfo{
 			Reason:  StopStepLimit,
-			Problem: fmt.Sprintf("This application took more than %d steps, so Acorn stopped.", a.cfg.MaxSteps),
-			Action:  "Finish the rest on the page yourself, or press Run again.",
+			Problem: fmt.Sprintf("This application took more than %d steps, so Acorn stopped.", s.stepLimit),
+			Action:  "Finish the rest on the page yourself, or press Continue to give the run more steps.",
 		}), nil
 	}
 	// A page that did not move after actions is evidence the model needs, and a run that
@@ -297,12 +345,24 @@ func (a *Agent) step(ctx context.Context, id string, obs Observation) (Step, err
 	if step, ok := a.handlePicker(ctx, s, obs, results, sig); ok {
 		return step, nil
 	}
+	if step, ok := a.continueScript(ctx, s, obs, results, sig); ok {
+		return step, nil
+	}
 	if step, ok := a.continuePlan(ctx, s, obs, results, sig, stale); ok {
 		return step, nil
 	}
+	if step, ok := a.tryNavigate(ctx, s, obs, len(screens), results, sig, stale); ok {
+		return step, nil
+	}
 
+	// The model looks now, so the form-finding gate has had its turn (the model finds its own way from here).
+	s.formReady = true
+	s.script = nil
 	number := s.step + 1
 	notes := append(append([]string(nil), obs.Notes...), s.notes...)
+	if line := s.cover.line(obs.Viewport); line != "" {
+		notes = append(notes, line)
+	}
 	if s.parts > 1 && s.sent == s.planned && len(s.notes) == 0 {
 		notes = append(notes, fmt.Sprintf("Your plan ran in %d parts. After each part but the last, a checker confirmed the screen showed what you expected.", s.parts))
 	}
@@ -311,7 +371,7 @@ func (a *Agent) step(ctx context.Context, id string, obs Observation) (Step, err
 		notes = append(notes, surveyNote(obs))
 		images = surveyImages(obs)
 	}
-	body := observationText(number, a.cfg.MaxSteps, obs, results, notes, stale)
+	body := observationText(number, s.stepLimit, obs, results, notes, stale)
 	messages := append([]llm.Message{{Role: llm.RoleSystem, Text: s.system}},
 		s.history(a.cfg.KeepTurns, a.cfg.KeepImages, a.cfg.HistoryTokens)...)
 	text := currentText(body, s.memo, s.job)
@@ -349,12 +409,31 @@ func (a *Agent) step(ctx context.Context, id string, obs Observation) (Step, err
 	s.message = strings.TrimSpace(answer.Message)
 
 	planned, dropped := checkActions(number, answer.Actions, obs.Viewport, s.maxActions, screens)
+	planned = pinFrame(planned, obs.Viewport, len(screens))
+	planned, cut := cutAfterUpload(planned)
+	if cut > 0 && answer.Status == StatusWorking {
+		dropped = append(dropped, fmt.Sprintf("%d planned actions after the upload were not run: the page moves after a file is attached", cut))
+		s.notes = append(s.notes, afterUploadNote)
+	}
 	planned, surveyAsked := withoutSurvey(planned)
 	// A run that did not turn surveys on is not told they exist, and one the model asks for anyway is ignored.
 	surveyAsked = surveyAsked && s.start.Survey
 	planned = fillSecrets(planned, s.snap.Secrets)
 	planned, dropped = a.resolveUploads(ctx, s, planned, dropped)
 	status := answer.Status
+	// "Done" is the page's confirmation, not the model's word: a done the screen does not show is sent back.
+	if note, held := a.holdDone(ctx, s, obs, &answer); held {
+		answer.Status, answer.Message = StatusWorking, donePassMessage
+		planned = []Action{{ID: fmt.Sprintf("s%da1", number), Kind: KindWait, Ms: stopPassWaitMs}}
+		s.notes = append(s.notes, note)
+	}
+	status = answer.Status
+	// The applicant is asked last: a stop is first sent back to finish everything else on the page.
+	if note, held := a.holdStop(s, status, answer); held {
+		status, answer.Message = StatusWorking, stopPassMessage
+		planned = []Action{{ID: fmt.Sprintf("s%da1", number), Kind: KindWait, Ms: stopPassWaitMs}}
+		s.notes = append(s.notes, note)
+	}
 	var actions []Action
 	switch {
 	case status != StatusWorking:
@@ -387,7 +466,7 @@ func (a *Agent) step(ctx context.Context, id string, obs Observation) (Step, err
 	entry.Stop = step.Stop
 	a.record(s, entry, obs.Screenshot, calls)
 	if status != StatusWorking {
-		s.finished = true
+		s.finished, s.stoppedFor = true, step.Message
 	}
 	if s.pendingUpload != nil && len(step.Actions) == 0 && status == StatusWorking {
 		s.seq++
@@ -423,7 +502,7 @@ func (a *Agent) record(s *session, entry stepTrace, screenshot string, calls []m
 
 // endWithTrace finishes a run the agent itself gave up on, and records why.
 func (a *Agent) endWithTrace(s *session, obs Observation, stale int, status, message string, stop *StopInfo) Step {
-	s.finished = true
+	s.finished, s.stoppedFor = true, message
 	a.record(s, stepTrace{
 		Seq: s.seq, Step: s.step + 1, At: a.now(), URL: obs.URL, Title: obs.Title, Viewport: obs.Viewport,
 		Focus: obs.Focus, Notes: obs.Notes, Results: obs.Results, Stale: stale, Memo: s.memo, Job: s.job,
@@ -445,7 +524,7 @@ func stopFor(status string, answer reply) *StopInfo {
 		stop.Action = strings.TrimSpace(answer.Stop.Action)
 	}
 	switch stop.Reason {
-	case StopCaptcha, StopVerification, StopIdentity, StopDocument, StopSignIn, StopPageProblem, StopOther:
+	case StopCaptcha, StopVerification, StopVerificationLink, StopIdentity, StopDocument, StopSignIn, StopPageProblem, StopOther:
 	default:
 		stop.Reason = StopOther
 	}

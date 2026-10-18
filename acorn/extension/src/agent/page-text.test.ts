@@ -69,7 +69,13 @@ describe("readPageText", () => {
           { nodeId: 1, nodeType: 1, nodeName: "BODY" },
           { nodeId: 2, parentId: 1, nodeType: 3, nodeName: "#text", nodeValue: "Visible text." },
           { nodeId: 3, parentId: 1, nodeType: 1, nodeName: "JOB-POST" },
-          { nodeId: 4, parentId: 3, nodeType: 11, nodeName: "#document-fragment" },
+          {
+            nodeId: 4,
+            parentId: 3,
+            nodeType: 11,
+            nodeName: "#document-fragment",
+            shadowRootType: "closed",
+          },
           {
             nodeId: 5,
             parentId: 4,

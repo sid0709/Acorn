@@ -6,6 +6,7 @@
  */
 
 import {
+  AGENT_ERROR_CODE,
   AGENT_STATUS,
   type AgentAction,
   type AgentAsk,
@@ -14,19 +15,22 @@ import {
   type AgentStep,
   type AgentUsage,
 } from "@acorn/shared/agent-contract";
+import { VERIFICATION } from "@acorn/shared/run-types";
 import {
   RUN_FAILURE_REASON,
   RUN_OUTCOME,
   RUN_STAGE,
+  type MailSearch,
   type RunFailure,
   type RunReport,
 } from "@acorn/shared/run-types";
 
 import { RunLog, logUrl } from "../pipeline/run-log";
 
-import { captureShot, type Shot } from "./capture";
+import { captureShot, isTabHidden, type Shot } from "./capture";
 import {
   AgentApiError,
+  continueSession,
   endSession,
   fetchResumeFile,
   isRetryable,
@@ -34,8 +38,15 @@ import {
   startSession,
   vetTarget,
 } from "./client";
-import { runActions, type ExecutorContext } from "./executor";
+import { CHANGES_THE_PAGE, runActions, type ExecutorContext } from "./executor";
 import { createClickGuard, createFrameSweep, describeWindow, watchFrameEvents } from "./guard";
+import { afterLook, foundIn, lookLogFields, missed, startMailSearch } from "./mail-search";
+import {
+  isEmailVerificationStop,
+  noteForVerification,
+  verificationKindFor,
+  waitForMailVerification,
+} from "./mail-verification";
 import { readFocus, readPageText } from "./page-info";
 import {
   agentRunState,
@@ -43,14 +54,18 @@ import {
   failureFromError,
   failureFromStatus,
   runningProgress,
+  AGENT_EXPIRED_MESSAGE,
   AGENT_STARTING_MESSAGE,
 } from "./progress";
+import { waitForScrollRest } from "./scroll-rest";
+import { scrollToTop } from "./scroll-top";
 import { AGENT_SURVEY } from "./settings";
 import { captureSurvey } from "./survey";
 import { openAgentTab, type AgentTab } from "./tab-session";
 import { recordAgentTrace } from "./trace-log";
 import { toBase64, type ResumeFile } from "./upload";
 
+import type { KeptRun } from "./kept-run";
 import type { PipelineProgress } from "@acorn/shared/pipeline-types";
 
 /** The most times one step is sent again when the model is busy or briefly down. */
@@ -63,6 +78,10 @@ export const NEW_TAB_WAIT_MS = 8_000;
 export const ASK_LABEL = "Acorn has a question for you in the sidebar";
 /** What the overlay's bar says while the agent works. */
 export const OVERLAY_LABEL = "Acorn is applying on this page";
+
+/** How a look in Gmail for a code or link ended. */
+const GMAIL_READ = { found: "found", noMailbox: "no_mailbox", missed: "missed" } as const;
+type GmailRead = (typeof GMAIL_READ)[keyof typeof GMAIL_READ];
 
 /** Raised inside the run when the person stops it. */
 class StoppedError extends Error {
@@ -95,6 +114,21 @@ export interface AgentRunArgs {
    * when the signal aborts. A run without it cannot ask, so a question ends it.
    */
   waitForAnswer?: (signal: AbortSignal) => Promise<string>;
+  /**
+   * A stopped run to take back up: the agent still holds its memory, so the run goes on in the same
+   * conversation instead of starting over. If the agent has forgotten it, the run starts over.
+   */
+  resume?: KeptRun;
+  /**
+   * Keeps a run that stopped (the person pressed Stop, it needed them, or the connection dropped)
+   * so Continue can take it back up. Without it, a run that stops is ended on the server.
+   */
+  keepRun?: (tabIds: number[], run: KeptRun) => Promise<void>;
+}
+
+/** Whether a failure leaves the run's memory on the server for Continue: not when it is gone. */
+function runSurvives(err: unknown): boolean {
+  return !(err instanceof AgentApiError && err.code === AGENT_ERROR_CODE.noSession);
 }
 
 /** A short fingerprint of a page's text, to send it only when it changed. */
@@ -141,7 +175,9 @@ function sleeper(signal: AbortSignal) {
 
 export async function runAgent(args: AgentRunArgs): Promise<RunReport> {
   const surveyOn = args.survey ?? AGENT_SURVEY;
-  const runId = crypto.randomUUID().slice(0, 8);
+  // A continued run writes to the same log and trace folder as the run it takes up.
+  const runId = args.resume?.runId ?? crypto.randomUUID().slice(0, 8);
+  const workTabId = args.resume?.tabId ?? args.tabId;
   const startedAt = Date.now();
   const log = new RunLog(runId, args.tabId);
   const local = new AbortController();
@@ -154,10 +190,29 @@ export async function runAgent(args: AgentRunArgs): Promise<RunReport> {
   const tabs: number[] = [args.tabId];
   let current: AgentTab | null = null;
   let sessionId: string | null = null;
+  /** Set when the run ends in a way Continue can take up again: the server keeps its memory. */
+  let keepSession = false;
+  // A continued run keeps what it was started with: the agent's prompt was fixed then.
+  let stopBeforeSubmit = args.resume?.stopBeforeSubmit ?? args.stopBeforeSubmit;
   let shot: Shot | null = null;
   let tabClosed = false;
   let lastUsage: AgentUsage | null = null;
   let stepNumber = 0;
+  /** How long the last step's actions took to run, for the log. */
+  let lastActionsMs = 0;
+  /**
+   * When the last actions that change a page began (a click, typing, a key, an upload): a site
+   * sends its code or link in answer to one of these, so only mail from after it can be the site's.
+   * A wait or a scroll does not count, or the email could arrive before the time it is looked for from.
+   */
+  let lastChangeAt = startedAt;
+  /** Emails whose code or link was used: a site that asks again wants a newer one. */
+  const usedMailIds: string[] = [];
+  /** When the first search for the site's email began: a search for the same step again starts from it. */
+  let mailSince: number | undefined;
+  /** What the run is reading in Gmail, shown on the Now card; kept after the code is found. */
+  let mailSearch: MailSearch | undefined;
+  const MAIL_VERIFY_WINDOW_MS = 10 * 60 * 1000;
   let pendingTab: number | null = null;
   let pageUrl = "";
   /** Notes from things that happened between looks (a frame the guard closed), told on the next look. */
@@ -192,7 +247,80 @@ export async function runAgent(args: AgentRunArgs): Promise<RunReport> {
 
   const emit = (progress: PipelineProgress) => args.emit(tabs, progress);
   const runState = (control?: string, ask?: AgentAsk) =>
-    agentRunState({ runId, startedAt, step: stepNumber, control, usage: lastUsage, ask });
+    agentRunState({
+      runId,
+      startedAt,
+      step: stepNumber,
+      control,
+      usage: lastUsage,
+      ask,
+      mail: mailSearch,
+    });
+
+  /**
+   * Reads the applicant's Gmail for the code or link the site said it sent, showing what is read.
+   * When it finds one the agent takes the run back up, told the value on its next look.
+   */
+  const readGmail = async (
+    step: AgentStep,
+    info: { url?: string; title?: string },
+    pageText: string,
+    here: AgentTab,
+  ): Promise<GmailRead> => {
+    const kind = verificationKindFor(step.stop);
+    const since = mailSince ?? lastChangeAt;
+    mailSearch = startMailSearch(kind, since);
+    log.event("mail-verification:start", { kind, since, excluded: usedMailIds.length });
+    const showSearch = () =>
+      emit(
+        runningProgress(
+          { ...runState(), stage: RUN_STAGE.verifying },
+          step.message || "Reading your Gmail for the verification…",
+        ),
+      );
+    showSearch();
+    void here.overlay.setLabel("Reading your Gmail for the verification…");
+    const outcome = await waitForMailVerification({
+      runId,
+      step: step.number,
+      kind,
+      url: info.url ?? "",
+      title: info.title ?? "",
+      pageText,
+      sinceMs: since,
+      windowMs: MAIL_VERIFY_WINDOW_MS,
+      exclude: usedMailIds,
+      signal,
+      onLook: (response) => {
+        if (!mailSearch) return;
+        mailSearch = afterLook(mailSearch, response.ok ? response.emails : undefined);
+        log.event(
+          "mail-verification:look",
+          lookLogFields(mailSearch, response.model, response.opened),
+        );
+        showSearch();
+      },
+    });
+    if (outcome.ok) {
+      mailSearch = foundIn(mailSearch, outcome.messageId, outcome.value);
+      mailSince = since;
+      if (outcome.messageId) usedMailIds.push(outcome.messageId);
+      log.event("mail-verification:found", { kind: outcome.kind, messageId: outcome.messageId });
+      showSearch();
+      await continueSession(args.agentUrl, must(sessionId));
+      keepSession = false;
+      if (outcome.kind === VERIFICATION.emailLink) {
+        await chrome.tabs.update(here.tabId, { url: outcome.value });
+      }
+      pendingNotes.push(noteForVerification(outcome.kind, outcome.value));
+      lastChangeAt = Date.now();
+      void here.overlay.setLabel(OVERLAY_LABEL);
+      return GMAIL_READ.found;
+    }
+    mailSearch = missed(mailSearch, outcome.reason === "error" ? outcome.detail : outcome.reason);
+    log.event("mail-verification:miss", { reason: outcome.reason, detail: outcome.detail });
+    return outcome.reason === "no_mailbox" ? GMAIL_READ.noMailbox : GMAIL_READ.missed;
+  };
 
   const onCreated = (tab: chrome.tabs.Tab) => {
     if (tab.openerTabId === current?.tabId && tab.id != null) pendingTab = tab.id;
@@ -278,8 +406,9 @@ export async function runAgent(args: AgentRunArgs): Promise<RunReport> {
     }
   };
 
-  const finish = (report: RunReport): RunReport => {
+  const finish = (report: RunReport, resumable = false): RunReport => {
     chrome.tabs.onCreated.removeListener(onCreated);
+    keepSession = resumable && Boolean(sessionId) && Boolean(args.keepRun);
     const seconds = Math.round((Date.now() - startedAt) / 1000);
     log.event("run:end", {
       outcome: report.outcome,
@@ -290,7 +419,16 @@ export async function runAgent(args: AgentRunArgs): Promise<RunReport> {
       calls: lastUsage?.calls,
       costUsd: lastUsage?.cost,
     });
-    emit(endProgress({ run: runState(), report, steps: stepNumber, startedAt, usage: lastUsage }));
+    emit(
+      endProgress({
+        run: runState(),
+        report,
+        steps: stepNumber,
+        startedAt,
+        usage: lastUsage,
+        canContinue: keepSession,
+      }),
+    );
     return report;
   };
 
@@ -303,29 +441,56 @@ export async function runAgent(args: AgentRunArgs): Promise<RunReport> {
 
   try {
     emit(runningProgress(runState(), AGENT_STARTING_MESSAGE));
-    const tab = await chrome.tabs.get(args.tabId);
+    // Continue may be pressed on a tab the run was not working in last: it goes on where it was.
+    if (workTabId !== args.tabId) {
+      tabs.push(workTabId);
+      log.moveTo(workTabId);
+      args.claimTab?.(workTabId);
+    }
+    const tab = await chrome.tabs.get(workTabId);
     log.event("agent-start", {
-      tabId: args.tabId,
+      tabId: workTabId,
       url: logUrl(tab.url ?? ""),
-      stopBeforeSubmit: args.stopBeforeSubmit,
+      stopBeforeSubmit,
+      continued: Boolean(args.resume),
     });
-    current = await openAgentTab(args.tabId, hooks, OVERLAY_LABEL);
+    current = await openAgentTab(workTabId, hooks, OVERLAY_LABEL);
     watchFrames(current);
-    const started = await startSession(
-      args.agentUrl,
-      {
-        url: tab.url ?? "",
-        title: tab.title ?? "",
-        stopBeforeSubmit: args.stopBeforeSubmit,
-        trace: true,
-        survey: surveyOn,
-      },
-      args.key,
-      args.accessToken,
-    );
-    sessionId = started.sessionId;
-    log.event("agent-session", { resumes: started.resumes.length });
-    recordAgentTrace(log, started.trace);
+    if (args.resume) {
+      // Held from now on, so a Continue that fails for want of the network can be tried again.
+      sessionId = args.resume.sessionId;
+      try {
+        const continued = await continueSession(args.agentUrl, sessionId);
+        stepNumber = continued.number;
+        lastUsage = continued.usage;
+        log.step = continued.number;
+        log.event("agent-continue", { step: continued.number, calls: continued.usage.calls });
+      } catch (err) {
+        // A run the agent forgot (it expired, or the server restarted) cannot be continued: start over.
+        if (!(err instanceof AgentApiError && err.code === AGENT_ERROR_CODE.noSession)) throw err;
+        log.event("agent-continue:lost", { sessionId: args.resume.sessionId });
+        sessionId = null;
+        stopBeforeSubmit = args.stopBeforeSubmit;
+        emit(runningProgress(runState(), AGENT_EXPIRED_MESSAGE));
+      }
+    }
+    if (!sessionId) {
+      const started = await startSession(
+        args.agentUrl,
+        {
+          url: tab.url ?? "",
+          title: tab.title ?? "",
+          stopBeforeSubmit,
+          trace: true,
+          survey: surveyOn,
+        },
+        args.key,
+        args.accessToken,
+      );
+      sessionId = started.sessionId;
+      log.event("agent-session", { resumes: started.resumes.length });
+      recordAgentTrace(log, started.trace);
+    }
 
     let results: AgentActionResult[] = [];
     let carriedNotes: string[] = [];
@@ -348,9 +513,15 @@ export async function runAgent(args: AgentRunArgs): Promise<RunReport> {
       await here.overlay.ensure();
       const info = await chrome.tabs.get(here.tabId);
       const lookKey = `${info.url ?? ""}\n${info.title ?? ""}`;
-      const surveying = surveyOn && (surveyNext || lookKey !== lastLook);
+      const newPage = lookKey !== lastLook;
+      const surveying = surveyOn && (surveyNext || newPage);
       surveyNext = false;
       lastLook = lookKey;
+      // A page is first looked at from its top: a run that starts, or a click that opens another page,
+      // must not begin in the middle of a form whose first questions lie above the screen.
+      if (newPage) await scrollToTop(here.cdp, sleep);
+      // A scroll still running (a key, a click, a list scrolling itself into view) is waited out.
+      await waitForScrollRest(here.cdp, sleep);
       let survey: AgentSurveyScreen[] | null = null;
       const captureStartedAt = Date.now();
       await here.overlay.hideForCapture(true);
@@ -368,6 +539,7 @@ export async function runAgent(args: AgentRunArgs): Promise<RunReport> {
         await here.overlay.hideForCapture(false);
       }
       const captureMs = Date.now() - captureStartedAt;
+      const tabHidden = await isTabHidden(here.cdp);
       checkStopped();
       if (survey) log.event("agent-survey", { screens: survey.length });
       const [focus, text] = await Promise.all([
@@ -417,6 +589,9 @@ export async function runAgent(args: AgentRunArgs): Promise<RunReport> {
         dropped: step.dropped,
         ms: Date.now() - askedAt,
         captureMs,
+        // Where a slow run lost its time: capturing, the actions of the step before, and whether the tab was not shown.
+        actionsMs: lastActionsMs,
+        hidden: tabHidden,
         calls: step.usage.calls,
         costUsd: step.usage.cost,
         url: logUrl(info.url ?? ""),
@@ -428,6 +603,25 @@ export async function runAgent(args: AgentRunArgs): Promise<RunReport> {
         ),
       );
       void here.overlay.setLabel(step.message || OVERLAY_LABEL);
+
+      if (step.status === AGENT_STATUS.needPerson && isEmailVerificationStop(step.stop?.reason)) {
+        const gmail = await readGmail(step, info, text, here);
+        if (gmail === GMAIL_READ.found) {
+          results = [];
+          continue;
+        }
+        if (gmail === GMAIL_READ.noMailbox) {
+          return finish(
+            report(RUN_OUTCOME.failed, {
+              reason: RUN_FAILURE_REASON.mailUnreadable,
+              label: "Gmail is not connected",
+              detail: "Connect Gmail on the Acorn website, then press Continue.",
+              stage: RUN_STAGE.verifying,
+            }),
+            true,
+          );
+        }
+      }
 
       if (step.status === AGENT_STATUS.ask && step.ask) {
         const ask = step.ask;
@@ -454,18 +648,23 @@ export async function runAgent(args: AgentRunArgs): Promise<RunReport> {
         if (actions.length > 0) await runActions(executor, actions);
         if (step.status === AGENT_STATUS.done) {
           return finish(
-            report(args.stopBeforeSubmit ? RUN_OUTCOME.readyToSubmit : RUN_OUTCOME.completed),
+            report(stopBeforeSubmit ? RUN_OUTCOME.readyToSubmit : RUN_OUTCOME.completed),
           );
         }
         return finish(
           report(RUN_OUTCOME.failed, failureFromStatus(step.status, step.message, step.stop)),
+          true,
         );
       }
 
+      const actionsBeganAt = Date.now();
       results = await runActions(executor, actions);
+      lastActionsMs = Date.now() - actionsBeganAt;
       for (const result of results) {
         if (!result.ok) log.event("agent-action:failed", { id: result.id, error: result.error });
       }
+      if (actions.some((action) => CHANGES_THE_PAGE.has(action.kind)))
+        lastChangeAt = actionsBeganAt;
       if (pendingTab != null) await sleep(300); // a click that opens a tab: give it a moment to exist
     }
   } catch (err) {
@@ -487,17 +686,25 @@ export async function runAgent(args: AgentRunArgs): Promise<RunReport> {
           detail: "",
           stage: RUN_STAGE.filling,
         }),
+        true,
       );
     }
     log.event("agent-error", {
       message: err instanceof Error ? err.message : String(err),
       code: err instanceof AgentApiError ? err.code : "",
     });
-    return finish(report(RUN_OUTCOME.failed, failureFromError(err)));
+    return finish(report(RUN_OUTCOME.failed, failureFromError(err)), runSurvives(err));
   } finally {
     chrome.tabs.onCreated.removeListener(onCreated);
     frames.stop?.();
-    if (sessionId) await endSession(args.agentUrl, sessionId);
+    if (sessionId && keepSession && args.keepRun) {
+      // The agent keeps this run's memory; Continue takes it back up on the tab it stopped in.
+      await args
+        .keepRun(tabs, { sessionId, runId, tabId: current?.tabId ?? workTabId, stopBeforeSubmit })
+        .catch(() => undefined);
+    } else if (sessionId) {
+      await endSession(args.agentUrl, sessionId);
+    }
     await current?.close().catch(() => undefined);
   }
 }

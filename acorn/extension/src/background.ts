@@ -3,8 +3,10 @@ import {
   reconnectAcornSocketNow,
   scheduleConnectAcornSocket,
 } from "./acorn-socket";
+import { rekeyKeptRun } from "./agent/kept-run";
 import { bindAutoFocusSetting } from "./background/auto-focus";
 import { routeMessage } from "./background/message-router";
+import { endKeptRunOfTab } from "./background/messages/run";
 import { connectSocket, sidebarPorts, socketHandlers } from "./background/socket-connection";
 import {
   KEEP_ALIVE_ALARM,
@@ -101,6 +103,7 @@ void dropLegacySessionLogs().catch(() => undefined);
 chrome.runtime.onInstalled.addListener(enableSidePanelOnActionClick);
 
 chrome.tabs.onRemoved.addListener((tabId) => {
+  void endKeptRunOfTab(tabId);
   void unbindTabJob(tabId);
   void clearTabPipeline(tabId);
   void clearTabLog(tabId);
@@ -117,6 +120,7 @@ chrome.tabs.onReplaced.addListener((addedTabId, removedTabId) => {
   void rekeyTabJob(removedTabId, addedTabId);
   void rekeyUsageTab(removedTabId, addedTabId);
   void rekeyTabPipeline(removedTabId, addedTabId);
+  void rekeyKeptRun(removedTabId, addedTabId);
 });
 
 chrome.storage.onChanged.addListener((changes) => {

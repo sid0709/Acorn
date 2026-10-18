@@ -16,6 +16,7 @@ import {
   RUN_FAILURE_REASON,
   RUN_OUTCOME,
   RUN_STAGE,
+  type MailSearch,
   type RunFailure,
   type RunProgress,
   type RunReport,
@@ -28,6 +29,9 @@ import type { PipelineProgress } from "@acorn/shared/pipeline-types";
 
 /** The Now card's wording while the agent works and the person has not asked anything. */
 export const AGENT_STARTING_MESSAGE = "Starting the agent…";
+
+/** Said when Continue finds the agent has forgotten the run (it expired), so it starts over. */
+export const AGENT_EXPIRED_MESSAGE = "The agent no longer remembers this run, so it starts over…";
 
 /** What the person is told for each way the agent server can refuse, as the shared catalogue names it. */
 const SHARED_CODE: Record<string, string> = {
@@ -50,6 +54,8 @@ export function agentRunState(input: {
   usage?: AgentUsage | null;
   /** The question the run is waiting on, while it waits. */
   ask?: AgentAsk;
+  /** What the run is reading in Gmail for a code or link, while it does and once it has. */
+  mail?: MailSearch;
 }): RunProgress {
   return {
     runId: input.runId,
@@ -64,6 +70,7 @@ export function agentRunState(input: {
     modelCalls: input.usage?.calls,
     screenChecks: input.usage?.checks,
     ask: input.ask,
+    mail: input.mail,
   };
 }
 
@@ -141,8 +148,10 @@ export function endProgress(input: {
   steps: number;
   startedAt: number;
   usage: AgentUsage | null;
+  /** The run's memory is kept on the server, so Continue can take it back up. */
+  canContinue: boolean;
 }): PipelineProgress {
-  const { run, report, steps, startedAt, usage } = input;
+  const { run, report, steps, startedAt, usage, canContinue } = input;
   const seconds = Math.round((Date.now() - startedAt) / 1000);
   const failed = report.outcome === RUN_OUTCOME.failed;
   return {
@@ -156,7 +165,7 @@ export function endProgress(input: {
       ...run,
       endedAt: Date.now(),
       report,
-      canContinue: report.outcome === RUN_OUTCOME.failed || report.outcome === RUN_OUTCOME.stopped,
+      canContinue,
     },
   };
 }

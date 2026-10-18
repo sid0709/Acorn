@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "Acorn",
-  "description": "Fill forms from the Acorn side panel and inspect DOM trees",
+  "description": "Fill job applications from the Acorn side panel with an AI agent that works from screenshots",
   "permissions": [
     "activeTab",
     "storage",

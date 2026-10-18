@@ -34,7 +34,7 @@ var replySchema = json.RawMessage(`{
           "additionalProperties": false,
           "required": ["reason", "problem", "action"],
           "properties": {
-            "reason": {"type": "string", "enum": ["captcha", "verification", "identity", "document", "sign_in", "page_problem", "other"]},
+            "reason": {"type": "string", "enum": ["captcha", "verification", "verification_link", "identity", "document", "sign_in", "page_problem", "other"]},
             "problem": {"type": "string"},
             "action": {"type": "string"}
           }
@@ -48,7 +48,7 @@ var replySchema = json.RawMessage(`{
         "additionalProperties": false,
         "required": ["kind", "screen", "x", "y", "text", "secret", "keys", "dx", "dy", "ms", "resume", "check"],
         "properties": {
-          "kind": {"type": "string", "enum": ["click", "double_click", "triple_click", "right_click", "hover", "type", "key", "scroll", "upload", "wait", "survey"]},
+          "kind": {"type": "string", "enum": ["click", "double_click", "triple_click", "right_click", "hover", "type", "key", "scroll", "upload", "choose", "wait", "survey"]},
           "screen": {"type": ["integer", "null"]},
           "x": {"type": ["number", "null"]},
           "y": {"type": ["number", "null"]},
@@ -118,6 +118,7 @@ func parseReply(content string) (reply, error) {
 // Limits on what one step may ask for.
 const (
 	maxTypeChars   = 2000
+	maxChooseChars = 200
 	maxKeyTokens   = 12
 	minWaitMs      = 100
 	maxWaitMs      = 10_000
@@ -152,24 +153,28 @@ func checkActions(step int, raw []modelAction, vp Viewport, maxActions int, scre
 }
 
 // placeOnScreen sets where the page must be scrolled for an action whose point the model
-// measured on a screen of a survey. An action on a screen the survey does not have, or on a
-// screen when there was no survey, is refused: its point means nothing on the page as it is.
+// measured on a screen of a multi-screenshot survey. On a single screenshot, x and y are already
+// on the image shown; a stray "screen" field from the model is ignored.
 func placeOnScreen(action *Action, in modelAction, vp Viewport, screens []float64) string {
 	if in.Screen == nil {
 		return ""
 	}
 	switch in.Kind {
-	case KindClick, KindDoubleClick, KindTripleClick, KindRightClick, KindHover, KindUpload:
+	case KindClick, KindDoubleClick, KindTripleClick, KindRightClick, KindHover, KindUpload, KindChoose:
 	default:
 		return "" // typing and keys follow the action before them
 	}
 	if len(screens) == 0 {
-		return "it names a screen, but this look was not a survey"
+		return ""
 	}
-	if *in.Screen < 1 || *in.Screen > len(screens) {
+	screen := *in.Screen
+	if screen == 0 {
+		screen = 1
+	}
+	if screen < 1 || screen > len(screens) {
 		return fmt.Sprintf("there is no screen %d (the survey has %d)", *in.Screen, len(screens))
 	}
-	scroll := screens[*in.Screen-1]
+	scroll := screens[screen-1]
 	action.ScrollTo, action.PageHeight = &scroll, vp.PageHeight
 	return ""
 }
@@ -184,6 +189,21 @@ func fill(out *Action, in modelAction, vp Viewport) string {
 		if in.Kind == KindUpload && in.Resume != nil {
 			out.Resume = strings.TrimSpace(*in.Resume)
 		}
+	case KindChoose:
+		if reason := point(out, in, vp); reason != "" {
+			return reason
+		}
+		answer := ""
+		if in.Text != nil {
+			answer = strings.TrimSpace(*in.Text)
+		}
+		if answer == "" {
+			return "there is no answer to choose"
+		}
+		if len([]rune(answer)) > maxChooseChars {
+			return fmt.Sprintf("the answer is longer than %d characters", maxChooseChars)
+		}
+		out.Text = answer
 	case KindType:
 		text := ""
 		if in.Text != nil {

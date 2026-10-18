@@ -257,3 +257,19 @@
   flex-direction: column;
   gap: var(--spacing-1);
 }
+
+/* Now card: the emails an agent Run read while looking for a code or link, and what each was judged. */
+.mail-search {
+  padding: var(--spacing-3);
+  border-radius: var(--radius-md);
+  background: var(--color-background-body);
+}
+
+.mail-row {
+  min-width: 0;
+}
+
+.mail-row-text {
+  flex: 1;
+  min-width: 0;
+}

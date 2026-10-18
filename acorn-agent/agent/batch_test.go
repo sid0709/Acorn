@@ -1,0 +1,46 @@
+package agent
+
+import (
+	"strings"
+	"testing"
+)
+
+func TestBatchFillUsesOneRunAndCombinedExpect(t *testing.T) {
+	actions := []Action{
+		{Kind: KindType, Text: "Ada", Check: "first name shows Ada"},
+		{Kind: KindType, Text: "ada@example.com", Check: "email shows ada@example.com"},
+	}
+	runs := splitPlanForSession(actions, 6, true)
+	if len(runs) != 1 || len(runs[0].actions) != 2 {
+		t.Fatalf("runs = %+v", runs)
+	}
+	if !strings.Contains(runs[0].expect, "all of the following") {
+		t.Fatalf("expect = %q", runs[0].expect)
+	}
+	if !strings.Contains(runs[0].expect, "first name shows Ada") || !strings.Contains(runs[0].expect, "email shows ada@example.com") {
+		t.Fatalf("expect = %q", runs[0].expect)
+	}
+}
+
+func TestBatchDoesNotIncludeScrollInSameRun(t *testing.T) {
+	actions := []Action{
+		{Kind: KindType, Text: "Ada", Check: "first name shows Ada"},
+		{Kind: KindScroll, DY: 300},
+		{Kind: KindType, Text: "ada@example.com", Check: "email shows ada@example.com"},
+	}
+	runs := splitPlanForSession(actions, 6, true)
+	if len(runs) == 1 {
+		t.Fatalf("scroll must not share a batch run: %+v", runs[0])
+	}
+}
+
+func TestOneFieldDoesNotBatch(t *testing.T) {
+	actions := []Action{
+		{Kind: KindType, Text: "Ada", Check: "name shows Ada"},
+		{Kind: KindClick, Check: ""},
+	}
+	runs := splitPlanForSession(actions, 6, true)
+	if len(runs) != 2 {
+		t.Fatalf("runs = %+v", runs)
+	}
+}

@@ -70,6 +70,7 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("GET "+BasePath+"/health", s.health)
 	mux.HandleFunc("POST "+BasePath+"/sessions", s.start)
 	mux.HandleFunc("POST "+BasePath+"/sessions/{id}/step", s.step)
+	mux.HandleFunc("POST "+BasePath+"/sessions/{id}/continue", s.continueRun)
 	mux.HandleFunc("POST "+BasePath+"/sessions/{id}/vet", s.vet)
 	mux.HandleFunc("GET "+BasePath+"/sessions/{id}/resume", s.resume)
 	mux.HandleFunc("DELETE "+BasePath+"/sessions/{id}", s.end)
@@ -120,6 +121,15 @@ func (s *Server) step(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(w, http.StatusOK, step)
+}
+
+func (s *Server) continueRun(w http.ResponseWriter, r *http.Request) {
+	continued, err := s.agent.Continue(r.PathValue("id"))
+	if err != nil {
+		writeError(w, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, continued)
 }
 
 func (s *Server) vet(w http.ResponseWriter, r *http.Request) {

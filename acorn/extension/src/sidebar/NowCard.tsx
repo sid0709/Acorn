@@ -1,14 +1,14 @@
-import { PAGE_KIND, RUN_OUTCOME, RUN_STAGE, type MailRow } from "@acorn/shared/run-types";
+import { RUN_OUTCOME } from "@acorn/shared/run-types";
 import { describeRunFailure } from "@acorn/shared/user-messages";
 import { Badge, Button, Card, Glyph, HStack, ProgressBar, Text, VStack } from "sid-ui";
 
 import { AgentAsk } from "./AgentAsk";
 import { AgentStopNotice } from "./AgentStopNotice";
 import { GenerateProgressBar } from "./GenerateProgressBar";
+import { MailSearchPanel } from "./MailSearchPanel";
 import { RunCelebration } from "./RunCelebration";
 import { RunCost } from "./RunCost";
 import { RunTimer } from "./RunTimer";
-import { useDefaultPassword } from "./use-default-password";
 
 import type { useTabSession } from "./use-tab-session";
 import type { CustomUiProgress } from "../pipeline/custom-generate-progress";
@@ -16,9 +16,6 @@ import type { PipelineProgress } from "@acorn/shared/pipeline-types";
 import type { RecommendedResumeRank } from "@acorn/shared/resume-library";
 
 type TabSession = ReturnType<typeof useTabSession>;
-
-/** Jev's chance at or above which an email shows as its pick. */
-const MAIL_PICK_SHOWN = 0.5;
 
 export type NowAction = {
   label: string;
@@ -105,45 +102,6 @@ function RecommendTop({ top }: { top: RecommendedResumeRank[] }) {
   );
 }
 
-/** The newest emails the run hands to Jev while it looks for a code or link. */
-function MailList({ mail }: { mail: MailRow[] }) {
-  return (
-    <VStack gap={1}>
-      <Text type="supporting" weight="semibold">
-        {`Emails read · latest ${mail.length} sent to Jev`}
-      </Text>
-      {mail.map((row, i) => (
-        <HStack key={`${i}-${row.subject}`} gap={2} align="center" justify="between">
-          <VStack gap={0}>
-            <Text type="supporting" weight="semibold" maxLines={1}>
-              {row.from}
-            </Text>
-            <Text type="supporting" maxLines={1}>
-              {row.subject || "(no subject)"}
-            </Text>
-          </VStack>
-          {row.probability > 0 ? (
-            <Badge
-              variant={row.probability >= MAIL_PICK_SHOWN ? "green" : "neutral"}
-              label={`${Math.round(row.probability * 100)}%`}
-            />
-          ) : null}
-        </HStack>
-      ))}
-    </VStack>
-  );
-}
-
-/** Says which default account password the run fills into the site's account forms. */
-function PasswordLine({ password }: { password: string | null }) {
-  if (password == null) return null;
-  return (
-    <Text type="supporting">
-      {password ? `Using default password: ${password}` : "No default password in your profile"}
-    </Text>
-  );
-}
-
 function RunStatus({
   progress,
   onAnswer,
@@ -153,23 +111,14 @@ function RunStatus({
 }) {
   const run = progress.run;
   const failure = run?.report?.failure;
-  const onAccount = run?.kind === PAGE_KIND.accountStep || failure?.stage === RUN_STAGE.account;
-  const password = useDefaultPassword(Boolean(onAccount));
   if (!run) return null;
   const timer = run.startedAt ? <RunTimer startedAt={run.startedAt} endedAt={run.endedAt} /> : null;
-  const extras = (
-    <>
-      <PasswordLine password={password} />
-      {run.mail?.length ? <MailList mail={run.mail} /> : null}
-    </>
-  );
   if (run.ask && run.endedAt == null) {
     return (
       <VStack gap={1}>
         {timer}
         <RunCost run={run} />
         <AgentAsk ask={run.ask} onAnswer={onAnswer} />
-        {extras}
       </VStack>
     );
   }
@@ -179,7 +128,6 @@ function RunStatus({
         {timer}
         <RunCost run={run} />
         <AgentStopNotice failure={failure} />
-        {extras}
       </VStack>
     );
   }
@@ -202,7 +150,6 @@ function RunStatus({
             <Text type="supporting">{said.technical}</Text>
           </details>
         ) : null}
-        {extras}
       </VStack>
     );
   }
@@ -223,7 +170,6 @@ function RunStatus({
         </HStack>
       ) : null}
       <Text type="supporting">{parts.join(" · ")}</Text>
-      {extras}
     </VStack>
   );
 }
@@ -269,6 +215,9 @@ export function NowCard(props: NowCardProps) {
         {top.length ? <RecommendTop top={top} /> : null}
         {fillBusy ? <ProgressBar label={progress.message || "Working…"} isIndeterminate /> : null}
         <RunStatus progress={progress} onAnswer={answerRun} />
+        {progress.run?.mail && progress.run.report?.outcome !== RUN_OUTCOME.completed ? (
+          <MailSearchPanel search={progress.run.mail} />
+        ) : null}
         <VStack gap={2}>
           {continueRun ? (
             <Button

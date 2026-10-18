@@ -39,24 +39,6 @@ type chunk struct {
 	expect string
 }
 
-// splitPlan cuts a plan into runs. A run ends at an action the model put a check on, or
-// after limit actions when it did not, so no run goes unchecked for longer than that.
-func splitPlan(actions []Action, limit int) []chunk {
-	var out []chunk
-	var current []Action
-	for _, action := range actions {
-		current = append(current, action)
-		if action.Check != "" || (limit > 0 && len(current) == limit) {
-			out = append(out, chunk{actions: current, expect: action.Check})
-			current = nil
-		}
-	}
-	if len(current) > 0 {
-		out = append(out, chunk{actions: current})
-	}
-	return out
-}
-
 // verdict is what the checker made of a screenshot.
 type verdict struct {
 	matches, blocked, loading float64
@@ -178,9 +160,10 @@ func (a *Agent) takePlan(s *session, actions []Action, dropped []string) ([]Acti
 			actions = actions[:limit]
 		}
 		s.sent, s.parts = len(actions), 1
-		return actions, dropped
+		return a.startScript(s, actions), dropped
 	}
-	return a.sendRun(s, splitPlan(actions, a.cfg.ChunkActions), dropped)
+	batch := a.checksOn(s)
+	return a.sendRun(s, splitPlanForSession(actions, a.cfg.ChunkActions, batch), dropped)
 }
 
 // sendRun sends the first of the runs and keeps the rest only if the screen can be checked
@@ -200,16 +183,17 @@ func (a *Agent) sendRun(s *session, runs []chunk, dropped []string) ([]Action, [
 	}
 	s.plan = rest
 	s.verify = ""
-	if len(rest) > 0 {
+	if first.expect != "" {
 		s.verify = first.expect
 	}
-	return first.actions, dropped
+	return a.startScript(s, first.actions), dropped
 }
 
 // abandon drops the rest of the plan and tells the model why on its next look.
 func (a *Agent) abandon(s *session, reason string) {
 	left := s.planned - s.sent
-	s.plan, s.verify = nil, ""
+	// A plan that did not go as expected is over.
+	s.plan, s.verify, s.script = nil, "", nil
 	if s.planned == 0 {
 		return
 	}
@@ -220,7 +204,7 @@ func (a *Agent) abandon(s *session, reason string) {
 // expected, without calling the model. It reports false when the model must look instead.
 // results are the results of every action sent since the model last looked.
 func (a *Agent) continuePlan(ctx context.Context, s *session, obs Observation, results []ActionResult, sig []uint8, stale int) (Step, bool) {
-	if s.verify == "" || len(s.plan) == 0 || !a.checksOn(s) {
+	if s.verify == "" || !a.checksOn(s) {
 		return Step{}, false
 	}
 	entry := stepTrace{
@@ -265,6 +249,13 @@ func (a *Agent) continuePlan(ctx context.Context, s *session, obs Observation, r
 		s.carried = results
 		s.stale, s.lastSig = 0, sig
 		s.loadWaits = 0
+		s.verify = ""
+		if len(s.plan) == 0 {
+			entry.Status, entry.Message = StatusWorking, s.message
+			entry.Memo, entry.Job = s.memo, s.job
+			a.record(s, entry, obs.Screenshot, []modelCall{verdict.call(nil)})
+			return Step{}, false
+		}
 		actions, dropped := a.sendRun(s, s.plan, nil)
 		step := Step{Status: StatusWorking, Message: s.message, Actions: actions, Number: s.step, Usage: s.usage, Dropped: dropped}
 		entry.Status, entry.Message, entry.Actions, entry.Dropped = step.Status, step.Message, actions, dropped
@@ -283,7 +274,13 @@ func (a *Agent) continuePlan(ctx context.Context, s *session, obs Observation, r
 		return step, true
 	}
 	a.record(s, entry, obs.Screenshot, []modelCall{verdict.call(nil)})
-	a.abandon(s, "The checker did not confirm the screen showed what you expected ("+expect+"): "+reason+".")
+	reasonText := "The checker did not confirm the screen showed what you expected (" + expect + "): " + reason + "."
+	if strings.HasPrefix(expect, "The screen shows all of the following") {
+		// One of several fields failed its check, and the checker cannot say which: the model reads the
+		// screen and puts every wrong or empty field right in one answer, not one field per look.
+		reasonText += " Look at every field on this screen now, and plan every one that is wrong or empty together in one answer."
+	}
+	a.abandon(s, reasonText)
 	return Step{}, false
 }
 

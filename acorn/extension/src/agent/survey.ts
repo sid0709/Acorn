@@ -120,6 +120,14 @@ export async function scrollForAction(
 ): Promise<void> {
   if (action.scrollTo == null) return;
   const wanted = action.scrollTo / scale;
+  // A point pinned to the screenshot it was measured on (no page height) is only put back when the
+  // page has moved: most actions find it where they left it, and cost no scroll and no wait.
+  if (
+    action.pageHeight == null &&
+    Math.abs((await pageState(cdp)).y - wanted) <= SCROLL_TOLERANCE_PX
+  ) {
+    return;
+  }
   const state = await scrollPageTo(cdp, wanted);
   await sleep(SURVEY_SETTLE_MS);
   if (action.pageHeight != null) {

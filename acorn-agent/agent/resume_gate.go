@@ -94,10 +94,15 @@ func (a *Agent) learnJD(ctx context.Context, s *session, obs Observation) {
 		return
 	}
 	if *answer.Noul < jdAbove {
+		// A long page that is not a job posting is usually an application form or account
+		// flow; do not auto-scroll down hunting for Apply (that skips unfilled sections).
+		if len([]rune(text)) >= minPageTextChars {
+			s.formReady = true
+		}
 		return
 	}
 	s.jd = clipText(text, maxJDChars)
-	s.notes = append(s.notes, "The job description, read from the page text ("+orNone(obs.Title)+"):\n"+clipText(text, maxJDNoteChars))
+	s.notes = append(s.notes, "The job description, read from the page text ("+orNone(obs.Title)+"). The screenshot, not this text, shows what the form holds and what is filled in:\n"+clipText(text, maxJDNoteChars))
 }
 
 // needsAsk is whether choosing a résumé now would be a guess the person should confirm: a résumé
@@ -145,12 +150,12 @@ func (a *Agent) answerPending(s *session, obs Observation, results []ActionResul
 		return a.askStep(s, obs, results, sig, held), nil
 	case AnswerChooseOwn:
 		s.pendingUpload = nil
-		s.finished = true
 		stop := &StopInfo{
 			Reason:  StopResumeChoice,
 			Problem: "Acorn found no job description, so it doesn't know which résumé fits.",
 			Action:  "Upload the résumé you want on the page yourself, then press Continue.",
 		}
+		s.finished, s.stoppedFor = true, stop.Problem
 		a.record(s, stepTrace{
 			Seq: s.seq, Step: s.step, At: a.now(), Source: sourceAsk, URL: obs.URL, Title: obs.Title, Viewport: obs.Viewport,
 			Status: StatusNeedPerson, Message: stop.Problem, Stop: stop, Usage: s.usage,

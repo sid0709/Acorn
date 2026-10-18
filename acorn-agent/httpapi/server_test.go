@@ -332,3 +332,38 @@ func TestHealthSaysWhereTheApplicantComesFrom(t *testing.T) {
 		t.Fatalf("health = %s", body)
 	}
 }
+
+func TestAStoppedRunContinuesOverHTTP(t *testing.T) {
+	stuck := `{"observation":"x","memo":"m","job":"","status":"need_person","message":"Enter the code","actions":[],"stop":{"reason":"verification","problem":"A code was emailed","action":"Enter it"}}`
+	_, ts := newServer(t, fakeModel{content: stuck}, "server-key")
+	_, body := send(t, http.MethodPost, ts.URL+BasePath+"/sessions", agent.Start{URL: "https://jobs.example"}, nil)
+	var started agent.Started
+	if err := json.Unmarshal(body, &started); err != nil {
+		t.Fatal(err)
+	}
+	obs := agent.Observation{Screenshot: screenshot(t), URL: "https://jobs.example", Viewport: agent.Viewport{Width: 200, Height: 100}}
+	url := ts.URL + BasePath + "/sessions/" + started.SessionID
+	// The first stop is sent back to finish the page (the model is asked again); the second stands.
+	for i := 0; i < 2; i++ {
+		if response, body := send(t, http.MethodPost, url+"/step", obs, nil); response.StatusCode != 200 {
+			t.Fatalf("step = %d %s", response.StatusCode, body)
+		}
+	}
+	if response, body := send(t, http.MethodPost, url+"/step", obs, nil); response.StatusCode != http.StatusConflict || !strings.Contains(string(body), `"run_over"`) {
+		t.Fatalf("a stopped run takes no step: %d %s", response.StatusCode, body)
+	}
+
+	response, body := send(t, http.MethodPost, url+"/continue", nil, nil)
+	var continued agent.Continued
+	if response.StatusCode != 200 || json.Unmarshal(body, &continued) != nil || continued.Number != 2 || continued.Usage.Calls != 2 {
+		t.Fatalf("continue = %d %s", response.StatusCode, body)
+	}
+	if response, body := send(t, http.MethodPost, url+"/step", obs, nil); response.StatusCode != 200 {
+		t.Fatalf("step after continue = %d %s", response.StatusCode, body)
+	}
+
+	send(t, http.MethodDelete, url, nil, nil)
+	if response, body := send(t, http.MethodPost, url+"/continue", nil, nil); response.StatusCode != http.StatusNotFound || !strings.Contains(string(body), `"no_session"`) {
+		t.Fatalf("continue after end = %d %s", response.StatusCode, body)
+	}
+}

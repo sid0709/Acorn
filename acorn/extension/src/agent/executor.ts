@@ -5,16 +5,21 @@
  */
 
 import {
+  ACTION_KIND,
   ACTION_OPENED,
+  type ActionKind,
   type ActionOpened,
   type AgentAction,
   type AgentActionResult,
 } from "@acorn/shared/agent-contract";
 
+import { NO_FOCUS_MESSAGE, nothingHasFocus, scrollsAPage } from "./focus-guard";
 import { BLOCKED_MESSAGE, type GuardVerdict } from "./guard";
 import { clickAt, moveMouse, pressKeys, typeText, wheelAt } from "./input";
+import { watchInputEffects } from "./input-settle";
 import { scrollForAction } from "./survey";
 import { uploadAt, type ResumeFile } from "./upload";
+import { waitForUploadProcessing } from "./upload-settle";
 
 import type { Cdp } from "./cdp";
 import type { Overlay } from "./overlay";
@@ -46,6 +51,20 @@ export interface ExecutorContext {
   /** How long an upload waits for the click to open a file picker; the default when unset. */
   fileChooserWaitMs?: number;
 }
+
+/**
+ * The actions that can make a site send something (a code, a link) or move its page: a click,
+ * typing, a key, a file. A wait or a scroll cannot, so they say nothing about when a site was asked.
+ */
+export const CHANGES_THE_PAGE: ReadonlySet<ActionKind> = new Set([
+  ACTION_KIND.click,
+  ACTION_KIND.doubleClick,
+  ACTION_KIND.tripleClick,
+  ACTION_KIND.rightClick,
+  ACTION_KIND.type,
+  ACTION_KIND.key,
+  ACTION_KIND.upload,
+]);
 
 function point(action: AgentAction, scale: number): { x: number; y: number } {
   if (action.x == null || action.y == null) throw new Error("the action has no point");
@@ -120,12 +139,15 @@ async function perform(ctx: ExecutorContext, action: AgentAction): Promise<Done>
     }
     case "type": {
       if (!action.text) throw new Error("there is no text to type");
+      if (await nothingHasFocus(cdp)) throw new Error(NO_FOCUS_MESSAGE);
       await typeText(cdp, action.text);
       await ctx.sleep(SETTLE_MS / 2);
       return { detail: `${[...action.text].length} characters` };
     }
     case "key": {
       if (!action.keys) throw new Error("there is no key to press");
+      if (scrollsAPage(action.keys) && (await nothingHasFocus(cdp)))
+        throw new Error(NO_FOCUS_MESSAGE);
       await pressKeys(cdp, action.keys);
       await ctx.sleep(SETTLE_MS);
       return {};
@@ -148,6 +170,7 @@ async function perform(ctx: ExecutorContext, action: AgentAction): Promise<Done>
       await refuseIfBlocked(verdict);
       void ctx.overlay.click();
       const done = await uploadAt(cdp, x, y, file, ctx.fileChooserWaitMs);
+      await waitForUploadProcessing(cdp, ctx.sleep);
       await ctx.sleep(SETTLE_MS);
       return { detail: `${done.fileName}, ${done.bytes} bytes, through the ${done.via}` };
     }
@@ -171,6 +194,9 @@ export async function runActions(
 ): Promise<AgentActionResult[]> {
   const results: AgentActionResult[] = [];
   let failed = false;
+  // A step that types is looked at only once the page has answered what the typing asked of it.
+  const typing = actions.some((action) => action.kind === "type" || action.kind === "key");
+  const effects = typing ? await watchInputEffects(ctx.cdp) : null;
   for (const action of actions) {
     if (failed) {
       results.push({
@@ -199,5 +225,6 @@ export async function runActions(
       });
     }
   }
+  await effects?.settle(ctx.sleep);
   return results;
 }

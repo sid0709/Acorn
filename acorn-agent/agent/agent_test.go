@@ -111,7 +111,7 @@ func shot(t *testing.T, shade uint8, marks ...image.Rectangle) string {
 func observation(screenshot string) Observation {
 	return Observation{
 		Screenshot: screenshot, URL: "https://jobs.example/apply", Title: "Apply",
-		Viewport: Viewport{Width: 1280, Height: 800, PageWidth: 1280, PageHeight: 2400},
+		Viewport: Viewport{Width: 1280, Height: 800, PageWidth: 1280, PageHeight: 800},
 	}
 }
 
@@ -160,6 +160,21 @@ func newAgentWithScreen(t *testing.T, model *scriptedModel, decider Decider, scr
 		func(string) llm.Model { return model },
 		func(string) Decider { return decider },
 		newScreen)
+}
+
+// startOnForm opens a run and marks the session as already on the application form, so tests
+// that count screen-check calls are not preceded by the navigation gate.
+func startOnForm(t *testing.T, a *Agent) string {
+	t.Helper()
+	id := start(t, a)
+	s, ok := a.sessions.get(id)
+	if !ok {
+		t.Fatal("no session")
+	}
+	s.mu.Lock()
+	s.formReady = true
+	s.mu.Unlock()
+	return id
 }
 
 func start(t *testing.T, a *Agent) string {
@@ -335,7 +350,7 @@ func TestSecretTextIsNeverTraced(t *testing.T) {
 
 func TestNonWorkingStatusEndsTheRun(t *testing.T) {
 	model := &scriptedModel{replies: []string{answerJSON("need_person", "A CAPTCHA is on the page", map[string]any{"kind": "click", "x": 5.0, "y": 5.0})}}
-	a := newTestAgent(t, model, &fixedDecider{}, DefaultConfig())
+	a := newTestAgent(t, model, &fixedDecider{}, stopsAtOnce())
 	id := start(t, a)
 	step, err := a.Step(context.Background(), id, observation(shot(t, 255)))
 	if err != nil {
@@ -479,7 +494,7 @@ func TestHistoryOnlyGrowsAtTheEndSoTheProviderCanCacheIt(t *testing.T) {
 
 func TestHistoryIsCompactedOnceItPassesTheBudgetThenGrowsAgain(t *testing.T) {
 	cfg := DefaultConfig()
-	cfg.KeepTurns, cfg.KeepImages, cfg.HistoryTokens = 4, 2, 8000
+	cfg.KeepTurns, cfg.KeepImages, cfg.HistoryTokens = 4, 2, 9000
 	model := runWaitSteps(t, cfg, 14)
 
 	compactions := 0

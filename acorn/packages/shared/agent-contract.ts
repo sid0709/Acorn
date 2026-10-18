@@ -14,6 +14,7 @@ export const AGENT_ROUTES = {
     `/agent/v1/sessions/${encodeURIComponent(sessionId)}/resume?id=${encodeURIComponent(resumeId)}`,
   session: (sessionId: string) => `/agent/v1/sessions/${encodeURIComponent(sessionId)}`,
   vet: (sessionId: string) => `/agent/v1/sessions/${encodeURIComponent(sessionId)}/vet`,
+  continue: (sessionId: string) => `/agent/v1/sessions/${encodeURIComponent(sessionId)}/continue`,
 } as const;
 
 /** Header that carries the person's OpenRouter key when the extension has one. */
@@ -50,7 +51,10 @@ export type AgentStatus = (typeof AGENT_STATUS)[keyof typeof AGENT_STATUS];
 /** Why a run ended without being done (mirrors acorn-agent's Stop* values). */
 export const AGENT_STOP_REASON = {
   captcha: "captcha",
+  /** A code the site emailed the applicant. */
   verification: "verification",
+  /** A link in an email the applicant must open. */
+  verificationLink: "verification_link",
   identity: "identity",
   document: "document",
   signIn: "sign_in",
@@ -271,6 +275,12 @@ export interface AgentStarted {
   resumes: AgentResumeInfo[];
   /** The run's start (session.json, system.txt), when the run asked for the trace. */
   trace?: AgentTrace;
+}
+
+/** A stopped run taken back up: the step it was at and what it has spent, so the counters go on. */
+export interface AgentContinued {
+  number: number;
+  usage: AgentUsage;
 }
 
 /** The server's stable codes beside an error (acorn-agent/httpapi and llm). */
