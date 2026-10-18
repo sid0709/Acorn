@@ -63,6 +63,7 @@ const (
 	envFallbackResume = "DEFAULT_FALLBACK_RESUME"
 	envChunkActions   = "ACORN_AGENT_CHUNK_ACTIONS"
 	envVetBlock       = "ACORN_AGENT_VET_BLOCK_PERCENT"
+	envVetClickBlock  = "ACORN_AGENT_VET_CLICK_BLOCK_PERCENT"
 	envSignOnBlock    = "ACORN_AGENT_SSO_BLOCK_PERCENT"
 	envAccountTries   = "ACORN_AGENT_ACCOUNT_ATTEMPTS"
 	envMaxPrefills    = "ACORN_AGENT_MAX_PREFILLS"
@@ -141,6 +142,7 @@ func run() error {
 	cfg.CheckLoading = percent(envCheckLoading, cfg.CheckLoading)
 	cfg.OptionMatch = percent(envOptionMatch, cfg.OptionMatch)
 	cfg.VetBlock = percent(envVetBlock, 0.3)
+	cfg.VetClickBlock = percent(envVetClickBlock, 0.6)
 	cfg.SingleSignOnBlock = percent(envSignOnBlock, 0.5)
 	cfg.AccountAttempts = config.EnvInt(envAccountTries, cfg.AccountAttempts)
 	cfg.MaxPrefills = config.EnvInt(envMaxPrefills, cfg.MaxPrefills)

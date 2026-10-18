@@ -108,6 +108,11 @@ type Config struct {
 	// VetBlock is the probability, from the decision model, at which a control, window or frame
 	// is blocked as an online file source (0 means 0.3).
 	VetBlock float64
+	// VetClickBlock is the same for a control about to be clicked (0 means 0.6). It is stricter on a
+	// window or frame, which a click already opened and which is closed at no cost, than on a click that
+	// cannot be taken back: a control that is only possibly an online source is clicked, and what it opens
+	// is judged by VetBlock.
+	VetClickBlock float64
 	// SingleSignOnBlock is the probability, from the decision model, at which a control, window
 	// or frame is blocked as a sign-in through another service's account (0 means 0.5).
 	SingleSignOnBlock float64
