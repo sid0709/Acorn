@@ -129,7 +129,23 @@ function hits(target: Element, point: Element | null): boolean {
   if (!point) return false;
   if (target.contains(point) || point.contains(target)) return true;
   const control = target as HTMLInputElement;
-  return Array.from(control.labels ?? []).some((label) => label.contains(point));
+  if (Array.from(control.labels ?? []).some((label) => label.contains(point))) return true;
+  return isTwin(target, point);
+}
+
+/**
+ * A clickable layer a page draws over a control, saying the same words in the same place: a click on
+ * it is a click on the control, so it does not count as something covering it.
+ */
+function isTwin(target: Element, other: Element): boolean {
+  const words = (el: Element) =>
+    clean((el as HTMLElement).innerText || el.getAttribute("aria-label"));
+  const text = words(target);
+  return (
+    text !== "" &&
+    text === words(other) &&
+    mostlyOverlap(target.getBoundingClientRect(), other.getBoundingClientRect())
+  );
 }
 
 /** A point of the element's box that a click would reach the element at, in this frame's viewport. */
@@ -256,14 +272,38 @@ function isRequired(el: Element): boolean {
   return (el as HTMLInputElement).required === true || el.getAttribute("aria-required") === "true";
 }
 
+/** The words a control shows. */
+function controlText(el: Element): string {
+  const input = el as HTMLInputElement;
+  return (
+    (el as HTMLElement).innerText ||
+    input.value ||
+    el.getAttribute("aria-label") ||
+    el.getAttribute("title") ||
+    ""
+  );
+}
+
+/** A control that submits its form: a submit button or input, or an image button. */
+function isSubmitControl(el: Element): boolean {
+  if (el instanceof HTMLInputElement) return el.type === "submit" || el.type === "image";
+  return el instanceof HTMLButtonElement && el.type === "submit";
+}
+
+function isDisabled(el: Element): boolean {
+  return (el as HTMLButtonElement).disabled === true || el.getAttribute("aria-disabled") === "true";
+}
+
 const NOT_A_FIELD = new Set(["hidden", "submit", "button", "image", "reset"]);
 
 /** What is left on this frame's page. A field is read as a person would: by what shows, not by what the page's script holds. */
 function reviewFrame(): FrameReview {
   const empty: string[] = [];
   const errors: string[] = [];
+  const blocked: string[] = [];
   let fields = 0;
   const groups = new Map<string, HTMLInputElement[]>();
+  const unticked: HTMLInputElement[] = [];
   const add = (list: string[], text: string) => {
     if (text && !list.includes(text)) list.push(text);
   };
@@ -275,6 +315,10 @@ function reviewFrame(): FrameReview {
       add(errors, message ? `${labelOf(el)}: ${message}` : labelOf(el));
     } else if (el.getAttribute("role") === "alert" && shown(el)) {
       add(errors, clean(el.textContent));
+    }
+    // A control that submits its form and cannot be pressed: something it needs is not done.
+    if (isSubmitControl(el) && isDisabled(el) && shown(el)) {
+      add(blocked, `a control that continues is disabled: ${clean(controlText(el))}`);
     }
     if (!(
       el instanceof HTMLInputElement ||
@@ -290,6 +334,7 @@ function reviewFrame(): FrameReview {
     )
       continue;
     fields += 1;
+    if (type === "checkbox" && el instanceof HTMLInputElement && !el.checked) unticked.push(el);
     if (!isRequired(el)) continue;
     if (type === "radio" && el instanceof HTMLInputElement) {
       groups.set(el.name || `${groups.size}`, [...(groups.get(el.name) ?? []), el]);
@@ -308,7 +353,13 @@ function reviewFrame(): FrameReview {
     if (!radios.some((radio) => radio.checked))
       add(empty, clean(groupQuestionOf(radios[0])) || labelOf(radios[0]));
   }
-  return { ok: true, fields, empty, errors };
+  // With the continue control disabled, a box nobody ticked may be what it waits for (a page does not
+  // always mark such a box required): they are listed as suspects, and only then, so that an optional
+  // box left alone is no problem on a page that can go on.
+  if (blocked.length > 0) {
+    for (const box of unticked) add(blocked, `unticked: ${labelOf(box)}`);
+  }
+  return { ok: true, fields, empty, errors, blocked };
 }
 
 /** The question a group of options answers. */
@@ -324,14 +375,33 @@ function groupQuestionOf(input: HTMLInputElement): string {
 
 const MAX_CANDIDATES = 40;
 
-/** The controls of this frame's page that could be pressed, with the numbers the serializer gave them. */
+/** Whether two boxes overlap by more than half of the smaller one. */
+function mostlyOverlap(a: DOMRect, b: DOMRect): boolean {
+  const width = Math.min(a.right, b.right) - Math.max(a.left, b.left);
+  const height = Math.min(a.bottom, b.bottom) - Math.max(a.top, b.top);
+  if (width <= 0 || height <= 0) return false;
+  return width * height > 0.5 * Math.min(a.width * a.height, b.width * b.height);
+}
+
+/** Whether the element is a control the browser itself draws (a button or an input), not a role on another element. */
+function isNativeControl(el: Element): boolean {
+  return el instanceof HTMLButtonElement || el instanceof HTMLInputElement;
+}
+
+/**
+ * The controls of this frame's page that could be pressed, with the numbers the serializer gave them.
+ * A page may draw one control twice: a native button and a clickable layer over it with the same words.
+ * They are one control, so they are listed once (the native one, when there is one): otherwise the
+ * decision model splits its certainty between them.
+ */
 function candidatesFrame(): FrameCandidates {
   try {
     serializeDom();
   } catch (err) {
     return { ok: false, error: err instanceof Error ? err.message : String(err) };
   }
-  const found: FrameCandidate[] = [];
+  type Found = FrameCandidate & { el: Element; rect: DOMRect };
+  const found: Found[] = [];
   for (const el of everyElement()) {
     const input = el as HTMLInputElement;
     const isInput =
@@ -357,11 +427,28 @@ function candidatesFrame(): FrameCandidates {
       text,
       kind: submits ? "submit" : "button",
       inForm: Boolean(el.closest("form")),
+      el,
+      rect: el.getBoundingClientRect(),
     });
   }
+  const distinct: Found[] = [];
+  for (const candidate of found) {
+    const twin = distinct.findIndex(
+      (other) => other.text === candidate.text && mostlyOverlap(other.rect, candidate.rect),
+    );
+    if (twin < 0) distinct.push(candidate);
+    else if (!isNativeControl(distinct[twin].el) && isNativeControl(candidate.el)) {
+      distinct[twin] = candidate;
+    }
+  }
   // The controls of the form first: a page's navigation and banners can fill the list.
-  found.sort((a, b) => Number(b.inForm) - Number(a.inForm));
-  return { ok: true, candidates: found.slice(0, MAX_CANDIDATES) };
+  distinct.sort((a, b) => Number(b.inForm) - Number(a.inForm));
+  return {
+    ok: true,
+    candidates: distinct
+      .slice(0, MAX_CANDIDATES)
+      .map(({ nodeId, text, kind, inForm }) => ({ nodeId, text, kind, inForm })),
+  };
 }
 
 function serialize(): SerializedFrame {

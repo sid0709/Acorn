@@ -69,13 +69,24 @@ type Config struct {
 	MaxPrefills int
 	// MaxReviews and MaxAdvances are the most reviews and advances one run may make (review.go, advance.go).
 	MaxReviews, MaxAdvances int
-	// ReviewErrors is how sure the decision model must be that an error is showing for a page to need fixing.
+	// ReviewErrors is how sure the decision model must be, of an error showing, a question unanswered,
+	// a box unticked, or the continue control greyed out, for a page to need fixing.
 	ReviewErrors float64
 	// HumanStop is how sure it must be that only the applicant can go on for the run to stop and ask.
 	HumanStop float64
-	// AdvanceMatch is how sure it must be of the control that continues the application, and AdvanceFinal
-	// of the one that sends it, for the extension to press it.
+	// AdvanceMatch is how sure the decision model must be of the control that continues the application
+	// for it to be pressed outright, and AdvanceFinal of the one that sends it.
 	AdvanceMatch, AdvanceFinal float64
+	// A page that reviewed clean must go on, so a pick below AdvanceMatch is still pressed when the model
+	// is sure that some control continues (it gives "none" at most AdvanceNoneMax) and the pick has at
+	// least AdvanceTopMin and leads the next control by AdvanceMargin. A pick that changes nothing is
+	// found out by the extension (the same control pressed twice) and left to the driving model.
+	AdvanceNoneMax, AdvanceTopMin, AdvanceMargin float64
+	// A stop for the applicant is sent back once (StopOverridePasses per run) when a review made within
+	// StopOverrideSteps steps, on the same page, found it clean and was at least StopOverrideNone sure
+	// that nothing there needs the applicant: the model is told to use the control that continues.
+	StopOverridePasses, StopOverrideSteps int
+	StopOverrideNone                      float64
 	// KeepTurns is how many recent steps stay in full when the history is compacted; older
 	// ones are folded into one line each.
 	KeepTurns int
@@ -113,34 +124,40 @@ type Config struct {
 // DefaultConfig is the bounds a run has when nothing else is set.
 func DefaultConfig() Config {
 	return Config{
-		MaxSteps:          150,
-		MaxActions:        12,
-		UncheckedActions:  6,
-		ChunkActions:      6,
-		CheckMatch:        0.9,
-		CheckBlocked:      0.2,
-		CheckLoading:      0.3,
-		CheckLoadingWait:  0.7,
-		OptionMatch:       0.7,
-		LoadWait:          time.Second,
-		MaxLoadWaits:      4,
-		StopPasses:        2,
-		DonePasses:        2,
-		DoneConfirm:       0.7,
-		SingleSignOnBlock: 0.5,
-		AccountAttempts:   8,
-		MaxPrefills:       20,
-		MaxReviews:        80,
-		MaxAdvances:       40,
-		ReviewErrors:      0.3,
-		HumanStop:         0.85,
-		AdvanceMatch:      0.8,
-		AdvanceFinal:      0.5,
-		KeepTurns:         8,
-		KeepImages:        3,
-		HistoryTokens:     30_000,
-		MaxStale:          6,
-		SessionTTL:        time.Hour,
+		MaxSteps:           150,
+		MaxActions:         12,
+		UncheckedActions:   6,
+		ChunkActions:       6,
+		CheckMatch:         0.9,
+		CheckBlocked:       0.2,
+		CheckLoading:       0.3,
+		CheckLoadingWait:   0.7,
+		OptionMatch:        0.7,
+		LoadWait:           time.Second,
+		MaxLoadWaits:       4,
+		StopPasses:         2,
+		DonePasses:         2,
+		DoneConfirm:        0.7,
+		SingleSignOnBlock:  0.5,
+		AccountAttempts:    8,
+		MaxPrefills:        20,
+		MaxReviews:         80,
+		MaxAdvances:        40,
+		ReviewErrors:       0.3,
+		HumanStop:          0.85,
+		AdvanceMatch:       0.8,
+		AdvanceFinal:       0.5,
+		AdvanceNoneMax:     0.2,
+		AdvanceTopMin:      0.5,
+		AdvanceMargin:      0.15,
+		StopOverridePasses: 1,
+		StopOverrideSteps:  4,
+		StopOverrideNone:   0.9,
+		KeepTurns:          8,
+		KeepImages:         3,
+		HistoryTokens:      30_000,
+		MaxStale:           6,
+		SessionTTL:         time.Hour,
 	}
 }
 
@@ -496,7 +513,7 @@ func (a *Agent) step(ctx context.Context, id string, obs Observation) (Step, err
 	}
 	status = answer.Status
 	// The applicant is asked last: a stop is first sent back to finish everything else on the page.
-	if note, held := a.holdStop(s, status, answer); held {
+	if note, held := a.holdStop(s, obs.URL, status, answer); held {
 		status, answer.Message = StatusWorking, stopPassMessage
 		planned = []Action{{ID: fmt.Sprintf("s%da1", number), Kind: KindWait, Ms: stopPassWaitMs}}
 		s.notes = append(s.notes, note)

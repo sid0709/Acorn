@@ -57,6 +57,7 @@ import {
   waitForMailVerification,
 } from "./mail-verification";
 import { readFocus, readPageText } from "./page-info";
+import { stateOf } from "./point-info";
 import { DomFirst, type DomFirstOutcome } from "./prefill/dom-first";
 import { PrefillGate } from "./prefill/fields";
 import { runPrefill } from "./prefill/run";
@@ -521,6 +522,11 @@ export async function runAgent(args: AgentRunArgs): Promise<RunReport> {
     checkStopped,
     guard: clickGuard,
     afterClick: () => frames.sweep(),
+    inspected: (at, before, after) => {
+      // A click on a box, list or expander that left it as it was: what was there, and what covered it.
+      if (stateOf(before) !== stateOf(after)) return;
+      log.event("agent-click:no-change", { at, before, after });
+    },
   };
 
   // The DOM-first loop measures in CSS pixels of the tab, not of a screenshot. Its quick pass clicks only
@@ -572,6 +578,15 @@ export async function runAgent(args: AgentRunArgs): Promise<RunReport> {
       screenshot: snap.dataUrl,
       viewport: snap.viewport,
       failed: (prefillReport?.failed ?? []).map((line) => line.label),
+      survey: async () => {
+        // The page's screens, taken with the overlay out of the picture and the page put back where it was.
+        await here.overlay.hideForCapture(true);
+        try {
+          return await captureSurvey({ cdp: here.cdp, sleep, checkStopped }, snap);
+        } finally {
+          await here.overlay.hideForCapture(false);
+        }
+      },
     });
     void here.overlay.setLabel(OVERLAY_LABEL);
     return outcome;

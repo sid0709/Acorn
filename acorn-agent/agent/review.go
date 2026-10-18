@@ -5,6 +5,8 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"math"
+	"sort"
 	"strings"
 
 	"github.com/sid0709/acorn/acorn-agent/decide"
@@ -43,6 +45,9 @@ const (
 // Questions of a review and the keys their answers come back under.
 const (
 	askVisibleErrors = "visible_errors"
+	askUnanswered    = "unanswered_question"
+	askUnticked      = "unticked_consent"
+	askGreyedOut     = "continue_greyed_out"
 	askHuman         = "human_needed"
 	humanNone        = "none"
 	humanCaptcha     = "captcha"
@@ -73,6 +78,9 @@ type ReviewFindings struct {
 	Errors []string `json:"errors,omitempty"`
 	// Failed are the labels of fills the pass made that did not take.
 	Failed []string `json:"failed,omitempty"`
+	// Blocked are the controls that would continue the application but are disabled, and, when there
+	// is one, the unticked boxes of the form: something they need is not done.
+	Blocked []string `json:"blocked,omitempty"`
 }
 
 // problems lists what is left, in the words of the page.
@@ -87,6 +95,9 @@ func (f ReviewFindings) problems() []string {
 	for _, label := range f.Errors {
 		out = append(out, "the page shows: "+label)
 	}
+	for _, label := range f.Blocked {
+		out = append(out, "blocked: "+label)
+	}
 	return out
 }
 
@@ -97,6 +108,9 @@ type ReviewRequest struct {
 	Screenshot string         `json:"screenshot"`
 	Viewport   Viewport       `json:"viewport"`
 	DOM        ReviewFindings `json:"dom"`
+	// Survey is the whole page as screenshots from top to bottom, sent when the page is taller than the
+	// screen and the page's own state found nothing wrong. The review is made on all of it.
+	Survey []SurveyScreen `json:"survey,omitempty"`
 }
 
 // ReviewResult is what the review made of the page.
@@ -114,6 +128,9 @@ type ReviewResult struct {
 func reviewQuestions() map[string]decide.Question {
 	return map[string]decide.Question{
 		askVisibleErrors: decide.YesNo("Does this web page show an error or validation message on its form: red or highlighted text saying a field is required, invalid, missing or wrong, or an error banner? Count messages beside fields."),
+		askUnanswered:    decide.YesNo("Is there a question or field on these screens of the application form that still looks unanswered: an empty box, a list left on its prompt, or a group of choices with none chosen? Ignore anything marked optional."),
+		askUnticked:      decide.YesNo("Is there a checkbox on these screens that the applicant has to tick for the application to go on, such as an agreement, a consent or an acknowledgement, that is still unticked?"),
+		askGreyedOut:     decide.YesNo("Is the control that would continue the application (to the next step, or to send it) shown greyed out or disabled, so that it cannot be pressed yet?"),
 		askHuman: {
 			Type:         decide.TypeChoice,
 			Instructions: "Does this page need something only the applicant's own hand can give before the application can go on? Choose none when it does not.",
@@ -127,6 +144,52 @@ func reviewQuestions() map[string]decide.Question {
 		askLoading: decide.YesNo("Is the page still loading or changing: a spinner, a progress bar, or a blank or half-drawn page?"),
 		askSent:    sentQuestion()[askSent],
 	}
+}
+
+// reviewProblems are the questions whose "yes" means the page is not done, and what is told of each.
+var reviewProblems = []struct{ key, problem string }{
+	{askVisibleErrors, "an error or validation message is showing on the page"},
+	{askUnanswered, "a question on the page still looks unanswered"},
+	{askUnticked, "a box the applicant has to tick is still unticked"},
+	{askGreyedOut, "the control that continues is greyed out, so something it needs is not done"},
+}
+
+// coverTolerance is how many pixels of a page's top or bottom may be missing from the screens and
+// still count as seen (a page's size is a rounding of what it measures).
+const coverTolerance = 12
+
+// seesWholePage is whether the screens, each at its own scroll position, between them show the page
+// from its top to its bottom with no gap. A page no taller than one screen is seen by one.
+func seesWholePage(vp Viewport, screens []SurveyScreen, main float64) bool {
+	height := float64(vp.Height)
+	positions := []float64{main}
+	for _, screen := range screens {
+		positions = append(positions, screen.ScrollY)
+	}
+	sort.Float64s(positions)
+	reach := 0.0
+	if positions[0] > coverTolerance {
+		return false
+	}
+	for _, y := range positions {
+		if y > reach+coverTolerance {
+			return false
+		}
+		reach = math.Max(reach, y+height)
+	}
+	return reach >= vp.PageHeight-coverTolerance
+}
+
+// reviewState is what the decision model reads: every screen of the page, in order, each said where it is.
+func reviewState(screenshot string, vp Viewport, survey []SurveyScreen) []decide.Part {
+	if len(survey) < 2 {
+		return checkState(screenshot)
+	}
+	parts := []decide.Part{decide.Text(fmt.Sprintf("The whole of a web page the applicant's browser is on, as %d screenshots from its top to its bottom.", len(survey)))}
+	for i, screen := range survey {
+		parts = append(parts, decide.Text(fmt.Sprintf("Screen %d of %d (from %.0f px down the page, which is %.0f px tall):", i+1, len(survey), screen.ScrollY, vp.PageHeight)), decide.Image(screen.Screenshot))
+	}
+	return parts
 }
 
 // humanStop is the end of a run that needs the applicant, by what the page asks.
@@ -163,13 +226,45 @@ func reviewNote(verdict string, problems []string) string {
 	switch verdict {
 	case ReviewFix:
 		return "A review after the first draft found these left to do on this page: " + strings.Join(problems, "; ") +
-			". Do exactly these, then continue. Everything else on the page was checked and is answered: do not scroll through it again to check."
+			". Do exactly these, then continue."
 	case ReviewClean:
-		return "A review after the first draft found every required field on this page answered, no error showing, and nothing in the way. Do not scroll through the page to check it again: go to the control that continues (Next, Continue or Submit) and use it."
+		return "A review of the whole page after the first draft found its questions answered, no error showing, and nothing in the way. Go to the control that continues (Next, Continue or Submit) and use it; it may be below the part of the page on screen."
 	case ReviewSent:
 		return "A check reads this screen as showing that the application was sent. Confirm it from the screenshot and report done."
 	}
 	return ""
+}
+
+// reviewMark is the last review that found a page clean: where, when (the step the run was at), and how
+// sure the decision model was that nothing on it needs the applicant.
+type reviewMark struct {
+	url       string
+	step      int
+	humanNone float64
+	clean     bool
+}
+
+// humanNoneP is how sure the decision model was that the page needs nothing of the applicant.
+func humanNoneP(answer decide.Answer) float64 {
+	if answer.Probabilities == nil {
+		return 0
+	}
+	return answer.Probabilities[humanNone]
+}
+
+// holdContradictedStop sends a stop for the applicant back when a recent review of the same page found
+// nothing that needs them. It reads no words: the review's own answers (clean, and sure that no check,
+// code or document is asked for) are what contradict the stop.
+func (a *Agent) holdContradictedStop(s *session, url, status string) (string, bool) {
+	mark := s.review
+	if status != StatusNeedPerson || !mark.clean || mark.url != url || s.overrides >= a.cfg.StopOverridePasses {
+		return "", false
+	}
+	if s.step-mark.step > a.cfg.StopOverrideSteps || mark.humanNone < a.cfg.StopOverrideNone {
+		return "", false
+	}
+	s.overrides++
+	return "A review of the whole page a moment ago found its questions answered, no error showing, and nothing that needs the applicant: no check to pass, no code and no document asked for. Do not stop for the applicant. Use the control that continues the application; it may be below the part of the page on screen. Stop for the applicant again only if something new has appeared since.", true
 }
 
 // Review judges the page after the first draft. A failure here changes nothing for the run: the
@@ -192,6 +287,7 @@ func (a *Agent) Review(ctx context.Context, id string, req ReviewRequest) (Revie
 		return ReviewResult{}, ErrReviewLimit
 	}
 	s.reviews++
+	s.review = reviewMark{}
 	problems := clipList(req.DOM.problems())
 	result := ReviewResult{Verdict: ReviewFix, Problems: problems}
 	entry := stepTrace{Seq: s.seq + 1, Step: s.step, At: a.now(), Source: sourceReview, URL: req.URL, Title: req.Title, Viewport: req.Viewport, Memo: s.memo, Job: s.job}
@@ -208,7 +304,13 @@ func (a *Agent) Review(ctx context.Context, id string, req ReviewRequest) (Revie
 		return a.finishReview(s, entry, nil, result, ""), nil
 	}
 
-	response, err := a.newScreen(s.key).Decide(ctx, decide.Request{State: checkState(req.Screenshot), Questions: reviewQuestions()})
+	// A page the screens do not show whole cannot be called clean: what is below is not known.
+	if !seesWholePage(req.Viewport, req.Survey, req.Viewport.ScrollY) {
+		result.Verdict = ReviewLook
+		entry.Message = "review: the screens do not show the whole page"
+		return a.finishReview(s, entry, nil, result, req.Screenshot), nil
+	}
+	response, err := a.newScreen(s.key).Decide(ctx, decide.Request{State: reviewState(req.Screenshot, req.Viewport, req.Survey), Questions: reviewQuestions()})
 	s.usage.Checks++
 	s.usage.CheckCost += response.Usage.Cost
 	s.usage.Cost += response.Usage.Cost
@@ -234,14 +336,18 @@ func (a *Agent) Review(ctx context.Context, id string, req ReviewRequest) (Revie
 		result.Verdict = ReviewLoading
 	case kind != "" && kind != humanNone && sure >= a.cfg.HumanStop:
 		result.Verdict = ReviewHuman
-	case yes(askVisibleErrors) >= a.cfg.ReviewErrors:
-		result.Verdict = ReviewFix
-		result.Problems = []string{"an error or validation message is showing on the page"}
 	default:
 		result.Verdict = ReviewClean
+		for _, problem := range reviewProblems {
+			if yes(problem.key) >= a.cfg.ReviewErrors {
+				result.Verdict = ReviewFix
+				result.Problems = append(result.Problems, problem.problem)
+			}
+		}
 	}
-	entry.Message = fmt.Sprintf("review: %s (errors %.2f, loading %.2f, human %s %.2f, sent %.2f)",
-		result.Verdict, yes(askVisibleErrors), yes(askLoading), kind, sure, yes(askSent))
+	s.review = reviewMark{url: req.URL, step: s.step, humanNone: humanNoneP(human), clean: result.Verdict == ReviewClean}
+	entry.Message = fmt.Sprintf("review: %s (errors %.2f, unanswered %.2f, unticked %.2f, greyed %.2f, loading %.2f, human %s %.2f, sent %.2f, screens %d)",
+		result.Verdict, yes(askVisibleErrors), yes(askUnanswered), yes(askUnticked), yes(askGreyedOut), yes(askLoading), kind, sure, yes(askSent), max(1, len(req.Survey)))
 	if result.Verdict == ReviewHuman {
 		stop, message := humanStop(kind)
 		s.finished, s.stoppedFor = true, message

@@ -237,6 +237,8 @@ export interface AgentReviewFindings {
   errors?: string[];
   /** Labels of fills the pass made that did not take. */
   failed?: string[];
+  /** Disabled controls that would continue the application, and, with one, the unticked boxes of its form. */
+  blocked?: string[];
 }
 
 export interface AgentReviewRequest {
@@ -245,6 +247,8 @@ export interface AgentReviewRequest {
   screenshot: string;
   viewport: AgentViewport;
   dom: AgentReviewFindings;
+  /** The whole page as screenshots, when it is taller than the screen and the page's own state found nothing wrong. */
+  survey?: AgentSurveyScreen[];
 }
 
 /** What a review made of the page. */
@@ -287,6 +291,9 @@ export interface AgentAdvanceRequest {
   title: string;
   screenshot: string;
   candidates: AgentAdvanceCandidate[];
+  /** The whole page as screenshots, so a control below the screen can be seen and chosen. */
+  survey?: AgentSurveyScreen[];
+  viewport: AgentViewport;
 }
 
 /** What to do about a page that reviewed clean. */
@@ -304,6 +311,9 @@ export interface AgentAdvanceResult {
   text?: string;
   /** The control sends the application rather than moving to another step. */
   submit?: boolean;
+  /** How sure the decision model was of the pick, and that no control continues. */
+  sure?: number;
+  none?: number;
   step?: AgentStep;
   usage: AgentUsage;
   trace?: AgentTrace;

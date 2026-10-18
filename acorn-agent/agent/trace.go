@@ -66,22 +66,24 @@ type stepTrace struct {
 	Survey        []SurveyScreen `json:"-"`
 	SurveyScreens int            `json:"surveyScreens,omitempty"`
 	Check         *checkTrace    `json:"check,omitempty"`
-	At            time.Time      `json:"at"`
-	URL           string         `json:"url"`
-	Title         string         `json:"title"`
-	Viewport      Viewport       `json:"viewport"`
-	Focus         *Focus         `json:"focus,omitempty"`
-	Notes         []string       `json:"notes,omitempty"`
-	Results       []ActionResult `json:"results,omitempty"`
-	Stale         int            `json:"stale"`
-	Observation   string         `json:"observation"`
-	Memo          string         `json:"memo"`
-	Job           string         `json:"job"`
-	Status        string         `json:"status"`
-	Message       string         `json:"message"`
-	Stop          *StopInfo      `json:"stop,omitempty"`
-	Actions       []Action       `json:"actions"`
-	Dropped       []string       `json:"dropped,omitempty"`
+	// Advance is what the decision model was asked about the controls of a clean page, and what it said.
+	Advance     *advanceTrace  `json:"advance,omitempty"`
+	At          time.Time      `json:"at"`
+	URL         string         `json:"url"`
+	Title       string         `json:"title"`
+	Viewport    Viewport       `json:"viewport"`
+	Focus       *Focus         `json:"focus,omitempty"`
+	Notes       []string       `json:"notes,omitempty"`
+	Results     []ActionResult `json:"results,omitempty"`
+	Stale       int            `json:"stale"`
+	Observation string         `json:"observation"`
+	Memo        string         `json:"memo"`
+	Job         string         `json:"job"`
+	Status      string         `json:"status"`
+	Message     string         `json:"message"`
+	Stop        *StopInfo      `json:"stop,omitempty"`
+	Actions     []Action       `json:"actions"`
+	Dropped     []string       `json:"dropped,omitempty"`
 	// Error is why the step produced no answer (the model failed, the observation was refused).
 	Error string `json:"error,omitempty"`
 	// Usage is the run's model use up to and including this step.

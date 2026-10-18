@@ -24,6 +24,21 @@ button{margin:20px 8px 0 0;padding:10px 18px;font:inherit}fieldset{margin:14px 0
           `<h1>Thank you!</h1><p>Your application was received. We will be in touch.</p>`,
         );
       }
+      // A tall page whose submit button, far below the first screen, stays disabled until an agreement
+      // box that the page does not mark as required is ticked.
+      if (url.pathname === "/gated") {
+        return page(
+          "Create account",
+          `<h1>Create account</h1>
+<label for="e">Email *</label><input type="email" id="e" name="email" required>
+<label for="p">Password *</label><input type="password" id="p" name="password" required>
+<div style="height:1100px"></div>
+<label><input type="checkbox" id="agree"> I agree to the privacy policy</label>
+<span style="position:relative;display:inline-block"><button id="go" disabled onclick="fetch('/submit',{method:'POST'}).then(()=>location.href='/done')">Create account</button>
+<div role="button" id="layer" style="position:absolute;inset:0;opacity:0.01;cursor:pointer" onclick="document.getElementById('go').click()">Create account</div></span>
+<script>document.getElementById('agree').addEventListener('change',e=>{document.getElementById('go').disabled=!e.target.checked})</script>`,
+        );
+      }
       if (url.pathname === "/step2") {
         return page(
           "Apply: questions",
@@ -51,5 +66,9 @@ button{margin:20px 8px 0 0;padding:10px 18px;font:inherit}fieldset{margin:14px 0
       );
     },
   });
-  return { server, url: `http://127.0.0.1:${server.port}/` };
+  return {
+    server,
+    url: `http://127.0.0.1:${server.port}/`,
+    gatedUrl: `http://127.0.0.1:${server.port}/gated`,
+  };
 }

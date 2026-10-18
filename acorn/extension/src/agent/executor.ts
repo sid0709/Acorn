@@ -17,6 +17,7 @@ import { NO_FOCUS_MESSAGE, nothingHasFocus, scrollsAPage } from "./focus-guard";
 import { blockedMessage, type GuardVerdict } from "./guard";
 import { clickAt, moveMouse, pressKeys, typeText, wheelAt } from "./input";
 import { watchInputEffects } from "./input-settle";
+import { hasState, readPointInfo, type PointInfo } from "./point-info";
 import { scrollForAction } from "./survey";
 import { uploadAt, type ResumeFile } from "./upload";
 import { waitForUploadProcessing } from "./upload-settle";
@@ -48,6 +49,12 @@ export interface ExecutorContext {
   guard?: (x: number, y: number) => Promise<GuardVerdict>;
   /** Runs after a click has settled: it closes a frame or window the click opened that is an online file source. */
   afterClick?: () => Promise<void>;
+  /**
+   * Told what was under the pointer before a click and after it, when the control there has a state a
+   * click can change (a box, a list, an expander): for the run's log, so a click that changed nothing
+   * can be explained. It never blocks or changes the click.
+   */
+  inspected?: (at: { x: number; y: number }, before: PointInfo, after: PointInfo | null) => void;
   /** How long an upload waits for the click to open a file picker; the default when unset. */
   fileChooserWaitMs?: number;
 }
@@ -99,10 +106,15 @@ async function clickWatchingForPicker(
   const stop = ctx.cdp.onEvent((method) => {
     if (method === "Page.fileChooserOpened") opened = true;
   });
+  const before = ctx.inspected ? await readPointInfo(ctx.cdp, x, y) : null;
   try {
     await clickAt(ctx.cdp, x, y, options);
     await ctx.sleep(SETTLE_MS);
     await ctx.afterClick?.();
+    if (before && hasState(before)) {
+      const after = await readPointInfo(ctx.cdp, x, y);
+      ctx.inspected?.({ x, y }, before, after);
+    }
   } finally {
     stop();
   }

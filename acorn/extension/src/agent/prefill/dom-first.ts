@@ -16,6 +16,7 @@ import {
   ADVANCE_ACTION,
   REVIEW_VERDICT,
   type AgentStep,
+  type AgentSurveyScreen,
   type AgentTrace,
   type AgentUsage,
   type AgentViewport,
@@ -34,6 +35,7 @@ import {
   ADVANCE_NAVIGATION_BEAT_MS,
   ADVANCE_OVERLAY_LABEL,
   ADVANCE_STUCK_TRIES,
+  ADVANCE_UNSURE_NOTE,
   REVIEW_LOADING_WAIT_MS,
   REVIEW_LOADING_WAITS,
   REVIEW_OVERLAY_LABEL,
@@ -79,12 +81,21 @@ export interface DomLook {
   viewport: AgentViewport;
   /** Labels of fills the pass made that did not take. */
   failed: string[];
+  /** Takes the whole page as screenshots from top to bottom; null when it fits one screen. Called only when needed. */
+  survey: () => Promise<AgentSurveyScreen[] | null>;
 }
 
 interface FrameControl {
   frameId: number;
   nodeId: number;
   candidate: AgentAdvanceCandidate;
+}
+
+/** Whether the page's own state found anything wrong. */
+function hasProblems(findings: AgentReviewFindings): boolean {
+  return [findings.empty, findings.errors, findings.failed, findings.blocked].some(
+    (list) => (list?.length ?? 0) > 0,
+  );
 }
 
 export class DomFirst {
@@ -97,6 +108,9 @@ export class DomFirst {
   private tries = 0;
   /** A page the control could not move on: left to the driving model until it changes. */
   private stuckKey = "";
+  /** A clean page where no control was chosen with enough certainty: not reviewed again until it changes. */
+  private unsureKey = "";
+  private pageKey = "";
 
   constructor(private readonly deps: DomFirstDeps) {}
 
@@ -111,8 +125,23 @@ export class DomFirst {
     const findings = await this.readFindings(frames, look.failed);
     if (!findings) return { kind: "skip" };
 
+    // The same page, already reviewed clean with no control to press: the driving model has been told, and
+    // another review would say the same. It is looked at again once something on the page changes.
+    this.pageKey = [
+      look.url,
+      look.title,
+      findings.fields,
+      ...(findings.empty ?? []),
+      ...(findings.errors ?? []),
+      ...(findings.blocked ?? []),
+    ].join("|");
+    if (this.pageKey === this.unsureKey) return { kind: "skip" };
+
     this.deps.setLabel(REVIEW_OVERLAY_LABEL);
     const began = Date.now();
+    // What the page says of itself settles it when there is anything wrong, so no screens are taken then.
+    // Otherwise the decision model is the judge, and it reads the whole page, not the part on screen.
+    const survey = hasProblems(findings) ? null : await look.survey().catch(() => null);
     let review;
     try {
       review = await requestReview(
@@ -124,6 +153,7 @@ export class DomFirst {
           screenshot: look.screenshot,
           viewport: look.viewport,
           dom: findings,
+          ...(survey ? { survey } : {}),
         },
         this.deps.signal,
       );
@@ -155,7 +185,7 @@ export class DomFirst {
         this.submitted = true;
         return { kind: "notes", notes };
       case REVIEW_VERDICT.clean:
-        return this.advance(frames, look, findings, notes);
+        return this.advance(frames, look, findings, notes, survey);
       case REVIEW_VERDICT.fix:
         return { kind: "notes", notes };
       default:
@@ -184,7 +214,13 @@ export class DomFirst {
         askFrame<FrameReview>(tabId, frame.frameId, { type: PREFILL_MESSAGE.review }),
       ),
     );
-    const findings: Required<AgentReviewFindings> = { fields: 0, empty: [], errors: [], failed };
+    const findings: Required<AgentReviewFindings> = {
+      fields: 0,
+      empty: [],
+      errors: [],
+      failed,
+      blocked: [],
+    };
     for (const answer of answers) {
       if (!answer?.ok) continue;
       findings.fields += answer.fields;
@@ -192,6 +228,8 @@ export class DomFirst {
         if (!findings.empty.includes(label)) findings.empty.push(label);
       for (const text of answer.errors)
         if (!findings.errors.includes(text)) findings.errors.push(text);
+      for (const text of answer.blocked)
+        if (!findings.blocked.includes(text)) findings.blocked.push(text);
     }
     return findings.fields > 0 ? findings : null;
   }
@@ -231,6 +269,7 @@ export class DomFirst {
     look: DomLook,
     findings: AgentReviewFindings,
     notes: string[],
+    survey: AgentSurveyScreen[] | null,
   ): Promise<DomFirstOutcome> {
     const controls = await this.listControls(frames);
     const key = [
@@ -267,6 +306,8 @@ export class DomFirst {
           title: look.title,
           screenshot: look.screenshot,
           candidates: controls.map((control) => control.candidate),
+          viewport: look.viewport,
+          ...(survey ? { survey } : {}),
         },
         this.deps.signal,
       );
@@ -279,13 +320,19 @@ export class DomFirst {
       action: advance.action,
       submit: Boolean(advance.submit),
       controls: controls.length,
+      sure: advance.sure,
+      none: advance.none,
+      control: advance.text,
       ms: Date.now() - began,
     });
     if (advance.action === ADVANCE_ACTION.readyToSubmit && advance.step) {
       return { kind: "step", step: advance.step };
     }
     const chosen = controls.find((control) => control.candidate.ref === advance.ref);
-    if (advance.action !== ADVANCE_ACTION.click || !chosen) return { kind: "notes", notes };
+    if (advance.action !== ADVANCE_ACTION.click || !chosen) {
+      this.unsureKey = this.pageKey;
+      return { kind: "notes", notes: [...notes, ADVANCE_UNSURE_NOTE] };
+    }
 
     this.deps.setLabel(ADVANCE_OVERLAY_LABEL);
     const error = await this.press(frames, chosen);

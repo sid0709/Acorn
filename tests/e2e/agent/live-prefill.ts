@@ -16,9 +16,10 @@ import { MSG } from "../../../acorn/extension/src/types";
 import { startSimpleSite } from "./simple-site";
 
 // `local` runs the small three-page site that this harness starts itself; it may be submitted.
-const LOCAL = process.argv[2] === "local";
+const LOCAL = process.argv[2] === "local" || process.argv[2] === "local-gated";
 const simple = LOCAL ? startSimpleSite() : null;
-const URL_TO_TEST = simple?.url ?? process.argv[2];
+const URL_TO_TEST =
+  (process.argv[2] === "local-gated" ? simple?.gatedUrl : simple?.url) ?? process.argv[2];
 if (!URL_TO_TEST)
   throw new Error("usage: bun tests/e2e/agent/live-prefill.ts <application url | local>");
 /** Whether the run stops before it would send the application: always for a real site. */
@@ -122,8 +123,39 @@ try {
     (t) => t.type() === TargetType.SERVICE_WORKER && t.url().startsWith("chrome-extension://"),
   );
   const extensionId = new URL(worker.url()).host;
+  // The run's own log events, from the service worker's console: what the DOM-first loop decided and did.
+  const workerHandle = await worker.worker();
+  workerHandle?.on("console", (message) => {
+    const text = message.text();
+    if (!text.includes("[acorn:run]") || !/agent-(dom|click|prefill:error)/.test(text)) return;
+    void Promise.all(message.args().map((arg) => arg.jsonValue().catch(() => "?"))).then((parts) =>
+      console.log(
+        `EVT ${parts
+          .slice(1)
+          .map((part) => (typeof part === "string" ? part : JSON.stringify(part)))
+          .join(" ")
+          .slice(0, 320)}`,
+      ),
+    );
+  });
   const control: Page = await browser.newPage();
   await control.goto(`chrome-extension://${extensionId}/sidebar.html`);
+
+  // Optional: sign the test extension in to Acorn, for the parts of a run that need the person's Acorn
+  // session (reading the verification email in their Gmail). The email and password come from the
+  // environment and are never written anywhere.
+  if (process.env.LIVE_ACORN_EMAIL && process.env.LIVE_ACORN_PASSWORD) {
+    const signedIn = await control.evaluate(
+      async (email, password) =>
+        (await chrome.runtime.sendMessage({ type: "acorn:auth-signin", email, password })) as {
+          ok?: boolean;
+          error?: string;
+        },
+      process.env.LIVE_ACORN_EMAIL,
+      process.env.LIVE_ACORN_PASSWORD,
+    );
+    console.log(signedIn?.ok ? "signed in to Acorn" : `Acorn sign-in failed: ${signedIn?.error}`);
+  }
 
   const page = await browser.newPage();
   await page.setRequestInterception(true);

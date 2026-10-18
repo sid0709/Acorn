@@ -2,6 +2,7 @@ package agent
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"strings"
 	"sync"
@@ -17,14 +18,17 @@ type domScreen struct {
 	requests []decide.Request
 	err      error
 	// review answers
-	errors, loading, sent float64
-	human                 string
-	humanSure             float64
+	errors, loading, sent        float64
+	unanswered, unticked, greyed float64
+	human                        string
+	humanSure                    float64
 	// advance answers: the candidate key chosen, how sure, which key sends the application, how sure
 	next, nextSure string
 	nextP          float64
 	final          string
 	finalP         float64
+	// probs, when set, is every probability the model gives for the advance question.
+	probs map[string]float64
 }
 
 func (d *domScreen) Name() string { return "dom-screen" }
@@ -40,6 +44,7 @@ func (d *domScreen) Decide(_ context.Context, req decide.Request) (decide.Respon
 	answers := map[string]decide.Answer{}
 	if _, ok := req.Questions[askVisibleErrors]; ok {
 		answers[askVisibleErrors], answers[askLoading], answers[askSent] = noul(d.errors), noul(d.loading), noul(d.sent)
+		answers[askUnanswered], answers[askUnticked], answers[askGreyedOut] = noul(d.unanswered), noul(d.unticked), noul(d.greyed)
 		human := d.human
 		if human == "" {
 			human = humanNone
@@ -54,7 +59,14 @@ func (d *domScreen) Decide(_ context.Context, req decide.Request) (decide.Respon
 		if final == "" {
 			final = advanceNone
 		}
-		answers[askAdvance] = decide.Answer{Type: decide.TypeChoice, Choice: next, Probabilities: map[string]float64{next: d.nextP}}
+		probs := map[string]float64{next: d.nextP}
+		if next != advanceNone {
+			probs[advanceNone] = 1 - d.nextP
+		}
+		if d.probs != nil {
+			probs = d.probs
+		}
+		answers[askAdvance] = decide.Answer{Type: decide.TypeChoice, Choice: next, Probabilities: probs}
 		answers[askFinal] = decide.Answer{Type: decide.TypeChoice, Choice: final, Probabilities: map[string]float64{final: d.finalP}}
 	}
 	return decide.Response{Model: "dom-screen-1", Answers: answers, Usage: decide.Usage{InputTokens: 900, Cost: 0.0002}}, nil
@@ -86,7 +98,7 @@ func TestAPageWithProblemsInItsOwnStateIsFixedWithoutAnyModelCall(t *testing.T) 
 	if result.Verdict != ReviewFix || len(result.Problems) != 4 {
 		t.Fatalf("result = %+v", result)
 	}
-	for _, want := range []string{"still empty: Phone", "did not take: Country", "the page shows: Enter a valid email", "do not scroll through it again"} {
+	for _, want := range []string{"still empty: Phone", "did not take: Country", "the page shows: Enter a valid email", "Do exactly these, then continue."} {
 		if !strings.Contains(result.Note, want) {
 			t.Fatalf("the note is missing %q:\n%s", want, result.Note)
 		}
@@ -103,7 +115,7 @@ func TestACleanPageIsReadByTheDecisionModelAndAllowedOn(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if result.Verdict != ReviewClean || !strings.Contains(result.Note, "go to the control that continues") {
+	if result.Verdict != ReviewClean || !strings.Contains(result.Note, "Go to the control that continues") {
 		t.Fatalf("result = %+v", result)
 	}
 	if len(screen.requests) != 1 || result.Usage.Checks != 1 || result.Usage.Calls != 0 {
@@ -234,6 +246,17 @@ func TestTheControlThatSendsTheApplicationIsPressedOnlyWhenTheApplicantDoesNotWa
 	}
 }
 
+func TestTheFirstControlIsNamedByItsNumberEvenWhenThatIsZero(t *testing.T) {
+	a, id := newDOMAgent(t, &domScreen{next: "c0", nextP: 0.95, final: advanceNone, finalP: 0.9}, false)
+	req := advanceOf(t)
+	req.Candidates = []AdvanceCandidate{{Ref: 0, Text: "Create account", Kind: "submit"}}
+	result, _ := a.Advance(context.Background(), id, req)
+	raw, _ := json.Marshal(result)
+	if result.Action != AdvanceClick || !strings.Contains(string(raw), `"ref":0`) {
+		t.Fatalf("the first control was not named in %s", raw)
+	}
+}
+
 func TestNoControlIsPressedWhenTheModelIsNotSureOfOne(t *testing.T) {
 	for name, screen := range map[string]*domScreen{
 		"none":      {next: advanceNone, nextP: 0.99},
@@ -275,6 +298,172 @@ func TestTheAdvanceListIsBoundedAndTheirTextClipped(t *testing.T) {
 	for key, text := range criteria {
 		if len(text) > maxCandidateText+40 && key != advanceNone {
 			t.Fatalf("%s is %d characters", key, len(text))
+		}
+	}
+}
+
+func TestTheDecisionModelNamesWhatItSeesUnfinishedOnAPageTheDomThoughtClean(t *testing.T) {
+	for name, tc := range map[string]struct {
+		screen  *domScreen
+		problem string
+	}{
+		"unanswered": {&domScreen{unanswered: 0.8}, "still looks unanswered"},
+		"unticked":   {&domScreen{unticked: 0.8}, "still unticked"},
+		"greyed out": {&domScreen{greyed: 0.8}, "greyed out"},
+	} {
+		a, id := newDOMAgent(t, tc.screen, false)
+		result, _ := a.Review(context.Background(), id, reviewOf(shot(t, 40)))
+		if result.Verdict != ReviewFix || len(result.Problems) != 1 || !strings.Contains(result.Problems[0], tc.problem) {
+			t.Fatalf("%s: %+v", name, result)
+		}
+	}
+}
+
+func TestAControlThePageMarksDisabledIsAProblemWithoutAnyModelCall(t *testing.T) {
+	screen := &domScreen{}
+	a, id := newDOMAgent(t, screen, false)
+	req := reviewOf("")
+	req.DOM.Blocked = []string{"the control \"Create Account\" is disabled", "unticked: I agree"}
+	result, _ := a.Review(context.Background(), id, req)
+	if result.Verdict != ReviewFix || len(result.Problems) != 2 || len(screen.requests) != 0 {
+		t.Fatalf("result %+v, requests %d", result, len(screen.requests))
+	}
+	if strings.Contains(result.Note, "do not scroll") {
+		t.Fatalf("the note tells the model not to look: %s", result.Note)
+	}
+}
+
+func TestAPageTallerThanTheScreensIsNeverCalledClean(t *testing.T) {
+	tall := Viewport{Width: 1280, Height: 800, ScrollY: 0, PageHeight: 2400}
+	screen := &domScreen{}
+	a, id := newDOMAgent(t, screen, false)
+	req := reviewOf(shot(t, 40))
+	req.Viewport = tall
+	result, _ := a.Review(context.Background(), id, req)
+	if result.Verdict != ReviewLook || len(screen.requests) != 0 {
+		t.Fatalf("one screen of a 3-screen page was called %s", result.Verdict)
+	}
+	// With the whole page, from top to bottom with overlap, it is read.
+	req.Survey = []SurveyScreen{{Screenshot: shot(t, 40), ScrollY: 0}, {Screenshot: shot(t, 41), ScrollY: 680}, {Screenshot: shot(t, 42), ScrollY: 1360}, {Screenshot: shot(t, 43), ScrollY: 1600}}
+	result, _ = a.Review(context.Background(), id, req)
+	if result.Verdict != ReviewClean || len(screen.requests) != 1 {
+		t.Fatalf("whole page: %+v", result)
+	}
+	images := 0
+	for _, part := range screen.requests[0].State {
+		if part.Type == "image_url" {
+			images++
+		}
+	}
+	if images != 4 {
+		t.Fatalf("the decision model was shown %d screens", images)
+	}
+}
+
+func TestAGapBetweenScreensMeansTheWholePageWasNotSeen(t *testing.T) {
+	vp := Viewport{Height: 800, PageHeight: 2400}
+	if seesWholePage(vp, []SurveyScreen{{ScrollY: 0}, {ScrollY: 1000}, {ScrollY: 1600}}, 0) {
+		t.Fatal("a 200 px gap was called seen")
+	}
+	if seesWholePage(vp, []SurveyScreen{{ScrollY: 100}, {ScrollY: 800}, {ScrollY: 1600}}, 100) {
+		t.Fatal("a missing top was called seen")
+	}
+	if !seesWholePage(vp, []SurveyScreen{{ScrollY: 0}, {ScrollY: 800}, {ScrollY: 1600}}, 0) {
+		t.Fatal("a page seen from top to bottom was not")
+	}
+	if !seesWholePage(Viewport{Height: 800, PageHeight: 700}, nil, 0) {
+		t.Fatal("a page shorter than the screen is seen by one")
+	}
+}
+
+func TestAControlTheModelIsSplitOnIsPressedWhenItIsSureOneContinues(t *testing.T) {
+	// The real Workday answer: 98% sure a control continues, torn between two.
+	screen := &domScreen{next: "c1", probs: map[string]float64{"c0": 0.38, "c1": 0.57, advanceNone: 0.02}, final: advanceNone, finalP: 0.9}
+	a, id := newDOMAgent(t, screen, false)
+	result, _ := a.Advance(context.Background(), id, advanceOf(t))
+	if result.Action != AdvanceClick || result.Ref != 12 || result.None != 0.02 {
+		t.Fatalf("result = %+v", result)
+	}
+}
+
+func TestAControlIsNotPressedWhenTheModelIsUnsureAnyContinuesOrCannotTellTwoApart(t *testing.T) {
+	for name, probs := range map[string]map[string]float64{
+		"maybe none": {"c1": 0.57, "c0": 0.2, advanceNone: 0.23},
+		"too close":  {"c1": 0.5, "c0": 0.45, advanceNone: 0.05},
+		"too low":    {"c1": 0.4, "c0": 0.1, "c2": 0.1, advanceNone: 0.1},
+		"nothing":    {advanceNone: 1},
+	} {
+		a, id := newDOMAgent(t, &domScreen{next: "c1", probs: probs}, false)
+		if result, _ := a.Advance(context.Background(), id, advanceOf(t)); result.Action != AdvanceNone {
+			t.Fatalf("%s: pressed %+v", name, result)
+		}
+	}
+}
+
+func TestAnAdvanceIsTracedWithEveryControlAndProbabilityAndWhy(t *testing.T) {
+	dir := t.TempDir()
+	cfg := DefaultConfig()
+	cfg.TraceDir = dir
+	screen := &domScreen{next: "c1", probs: map[string]float64{"c0": 0.38, "c1": 0.57, advanceNone: 0.02}}
+	a := newAgentWithScreen(t, &scriptedModel{}, &fixedDecider{}, screen, cfg)
+	started, _ := a.Start(context.Background(), "key", applicant.Auth{}, Start{Prefill: true, Trace: true})
+	result, _ := a.Advance(context.Background(), started.SessionID, advanceOf(t))
+	if result.Trace == nil {
+		t.Fatal("no trace came back")
+	}
+	text := ""
+	for _, file := range result.Trace.Files {
+		text += file.Text
+	}
+	for _, want := range []string{`"candidates"`, `c1: button \"Next\"`, `"c0": 0.38`, `"accepted": true`, `a control continues`} {
+		if !strings.Contains(text, want) {
+			t.Fatalf("the trace is missing %q:\n%s", want, text)
+		}
+	}
+}
+
+func TestAStopForTheApplicantIsSentBackWhenAReviewOfThePageContradictsIt(t *testing.T) {
+	a, id := newDOMAgent(t, &domScreen{humanSure: 0.99}, false)
+	if _, err := a.Review(context.Background(), id, reviewOf(shot(t, 40))); err != nil {
+		t.Fatal(err)
+	}
+	s, _ := a.sessions.get(id)
+	if note, held := a.holdContradictedStop(s, "https://jobs.example/apply", StatusNeedPerson); !held || !strings.Contains(note, "Do not stop for the applicant") {
+		t.Fatalf("held %v: %s", held, note)
+	}
+	if _, held := a.holdContradictedStop(s, "https://jobs.example/apply", StatusNeedPerson); held {
+		t.Fatal("a stop was sent back twice")
+	}
+}
+
+func TestAStopStandsWhenTheReviewDoesNotContradictIt(t *testing.T) {
+	cases := map[string]func(*Agent, *session) (string, string){
+		"another page": func(a *Agent, s *session) (string, string) { return "https://other.example/", StatusNeedPerson },
+		"stuck":        func(a *Agent, s *session) (string, string) { return "https://jobs.example/apply", StatusStuck },
+		"too long ago": func(a *Agent, s *session) (string, string) {
+			s.step += a.cfg.StopOverrideSteps + 1
+			return "https://jobs.example/apply", StatusNeedPerson
+		},
+	}
+	for name, setup := range cases {
+		a, id := newDOMAgent(t, &domScreen{humanSure: 0.99}, false)
+		_, _ = a.Review(context.Background(), id, reviewOf(shot(t, 40)))
+		s, _ := a.sessions.get(id)
+		url, status := setup(a, s)
+		if _, held := a.holdContradictedStop(s, url, status); held {
+			t.Fatalf("%s: a stop the review does not contradict was sent back", name)
+		}
+	}
+	// A review that found the page unclean, or was unsure of the human check, contradicts nothing.
+	for name, screen := range map[string]*domScreen{
+		"unanswered":   {unanswered: 0.9, humanSure: 0.99},
+		"unsure human": {humanSure: 0.6},
+	} {
+		a, id := newDOMAgent(t, screen, false)
+		_, _ = a.Review(context.Background(), id, reviewOf(shot(t, 40)))
+		s, _ := a.sessions.get(id)
+		if _, held := a.holdContradictedStop(s, "https://jobs.example/apply", StatusNeedPerson); held {
+			t.Fatalf("%s: stop sent back", name)
 		}
 	}
 }

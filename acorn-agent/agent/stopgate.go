@@ -19,7 +19,10 @@ const stopPassMessage = "Finishing everything else on the page before asking you
 const stopPassWaitMs = 300
 
 // holdStop says whether this stop is sent back, and the note that tells the model why.
-func (a *Agent) holdStop(s *session, status string, answer reply) (string, bool) {
+func (a *Agent) holdStop(s *session, url, status string, answer reply) (string, bool) {
+	if note, held := a.holdContradictedStop(s, url, status); held {
+		return note, true
+	}
 	if a.cfg.StopPasses <= 0 || s.stopPasses >= a.cfg.StopPasses {
 		return "", false
 	}

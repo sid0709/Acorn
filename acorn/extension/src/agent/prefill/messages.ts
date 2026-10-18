@@ -36,7 +36,8 @@ export type PrefillMessageType = (typeof PREFILL_MESSAGE)[keyof typeof PREFILL_M
 
 /** What one frame's page says of itself (the review's findings, before the pass's failures are added). */
 export type FrameReview =
-  { ok: true; fields: number; empty: string[]; errors: string[] } | { ok: false; error: string };
+  | { ok: true; fields: number; empty: string[]; errors: string[]; blocked: string[] }
+  | { ok: false; error: string };
 
 export interface FrameCandidate {
   nodeId: number;

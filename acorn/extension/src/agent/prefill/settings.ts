@@ -53,6 +53,9 @@ export const ADVANCE_LOAD_POLL_MS = 150;
 export const ADVANCE_NAVIGATION_BEAT_MS = 300;
 /** How long after a press a navigation has to start (the address changes, or the tab says it is loading) before the press is taken as having stayed on the page. */
 export const ADVANCE_NAVIGATION_APPEAR_MS = 1_500;
+/** Told to the model when no control was chosen with enough certainty to press: the one that continues may simply be out of sight. */
+export const ADVANCE_UNSURE_NOTE =
+  "Acorn could not tell which control continues the application from the part of the page it could see. It may be below the visible part: scroll to find it.";
 /** What the overlay's bar says while the page is reviewed, and while its next control is pressed. */
 export const REVIEW_OVERLAY_LABEL = "Acorn is reviewing the page";
 export const ADVANCE_OVERLAY_LABEL = "Acorn is continuing to the next step";
