@@ -3,7 +3,6 @@ module github.com/sid0709/OpenSeat/acorn-backend
 go 1.26.4
 
 require (
-	github.com/sid0709/OpenSeat/backend-core v0.0.0
 	github.com/zishang520/socket.io/servers/socket/v3 v3.0.6
 	github.com/zishang520/socket.io/v3 v3.0.6
 	go.mongodb.org/mongo-driver/v2 v2.9.1
@@ -34,5 +33,3 @@ require (
 	golang.org/x/net v0.59.0 // direct
 	golang.org/x/sys v0.48.0 // indirect
 )
-
-replace github.com/sid0709/OpenSeat/backend-core => ../backend-core

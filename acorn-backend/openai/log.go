@@ -7,7 +7,7 @@ import (
 	"time"
 	"unicode/utf8"
 
-	"github.com/sid0709/OpenSeat/backend-core/requestid"
+	"github.com/sid0709/OpenSeat/acorn-backend/requestid"
 )
 
 const logTextLimit = 500

@@ -8,7 +8,7 @@ import (
 	"sync"
 	"testing"
 
-	"github.com/sid0709/OpenSeat/backend-core/openai"
+	"github.com/sid0709/OpenSeat/acorn-backend/openai"
 )
 
 var testIdentity = Identity{

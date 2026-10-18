@@ -11,7 +11,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/sid0709/OpenSeat/backend-core/llmhttp"
+	"github.com/sid0709/OpenSeat/acorn-backend/llmhttp"
 )
 
 const (

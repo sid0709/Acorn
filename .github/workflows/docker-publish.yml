@@ -1,10 +1,10 @@
 # Build Acorn's API, website, admin, and agent images and push them to Docker Hub.
 # A push to main, including a merge, deploys only the images whose inputs changed.
 # The extension is not an image. An extension-only push does not build or restart containers.
-# API inputs: acorn-backend, backend-core.
+# API inputs: acorn-backend.
 # Website inputs: acorn-frontend, acorn/extension (packed .zip on Apps), packages, acorn/packages/shared, the root package manifest, and the Bun lockfile.
 # Admin inputs: acorn-admin, shared packages (same as the website).
-# Agent inputs: acorn-agent, backend-core. The agent plans the extension's Run from screenshots and
+# Agent inputs: acorn-agent, and the acorn-backend packages it imports (config, jev, llmhttp, openai, requestid). The agent plans the extension's Run from screenshots and
 # reads each person's profile and Library from the API; it holds no database and no secrets of its own.
 # Nginx site files are reference-only; this workflow never installs or overwrites them.
 #

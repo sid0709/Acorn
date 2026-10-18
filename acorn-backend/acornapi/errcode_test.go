@@ -9,7 +9,7 @@ import (
 	"testing"
 
 	"github.com/sid0709/OpenSeat/acorn-backend/acorn"
-	"github.com/sid0709/OpenSeat/backend-core/openai"
+	"github.com/sid0709/OpenSeat/acorn-backend/openai"
 )
 
 func TestModelErrorCodeTellsApartWhatThePersonCanFix(t *testing.T) {

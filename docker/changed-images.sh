@@ -11,13 +11,13 @@ agent=0
 while IFS= read -r path || [[ -n "${path}" ]]; do
   [[ -z "${path}" ]] && continue
   case "${path}" in
-    acorn-backend/*)
-      api=1
-      ;;
-    # backend-core is built into the API and into the agent (model ids, the decision-model client).
-    backend-core/*)
+    # These acorn-backend packages are built into the agent too (model ids, the decision-model client).
+    acorn-backend/config/* | acorn-backend/jev/* | acorn-backend/llmhttp/* | acorn-backend/openai/* | acorn-backend/requestid/* | acorn-backend/go.mod)
       api=1
       agent=1
+      ;;
+    acorn-backend/*)
+      api=1
       ;;
     acorn-agent/*)
       agent=1

@@ -8,7 +8,7 @@ import (
 	"strings"
 
 	"github.com/sid0709/OpenSeat/acorn-agent/applicant"
-	"github.com/sid0709/OpenSeat/backend-core/jev"
+	"github.com/sid0709/OpenSeat/acorn-backend/jev"
 )
 
 // The résumé is chosen from the whole job description, read as text. A screenshot may never show

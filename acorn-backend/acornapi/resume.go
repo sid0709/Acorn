@@ -11,7 +11,7 @@ import (
 
 	"github.com/sid0709/OpenSeat/acorn-backend/account"
 	"github.com/sid0709/OpenSeat/acorn-backend/resume"
-	"github.com/sid0709/OpenSeat/backend-core/openai"
+	"github.com/sid0709/OpenSeat/acorn-backend/openai"
 )
 
 func (s *Server) identity(r *http.Request, session account.Session, extra *resume.Identity) resume.Identity {

@@ -9,8 +9,8 @@ import (
 	"github.com/sid0709/OpenSeat/acorn-backend/debugtrace"
 	"github.com/sid0709/OpenSeat/acorn-backend/resume"
 	"github.com/sid0709/OpenSeat/acorn-backend/selector"
-	"github.com/sid0709/OpenSeat/backend-core/jev"
-	"github.com/sid0709/OpenSeat/backend-core/openai"
+	"github.com/sid0709/OpenSeat/acorn-backend/jev"
+	"github.com/sid0709/OpenSeat/acorn-backend/openai"
 )
 
 // openRouterKey is the signed-in account's OpenRouter key; "" when the profile has none.

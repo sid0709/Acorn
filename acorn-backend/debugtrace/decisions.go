@@ -8,8 +8,8 @@ import (
 	"strings"
 	"time"
 
-	"github.com/sid0709/OpenSeat/backend-core/jev"
-	"github.com/sid0709/OpenSeat/backend-core/openai"
+	"github.com/sid0709/OpenSeat/acorn-backend/jev"
+	"github.com/sid0709/OpenSeat/acorn-backend/openai"
 )
 
 // decider is the SelectorGateway's decision model (selector.Decider).

@@ -33,7 +33,6 @@ jobs:
           go-version-file: acorn-backend/go.mod
           cache-dependency-path: |
             acorn-backend/go.sum
-            backend-core/go.sum
       - name: Build
         working-directory: acorn-backend
         run: go build -o /tmp/acorn-api ./cmd/server
@@ -55,7 +54,6 @@ jobs:
           go-version-file: acorn-agent/go.mod
           cache-dependency-path: |
             acorn-backend/go.sum
-            backend-core/go.sum
       # The Docker image builds the agent on its own, without the Go workspace.
       - name: Build
         working-directory: acorn-agent

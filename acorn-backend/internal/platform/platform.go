@@ -8,7 +8,7 @@ import (
 	"github.com/sid0709/OpenSeat/acorn-backend/internal/database"
 	"github.com/sid0709/OpenSeat/acorn-backend/internal/jobs"
 	"github.com/sid0709/OpenSeat/acorn-backend/internal/killswitch"
-	"github.com/sid0709/OpenSeat/backend-core/config"
+	"github.com/sid0709/OpenSeat/acorn-backend/config"
 	"go.mongodb.org/mongo-driver/v2/mongo"
 )
 

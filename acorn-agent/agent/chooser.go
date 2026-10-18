@@ -9,7 +9,7 @@ import (
 	"strings"
 
 	"github.com/sid0709/OpenSeat/acorn-agent/applicant"
-	"github.com/sid0709/OpenSeat/backend-core/jev"
+	"github.com/sid0709/OpenSeat/acorn-backend/jev"
 )
 
 const (

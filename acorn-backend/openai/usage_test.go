@@ -4,7 +4,7 @@ import (
 	"encoding/json"
 	"testing"
 
-	"github.com/sid0709/OpenSeat/backend-core/config"
+	"github.com/sid0709/OpenSeat/acorn-backend/config"
 )
 
 func TestParseChatUsagePrefersBilledCost(t *testing.T) {

@@ -23,8 +23,8 @@ import (
 	"github.com/sid0709/OpenSeat/acorn-backend/resume"
 	"github.com/sid0709/OpenSeat/acorn-backend/support"
 	"github.com/sid0709/OpenSeat/acorn-backend/supportaccess"
-	"github.com/sid0709/OpenSeat/backend-core/config"
-	"github.com/sid0709/OpenSeat/backend-core/jev"
+	"github.com/sid0709/OpenSeat/acorn-backend/config"
+	"github.com/sid0709/OpenSeat/acorn-backend/jev"
 	"golang.org/x/sync/errgroup"
 )
 

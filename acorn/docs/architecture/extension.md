@@ -1,6 +1,6 @@
 # How the Acorn extension works
 
-Written from the code at extension **v1.83** (2026-10-16). It covers the Chrome extension in [`acorn/extension`](../../extension), the packages it bundles, and the parts of [`acorn-backend`](../../../acorn-backend) and [`backend-core`](../../../backend-core) it talks to. **The Run is the agent Run (§19).** The page-reading Run (the DOM serializer, the plan runner, Fill and Refill, the in-page control agents, and the routes behind them) was removed in v1.83.0; §7 to §10 only say so. Where this document disagrees with [`acorn/README.md`](../../README.md) or [`acornapi/README.md`](../../../acorn-backend/acornapi/README.md), the code wins; §15 lists the known differences.
+Written from the code at extension **v1.83** (2026-10-16). It covers the Chrome extension in [`acorn/extension`](../../extension), the packages it bundles, and the parts of [`acorn-backend`](../../../acorn-backend) it talks to. **The Run is the agent Run (§19).** The page-reading Run (the DOM serializer, the plan runner, Fill and Refill, the in-page control agents, and the routes behind them) was removed in v1.83.0; §7 to §10 only say so. Where this document disagrees with [`acorn/README.md`](../../README.md) or [`acornapi/README.md`](../../../acorn-backend/acornapi/README.md), the code wins; §15 lists the known differences.
 
 ## Contents
 
@@ -91,29 +91,28 @@ The other apps around it:
 
 ## 3. Repository map
 
-| Path                                                                       | What it is                                                                                                                                     |
-| -------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------- |
-| [`acorn/extension`](../../extension)                                       | The extension (workspace `acorn-extension`). Version lives only in `package.json`.                                                             |
-| `acorn/extension/src/background.ts`, `src/background/`                     | Service worker: startup, alarms, tab lifecycle, message router, socket, capture sink.                                                          |
-| `acorn/extension/src/agent/`                                               | The agent Run's extension side: screenshot, input, overlay, the loop (§19).                                                                    |
-| `acorn/extension/src/content/`                                             | Content script: the selection Q&A chip and the support handoff.                                                                                |
-| `acorn/extension/src/pipeline/`                                            | Résumé recommend/generate for a job, the run log, API clients (`pipeline/api/`).                                                               |
-| `acorn/extension/src/sidebar/`                                             | Side panel React app.                                                                                                                          |
-| `acorn/extension/src/tab-*-session.ts`, `storage-lock.ts`                  | Per-tab state in `chrome.storage.session`, IndexedDB log.                                                                                      |
-| [`acorn/packages/shared`](../../packages/shared) (`@acorn/shared`)         | Contracts shared by extension and site: agent contract, run and progress types, résumé types.                                                  |
-| [`acorn/packages/acorn-face`](../../packages/acorn-face) (`@acorn/face`)   | The animated mascot face (canvas, worker-rendered). UI only.                                                                                   |
-| [`packages/support-chat`](../../../packages/support-chat)                  | Support-claim UI and API paths shared by the extension and the site.                                                                           |
-| [`packages/app-theme`](../../../packages/app-theme)                        | `AppTheme` wrapper around `sid-ui`.                                                                                                            |
-| [`acorn-backend/cmd/server`](../../../acorn-backend/cmd/server)            | `main.go` wires stores and mounts `acornapi`; `routes.go` adds `/health` and CORS.                                                             |
-| [`acorn-backend/acornapi`](../../../acorn-backend/acornapi)                | HTTP handlers for every `/acorn/*` route; `gateway/` is the Socket.IO server.                                                                  |
-| [`acorn-backend/acorn`](../../../acorn-backend/acorn)                      | The writer: answers to free-text questions from the applicant profile, and its prompt.                                                         |
-| [`acorn-backend/selector`](../../../acorn-backend/selector)                | SelectorGateway: the Jev question that picks a Library résumé for a posting.                                                                   |
-| [`acorn-agent`](../../../acorn-agent)                                      | The agent server: the model loop behind the agent Run (§19).                                                                                   |
-| `acorn-backend/mailbox`                                                    | Gmail OAuth and API.                                                                                                                           |
-| `acorn-backend/profile`, `resume`, `account`                               | Profile document, résumé Library/recommend/generate, accounts and sessions.                                                                    |
-| `acorn-backend/aiusage`, `debugtrace`, `support`, `supportaccess`, `admin` | Usage metering, process capture, support claims, support sign-in, admin console.                                                               |
-| [`backend-core`](../../../backend-core)                                    | Go shared by the API and the agent: `config` (model ids, URLs), `openai` (OpenRouter client), `jev` (decision client), `llmhttp`, `requestid`. |
-| [`tests/e2e/agent`](../../../tests/e2e/agent)                              | Headless end-to-end test of the real extension and the agent server on a local site.                                                           |
+| Path                                                                       | What it is                                                                                    |
+| -------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------- |
+| [`acorn/extension`](../../extension)                                       | The extension (workspace `acorn-extension`). Version lives only in `package.json`.            |
+| `acorn/extension/src/background.ts`, `src/background/`                     | Service worker: startup, alarms, tab lifecycle, message router, socket, capture sink.         |
+| `acorn/extension/src/agent/`                                               | The agent Run's extension side: screenshot, input, overlay, the loop (§19).                   |
+| `acorn/extension/src/content/`                                             | Content script: the selection Q&A chip and the support handoff.                               |
+| `acorn/extension/src/pipeline/`                                            | Résumé recommend/generate for a job, the run log, API clients (`pipeline/api/`).              |
+| `acorn/extension/src/sidebar/`                                             | Side panel React app.                                                                         |
+| `acorn/extension/src/tab-*-session.ts`, `storage-lock.ts`                  | Per-tab state in `chrome.storage.session`, IndexedDB log.                                     |
+| [`acorn/packages/shared`](../../packages/shared) (`@acorn/shared`)         | Contracts shared by extension and site: agent contract, run and progress types, résumé types. |
+| [`acorn/packages/acorn-face`](../../packages/acorn-face) (`@acorn/face`)   | The animated mascot face (canvas, worker-rendered). UI only.                                  |
+| [`packages/support-chat`](../../../packages/support-chat)                  | Support-claim UI and API paths shared by the extension and the site.                          |
+| [`packages/app-theme`](../../../packages/app-theme)                        | `AppTheme` wrapper around `sid-ui`.                                                           |
+| [`acorn-backend/cmd/server`](../../../acorn-backend/cmd/server)            | `main.go` wires stores and mounts `acornapi`; `routes.go` adds `/health` and CORS.            |
+| [`acorn-backend/acornapi`](../../../acorn-backend/acornapi)                | HTTP handlers for every `/acorn/*` route; `gateway/` is the Socket.IO server.                 |
+| [`acorn-backend/acorn`](../../../acorn-backend/acorn)                      | The writer: answers to free-text questions from the applicant profile, and its prompt.        |
+| [`acorn-backend/selector`](../../../acorn-backend/selector)                | SelectorGateway: the Jev question that picks a Library résumé for a posting.                  |
+| [`acorn-agent`](../../../acorn-agent)                                      | The agent server: the model loop behind the agent Run (§19).                                  |
+| `acorn-backend/mailbox`                                                    | Gmail OAuth and API.                                                                          |
+| `acorn-backend/profile`, `resume`, `account`                               | Profile document, résumé Library/recommend/generate, accounts and sessions.                   |
+| `acorn-backend/aiusage`, `debugtrace`, `support`, `supportaccess`, `admin` | Usage metering, process capture, support claims, support sign-in, admin console.              |
+| [`tests/e2e/agent`](../../../tests/e2e/agent)                              | Headless end-to-end test of the real extension and the agent server on a local site.          |
 
 ---
 
@@ -384,7 +383,7 @@ The site and console use the rest: profile editing and import from a résumé (`
 
 For each request, [`acornapi/model.go`](../../../acorn-backend/acornapi/model.go) loads the account's profile and builds:
 
-- the **text model**: `openai.OpenRouter(key)` — OpenRouter's OpenAI-compatible chat API, model `openai/gpt-6-luna` (`backend-core/config.OpenRouterModel`), reasoning off, JSON-schema outputs;
+- the **text model**: `openai.OpenRouter(key)` — OpenRouter's OpenAI-compatible chat API, model `openai/gpt-6-luna` (`acorn-backend/config.OpenRouterModel`), reasoning off, JSON-schema outputs;
 - the **decision model**: `jev.New(key)` — `typesafe/jev-1.13` at `https://openrouter.ai/api/alpha/decisions` (`config.JevModel`, `config.OpenRouterDecisionsURL`), wrapped as `selector.Gateway`.
 
 An account without a key gets "Add your OpenRouter API key in profile settings" (503 on the Q&A, generate, and recommend routes).
@@ -542,7 +541,7 @@ Load `acorn/extension/dist` unpacked in `chrome://extensions`, set an OpenRouter
 | Q&A writer prompt                 | [`acorn-backend/acorn/prompts/`](../../../acorn-backend/acorn/prompts)                                                                                                                                                                                        |
 | Jev questions                     | [`acorn-backend/selector/`](../../../acorn-backend/selector)                                                                                                                                                                                                  |
 | Routes                            | [`acorn-backend/acornapi/server.go`](../../../acorn-backend/acornapi/server.go)                                                                                                                                                                               |
-| Model ids and URLs                | [`backend-core/config/config.go`](../../../backend-core/config/config.go)                                                                                                                                                                                     |
+| Model ids and URLs                | [`acorn-backend/config/config.go`](../../../acorn-backend/config/config.go)                                                                                                                                                                                   |
 | Message and socket names          | [`extension/src/types.ts`](../../extension/src/types.ts), [`acornapi/gateway/gateway.go`](../../../acorn-backend/acornapi/gateway/gateway.go)                                                                                                                 |
 | Per-tab storage                   | `extension/src/tab-*-session.ts`                                                                                                                                                                                                                              |
 
@@ -602,7 +601,7 @@ All in [`acorn/extension/src/agent/`](../../extension/src/agent); the wire types
 
 ### 19.3 The server
 
-[`acorn-agent`](../../../acorn-agent) is its own Go module (in `go.work`), with no database. It follows the Go rule: shared model ids and URLs come from `backend-core/config`.
+[`acorn-agent`](../../../acorn-agent) is its own Go module (in `go.work`), with no database. It follows the Go rule: shared model ids and URLs come from `acorn-backend/config`.
 
 | Package                                                    | Role                                                                                                                                                                                                                                           |
 | ---------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
@@ -820,7 +819,7 @@ In backend mode a Library stack is a title (the same title in several formats is
 
 **Where it runs.** In production the extension's default agent address is the API host, `https://api.acornapply.com`, where nginx sends `/agent/v1/` to the agent container and everything else to the API (`ACORN_PRODUCTION_AGENT_ORIGIN`; a development build uses `http://127.0.0.1:8093`, `VITE_ACORN_AGENT_URL` overrides either). Screenshots, the profile text and the session token cross the network to that server, so the hosted agent turns **traces off** (`ACORN_AGENT_TRACE=false`: no screenshots or profile on its disk) and holds each run in memory only; a deploy ends the runs in flight.
 
-**Deployment** (`.github/workflows/docker-publish.yml`, `docker/deploy-remote.sh`): `acorn-agent/Dockerfile` builds the agent without the Go workspace into `omnimuh730/acorn-agent`, tagged with the commit like the others. `docker/changed-images.sh` rebuilds it when `acorn-agent/*` or `backend-core/*` change (and everything when the deploy scripts do). The container joins the `acorn` Docker network, reaches the API as `http://acorn-api:8083`, publishes `127.0.0.1:8093` (`ACORN_AGENT_PORT`; 8090 is JoinedHQ) for nginx (the `/agent/v1/` block of `deploy/nginx/api.acornapply.com.conf`: 40 MB bodies for a survey, 6 minute reads for a step), and gets only the `ACORN_AGENT_*` and `OPENROUTER_API_KEY` lines of `/opt/acorn/deploy.env`, never the database or Google settings. Deploy refuses to start if that host port is already published by a non-Acorn container. CI builds, vets and tests the module in its own job; after a deploy a public health check of the agent warns (does not fail the API's deploy) when the host is not set up. A rollback to a commit from before the agent leaves the running agent alone.
+**Deployment** (`.github/workflows/docker-publish.yml`, `docker/deploy-remote.sh`): `acorn-agent/Dockerfile` builds the agent without the Go workspace into `omnimuh730/acorn-agent`, tagged with the commit like the others. `docker/changed-images.sh` rebuilds it when `acorn-agent/*` or the shared `acorn-backend` packages (`config`, `jev`, `llmhttp`, `openai`, `requestid`) change (and everything when the deploy scripts do). The container joins the `acorn` Docker network, reaches the API as `http://acorn-api:8083`, publishes `127.0.0.1:8093` (`ACORN_AGENT_PORT`; 8090 is JoinedHQ) for nginx (the `/agent/v1/` block of `deploy/nginx/api.acornapply.com.conf`: 40 MB bodies for a survey, 6 minute reads for a step), and gets only the `ACORN_AGENT_*` and `OPENROUTER_API_KEY` lines of `/opt/acorn/deploy.env`, never the database or Google settings. Deploy refuses to start if that host port is already published by a non-Acorn container. CI builds, vets and tests the module in its own job; after a deploy a public health check of the agent warns (does not fail the API's deploy) when the host is not set up. A rollback to a commit from before the agent leaves the running agent alone.
 
 ### 19.11 Cost and time
 

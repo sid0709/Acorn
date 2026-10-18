@@ -14,7 +14,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/sid0709/OpenSeat/backend-core/requestid"
+	"github.com/sid0709/OpenSeat/acorn-backend/requestid"
 )
 
 const (

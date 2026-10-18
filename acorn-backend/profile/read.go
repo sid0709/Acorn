@@ -9,7 +9,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/sid0709/OpenSeat/backend-core/openai"
+	"github.com/sid0709/OpenSeat/acorn-backend/openai"
 )
 
 // Model is the language model that reads résumés: one JSON object per request, matching a schema.

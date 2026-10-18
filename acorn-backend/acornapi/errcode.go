@@ -6,7 +6,7 @@ import (
 	"net/http"
 
 	"github.com/sid0709/OpenSeat/acorn-backend/acorn"
-	"github.com/sid0709/OpenSeat/backend-core/openai"
+	"github.com/sid0709/OpenSeat/acorn-backend/openai"
 )
 
 // Error codes the extension turns into plain words (see @acorn/shared user-messages).

@@ -14,6 +14,6 @@ This is a bun workspaces repo. One `node_modules` at the root, one version of ea
 bun install
 ```
 
-The API compiles against `backend-core` in this repo (`acorn-backend/go.mod` replaces it with `../backend-core`). Google sign-in is `packages/google-signin` (`@acorn/google-signin`).
+The agent compiles against the shared packages of `acorn-backend` in this repo (`acorn-agent/go.mod` replaces the module with `../acorn-backend`). Google sign-in is `packages/google-signin` (`@acorn/google-signin`).
 
 `bun run ci` is the GitHub CI check: Prettier, ESLint, dependencies, and `bun test`. `bun run ci:fix` writes Prettier and auto-fixable ESLint issues, including import order.

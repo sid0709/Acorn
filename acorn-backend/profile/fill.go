@@ -9,7 +9,7 @@ import (
 
 	"github.com/sid0709/OpenSeat/acorn-backend/internal/candidate"
 	"github.com/sid0709/OpenSeat/acorn-backend/resume"
-	"github.com/sid0709/OpenSeat/backend-core/openai"
+	"github.com/sid0709/OpenSeat/acorn-backend/openai"
 )
 
 // Filled is a profile after a résumé fill, and which reader read the résumé.

@@ -1,12 +1,9 @@
-# Build context is the Acorn repo. backend-core sits next to acorn-backend,
-# and go.mod replaces the module with ../backend-core.
+# Build context is the Acorn repo.
 FROM golang:1.26.4-bookworm AS build
 
 WORKDIR /src/acorn-backend
 
 COPY acorn-backend/go.mod acorn-backend/go.sum ./
-COPY backend-core /src/backend-core
-
 RUN go mod download
 
 COPY acorn-backend/ ./

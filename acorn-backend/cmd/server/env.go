@@ -7,13 +7,13 @@ import (
 	"path/filepath"
 	"strings"
 
-	"github.com/sid0709/OpenSeat/backend-core/config"
+	"github.com/sid0709/OpenSeat/acorn-backend/config"
 )
 
 const acornModule = "module github.com/sid0709/OpenSeat/acorn-backend"
 
 // loadAcornEnv reads acorn-backend/.env, walking up from the working directory
-// until it finds that module. A .env in another folder, including backend-core, is ignored.
+// until it finds that module. A .env in another folder is ignored.
 // The production image has no source tree; Docker already injected /opt/acorn/deploy.env,
 // so a missing module leaves the process environment as the config.
 func loadAcornEnv() (string, error) {

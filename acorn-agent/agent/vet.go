@@ -9,7 +9,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/sid0709/OpenSeat/backend-core/jev"
+	"github.com/sid0709/OpenSeat/acorn-backend/jev"
 )
 
 // The applicant has not allowed online file sources (a cloud drive, a file-sharing service, a

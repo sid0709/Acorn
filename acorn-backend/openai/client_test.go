@@ -9,7 +9,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/sid0709/OpenSeat/backend-core/config"
+	"github.com/sid0709/OpenSeat/acorn-backend/config"
 )
 
 const chatReply = `{"choices":[{"message":{"content":"{\"ok\":true}"}}]}`
