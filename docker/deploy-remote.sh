@@ -27,8 +27,8 @@ API_HEALTH_URL="${API_HEALTH_URL:-http://127.0.0.1:8083/health}"
 WEB_URL="${WEB_URL:-http://127.0.0.1:6005/}"
 ADMIN_URL="${ADMIN_URL:-http://127.0.0.1:6011/}"
 DEFAULT_AGENT_PORT="${DEFAULT_AGENT_PORT:-8093}"
-# JoinedHQ and other host services already use these; Acorn must not steal them.
-FORBIDDEN_AGENT_PORTS="${FORBIDDEN_AGENT_PORTS:-8083 6005 6010 6011 8080 8081 8090}"
+# Other services on this host already use these; the agent must not take them.
+FORBIDDEN_AGENT_PORTS="${FORBIDDEN_AGENT_PORTS:-8083 6005 6011 8080 8081}"
 # A rollback to a commit from before the agent existed has no agent image: leave the running one.
 AGENT_PULL_OPTIONAL="${AGENT_PULL_OPTIONAL:-false}"
 HEALTH_ATTEMPTS="${HEALTH_ATTEMPTS:-36}"
@@ -68,13 +68,13 @@ if [[ ! "$AGENT_PORT" =~ ^[0-9]+$ ]] || ((AGENT_PORT < 1 || AGENT_PORT > 65535))
   exit 1
 fi
 if is_forbidden_agent_port "$AGENT_PORT"; then
-  echo "ACORN_AGENT_PORT=${AGENT_PORT} is reserved on this host (JoinedHQ or Acorn's other services). Use ${DEFAULT_AGENT_PORT}, not: ${FORBIDDEN_AGENT_PORTS}" >&2
+  echo "ACORN_AGENT_PORT=${AGENT_PORT} is reserved on this host. Use ${DEFAULT_AGENT_PORT}, not: ${FORBIDDEN_AGENT_PORTS}" >&2
   exit 1
 fi
 AGENT_HEALTH_URL="${AGENT_HEALTH_URL:-http://127.0.0.1:${AGENT_PORT}/agent/v1/health}"
 
 # Fail before docker run if the chosen port is held by anything except this Acorn agent container.
-# Never stop or rebind another container (JoinedHQ owns 8090).
+# Never stop or rebind another container.
 assert_agent_port_free() {
   local port="$1"
   local our="$2"
@@ -89,7 +89,7 @@ assert_agent_port_free() {
   done < <(docker ps --format '{{.Names}} {{.Ports}}')
   if [[ -n "$holders" ]]; then
     echo "Acorn agent cannot bind 127.0.0.1:${port}: already published by container(s) ${holders}." >&2
-    echo "Leave that service as it is (JoinedHQ holds 8090). Set ACORN_AGENT_PORT in ${DEPLOY_ENV} to a free port other than: ${FORBIDDEN_AGENT_PORTS}" >&2
+    echo "Leave that service as it is. Set ACORN_AGENT_PORT in ${DEPLOY_ENV} to a free port other than: ${FORBIDDEN_AGENT_PORTS}" >&2
     exit 1
   fi
   # Recreate of this container is fine: it is already the listener on this port.

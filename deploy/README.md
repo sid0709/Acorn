@@ -11,7 +11,7 @@ GitHub Actions workflow [`.github/workflows/docker-publish.yml`](../.github/work
 | acorn-admin    | `omnimuh730/acorn-admin` | `127.0.0.1:6011`                                                |
 | acorn-agent    | `omnimuh730/acorn-agent` | `127.0.0.1:8093` (`ACORN_AGENT_PORT`; the Run planner)          |
 
-Port `6010` on the VPS is reserved for JoinedHQ admin; do not point Acorn admin there. Port `8090` is JoinedHQ's embedder; the Acorn agent uses `8093` (`ACORN_AGENT_PORT`).
+The Acorn agent uses port `8093` (`ACORN_AGENT_PORT`).
 
 Images are tagged with the full commit SHA (`github.sha`) and optionally `latest`. Deploy always pulls the SHA tag, never `latest`. `workflow_dispatch` input `image_sha` redeploys that SHA's existing images (rollback) without rebuilding.
 

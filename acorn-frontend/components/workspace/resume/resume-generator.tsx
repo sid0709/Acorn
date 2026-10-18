@@ -64,7 +64,7 @@ type ResumeStart = {
   templates: Awaited<ReturnType<typeof listResumeTemplates>>;
 };
 
-/** Live page on one side, design and posting on the other — the Athens generator layout on sid-ui. */
+/** Live page on one side, design and posting on the other — the generator layout on sid-ui. */
 export function ResumeGenerator({
   account,
   initial,

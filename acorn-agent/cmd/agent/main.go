@@ -24,7 +24,6 @@ import (
 
 const (
 	// defaultAgentPort is the host port when HTTP_ADDR and ACORN_AGENT_PORT are unset.
-	// 8090 on the VPS is JoinedHQ; do not reuse it.
 	defaultAgentPort = "8093"
 	// defaultAddr listens on this machine only: the profile and résumés never leave it.
 	defaultAddr = "127.0.0.1:" + defaultAgentPort
