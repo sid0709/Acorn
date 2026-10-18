@@ -96,6 +96,7 @@ func TestAFieldWithOneOptionOrNoOptionsIsNotAsked(t *testing.T) {
 		{Ref: 1, Kind: PickOne, Question: "Only", Options: []string{"Yes"}},
 		{Ref: 2, Kind: PickOne, Question: "None"},
 		{Ref: 3, Kind: "other", Question: "Odd", Options: []string{"a", "b"}},
+		{Ref: 4, Kind: PickOne, Question: "  ", Options: []string{"a", "b"}},
 	}})
 	if err != nil || len(result.Picks) != 0 || len(screen.requests) != 0 {
 		t.Fatalf("result = %+v err = %v requests = %d", result, err, len(screen.requests))

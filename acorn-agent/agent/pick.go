@@ -150,7 +150,7 @@ func validPickFields(fields []PickField) []PickField {
 	var out []PickField
 	seen := map[int]bool{}
 	for _, field := range fields {
-		if len(out) == maxPickFields || seen[field.Ref] || len(field.Options) == 0 {
+		if len(out) == maxPickFields || seen[field.Ref] || len(field.Options) == 0 || strings.TrimSpace(field.Question) == "" {
 			continue
 		}
 		if field.Kind != PickOne && field.Kind != PickMany {

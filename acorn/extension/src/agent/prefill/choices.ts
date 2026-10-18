@@ -145,7 +145,8 @@ async function scanFresh(args: ChoicesArgs, ctx: FillContext): Promise<Found[]> 
     });
     if (!scan?.ok) continue;
     for (const widget of scan.widgets) {
-      if (!widget.answered && !args.gate.has(frame.frameId, widget)) {
+      // A choice with no words asking it cannot be answered from the applicant's details: it is not guessed at.
+      if (widget.question.trim() && !widget.answered && !args.gate.has(frame.frameId, widget)) {
         fresh.push({ frameId: frame.frameId, widget, options: widget.options });
       }
     }
