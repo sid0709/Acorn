@@ -19,6 +19,8 @@ type systemData struct {
 	StopBeforeSubmit bool
 	// Survey is true when the run may look at a whole page as a survey of screenshots.
 	Survey bool
+	// Prefill is true when a quick text pass may fill the page's plain fields before a look.
+	Prefill bool
 	// Checks is true when a decision model checks the screen between the model's steps, so
 	// the model may plan ahead and say what each run of actions should lead to.
 	Checks     bool
@@ -40,6 +42,7 @@ func systemPrompt(start Start, snapshot applicant.Snapshot, maxActions, chunk in
 	err := systemTemplate.Execute(&out, systemData{
 		StopBeforeSubmit: start.StopBeforeSubmit,
 		Survey:           start.Survey,
+		Prefill:          start.Prefill,
 		Checks:           checks,
 		MaxActions:       maxActions,
 		Chunk:            chunk,
@@ -193,6 +196,8 @@ func describe(action Action) string {
 		return fmt.Sprintf("scroll %.0f,%.0f", action.DX, action.DY)
 	case KindWait:
 		return fmt.Sprintf("wait %dms", action.Ms)
+	case KindReload:
+		return "reload the page"
 	case KindUpload:
 		if action.FileName != "" {
 			return fmt.Sprintf("upload %s at %s", action.FileName, at(action))

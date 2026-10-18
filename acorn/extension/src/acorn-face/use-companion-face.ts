@@ -44,7 +44,6 @@ export function useCompanionFace(
       input.focused.fillPhase === "fetching" ||
       input.focused.fillPhase === "analyzing" ||
       input.focused.fillPhase === "running" ||
-      input.qaBusy ||
       input.authBusy ||
       input.opening ||
       input.anyTabWorking;
@@ -68,7 +67,7 @@ export function useCompanionFace(
       window.removeEventListener("keydown", bump, opts);
       window.removeEventListener("scroll", bump, opts);
     };
-  }, [input.focused.fillPhase, input.qaBusy, input.authBusy, input.opening, input.anyTabWorking]);
+  }, [input.focused.fillPhase, input.authBusy, input.opening, input.anyTabWorking]);
 
   useEffect(() => {
     if (!input.jobsEmpty || !input.signedIn) {

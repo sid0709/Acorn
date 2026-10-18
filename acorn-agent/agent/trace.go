@@ -41,6 +41,21 @@ const sourceCheck = "check"
 // file picker, with no call to the driving model.
 const sourcePicker = "picker"
 
+// sourcePrefill marks an entry where the quick text pass answered the page's plain fields, with no
+// look by the driving model.
+const sourcePrefill = "prefill"
+
+// sourceReview and sourceAdvance mark entries where the DOM-first loop reviewed the page after the first
+// draft, or picked the control that continues the application, with no look by the driving model.
+const (
+	sourceReview  = "review"
+	sourceAdvance = "advance"
+	// sourceStopCheck marks an entry where the decision model read the screen to confirm a stop for the applicant.
+	sourceStopCheck = "stopcheck"
+	// sourcePick marks an entry where the decision model chose among the options of the page's fields.
+	sourcePick = "pick"
+)
+
 // sourceAsk marks an entry where the run waited on the person's answer, or acted on it.
 const sourceAsk = "ask"
 
@@ -55,22 +70,26 @@ type stepTrace struct {
 	Survey        []SurveyScreen `json:"-"`
 	SurveyScreens int            `json:"surveyScreens,omitempty"`
 	Check         *checkTrace    `json:"check,omitempty"`
-	At            time.Time      `json:"at"`
-	URL           string         `json:"url"`
-	Title         string         `json:"title"`
-	Viewport      Viewport       `json:"viewport"`
-	Focus         *Focus         `json:"focus,omitempty"`
-	Notes         []string       `json:"notes,omitempty"`
-	Results       []ActionResult `json:"results,omitempty"`
-	Stale         int            `json:"stale"`
-	Observation   string         `json:"observation"`
-	Memo          string         `json:"memo"`
-	Job           string         `json:"job"`
-	Status        string         `json:"status"`
-	Message       string         `json:"message"`
-	Stop          *StopInfo      `json:"stop,omitempty"`
-	Actions       []Action       `json:"actions"`
-	Dropped       []string       `json:"dropped,omitempty"`
+	// Advance is what the decision model was asked about the controls of a clean page, and what it said.
+	Advance *advanceTrace `json:"advance,omitempty"`
+	// Picks is each choice the decision model was asked and what it said.
+	Picks       []string       `json:"picks,omitempty"`
+	At          time.Time      `json:"at"`
+	URL         string         `json:"url"`
+	Title       string         `json:"title"`
+	Viewport    Viewport       `json:"viewport"`
+	Focus       *Focus         `json:"focus,omitempty"`
+	Notes       []string       `json:"notes,omitempty"`
+	Results     []ActionResult `json:"results,omitempty"`
+	Stale       int            `json:"stale"`
+	Observation string         `json:"observation"`
+	Memo        string         `json:"memo"`
+	Job         string         `json:"job"`
+	Status      string         `json:"status"`
+	Message     string         `json:"message"`
+	Stop        *StopInfo      `json:"stop,omitempty"`
+	Actions     []Action       `json:"actions"`
+	Dropped     []string       `json:"dropped,omitempty"`
 	// Error is why the step produced no answer (the model failed, the observation was refused).
 	Error string `json:"error,omitempty"`
 	// Usage is the run's model use up to and including this step.

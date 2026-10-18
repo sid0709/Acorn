@@ -64,8 +64,7 @@ bun run build:acorn   # production build: talks to https://api.acornapply.com
 1. Visit a job's application page.
 2. Click the Acorn toolbar icon to open the sidebar and sign in with your email and extension password.
 3. **Run** on the Jobs tab: the agent looks at the page, opens the application, fills each page from your profile, attaches a résumé from your Library, and stops on the confirmation page, or tells you what it needs (a CAPTCHA, an emailed code, a document) and waits for **Continue**. **Stop** ends it at once, and **Continue** takes it back up where it stopped, with everything it had learned. Details: [`docs/architecture/extension.md`](docs/architecture/extension.md) §19.
-4. The **Ask** tab answers a question with the same writer, from your profile. Or drag-select a question on any page: an Acorn chip appears; click it for an in-page answer with Copy.
-5. **Support** and **Logs**: your reports and replies, and the tab's local log of what the Run did.
+4. **Support** and **Logs**: your reports and replies, and the tab's local log of what the Run did.
 
 ## API (acorn-backend, under `/acorn`)
 

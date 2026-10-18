@@ -65,6 +65,32 @@ type Config struct {
 	// StopPasses is how many times a run's stop for the applicant is sent back, to finish
 	// everything that does not need them first (stopgate.go); 0 accepts every stop at once.
 	StopPasses int
+	// MaxPrefills is the most quick text passes one run may make (prefill.go).
+	MaxPrefills int
+	// MaxReviews and MaxAdvances are the most reviews and advances one run may make (review.go, advance.go).
+	MaxReviews, MaxAdvances int
+	// MaxPicks is the most choice passes one run may make (pick.go); PickMatch is how sure the decision model must
+	// be of an option for it to be clicked, and PickMargin how far it must lead the next option.
+	MaxPicks              int
+	PickMatch, PickMargin float64
+	// ReviewErrors is how sure the decision model must be, of an error showing, a question unanswered,
+	// a box unticked, or the continue control greyed out, for a page to need fixing.
+	ReviewErrors float64
+	// HumanStop is how sure it must be that only the applicant can go on for the run to stop and ask.
+	HumanStop float64
+	// AdvanceMatch is how sure the decision model must be of the control that continues the application
+	// for it to be pressed outright, and AdvanceFinal of the one that sends it.
+	AdvanceMatch, AdvanceFinal float64
+	// A page that reviewed clean must go on, so a pick below AdvanceMatch is still pressed when the model
+	// is sure that some control continues (it gives "none" at most AdvanceNoneMax) and the pick has at
+	// least AdvanceTopMin and leads the next control by AdvanceMargin. A pick that changes nothing is
+	// found out by the extension (the same control pressed twice) and left to the driving model.
+	AdvanceNoneMax, AdvanceTopMin, AdvanceMargin float64
+	// A stop for the applicant is held to the screen (stopcheck.go): it stands only when the decision model
+	// is at least StopConfirm sure the page needs what the stop says. One that is not confirmed is sent back,
+	// at most StopOverridePasses times in a run; after that it stands, so a run cannot loop on its stops.
+	StopOverridePasses int
+	StopConfirm        float64
 	// KeepTurns is how many recent steps stay in full when the history is compacted; older
 	// ones are folded into one line each.
 	KeepTurns int
@@ -76,6 +102,9 @@ type Config struct {
 	// MaxStale is how many steps in a row the screen may stay the same before the run is
 	// declared stuck without asking the model again.
 	MaxStale int
+	// RepeatSteps is how many steps in a row may only press one spot before the model is told to find
+	// another way. Zero never tells it.
+	RepeatSteps int
 	// SessionTTL is how long an untouched session is kept.
 	SessionTTL time.Duration
 	// TraceDir, when set, records every step to disk.
@@ -83,6 +112,11 @@ type Config struct {
 	// VetBlock is the probability, from the decision model, at which a control, window or frame
 	// is blocked as an online file source (0 means 0.3).
 	VetBlock float64
+	// VetClickBlock is the same for a control about to be clicked (0 means 0.6). It is stricter on a
+	// window or frame, which a click already opened and which is closed at no cost, than on a click that
+	// cannot be taken back: a control that is only possibly an online source is clicked, and what it opens
+	// is judged by VetBlock.
+	VetClickBlock float64
 	// SingleSignOnBlock is the probability, from the decision model, at which a control, window
 	// or frame is blocked as a sign-in through another service's account (0 means 0.5).
 	SingleSignOnBlock float64
@@ -102,27 +136,43 @@ type Config struct {
 // DefaultConfig is the bounds a run has when nothing else is set.
 func DefaultConfig() Config {
 	return Config{
-		MaxSteps:          150,
-		MaxActions:        12,
-		UncheckedActions:  6,
-		ChunkActions:      6,
-		CheckMatch:        0.9,
-		CheckBlocked:      0.2,
-		CheckLoading:      0.3,
-		CheckLoadingWait:  0.7,
-		OptionMatch:       0.7,
-		LoadWait:          time.Second,
-		MaxLoadWaits:      4,
-		StopPasses:        2,
-		DonePasses:        2,
-		DoneConfirm:       0.7,
-		SingleSignOnBlock: 0.5,
-		AccountAttempts:   8,
-		KeepTurns:         8,
-		KeepImages:        3,
-		HistoryTokens:     30_000,
-		MaxStale:          6,
-		SessionTTL:        time.Hour,
+		MaxSteps:           150,
+		MaxActions:         12,
+		UncheckedActions:   6,
+		ChunkActions:       6,
+		CheckMatch:         0.9,
+		CheckBlocked:       0.2,
+		CheckLoading:       0.3,
+		CheckLoadingWait:   0.7,
+		OptionMatch:        0.7,
+		LoadWait:           time.Second,
+		MaxLoadWaits:       4,
+		StopPasses:         2,
+		DonePasses:         2,
+		DoneConfirm:        0.7,
+		SingleSignOnBlock:  0.5,
+		AccountAttempts:    8,
+		MaxPrefills:        20,
+		MaxReviews:         80,
+		MaxAdvances:        40,
+		MaxPicks:           40,
+		PickMatch:          0.6,
+		PickMargin:         0.15,
+		ReviewErrors:       0.3,
+		HumanStop:          0.85,
+		AdvanceMatch:       0.8,
+		AdvanceFinal:       0.5,
+		AdvanceNoneMax:     0.2,
+		AdvanceTopMin:      0.5,
+		AdvanceMargin:      0.15,
+		StopOverridePasses: 2,
+		StopConfirm:        0.6,
+		KeepTurns:          8,
+		KeepImages:         3,
+		HistoryTokens:      30_000,
+		MaxStale:           6,
+		RepeatSteps:        2,
+		SessionTTL:         time.Hour,
 	}
 }
 
@@ -347,6 +397,7 @@ func (a *Agent) step(ctx context.Context, id string, obs Observation) (Step, err
 		return Step{}, err
 	}
 	s.cover.see(obs.URL, obs.Viewport)
+	a.learnPrefill(s, obs)
 	// What happened to every action sent since the model last looked, which may be several
 	// runs of one plan.
 	results := withoutChoose(append(append([]ActionResult(nil), s.carried...), obs.Results...))
@@ -449,6 +500,9 @@ func (a *Agent) step(ctx context.Context, id string, obs Observation) (Step, err
 
 	planned, dropped := checkActions(number, answer.Actions, obs.Viewport, s.maxActions, screens)
 	planned = pinFrame(planned, obs.Viewport, len(screens))
+	if answer.Status == StatusWorking {
+		a.noteRepeat(s, planned)
+	}
 	planned, cut := cutAfterUpload(planned)
 	if cut > 0 && answer.Status == StatusWorking {
 		dropped = append(dropped, fmt.Sprintf("%d planned actions after the upload were not run: the page moves after a file is attached", cut))
@@ -477,7 +531,7 @@ func (a *Agent) step(ctx context.Context, id string, obs Observation) (Step, err
 	}
 	status = answer.Status
 	// The applicant is asked last: a stop is first sent back to finish everything else on the page.
-	if note, held := a.holdStop(s, status, answer); held {
+	if note, held := a.holdStop(ctx, s, obs, status, answer); held {
 		status, answer.Message = StatusWorking, stopPassMessage
 		planned = []Action{{ID: fmt.Sprintf("s%da1", number), Kind: KindWait, Ms: stopPassWaitMs}}
 		s.notes = append(s.notes, note)

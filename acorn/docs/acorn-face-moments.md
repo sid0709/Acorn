@@ -1,8 +1,8 @@
 # Acorn face — placement and moments
 
-Wired in the extension (sidebar companion, per-card badges, worker-count chip, Help guide, selection-QA chip). Toolbar icons stay still PNGs. There is no floating acorn on the employer page.
+Wired in the extension (sidebar companion, per-card badges, worker-count chip, Help guide). Toolbar icons stay still PNGs. There is no floating acorn on the employer page.
 
-The acorn is Acorn’s mascot: one painted body (`art/acorn-body.png` in the package) with eyes, lids, and effects drawn in code, so every frame is the same character. It appears on operator surfaces in the sidebar and on the selection-QA chip. It never goes inside a form.
+The acorn is Acorn’s mascot: one painted body (`art/acorn-body.png` in the package) with eyes, lids, and effects drawn in code, so every frame is the same character. It appears on operator surfaces in the sidebar. It never goes inside a form.
 
 Lib: [`packages/acorn-face`](../packages/acorn-face). API: `mount(el)`, `setMode(name)`, `destroy()`. One mode at a time.
 
@@ -20,7 +20,6 @@ Modes: `waiting` `thinking` `working` `help` `smile` `wink` `sad` `sleeping` (th
 | Help guide                   | Sidebar page from the Help button           | ~148px each       | Live                                                                                                                | **Catalog** — one face per mode                                           |
 | Fill list card               | 32px logo + 18px badge in `SidebarListCard` | 18px acorn        | Live only if busy, selected, or on-screen and not `waiting`. Idle off-screen rows are a still pose.                 | **That job**                                                              |
 | Custom list card             | Same slot, same card component              | 18px acorn        | Same as Fill                                                                                                        | **That remembered tab**                                                   |
-| Selection-QA chip            | Existing chip in `selection-qa.ts`          | 18–32px           | Live while the chip is shown                                                                                        | Q&A for this selection (same tab)                                         |
 | Notices / Fill pill / footer | —                                           | —                 | No acorn                                                                                                            | Facts stay on those surfaces. The face comments; it does not become them. |
 
 ### Identity row
@@ -125,17 +124,16 @@ Hold times are for the director, not current product code.
 
 ### Companion — waiting
 
-| Situation                                                    | Mode                  | Hold                         |
-| ------------------------------------------------------------ | --------------------- | ---------------------------- |
-| Signed in, Fill list visible, focused tab idle, footer Ready | waiting               | Until next event             |
-| Q&A tab, empty question                                      | waiting               | Until Generate or tab switch |
-| Apply tab already bound (`openWorkerJob` reused)             | waiting               | Immediate                    |
-| After smile/wink expires                                     | waiting               | —                            |
-| First-run, no job selected                                   | thinking then waiting | 1.2s then waiting            |
-| Empty Custom list (“Remember the current tab…”)              | thinking              | Until Remember or navigate   |
-| Worker pool Refresh                                          | thinking              | Until jobs return            |
-| Inspect panel open                                           | thinking              | While open                   |
-| Connection `<details>` open                                  | thinking              | While open                   |
+| Situation                                                    | Mode                  | Hold                       |
+| ------------------------------------------------------------ | --------------------- | -------------------------- |
+| Signed in, Fill list visible, focused tab idle, footer Ready | waiting               | Until next event           |
+| Apply tab already bound (`openWorkerJob` reused)             | waiting               | Immediate                  |
+| After smile/wink expires                                     | waiting               | —                          |
+| First-run, no job selected                                   | thinking then waiting | 1.2s then waiting          |
+| Empty Custom list (“Remember the current tab…”)              | thinking              | Until Remember or navigate |
+| Worker pool Refresh                                          | thinking              | Until jobs return          |
+| Inspect panel open                                           | thinking              | While open                 |
+| Connection `<details>` open                                  | thinking              | While open                 |
 
 ### Companion — thinking / working
 
@@ -143,7 +141,6 @@ Hold times are for the director, not current product code.
 | ------------------------------------------ | -------- | ----------------------- |
 | Focused tab `phase: 'analyzing'`           | thinking | Entire phase            |
 | Focused Custom `extract-jd` / `queued`     | thinking | Until `running` or fail |
-| Q&A “Writing…”                             | thinking | Until answer or error   |
 | Focused tab `fetching` / `running`         | working  | Entire phase            |
 | Focused Custom generating sections         | working  | Until completed/failed  |
 | Opening apply URL / remember tab in flight | working  | Until notice            |
@@ -162,7 +159,7 @@ Hold times are for the director, not current product code.
 | Signed out success                                  | smile    | 0.7s                               |
 | Preview eye on focused card                         | wink     | One wink                           |
 | Socket green after brief offline                    | wink     | One wink                           |
-| Tab switch Fill / Q&A / Custom                      | thinking | 0.9s then previous hold            |
+| Tab switch Fill / Custom                            | thinking | 0.9s then previous hold            |
 | Any `kind: 'error'` notice (sign-in, fill, jobs, …) | sad      | Until dismiss/retry or notice ends |
 | Empty Worker pool (with interaction)                | sad      | Until jobs, or 90s → sleeping      |
 | Error boundary                                      | sad      | Until Try again                    |
@@ -203,23 +200,6 @@ Need `tabId` from `attachments[job.id]`. Unattached idle jobs still get an acorn
 | Fill done / error                                               | smile / sad                    | Same as Fill card            |
 | Download / preview                                              | working / wink                 | Same as Fill card            |
 | Couldn’t remember / forget / switch this tab                    | sad                            | Notice hold                  |
-
-### Selection-QA (this tab)
-
-| Situation         | Mode     | Hold       |
-| ----------------- | -------- | ---------- |
-| Request in flight | thinking | Until HTML |
-| Chip click        | wink     | One wink   |
-| Copied            | smile    | 0.5s       |
-
-### Q&A (companion + selection chip)
-
-| Situation                | Mode     | Hold        |
-| ------------------------ | -------- | ----------- |
-| Empty question           | waiting  | —           |
-| Writing                  | thinking | Until done  |
-| Copied                   | smile    | 0.5s        |
-| Error / sign-in required | sad      | Until fixed |
 
 ---
 

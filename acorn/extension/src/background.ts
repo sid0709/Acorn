@@ -16,7 +16,6 @@ import {
   runTabIds,
 } from "./background/work-state";
 import { bindContentScriptInjection, injectIntoOpenTabs } from "./inject-content";
-import { rekeyTabJob, unbindTabJob } from "./tab-job-session";
 import {
   LOG_KIND,
   LOG_LEVEL,
@@ -104,7 +103,6 @@ chrome.runtime.onInstalled.addListener(enableSidePanelOnActionClick);
 
 chrome.tabs.onRemoved.addListener((tabId) => {
   void endKeptRunOfTab(tabId);
-  void unbindTabJob(tabId);
   void clearTabPipeline(tabId);
   void clearTabLog(tabId);
 });
@@ -117,7 +115,6 @@ chrome.tabs.onReplaced.addListener((addedTabId, removedTabId) => {
     runTabIds.add(addedTabId);
   }
   void moveTabLog(removedTabId, addedTabId).catch(() => undefined);
-  void rekeyTabJob(removedTabId, addedTabId);
   void rekeyUsageTab(removedTabId, addedTabId);
   void rekeyTabPipeline(removedTabId, addedTabId);
   void rekeyKeptRun(removedTabId, addedTabId);

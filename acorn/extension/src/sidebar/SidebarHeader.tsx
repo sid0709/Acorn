@@ -26,7 +26,6 @@ type SidebarHeaderProps = {
   busyTotal: number;
   connected: boolean;
   /** One line about the active Chrome tab: its job, its remembered title, or nothing yet. */
-  context: string;
   signOutDisabled: boolean;
   onOpenGuide: () => void;
   onOpenSettings: () => void;
@@ -47,7 +46,6 @@ export function SidebarHeader({
   busyCounts,
   busyTotal,
   connected,
-  context,
   signOutDisabled,
   onOpenGuide,
   onOpenSettings,
@@ -73,9 +71,6 @@ export function SidebarHeader({
       <VStack gap={0} className="acorn-header-copy">
         <Text as="h1" type="large" weight="semibold">
           Acorn
-        </Text>
-        <Text type="supporting" maxLines={1} hasTruncateTooltip>
-          {context}
         </Text>
       </VStack>
       {busyTotal > 0 ? (

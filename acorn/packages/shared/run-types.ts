@@ -158,6 +158,25 @@ export interface MailSearch {
   detail?: string;
 }
 
+/** What one way of working has done in a run. The two ways are the DOM pass and the screenshot agent. */
+export interface RunEngineStats {
+  /** DOM: passes made. Image: steps taken. */
+  rounds: number;
+  /** Model calls, and what they cost in US dollars. */
+  calls: number;
+  costUsd: number;
+  /** Time spent: typing for the DOM pass, waiting on the model for the image agent. */
+  ms: number;
+  /** DOM only: reviews of a page after the first draft, and controls pressed to go on without the model. */
+  reviews?: number;
+  advances?: number;
+  /** DOM only: fields typed that showed the answer, and fields that did not. */
+  filled?: number;
+  failed?: number;
+  /** The engine is working right now. */
+  active?: boolean;
+}
+
 export interface RunProgress {
   runId: string;
   stage: RunStage;
@@ -181,6 +200,10 @@ export interface RunProgress {
   costUsd?: number;
   modelCalls?: number;
   screenChecks?: number;
+  /** An agent Run: what the DOM quick pass did (its calls, cost and time), shown beside the image agent's. */
+  dom?: RunEngineStats;
+  /** An agent Run: what the screenshot agent did, and the model time its steps took. */
+  image?: RunEngineStats;
   /** An agent Run waiting on the person: the question and the answers they may give. */
   ask?: { id: string; question: string; options: { id: string; label: string }[] };
   /** An agent Run reading Gmail for a code or link: the emails read, and which one was used. */

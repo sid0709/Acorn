@@ -3,14 +3,11 @@ import { useEffect, useState } from "react";
 import { fetchGmailConnectionStatus } from "../agent/gmail-connection";
 
 import { FaceGuidePanel } from "./FaceGuidePanel";
-import { ResumePreviewPanel } from "./ResumePreviewPanel";
 import { SettingsDrawer } from "./SettingsDrawer";
 
-import type { BusyCounts, ResumePreview, SidebarAuth } from "./sidebar-panel-types";
+import type { BusyCounts, SidebarAuth } from "./sidebar-panel-types";
 
 interface Props {
-  preview: ResumePreview["preview"];
-  setPreview: ResumePreview["setPreview"];
   helpOpen: boolean;
   setHelpOpen: (open: boolean) => void;
   busyCounts: BusyCounts;
@@ -22,10 +19,8 @@ interface Props {
   setApiUrl: SidebarAuth["setApiUrl"];
 }
 
-/** Drawers and panels over the sidebar: the résumé preview, the Face guide, and settings. */
+/** Drawers and panels over the sidebar: the Face guide, and settings. */
 export function SidebarOverlays({
-  preview,
-  setPreview,
   helpOpen,
   setHelpOpen,
   busyCounts,
@@ -58,16 +53,6 @@ export function SidebarOverlays({
 
   return (
     <>
-      {preview ? (
-        <ResumePreviewPanel
-          title={preview.title}
-          sourceKey={preview.sourceKey}
-          loadHtml={preview.loadHtml}
-          downloadFile={preview.downloadFile}
-          onClose={() => setPreview(null)}
-        />
-      ) : null}
-
       {/* Mounted only while open: the guide runs a live Acorn Face per mood. */}
       {helpOpen ? (
         <FaceGuidePanel

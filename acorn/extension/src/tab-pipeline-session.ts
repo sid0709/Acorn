@@ -22,11 +22,6 @@ export async function listTabPipelines(): Promise<TabPipelineMap> {
   return readMap();
 }
 
-export async function getTabPipeline(tabId: number): Promise<PipelineProgress | null> {
-  const map = await readMap();
-  return map[String(tabId)] ?? null;
-}
-
 export async function recordTabPipeline(
   tabId: number,
   next: PipelineProgress,

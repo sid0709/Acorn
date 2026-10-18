@@ -35,6 +35,9 @@ const (
 	VetControl = "control"
 	VetWindow  = "window"
 	VetFrame   = "frame"
+	// The probabilities of an online source at which a target is blocked, when the config gives none.
+	defaultVetBlock      = 0.3
+	defaultVetClickBlock = 0.6
 	// maxVetText bounds each piece of a description.
 	maxVetText = 240
 )
@@ -158,11 +161,20 @@ func (a *Agent) signOnBlockAbove() float64 {
 	return 0.5
 }
 
-func (a *Agent) vetBlockAbove() float64 {
+// vetBlockAbove is the probability of an online source at which a target is blocked: a control about to
+// be clicked is blocked less readily than a window or frame that a click already opened, since the
+// latter guard closes whatever a doubtful click brings up.
+func (a *Agent) vetBlockAbove(kind string) float64 {
+	if kind == VetControl {
+		if a.cfg.VetClickBlock > 0 {
+			return a.cfg.VetClickBlock
+		}
+		return defaultVetClickBlock
+	}
 	if a.cfg.VetBlock > 0 {
 		return a.cfg.VetBlock
 	}
-	return 0.3
+	return defaultVetBlock
 }
 
 // Vet judges something the extension is about to click, or has just had opened.
@@ -197,7 +209,7 @@ func (a *Agent) Vet(ctx context.Context, id string, target VetTarget) (VetVerdic
 		failed = "the decision model gave no answer"
 	default:
 		verdict.Probability = *answer.Noul
-		if verdict.Probability >= a.vetBlockAbove() {
+		if verdict.Probability >= a.vetBlockAbove(target.Kind) {
 			verdict.Blocked, verdict.Cause = true, CauseOnlineSource
 		}
 	}

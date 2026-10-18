@@ -385,3 +385,38 @@ func TestAStoppedRunContinuesOverHTTP(t *testing.T) {
 		t.Fatalf("continue after end = %d %s", response.StatusCode, body)
 	}
 }
+
+func TestThePrefillRouteAnswersFieldsAndRefusesARunThatDidNotTurnItOn(t *testing.T) {
+	reply := `{"fills":[{"element_index":3,"action":"fill","expected_label":"Name","expected_role":"textbox","value":"Ada"}]}`
+	_, ts := newServer(t, fakeModel{content: reply}, "server-key")
+	fields := agent.PrefillRequest{URL: "https://jobs.example", Title: "Apply", Tree: "form[2]\n  input[3] domId=3 type=text name=full_name"}
+
+	_, body := send(t, http.MethodPost, ts.URL+BasePath+"/sessions", agent.Start{URL: "https://jobs.example", Prefill: true}, nil)
+	var on agent.Started
+	if err := json.Unmarshal(body, &on); err != nil {
+		t.Fatal(err)
+	}
+	response, body := send(t, http.MethodPost, ts.URL+BasePath+"/sessions/"+on.SessionID+"/prefill", fields, nil)
+	if response.StatusCode != 200 {
+		t.Fatalf("prefill = %d %s", response.StatusCode, body)
+	}
+	var plan agent.PrefillPlan
+	if err := json.Unmarshal(body, &plan); err != nil || len(plan.Fills) != 1 || plan.Fills[0].Value != "Ada" || plan.Fills[0].Ref != 3 {
+		t.Fatalf("plan = %+v %v", plan, err)
+	}
+
+	_, body = send(t, http.MethodPost, ts.URL+BasePath+"/sessions", agent.Start{URL: "https://jobs.example"}, nil)
+	var off agent.Started
+	if err := json.Unmarshal(body, &off); err != nil {
+		t.Fatal(err)
+	}
+	response, body = send(t, http.MethodPost, ts.URL+BasePath+"/sessions/"+off.SessionID+"/prefill", fields, nil)
+	if response.StatusCode != http.StatusConflict || !strings.Contains(string(body), `"prefill_unavailable"`) {
+		t.Fatalf("a run without the pass = %d %s", response.StatusCode, body)
+	}
+
+	response, body = send(t, http.MethodPost, ts.URL+BasePath+"/sessions/"+on.SessionID+"/prefill", agent.PrefillRequest{}, nil)
+	if response.StatusCode != http.StatusBadRequest || !strings.Contains(string(body), `"bad_prefill"`) {
+		t.Fatalf("an empty list = %d %s", response.StatusCode, body)
+	}
+}

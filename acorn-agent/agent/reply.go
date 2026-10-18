@@ -48,7 +48,7 @@ var replySchema = json.RawMessage(`{
         "additionalProperties": false,
         "required": ["kind", "screen", "x", "y", "text", "secret", "keys", "dx", "dy", "ms", "resume", "check"],
         "properties": {
-          "kind": {"type": "string", "enum": ["click", "double_click", "triple_click", "right_click", "hover", "type", "key", "scroll", "upload", "choose", "wait", "survey"]},
+          "kind": {"type": "string", "enum": ["click", "double_click", "triple_click", "right_click", "hover", "type", "key", "scroll", "upload", "choose", "wait", "reload", "survey"]},
           "screen": {"type": ["integer", "null"]},
           "x": {"type": ["number", "null"]},
           "y": {"type": ["number", "null"]},
@@ -244,6 +244,8 @@ func fill(out *Action, in modelAction, vp Viewport) string {
 		out.X, out.Y = &x, &y
 	case KindSurvey:
 		// Nothing to carry: the step asks the extension for a survey on its next look.
+	case KindReload:
+		// Nothing to carry: the extension reloads the page it is in.
 	case KindWait:
 		ms := 1000
 		if in.Ms != nil {

@@ -19,6 +19,9 @@ import (
 
 const defaultTraces = "traces"
 
+// sourcePrefill marks a trace entry the quick text pass made (agent.sourcePrefill).
+const sourcePrefill = "prefill"
+
 type entry struct {
 	At      time.Time `json:"at"`
 	Source  string    `json:"source"`
@@ -76,8 +79,9 @@ func summarize(dir string) error {
 		return fmt.Errorf("no steps in %s", dir)
 	}
 	sort.Strings(steps)
-	var model, screen tally
+	var model, screen, prefill tally
 	outcomes := map[string]int{}
+	reviews, advances := 0, 0
 	actions, failures := 0, 0
 	var first, last time.Time
 	var lastLatency time.Duration
@@ -97,6 +101,12 @@ func summarize(dir string) error {
 		if e.Check != nil {
 			outcomes[e.Check.Outcome]++
 		}
+		switch e.Source {
+		case "review":
+			reviews++
+		case "advance":
+			advances++
+		}
 		var calls []call
 		if err := read(strings.TrimSuffix(path, ".json")+".model.json", &calls); err != nil && !os.IsNotExist(err) {
 			return fmt.Errorf("read model calls of %s: %w", path, err)
@@ -106,22 +116,33 @@ func summarize(dir string) error {
 				screen.add(c)
 				continue
 			}
+			if e.Source == sourcePrefill {
+				prefill.add(c)
+				continue
+			}
 			model.add(c)
 			lastLatency += time.Duration(c.LatencyMs) * time.Millisecond
 		}
 	}
 	wall := last.Sub(first) + lastLatency
-	rest := wall - model.latency - screen.latency
+	rest := wall - model.latency - screen.latency - prefill.latency
 	fmt.Printf("%s\n", filepath.Base(dir))
 	fmt.Printf("  wall %s over %d entries, %d actions sent, %d failed model calls\n", wall.Round(time.Second), len(steps), actions, failures)
 	fmt.Printf("  model:  %3d calls (%d repairs)  in %d (cached %d)  out %d  $%.4f  %s  (%.1fs/call, %d in/call)\n",
 		model.calls, model.repairs, model.in, model.cached, model.out, model.cost, model.latency.Round(time.Second),
 		per(model.latency.Seconds(), model.calls), perInt(model.in, model.calls))
+	if reviews+advances > 0 {
+		fmt.Printf("  DOM-first: %d reviews, %d advances (their decision-model calls are in checks)\n", reviews, advances)
+	}
+	if prefill.calls > 0 {
+		fmt.Printf("  prefill: %2d calls  in %d (cached %d)  out %d  $%.4f  %s  (%.1fs/call)\n",
+			prefill.calls, prefill.in, prefill.cached, prefill.out, prefill.cost, prefill.latency.Round(time.Second), per(prefill.latency.Seconds(), prefill.calls))
+	}
 	if screen.calls > 0 {
 		fmt.Printf("  checks: %3d calls  in %d  $%.4f  %s  (%.2fs/call)  outcomes %v\n",
 			screen.calls, screen.in, screen.cost, screen.latency.Round(time.Millisecond), per(screen.latency.Seconds(), screen.calls), outcomes)
 	}
-	fmt.Printf("  extension and waiting: %s   total cost $%.4f\n\n", rest.Round(time.Second), model.cost+screen.cost)
+	fmt.Printf("  extension and waiting: %s   total cost $%.4f\n\n", rest.Round(time.Second), model.cost+screen.cost+prefill.cost)
 	return nil
 }
 
