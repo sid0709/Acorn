@@ -6,9 +6,9 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/sid0709/OpenSeat/acorn-backend/mailbox"
-	"github.com/sid0709/OpenSeat/acorn-backend/selector"
-	"github.com/sid0709/OpenSeat/backend-core/jev"
+	"github.com/sid0709/acorn/acorn-backend/jev"
+	"github.com/sid0709/acorn/acorn-backend/mailbox"
+	"github.com/sid0709/acorn/acorn-backend/selector"
 )
 
 // liveKeyEnv names the environment variable that turns on the tests that call the real decision

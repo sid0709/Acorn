@@ -1,7 +1,7 @@
 package resume
 
-// Built-in template layouts. Mirrors RESUME_TEMPLATES in @acorn/shared/resume-templates.ts
-// (and Athens): the frontend picks by id and applies a template's default font and accent;
+// Built-in template layouts. Mirrors RESUME_TEMPLATES in @acorn/shared/resume-templates.ts:
+// the frontend picks by id and applies a template's default font and accent;
 // the renderer reads the structure below.
 
 type templateDef struct {

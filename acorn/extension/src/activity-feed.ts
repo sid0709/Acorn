@@ -178,8 +178,6 @@ function describeCall(
         done: "Picked a dropdown option",
         icon: "ai",
       };
-    case "qa":
-      return { running: "Asking the AI to write an answer…", done: "Wrote an answer", icon: "ai" };
     case "custom/recommend": {
       const stack = str(body.recommendedResumeStack);
       return {

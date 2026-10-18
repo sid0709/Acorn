@@ -15,6 +15,11 @@ export const AGENT_ROUTES = {
   session: (sessionId: string) => `/agent/v1/sessions/${encodeURIComponent(sessionId)}`,
   vet: (sessionId: string) => `/agent/v1/sessions/${encodeURIComponent(sessionId)}/vet`,
   continue: (sessionId: string) => `/agent/v1/sessions/${encodeURIComponent(sessionId)}/continue`,
+  memory: (sessionId: string) => `/agent/v1/sessions/${encodeURIComponent(sessionId)}/memory`,
+  prefill: (sessionId: string) => `/agent/v1/sessions/${encodeURIComponent(sessionId)}/prefill`,
+  review: (sessionId: string) => `/agent/v1/sessions/${encodeURIComponent(sessionId)}/review`,
+  advance: (sessionId: string) => `/agent/v1/sessions/${encodeURIComponent(sessionId)}/advance`,
+  pick: (sessionId: string) => `/agent/v1/sessions/${encodeURIComponent(sessionId)}/pick`,
 } as const;
 
 /** Header that carries the person's OpenRouter key when the extension has one. */
@@ -32,6 +37,8 @@ export const ACTION_KIND = {
   scroll: "scroll",
   upload: "upload",
   wait: "wait",
+  /** Loads the page again at its address: for a page that shows an error or stopped loading. */
+  reload: "reload",
 } as const;
 
 export type ActionKind = (typeof ACTION_KIND)[keyof typeof ACTION_KIND];
@@ -58,6 +65,8 @@ export const AGENT_STOP_REASON = {
   identity: "identity",
   document: "document",
   signIn: "sign_in",
+  /** The site refused the sign-in, the new account and the password reset. */
+  accountRejected: "account_rejected",
   pageProblem: "page_problem",
   other: "other",
   noChange: "no_change",
@@ -138,9 +147,17 @@ export interface AgentVetTarget {
   pageUrl?: string;
 }
 
+/** Why the agent refused a click or closed a window: the thing it reached. */
+export const VET_CAUSE = {
+  onlineSource: "online_source",
+  singleSignOn: "single_sign_on",
+} as const;
+export type VetCause = (typeof VET_CAUSE)[keyof typeof VET_CAUSE];
+
 export interface AgentVetVerdict {
   blocked: boolean;
   probability: number;
+  cause?: VetCause;
   reason?: string;
 }
 
@@ -165,6 +182,179 @@ export interface AgentSurveyScreen {
   scrollY: number;
 }
 
+/** What a fill of the quick text pass does to its field (acorn-agent's Fill* values; Oak's plan actions). */
+export const PREFILL_ACTION = {
+  /** Types the value into a text box, or chooses it in a native list. */
+  fill: "fill",
+  /** Picks the option of a radio group or a checkbox group that reads as the value. */
+  selectRadio: "select_radio",
+} as const;
+export type PrefillAction = (typeof PREFILL_ACTION)[keyof typeof PREFILL_ACTION];
+
+/** The page the run is on, serialized as Oak's "pure tree": lines of `tag[id] attributes "text"`. */
+export interface AgentPrefillRequest {
+  url: string;
+  title: string;
+  tree: string;
+}
+
+export interface AgentPrefillFill {
+  /** The element's number in the tree. */
+  ref: number;
+  action: PrefillAction;
+  /** The question the field answers, as the model read it from the page. */
+  label?: string;
+  /** What kind of control the model took it for ("textbox", "radio", "checkbox"). */
+  role?: string;
+  /** The text to type, or the option's own wording for a list or a group. */
+  value?: string;
+  /** The value is the account password: typed, never logged or shown. */
+  secret?: boolean;
+}
+
+export interface AgentPrefillPlan {
+  fills: AgentPrefillFill[] | null;
+  dropped?: string[];
+  usage: AgentUsage;
+  trace?: AgentTrace;
+}
+
+/** One field in a report: its label, and what was typed or why it was not. */
+export interface AgentPrefillLine {
+  label: string;
+  value?: string;
+  error?: string;
+}
+
+/** What the extension did with a plan; the model is told it at its next look. */
+export interface AgentPrefillReport {
+  filled?: AgentPrefillLine[];
+  failed?: AgentPrefillLine[];
+}
+
+/** What the page says of itself after the first draft (acorn-agent's ReviewFindings). */
+export interface AgentReviewFindings {
+  /** How many plain fields the page shows; 0 means it is not a form. */
+  fields: number;
+  /** Labels of required fields still empty. */
+  empty?: string[];
+  /** Visible error messages, and the labels of fields the page marked invalid. */
+  errors?: string[];
+  /** Labels of fills the pass made that did not take. */
+  failed?: string[];
+  /** Disabled controls that would continue the application, and, with one, the unticked boxes of its form. */
+  blocked?: string[];
+}
+
+export interface AgentReviewRequest {
+  url: string;
+  title: string;
+  screenshot: string;
+  viewport: AgentViewport;
+  dom: AgentReviewFindings;
+  /** The whole page as screenshots, when it is taller than the screen and the page's own state found nothing wrong. */
+  survey?: AgentSurveyScreen[];
+}
+
+/** What a review made of the page. */
+export const REVIEW_VERDICT = {
+  /** Every required field is answered and nothing is in the way: the page may go on. */
+  clean: "clean",
+  /** Something is left to do or went wrong; `problems` says what. */
+  fix: "fix",
+  /** The page is still changing: look again in a moment. */
+  loading: "loading",
+  /** The screen shows the application was received. */
+  sent: "sent",
+  /** Only the applicant's own hand can go on: `step` ends the run as need_person. */
+  human: "human",
+  /** The review could not decide: the driving model looks. */
+  look: "look",
+} as const;
+export type ReviewVerdict = (typeof REVIEW_VERDICT)[keyof typeof REVIEW_VERDICT];
+
+export interface AgentReviewResult {
+  verdict: ReviewVerdict;
+  problems?: string[];
+  /** What the driving model is told on its next look; absent when it needs none. */
+  note?: string;
+  step?: AgentStep;
+  usage: AgentUsage;
+  trace?: AgentTrace;
+}
+
+/** One control of the page that could be pressed, as the page words it. */
+export interface AgentAdvanceCandidate {
+  ref: number;
+  text: string;
+  kind: "button" | "submit";
+  inForm?: boolean;
+}
+
+/** How a choice is answered: exactly one option, or each option a yes or a no (checkboxes). */
+export const PICK_KIND = { one: "one", many: "many" } as const;
+export type PickKind = (typeof PICK_KIND)[keyof typeof PICK_KIND];
+
+/** One question of the page with its options, as the page words them. */
+export interface AgentPickField {
+  ref: number;
+  kind: PickKind;
+  question: string;
+  options: string[];
+}
+
+export interface AgentPickRequest {
+  url: string;
+  title: string;
+  fields: AgentPickField[];
+}
+
+/** The options to choose for one field (indexes into its options); a field the model was unsure of is absent. */
+export interface AgentPickAnswer {
+  ref: number;
+  choices: number[];
+  sure: number;
+}
+
+export interface AgentPickResult {
+  picks: AgentPickAnswer[] | null;
+  usage: AgentUsage;
+  trace?: AgentTrace;
+}
+
+export interface AgentAdvanceRequest {
+  url: string;
+  title: string;
+  screenshot: string;
+  candidates: AgentAdvanceCandidate[];
+  /** The whole page as screenshots, so a control below the screen can be seen and chosen. */
+  survey?: AgentSurveyScreen[];
+  viewport: AgentViewport;
+}
+
+/** What to do about a page that reviewed clean. */
+export const ADVANCE_ACTION = {
+  click: "click",
+  /** The control that sends the application was found and the run is to stop before it. */
+  readyToSubmit: "ready_to_submit",
+  none: "none",
+} as const;
+export type AdvanceAction = (typeof ADVANCE_ACTION)[keyof typeof ADVANCE_ACTION];
+
+export interface AgentAdvanceResult {
+  action: AdvanceAction;
+  ref?: number;
+  text?: string;
+  /** The control sends the application rather than moving to another step. */
+  submit?: boolean;
+  /** How sure the decision model was of the pick, and that no control continues. */
+  sure?: number;
+  none?: number;
+  step?: AgentStep;
+  usage: AgentUsage;
+  trace?: AgentTrace;
+}
+
 export interface AgentObservation {
   /** A data URL of the visible page. */
   screenshot: string;
@@ -180,6 +370,8 @@ export interface AgentObservation {
   pageText?: string;
   /** The person's answer (an AgentAskOption id) to the question the last step asked. */
   answer?: string;
+  /** What the quick text pass did on this page since the model last looked. */
+  prefill?: AgentPrefillReport;
 }
 
 export interface AgentAction {
@@ -262,6 +454,24 @@ export interface AgentStart {
   trace?: boolean;
   /** Let the run survey a long page (several screenshots from top to bottom). Off: it sees the current screen only. */
   survey?: boolean;
+  /** Let the extension send the page's plain fields for a quick text pass before the model looks. */
+  prefill?: boolean;
+  /** What a stopped run knew, to start a run that goes on from it when the server forgot the session. */
+  memory?: AgentMemory;
+}
+
+/**
+ * The part of a run that is costly to find again and does not depend on its step history: the
+ * notes and job the model recorded, the job description read from the page, the résumé chosen
+ * from it, and whether the application form was already found. The extension keeps it when a run
+ * stops, so Continue goes on from it even when the agent's session is gone.
+ */
+export interface AgentMemory {
+  memo?: string;
+  job?: string;
+  jd?: string;
+  resume?: string;
+  formReady?: boolean;
 }
 
 export interface AgentResumeInfo {
@@ -304,6 +514,11 @@ export const AGENT_ERROR_CODE = {
   /** acorn-backend could not be reached from the agent. */
   backendUnreachable: "backend_unreachable",
   badFallbackResume: "bad_fallback_resume",
+  /** The quick text pass was refused: the page was unusable, or the run may make no more. */
+  badPrefill: "bad_prefill",
+  prefillUnavailable: "prefill_unavailable",
+  /** The model's own plan is still being carried out: ask again at a later look. */
+  prefillBusy: "prefill_busy",
 } as const;
 
 /** The error body every failing route sends. */

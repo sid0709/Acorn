@@ -4,7 +4,7 @@ This is a **bun workspaces monorepo**. Work from the repo root. Shared UI is the
 
 Workspaces: `acorn-frontend`, `acorn/extension`, `acorn/packages/*`, `acorn/demo`, `packages/google-signin`, and the Go module `acorn-backend`. The component catalog is `sid-ui-theme` in the sid-ui repo.
 
-`acorn-backend` uses `backend-core` via the `replace` in `acorn-backend/go.mod` (`../backend-core`, relative to that module). Google sign-in is the workspace package `@acorn/google-signin`.
+`acorn-agent` uses the `config`, `jev`, `llmhttp`, `openai` and `requestid` packages of `acorn-backend` via the `replace` in `acorn-agent/go.mod` (`../acorn-backend`, relative to that module). Google sign-in is the workspace package `@acorn/google-signin`.
 
 Before pushing, run `bun run ci`. `bun run ci:fix` writes Prettier and auto-fixable ESLint issues.
 

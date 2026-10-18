@@ -13,18 +13,17 @@ import (
 	"syscall"
 	"time"
 
-	"github.com/sid0709/OpenSeat/acorn-agent/agent"
-	"github.com/sid0709/OpenSeat/acorn-agent/applicant"
-	"github.com/sid0709/OpenSeat/acorn-agent/decide"
-	"github.com/sid0709/OpenSeat/acorn-agent/httpapi"
-	"github.com/sid0709/OpenSeat/acorn-agent/llm"
-	"github.com/sid0709/OpenSeat/backend-core/config"
-	"github.com/sid0709/OpenSeat/backend-core/jev"
+	"github.com/sid0709/acorn/acorn-agent/agent"
+	"github.com/sid0709/acorn/acorn-agent/applicant"
+	"github.com/sid0709/acorn/acorn-agent/decide"
+	"github.com/sid0709/acorn/acorn-agent/httpapi"
+	"github.com/sid0709/acorn/acorn-agent/llm"
+	"github.com/sid0709/acorn/acorn-backend/config"
+	"github.com/sid0709/acorn/acorn-backend/jev"
 )
 
 const (
 	// defaultAgentPort is the host port when HTTP_ADDR and ACORN_AGENT_PORT are unset.
-	// 8090 on the VPS is JoinedHQ; do not reuse it.
 	defaultAgentPort = "8093"
 	// defaultAddr listens on this machine only: the profile and résumés never leave it.
 	defaultAddr = "127.0.0.1:" + defaultAgentPort
@@ -64,6 +63,23 @@ const (
 	envFallbackResume = "DEFAULT_FALLBACK_RESUME"
 	envChunkActions   = "ACORN_AGENT_CHUNK_ACTIONS"
 	envVetBlock       = "ACORN_AGENT_VET_BLOCK_PERCENT"
+	envVetClickBlock  = "ACORN_AGENT_VET_CLICK_BLOCK_PERCENT"
+	envSignOnBlock    = "ACORN_AGENT_SSO_BLOCK_PERCENT"
+	envAccountTries   = "ACORN_AGENT_ACCOUNT_ATTEMPTS"
+	envMaxPrefills    = "ACORN_AGENT_MAX_PREFILLS"
+	envMaxReviews     = "ACORN_AGENT_MAX_REVIEWS"
+	envMaxAdvances    = "ACORN_AGENT_MAX_ADVANCES"
+	envMaxPicks       = "ACORN_AGENT_MAX_PICKS"
+	envPickMatch      = "ACORN_AGENT_PICK_PERCENT"
+	envPickMargin     = "ACORN_AGENT_PICK_MARGIN_PERCENT"
+	envHumanStop      = "ACORN_AGENT_HUMAN_STOP_PERCENT"
+	envReviewProblem  = "ACORN_AGENT_REVIEW_PROBLEM_PERCENT"
+	envAdvanceMatch   = "ACORN_AGENT_ADVANCE_PERCENT"
+	envAdvanceNone    = "ACORN_AGENT_ADVANCE_NONE_MAX_PERCENT"
+	envAdvanceTop     = "ACORN_AGENT_ADVANCE_TOP_MIN_PERCENT"
+	envAdvanceMargin  = "ACORN_AGENT_ADVANCE_MARGIN_PERCENT"
+	envOverridePasses = "ACORN_AGENT_STOP_OVERRIDE_PASSES"
+	envStopConfirm    = "ACORN_AGENT_STOP_CONFIRM_PERCENT"
 	// envBackendURL is where acorn-backend is. When set, the applicant is the signed-in person's
 	// own profile and Library there (the person's session comes with each run); otherwise it is the
 	// profile.json and résumé folder on this computer.
@@ -75,6 +91,7 @@ const (
 	envKeepTurns     = "ACORN_AGENT_KEEP_TURNS"
 	envKeepImages    = "ACORN_AGENT_KEEP_IMAGES"
 	envMaxStale      = "ACORN_AGENT_MAX_STALE"
+	envRepeatSteps   = "ACORN_AGENT_REPEAT_STEPS"
 	envMaxModelCalls = "ACORN_AGENT_MAX_MODEL_CALLS"
 	envAgentPort     = "ACORN_AGENT_PORT"
 )
@@ -128,9 +145,27 @@ func run() error {
 	cfg.CheckLoading = percent(envCheckLoading, cfg.CheckLoading)
 	cfg.OptionMatch = percent(envOptionMatch, cfg.OptionMatch)
 	cfg.VetBlock = percent(envVetBlock, 0.3)
+	cfg.VetClickBlock = percent(envVetClickBlock, 0.6)
+	cfg.SingleSignOnBlock = percent(envSignOnBlock, 0.5)
+	cfg.AccountAttempts = config.EnvInt(envAccountTries, cfg.AccountAttempts)
+	cfg.MaxPrefills = config.EnvInt(envMaxPrefills, cfg.MaxPrefills)
+	cfg.MaxReviews = config.EnvInt(envMaxReviews, cfg.MaxReviews)
+	cfg.MaxAdvances = config.EnvInt(envMaxAdvances, cfg.MaxAdvances)
+	cfg.MaxPicks = config.EnvInt(envMaxPicks, cfg.MaxPicks)
+	cfg.PickMatch = percent(envPickMatch, cfg.PickMatch)
+	cfg.PickMargin = percent(envPickMargin, cfg.PickMargin)
+	cfg.HumanStop = percent(envHumanStop, cfg.HumanStop)
+	cfg.ReviewErrors = percent(envReviewProblem, cfg.ReviewErrors)
+	cfg.AdvanceMatch = percent(envAdvanceMatch, cfg.AdvanceMatch)
+	cfg.AdvanceNoneMax = percent(envAdvanceNone, cfg.AdvanceNoneMax)
+	cfg.AdvanceTopMin = percent(envAdvanceTop, cfg.AdvanceTopMin)
+	cfg.AdvanceMargin = percent(envAdvanceMargin, cfg.AdvanceMargin)
+	cfg.StopOverridePasses = config.EnvInt(envOverridePasses, cfg.StopOverridePasses)
+	cfg.StopConfirm = percent(envStopConfirm, cfg.StopConfirm)
 	cfg.KeepTurns = config.EnvInt(envKeepTurns, cfg.KeepTurns)
 	cfg.KeepImages = config.EnvInt(envKeepImages, cfg.KeepImages)
 	cfg.MaxStale = config.EnvInt(envMaxStale, cfg.MaxStale)
+	cfg.RepeatSteps = config.EnvInt(envRepeatSteps, cfg.RepeatSteps)
 	if !isOff(config.Env(envTrace, "")) {
 		cfg.TraceDir = config.Env(envTraceDir, defaultTraceDir)
 	}

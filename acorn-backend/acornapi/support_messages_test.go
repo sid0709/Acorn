@@ -11,7 +11,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/sid0709/OpenSeat/acorn-backend/support"
+	"github.com/sid0709/acorn/acorn-backend/support"
 )
 
 func multipartRequest(t *testing.T, fields map[string]string, files int) *http.Request {

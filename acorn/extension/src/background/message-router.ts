@@ -8,12 +8,9 @@ import {
   handleReconnectSocket,
   handleSocketStatus,
 } from "./messages/auth";
-import { handleStartJobWork } from "./messages/generate";
 import { handleAnswerRun, handleStartRun, handleStopRun } from "./messages/run";
-import { handleSelectionQa } from "./messages/selection-qa";
 import { handleSubmitSupportClaim } from "./messages/support-claim";
 import { handleSupportHandoff } from "./messages/support-session";
-import { handleGetTabJob, handleOpenWorkerJob } from "./messages/worker-jobs";
 import { refreshTabUsage } from "./tab-usage-store";
 
 import type { TraceEntry } from "../debug-trace";
@@ -48,26 +45,6 @@ export function routeMessage(
 
   if (message.type === MSG.AUTH_SIGNOUT) {
     handleAuthSignOut(sendResponse);
-    return true;
-  }
-
-  if (message.type === MSG.OPEN_WORKER_JOB) {
-    handleOpenWorkerJob(message, sender, sendResponse);
-    return true;
-  }
-
-  if (message.type === MSG.GET_TAB_JOB) {
-    handleGetTabJob(message, sender, sendResponse);
-    return true;
-  }
-
-  if (message.type === MSG.SELECTION_QA) {
-    handleSelectionQa(message, sender, sendResponse);
-    return true;
-  }
-
-  if (message.type === MSG.START_JOB_GENERATE || message.type === MSG.START_JOB_RECOMMEND) {
-    handleStartJobWork(message, sender, sendResponse);
     return true;
   }
 

@@ -9,6 +9,8 @@
 
 import { withStorageLock } from "../storage-lock";
 
+import type { AgentMemory } from "@acorn/shared/agent-contract";
+
 export const KEPT_RUNS_STORAGE_KEY = "acornKeptAgentRuns";
 
 export interface KeptRun {
@@ -20,6 +22,8 @@ export interface KeptRun {
   tabId: number;
   /** Whether the run was told to stop before Submit: the agent's prompt was fixed when it started. */
   stopBeforeSubmit: boolean;
+  /** What the run knew when it stopped, so Continue can go on from it if the agent forgot the session. */
+  memory?: AgentMemory;
 }
 
 type KeptRunMap = Record<string, KeptRun>;

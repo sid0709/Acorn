@@ -8,8 +8,8 @@ import (
 	"strings"
 	"time"
 
-	"github.com/sid0709/OpenSeat/acorn-agent/decide"
-	"github.com/sid0709/OpenSeat/acorn-agent/llm"
+	"github.com/sid0709/acorn/acorn-agent/decide"
+	"github.com/sid0709/acorn/acorn-agent/llm"
 )
 
 // The driving model plans a whole screen at once and says, at the end of each run of actions it

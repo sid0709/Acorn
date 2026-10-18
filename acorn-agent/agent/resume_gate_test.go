@@ -6,7 +6,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/sid0709/OpenSeat/acorn-agent/applicant"
+	"github.com/sid0709/acorn/acorn-agent/applicant"
 )
 
 // jdText is a page's text long enough to be asked about.

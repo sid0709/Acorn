@@ -8,8 +8,8 @@ import (
 	"sort"
 	"strings"
 
-	"github.com/sid0709/OpenSeat/acorn-agent/applicant"
-	"github.com/sid0709/OpenSeat/backend-core/jev"
+	"github.com/sid0709/acorn/acorn-agent/applicant"
+	"github.com/sid0709/acorn/acorn-backend/jev"
 )
 
 const (

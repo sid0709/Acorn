@@ -6,7 +6,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/sid0709/OpenSeat/acorn-backend/resume"
+	"github.com/sid0709/acorn/acorn-backend/resume"
 )
 
 type agentApplicantBody struct {

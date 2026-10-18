@@ -33,6 +33,6 @@ Use the `gap` / `padding` props on `Stack`, `HStack`, `Card`, and `SectionCard` 
 
 ## Navigation
 
-Workspace pages, each named identically everywhere: Statistics · Profile · Résumé · Connections · Billing.
+Workspace pages, each named identically everywhere: Statistics · Profile · Résumé · Connections.
 Below the desktop breakpoint they collapse into one labelled menu. The account menu holds only actions
 with no page of their own (Sign out).

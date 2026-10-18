@@ -3,7 +3,7 @@ package aiusage
 import (
 	"math"
 
-	"github.com/sid0709/OpenSeat/backend-core/openai"
+	"github.com/sid0709/acorn/acorn-backend/openai"
 	"go.mongodb.org/mongo-driver/v2/bson"
 )
 

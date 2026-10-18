@@ -32,6 +32,8 @@ export const AGENT_STARTING_MESSAGE = "Starting the agent…";
 
 /** Said when Continue finds the agent has forgotten the run (it expired), so it starts over. */
 export const AGENT_EXPIRED_MESSAGE = "The agent no longer remembers this run, so it starts over…";
+export const AGENT_RESTORED_MESSAGE =
+  "The agent was restarted. Acorn kept the job description, your résumé choice and its notes, and goes on from them…";
 
 /** What the person is told for each way the agent server can refuse, as the shared catalogue names it. */
 const SHARED_CODE: Record<string, string> = {
@@ -56,6 +58,8 @@ export function agentRunState(input: {
   ask?: AgentAsk;
   /** What the run is reading in Gmail for a code or link, while it does and once it has. */
   mail?: MailSearch;
+  dom?: RunProgress["dom"];
+  image?: RunProgress["image"];
 }): RunProgress {
   return {
     runId: input.runId,
@@ -71,6 +75,8 @@ export function agentRunState(input: {
     screenChecks: input.usage?.checks,
     ask: input.ask,
     mail: input.mail,
+    dom: input.dom,
+    image: input.image,
   };
 }
 

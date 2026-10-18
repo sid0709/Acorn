@@ -9,9 +9,9 @@ import (
 	"testing"
 	"time"
 
-	"github.com/sid0709/OpenSeat/acorn-backend/acornapi/feed"
-	"github.com/sid0709/OpenSeat/acorn-backend/acornapi/gateway"
-	"github.com/sid0709/OpenSeat/acorn-backend/support"
+	"github.com/sid0709/acorn/acorn-backend/acornapi/feed"
+	"github.com/sid0709/acorn/acorn-backend/acornapi/gateway"
+	"github.com/sid0709/acorn/acorn-backend/support"
 )
 
 const streamTestTimeout = 5 * time.Second

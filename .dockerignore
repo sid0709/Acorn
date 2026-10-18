@@ -5,7 +5,6 @@
 **/dist
 **/.turbo
 **/coverage
-AthensAI
 secrets
 **/.env
 **/.env.*

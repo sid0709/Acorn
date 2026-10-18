@@ -4,7 +4,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/sid0709/OpenSeat/backend-core/openai"
+	"github.com/sid0709/acorn/acorn-backend/openai"
 )
 
 func TestStatusOfSeparatesCancelsFromFailures(t *testing.T) {

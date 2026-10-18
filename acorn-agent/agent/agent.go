@@ -8,8 +8,8 @@ import (
 	"strings"
 	"time"
 
-	"github.com/sid0709/OpenSeat/acorn-agent/applicant"
-	"github.com/sid0709/OpenSeat/acorn-agent/llm"
+	"github.com/sid0709/acorn/acorn-agent/applicant"
+	"github.com/sid0709/acorn/acorn-agent/llm"
 )
 
 // sizeTolerance is how many pixels a screenshot may differ from the viewport it is sent with
@@ -65,6 +65,32 @@ type Config struct {
 	// StopPasses is how many times a run's stop for the applicant is sent back, to finish
 	// everything that does not need them first (stopgate.go); 0 accepts every stop at once.
 	StopPasses int
+	// MaxPrefills is the most quick text passes one run may make (prefill.go).
+	MaxPrefills int
+	// MaxReviews and MaxAdvances are the most reviews and advances one run may make (review.go, advance.go).
+	MaxReviews, MaxAdvances int
+	// MaxPicks is the most choice passes one run may make (pick.go); PickMatch is how sure the decision model must
+	// be of an option for it to be clicked, and PickMargin how far it must lead the next option.
+	MaxPicks              int
+	PickMatch, PickMargin float64
+	// ReviewErrors is how sure the decision model must be, of an error showing, a question unanswered,
+	// a box unticked, or the continue control greyed out, for a page to need fixing.
+	ReviewErrors float64
+	// HumanStop is how sure it must be that only the applicant can go on for the run to stop and ask.
+	HumanStop float64
+	// AdvanceMatch is how sure the decision model must be of the control that continues the application
+	// for it to be pressed outright, and AdvanceFinal of the one that sends it.
+	AdvanceMatch, AdvanceFinal float64
+	// A page that reviewed clean must go on, so a pick below AdvanceMatch is still pressed when the model
+	// is sure that some control continues (it gives "none" at most AdvanceNoneMax) and the pick has at
+	// least AdvanceTopMin and leads the next control by AdvanceMargin. A pick that changes nothing is
+	// found out by the extension (the same control pressed twice) and left to the driving model.
+	AdvanceNoneMax, AdvanceTopMin, AdvanceMargin float64
+	// A stop for the applicant is held to the screen (stopcheck.go): it stands only when the decision model
+	// is at least StopConfirm sure the page needs what the stop says. One that is not confirmed is sent back,
+	// at most StopOverridePasses times in a run; after that it stands, so a run cannot loop on its stops.
+	StopOverridePasses int
+	StopConfirm        float64
 	// KeepTurns is how many recent steps stay in full when the history is compacted; older
 	// ones are folded into one line each.
 	KeepTurns int
@@ -76,6 +102,9 @@ type Config struct {
 	// MaxStale is how many steps in a row the screen may stay the same before the run is
 	// declared stuck without asking the model again.
 	MaxStale int
+	// RepeatSteps is how many steps in a row may only press one spot before the model is told to find
+	// another way. Zero never tells it.
+	RepeatSteps int
 	// SessionTTL is how long an untouched session is kept.
 	SessionTTL time.Duration
 	// TraceDir, when set, records every step to disk.
@@ -83,6 +112,17 @@ type Config struct {
 	// VetBlock is the probability, from the decision model, at which a control, window or frame
 	// is blocked as an online file source (0 means 0.3).
 	VetBlock float64
+	// VetClickBlock is the same for a control about to be clicked (0 means 0.6). It is stricter on a
+	// window or frame, which a click already opened and which is closed at no cost, than on a click that
+	// cannot be taken back: a control that is only possibly an online source is clicked, and what it opens
+	// is judged by VetBlock.
+	VetClickBlock float64
+	// SingleSignOnBlock is the probability, from the decision model, at which a control, window
+	// or frame is blocked as a sign-in through another service's account (0 means 0.5).
+	SingleSignOnBlock float64
+	// AccountAttempts is how many steps may type the account password, across sign-in, sign-up
+	// and password reset, before the run ends as rejected by the site (0 means 8).
+	AccountAttempts int
 	// FallbackStrict is for one person's own folder: FallbackResume names the résumé offered, and
 	// one that is not among the applicant's résumés stops the run. Without it the offer is the
 	// applicant's default résumé (the one they marked default on their Acorn Library) and
@@ -96,25 +136,43 @@ type Config struct {
 // DefaultConfig is the bounds a run has when nothing else is set.
 func DefaultConfig() Config {
 	return Config{
-		MaxSteps:         150,
-		MaxActions:       12,
-		UncheckedActions: 6,
-		ChunkActions:     6,
-		CheckMatch:       0.9,
-		CheckBlocked:     0.2,
-		CheckLoading:     0.3,
-		CheckLoadingWait: 0.7,
-		OptionMatch:      0.7,
-		LoadWait:         time.Second,
-		MaxLoadWaits:     4,
-		StopPasses:       2,
-		DonePasses:       2,
-		DoneConfirm:      0.7,
-		KeepTurns:        8,
-		KeepImages:       3,
-		HistoryTokens:    30_000,
-		MaxStale:         6,
-		SessionTTL:       time.Hour,
+		MaxSteps:           150,
+		MaxActions:         12,
+		UncheckedActions:   6,
+		ChunkActions:       6,
+		CheckMatch:         0.9,
+		CheckBlocked:       0.2,
+		CheckLoading:       0.3,
+		CheckLoadingWait:   0.7,
+		OptionMatch:        0.7,
+		LoadWait:           time.Second,
+		MaxLoadWaits:       4,
+		StopPasses:         2,
+		DonePasses:         2,
+		DoneConfirm:        0.7,
+		SingleSignOnBlock:  0.5,
+		AccountAttempts:    8,
+		MaxPrefills:        20,
+		MaxReviews:         80,
+		MaxAdvances:        40,
+		MaxPicks:           40,
+		PickMatch:          0.6,
+		PickMargin:         0.15,
+		ReviewErrors:       0.3,
+		HumanStop:          0.85,
+		AdvanceMatch:       0.8,
+		AdvanceFinal:       0.5,
+		AdvanceNoneMax:     0.2,
+		AdvanceTopMin:      0.5,
+		AdvanceMargin:      0.15,
+		StopOverridePasses: 2,
+		StopConfirm:        0.6,
+		KeepTurns:          8,
+		KeepImages:         3,
+		HistoryTokens:      30_000,
+		MaxStale:           6,
+		RepeatSteps:        2,
+		SessionTTL:         time.Hour,
 	}
 }
 
@@ -186,10 +244,12 @@ func (a *Agent) Start(ctx context.Context, key string, auth applicant.Auth, star
 	if err != nil {
 		return Started{}, err
 	}
-	a.sessions.add(&session{
+	fresh := &session{
 		id: id, key: key, auth: auth, start: start, snap: snap, system: system, maxActions: maxActions, fallback: fallback,
 		created: now, touched: now, wantTrace: start.Trace, stepLimit: a.cfg.MaxSteps,
-	})
+	}
+	fresh.remember(start.Memory)
+	a.sessions.add(fresh)
 	stacks, documents := catalog(snap.Resumes)
 	startTrace, err := a.trace.recordSession(id, system, sessionTrace{
 		Started: now, Start: start, Model: a.modelName(key), ScreenModel: a.screenName(key), Config: a.cfg, Resumes: stacks, Documents: documents,
@@ -204,6 +264,35 @@ func (a *Agent) Start(ctx context.Context, key string, auth applicant.Auth, star
 		infos[i] = ResumeInfo{ID: resume.ID, FileName: resume.FileName, Size: resume.Size}
 	}
 	return Started{SessionID: id, Resumes: infos, Trace: startTrace}, nil
+}
+
+// remember starts the run from what a run that stopped knew, when the extension passes it. The
+// history of that run's steps is gone, so the model is told so and to judge by the screenshot.
+func (s *session) remember(m *Memory) {
+	if m == nil {
+		return
+	}
+	s.memo = clipText(strings.TrimSpace(m.Memo), maxMemoChars)
+	s.job = clipText(strings.TrimSpace(m.Job), maxJobChars)
+	s.jd = clipText(strings.TrimSpace(m.JD), maxJDChars)
+	s.resume = strings.TrimSpace(m.Resume)
+	s.formReady = m.FormReady
+	if s.jd != "" {
+		s.jdChecks = 1
+	}
+	s.notes = append(s.notes, "The run was paused and the applicant pressed Continue, but the earlier steps of the run are no longer held, so you have your notes and the job description only. Judge by the screenshot, not by a plan you may have made, and do not redo what the screen shows is done.")
+}
+
+// Memory is what a run knows that is costly to find again, for the extension to keep.
+func (a *Agent) Memory(id string) (Memory, error) {
+	s, ok := a.sessions.get(id)
+	if !ok {
+		return Memory{}, ErrNoSession
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.touched = a.now()
+	return Memory{Memo: s.memo, Job: s.job, JD: s.jd, Resume: s.resume, FormReady: s.formReady}, nil
 }
 
 // End drops a session once the run is over.
@@ -308,6 +397,7 @@ func (a *Agent) step(ctx context.Context, id string, obs Observation) (Step, err
 		return Step{}, err
 	}
 	s.cover.see(obs.URL, obs.Viewport)
+	a.learnPrefill(s, obs)
 	// What happened to every action sent since the model last looked, which may be several
 	// runs of one plan.
 	results := withoutChoose(append(append([]ActionResult(nil), s.carried...), obs.Results...))
@@ -410,6 +500,9 @@ func (a *Agent) step(ctx context.Context, id string, obs Observation) (Step, err
 
 	planned, dropped := checkActions(number, answer.Actions, obs.Viewport, s.maxActions, screens)
 	planned = pinFrame(planned, obs.Viewport, len(screens))
+	if answer.Status == StatusWorking {
+		a.noteRepeat(s, planned)
+	}
 	planned, cut := cutAfterUpload(planned)
 	if cut > 0 && answer.Status == StatusWorking {
 		dropped = append(dropped, fmt.Sprintf("%d planned actions after the upload were not run: the page moves after a file is attached", cut))
@@ -418,7 +511,16 @@ func (a *Agent) step(ctx context.Context, id string, obs Observation) (Step, err
 	planned, surveyAsked := withoutSurvey(planned)
 	// A run that did not turn surveys on is not told they exist, and one the model asks for anyway is ignored.
 	surveyAsked = surveyAsked && s.start.Survey
+	typesSecret := entersSecret(planned, s.snap.Secrets)
 	planned = fillSecrets(planned, s.snap.Secrets)
+	// A site that keeps refusing the account (sign-in, sign-up, password reset) ends the run; it
+	// does not go round the same forms until the step limit.
+	if typesSecret {
+		s.accountSteps++
+	}
+	if rejected := a.accountRejected(s, &answer); rejected {
+		planned = nil
+	}
 	planned, dropped = a.resolveUploads(ctx, s, planned, dropped)
 	status := answer.Status
 	// "Done" is the page's confirmation, not the model's word: a done the screen does not show is sent back.
@@ -429,7 +531,7 @@ func (a *Agent) step(ctx context.Context, id string, obs Observation) (Step, err
 	}
 	status = answer.Status
 	// The applicant is asked last: a stop is first sent back to finish everything else on the page.
-	if note, held := a.holdStop(s, status, answer); held {
+	if note, held := a.holdStop(ctx, s, obs, status, answer); held {
 		status, answer.Message = StatusWorking, stopPassMessage
 		planned = []Action{{ID: fmt.Sprintf("s%da1", number), Kind: KindWait, Ms: stopPassWaitMs}}
 		s.notes = append(s.notes, note)
@@ -524,7 +626,7 @@ func stopFor(status string, answer reply) *StopInfo {
 		stop.Action = strings.TrimSpace(answer.Stop.Action)
 	}
 	switch stop.Reason {
-	case StopCaptcha, StopVerification, StopVerificationLink, StopIdentity, StopDocument, StopSignIn, StopPageProblem, StopOther:
+	case StopCaptcha, StopVerification, StopVerificationLink, StopIdentity, StopDocument, StopSignIn, StopAccountRejected, StopPageProblem, StopOther:
 	default:
 		stop.Reason = StopOther
 	}
@@ -623,6 +725,39 @@ func summaryLine(number int, answer reply, actions []Action) string {
 		line += " [" + strings.Join(parts, "; ") + "]"
 	}
 	return line
+}
+
+// entersSecret says whether any typed text carries a secret's placeholder.
+func entersSecret(actions []Action, secrets map[string]string) bool {
+	for _, action := range actions {
+		if action.Kind != KindType {
+			continue
+		}
+		for token := range secrets {
+			if strings.Contains(action.Text, token) {
+				return true
+			}
+		}
+	}
+	return false
+}
+
+// accountRejected ends the run, as stuck, once more steps than AccountAttempts have typed the
+// account password: the sign-in, the sign-up and the reset have all been tried and the site
+// still does not let the applicant in.
+func (a *Agent) accountRejected(s *session, answer *reply) bool {
+	if a.cfg.AccountAttempts <= 0 || s.accountSteps <= a.cfg.AccountAttempts {
+		return false
+	}
+	answer.Status = StatusStuck
+	answer.Stop = &StopInfo{
+		Reason:  StopAccountRejected,
+		Problem: "The site did not accept the sign-in, the new account or the password reset.",
+		Action:  "Sign in or create the account yourself on the page, then press Continue or Run again.",
+	}
+	answer.Message = "The site would not accept the account."
+	s.stopPasses = a.cfg.StopPasses // this stop is already the end: it is not sent back again
+	return true
 }
 
 // fillSecrets types a secret in place of its placeholder. The model only ever reads and

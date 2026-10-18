@@ -6,8 +6,8 @@ import (
 	"fmt"
 	"log/slog"
 
-	"github.com/sid0709/OpenSeat/acorn-agent/decide"
-	"github.com/sid0709/OpenSeat/acorn-agent/llm"
+	"github.com/sid0709/acorn/acorn-agent/decide"
+	"github.com/sid0709/acorn/acorn-agent/llm"
 )
 
 const (

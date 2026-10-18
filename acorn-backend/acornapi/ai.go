@@ -7,9 +7,9 @@ import (
 	"log/slog"
 	"net/http"
 
-	"github.com/sid0709/OpenSeat/acorn-backend/account"
-	"github.com/sid0709/OpenSeat/acorn-backend/acorn"
-	"github.com/sid0709/OpenSeat/backend-core/candidate"
+	"github.com/sid0709/acorn/acorn-backend/account"
+	"github.com/sid0709/acorn/acorn-backend/acorn"
+	"github.com/sid0709/acorn/acorn-backend/internal/candidate"
 )
 
 func decode(w http.ResponseWriter, r *http.Request, dest any) bool {

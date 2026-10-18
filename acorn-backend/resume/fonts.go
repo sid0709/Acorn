@@ -2,7 +2,7 @@ package resume
 
 import "strings"
 
-// Font handling mirrors Athens and @acorn/shared/resume-fonts.ts: Google families load from
+// Font handling mirrors @acorn/shared/resume-fonts.ts: Google families load from
 // one stylesheet, system names render where installed, and each name gets a generic fallback.
 
 // googleFontsHref loads every Google family the font picker offers, with the weights the

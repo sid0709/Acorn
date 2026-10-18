@@ -7,7 +7,7 @@ import (
 	"strings"
 	"sync"
 
-	"github.com/sid0709/OpenSeat/backend-core/openai"
+	"github.com/sid0709/acorn/acorn-backend/openai"
 )
 
 // draftSchema is the reply shape of a fine-tune step: free text, wrapped so the call stays structured.

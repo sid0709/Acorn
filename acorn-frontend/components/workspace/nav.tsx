@@ -18,7 +18,6 @@ const ITEMS: NavEntry[] = [
   { href: ROUTES.profile, label: "Profile", icon: "user" },
   { href: ROUTES.resume, label: "Résumé", icon: "file" },
   { href: ROUTES.connections, label: "Connections", icon: "link" },
-  { href: ROUTES.billing, label: "Billing", icon: "creditCard" },
 ];
 
 const MOBILE_MENU_WIDTH = 240;

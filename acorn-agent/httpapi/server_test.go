@@ -14,10 +14,10 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/sid0709/OpenSeat/acorn-agent/agent"
-	"github.com/sid0709/OpenSeat/acorn-agent/applicant"
-	"github.com/sid0709/OpenSeat/acorn-agent/llm"
-	"github.com/sid0709/OpenSeat/backend-core/jev"
+	"github.com/sid0709/acorn/acorn-agent/agent"
+	"github.com/sid0709/acorn/acorn-agent/applicant"
+	"github.com/sid0709/acorn/acorn-agent/llm"
+	"github.com/sid0709/acorn/acorn-backend/jev"
 )
 
 type fakeModel struct {
@@ -252,6 +252,24 @@ func TestVetAnswersForARunAndRefusesAnUnknownOne(t *testing.T) {
 	}
 }
 
+func TestARunsMemoryComesBackAndSeedsANewRun(t *testing.T) {
+	_, ts := newServer(t, fakeModel{content: workingReply}, "server-key")
+	seed := agent.Memory{Memo: "on the work history step", Job: "Backend engineer", JD: "We need a Go developer.", Resume: "Go", FormReady: true}
+	_, body := send(t, http.MethodPost, ts.URL+BasePath+"/sessions", agent.Start{URL: "https://jobs.example", Memory: &seed}, nil)
+	var started agent.Started
+	if err := json.Unmarshal(body, &started); err != nil {
+		t.Fatal(err)
+	}
+	response, body := send(t, http.MethodGet, ts.URL+BasePath+"/sessions/"+started.SessionID+"/memory", nil, nil)
+	var got agent.Memory
+	if err := json.Unmarshal(body, &got); err != nil || response.StatusCode != 200 || got != seed {
+		t.Fatalf("memory = %d %+v %v", response.StatusCode, got, err)
+	}
+	if response, _ := send(t, http.MethodGet, ts.URL+BasePath+"/sessions/nope/memory", nil, nil); response.StatusCode != http.StatusNotFound {
+		t.Fatalf("unknown run = %d", response.StatusCode)
+	}
+}
+
 // tokenSource is an applicant that lives behind a sign-in: it knows one session token.
 type tokenSource struct{ asked []string }
 
@@ -365,5 +383,40 @@ func TestAStoppedRunContinuesOverHTTP(t *testing.T) {
 	send(t, http.MethodDelete, url, nil, nil)
 	if response, body := send(t, http.MethodPost, url+"/continue", nil, nil); response.StatusCode != http.StatusNotFound || !strings.Contains(string(body), `"no_session"`) {
 		t.Fatalf("continue after end = %d %s", response.StatusCode, body)
+	}
+}
+
+func TestThePrefillRouteAnswersFieldsAndRefusesARunThatDidNotTurnItOn(t *testing.T) {
+	reply := `{"fills":[{"element_index":3,"action":"fill","expected_label":"Name","expected_role":"textbox","value":"Ada"}]}`
+	_, ts := newServer(t, fakeModel{content: reply}, "server-key")
+	fields := agent.PrefillRequest{URL: "https://jobs.example", Title: "Apply", Tree: "form[2]\n  input[3] domId=3 type=text name=full_name"}
+
+	_, body := send(t, http.MethodPost, ts.URL+BasePath+"/sessions", agent.Start{URL: "https://jobs.example", Prefill: true}, nil)
+	var on agent.Started
+	if err := json.Unmarshal(body, &on); err != nil {
+		t.Fatal(err)
+	}
+	response, body := send(t, http.MethodPost, ts.URL+BasePath+"/sessions/"+on.SessionID+"/prefill", fields, nil)
+	if response.StatusCode != 200 {
+		t.Fatalf("prefill = %d %s", response.StatusCode, body)
+	}
+	var plan agent.PrefillPlan
+	if err := json.Unmarshal(body, &plan); err != nil || len(plan.Fills) != 1 || plan.Fills[0].Value != "Ada" || plan.Fills[0].Ref != 3 {
+		t.Fatalf("plan = %+v %v", plan, err)
+	}
+
+	_, body = send(t, http.MethodPost, ts.URL+BasePath+"/sessions", agent.Start{URL: "https://jobs.example"}, nil)
+	var off agent.Started
+	if err := json.Unmarshal(body, &off); err != nil {
+		t.Fatal(err)
+	}
+	response, body = send(t, http.MethodPost, ts.URL+BasePath+"/sessions/"+off.SessionID+"/prefill", fields, nil)
+	if response.StatusCode != http.StatusConflict || !strings.Contains(string(body), `"prefill_unavailable"`) {
+		t.Fatalf("a run without the pass = %d %s", response.StatusCode, body)
+	}
+
+	response, body = send(t, http.MethodPost, ts.URL+BasePath+"/sessions/"+on.SessionID+"/prefill", agent.PrefillRequest{}, nil)
+	if response.StatusCode != http.StatusBadRequest || !strings.Contains(string(body), `"bad_prefill"`) {
+		t.Fatalf("an empty list = %d %s", response.StatusCode, body)
 	}
 }

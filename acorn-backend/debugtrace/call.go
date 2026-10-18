@@ -7,7 +7,7 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/sid0709/OpenSeat/acorn-backend/acorn"
+	"github.com/sid0709/acorn/acorn-backend/acorn"
 )
 
 // Tracer files each model call into the run attached to its request context.

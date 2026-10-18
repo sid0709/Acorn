@@ -6,7 +6,7 @@ import (
 	"strings"
 )
 
-// The résumé page as HTML, a Go port of Athens' live preview (resume-preview.tsx and friends).
+// The résumé page as HTML, a Go port of the live preview (resume-preview.tsx and friends).
 // Theme sizes, margin, spacing, colors, and the section layout all come from the config.
 
 // Sheet sizes for the preview page, so a short draft still reads as a full page.
@@ -17,7 +17,7 @@ const (
 	a4Height     = "297mm"
 )
 
-// Fixed document chrome from Athens: gray for muted headings, a light rule between dev entries.
+// Fixed document chrome: gray for muted headings, a light rule between dev entries.
 const (
 	mutedHeadingColor = "#6b7280"
 	devDividerColor   = "#e5e7eb"

@@ -92,15 +92,6 @@
   padding-top: var(--spacing-1);
 }
 
-.sidebar-app.tab-qa .sidebar-scroll {
-  overflow: hidden;
-}
-
-.acorn-panel-ask,
-.acorn-ask {
-  min-height: 0;
-}
-
 .acorn-welcome {
   flex: 1;
   padding: var(--spacing-6) var(--spacing-2);

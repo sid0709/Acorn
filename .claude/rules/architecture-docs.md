@@ -2,7 +2,6 @@
 paths:
   - "acorn/**"
   - "acorn-backend/**"
-  - "backend-core/**"
 ---
 
 # Architecture docs stay in sync with the code
@@ -11,7 +10,7 @@ How the extension and its backend work is documented in [`../../acorn/docs/archi
 
 ## When this applies
 
-Any change to behavior in `acorn/extension`, `acorn/packages/*`, `acorn-backend`, or the `backend-core` parts Acorn uses: flows, limits and timeouts, routes, message or socket names, prompts or model questions, stored data, who sees what, or user-visible behavior. Pure refactors, renames with no behavior change, and styling do not need an update.
+Any change to behavior in `acorn/extension`, `acorn/packages/*`, `acorn-backend`, or the Go packages the agent shares: flows, limits and timeouts, routes, message or socket names, prompts or model questions, stored data, who sees what, or user-visible behavior. Pure refactors, renames with no behavior change, and styling do not need an update.
 
 ## What to do
 

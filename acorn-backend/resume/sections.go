@@ -8,7 +8,7 @@ import (
 )
 
 // One section of the page — heading plus body — following the layout order, colors, and sizes.
-// Ports Athens' section-block, section-body, and experience-entry.
+// Ports the frontend's section-block, section-body, and experience-entry.
 
 func sectionHTML(s sectionDesign, identity Identity, content generatedContent, d pageDesign) string {
 	color := headingColor(d, s.Color)

@@ -5,7 +5,6 @@ const FACTS = [
   { value: String(JOB_SITES.length - 1), unit: "+", label: "Application systems named" },
   { value: String(AGENT_FLOW.length), unit: "", label: "Steps from posting to reply" },
   { value: "1", unit: " click", label: "To send an application" },
-  { value: "Free", unit: "", label: "Plan, no credit card" },
 ] as const;
 
 export function Facts() {

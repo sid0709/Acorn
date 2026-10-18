@@ -9,7 +9,7 @@ import (
 	"sync/atomic"
 	"testing"
 
-	"github.com/sid0709/OpenSeat/acorn-agent/llm"
+	"github.com/sid0709/acorn/acorn-agent/llm"
 )
 
 const okBody = `{"model":"m-20261006","answers":{"matches":{"type":"noul","noul":0.93}},"usage":{"input_tokens":1109,"output_tokens":0,"cost":0.000111}}`

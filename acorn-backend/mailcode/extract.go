@@ -11,7 +11,7 @@ import (
 	"golang.org/x/net/html"
 	"golang.org/x/net/html/atom"
 
-	"github.com/sid0709/OpenSeat/acorn-backend/mailbox"
+	"github.com/sid0709/acorn/acorn-backend/mailbox"
 )
 
 const (

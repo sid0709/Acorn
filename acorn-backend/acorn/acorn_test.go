@@ -7,7 +7,7 @@ import (
 	"sync"
 	"testing"
 
-	"github.com/sid0709/OpenSeat/backend-core/candidate"
+	"github.com/sid0709/acorn/acorn-backend/internal/candidate"
 )
 
 // fakeModel answers each call from a queue of replies, in order. Calls may come

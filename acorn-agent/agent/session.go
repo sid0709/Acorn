@@ -8,8 +8,8 @@ import (
 	"sync"
 	"time"
 
-	"github.com/sid0709/OpenSeat/acorn-agent/applicant"
-	"github.com/sid0709/OpenSeat/acorn-agent/llm"
+	"github.com/sid0709/acorn/acorn-agent/applicant"
+	"github.com/sid0709/acorn/acorn-agent/llm"
 )
 
 // turn is one step of the run as the model lived it.
@@ -50,6 +50,9 @@ type session struct {
 	lastSig []uint8
 	// stale counts steps in a row where the screen did not change.
 	stale int
+	// repeatSteps counts the steps in a row that only pressed the spot (repeatX, repeatY), repeatClicks the presses.
+	repeatSteps, repeatClicks int
+	repeatX, repeatY          float64
 	// resume is the résumé chosen for this run, once chosen.
 	resume string
 	usage  Usage
@@ -107,8 +110,15 @@ type session struct {
 	pendingTrace *Trace
 	// donePasses counts the "done" answers sent back because the screen did not confirm a sent application.
 	donePasses int
+	// accountSteps counts the steps that typed the account password (sign-in, sign-up, reset).
+	accountSteps int
 	// stopPasses counts the stops for the applicant that were sent back to finish the page first.
 	stopPasses int
+	// overrides counts the stops for the applicant sent back because the screen did not show the need (stopcheck.go).
+	overrides int
+	// prefills, reviews and advances count the quick text passes, reviews and advances made, which a run
+	// may make only so many of.
+	prefills, reviews, advances, picks int
 	// script is a run of the model's actions with a dropdown to set in it, being carried out.
 	script *script
 	// cover is what the run has looked at on the page it is on, in pixels from the top.

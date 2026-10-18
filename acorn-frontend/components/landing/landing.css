@@ -675,7 +675,7 @@
 
 .ac-metrics-grid {
   display: grid;
-  grid-template-columns: repeat(4, 1fr);
+  grid-template-columns: repeat(3, 1fr);
   gap: 24px;
   text-align: center;
 }
@@ -846,71 +846,6 @@
   font-size: 0.95rem;
   color: #a99fba;
   line-height: 1.6;
-}
-
-/* ---- Pricing ----------------------------------------------------------- */
-
-.ac-plan {
-  display: flex;
-  flex-direction: column;
-}
-
-.ac-plan .ac-btn {
-  margin-top: auto;
-}
-
-.ac-plan-hot {
-  border-color: rgba(255, 180, 0, 0.5);
-  background: radial-gradient(
-    circle at 50% 0%,
-    rgba(255, 170, 0, 0.14) 0%,
-    rgba(20, 14, 28, 0.9) 80%
-  );
-}
-
-.ac-price {
-  font-size: 2.6rem;
-  font-weight: 800;
-  letter-spacing: -0.03em;
-  color: #fff;
-}
-
-.ac-price span {
-  font-size: 1rem;
-  font-weight: 500;
-  color: #a99fba;
-  letter-spacing: 0;
-}
-
-.ac-card p.ac-price-note {
-  margin: 4px 0 22px;
-  font-size: 0.85rem;
-  color: #a99fba;
-}
-
-.ac-plan-list {
-  margin: 0 0 28px;
-  padding: 0;
-  list-style: none;
-  display: flex;
-  flex-direction: column;
-  gap: 10px;
-}
-
-.ac-plan-list li {
-  position: relative;
-  padding-left: 24px;
-  font-size: 0.92rem;
-  color: #d1c8de;
-  line-height: 1.5;
-}
-
-.ac-plan-list li::before {
-  content: "✓";
-  position: absolute;
-  left: 0;
-  color: var(--ac-green);
-  font-weight: 700;
 }
 
 /* ---- FAQ --------------------------------------------------------------- */

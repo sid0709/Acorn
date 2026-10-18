@@ -19,6 +19,8 @@ const (
 	KindScroll      = "scroll"
 	KindUpload      = "upload"
 	KindWait        = "wait"
+	// KindReload loads the page again at its address, for a page that shows an error or stopped loading.
+	KindReload = "reload"
 	// KindChoose is not sent to the extension: it sets a dropdown the page draws itself to an
 	// answer given in words. The agent opens it, finds the option and picks it (choose.go).
 	KindChoose = "choose"
@@ -43,7 +45,7 @@ const (
 )
 
 // Why a run ended without being done: what the page needs from the person, or why the
-// agent could not go on. The model names the first seven; the agent itself the last two.
+// agent could not go on. The model names the first eight; the agent itself the last two.
 const (
 	StopCaptcha      = "captcha"
 	StopVerification = "verification"
@@ -52,10 +54,12 @@ const (
 	StopIdentity         = "identity"
 	StopDocument         = "document"
 	StopSignIn           = "sign_in"
-	StopPageProblem      = "page_problem"
-	StopOther            = "other"
-	StopNoChange         = "no_change"
-	StopStepLimit        = "step_limit"
+	// StopAccountRejected: the site refused the sign-in, the new account and the password reset.
+	StopAccountRejected = "account_rejected"
+	StopPageProblem     = "page_problem"
+	StopOther           = "other"
+	StopNoChange        = "no_change"
+	StopStepLimit       = "step_limit"
 	// StopResumeChoice: no job description was found, so the agent could not choose a résumé,
 	// and the person chose to pick one themselves.
 	StopResumeChoice = "resume_choice"
@@ -155,6 +159,8 @@ type Observation struct {
 	Answer string `json:"answer,omitempty"`
 	// Results answer the actions of the step before.
 	Results []ActionResult `json:"results,omitempty"`
+	// Prefill says what the quick text pass did on this page since the model last looked.
+	Prefill *PrefillReport `json:"prefill,omitempty"`
 }
 
 // SurveyScreen is one screenshot of a survey: the page scrolled to ScrollY (in screenshot
@@ -246,6 +252,24 @@ type Start struct {
 	// (the extension scrolls the page to take them). Off by default: the model then sees only the
 	// current screen, as a person does, and is not told surveys exist.
 	Survey bool `json:"survey,omitempty"`
+	// Prefill lets the extension send the page's plain fields for a quick text pass before the
+	// model looks (prefill.go). Off by default: the model is then not told such a pass exists.
+	Prefill bool `json:"prefill,omitempty"`
+	// Memory is what a stopped run knew, kept by the extension, to start a run that goes on from it
+	// when the server forgot the session (it restarted, or the session expired).
+	Memory *Memory `json:"memory,omitempty"`
+}
+
+// Memory is the part of a run that is costly to find again and does not depend on the history of
+// its steps: the notes and the job the model recorded, the job description read from the page, the
+// résumé chosen from it, and whether the application form was already found. The extension keeps it
+// when a run stops, so Continue goes on from it even when the server's session is gone.
+type Memory struct {
+	Memo      string `json:"memo,omitempty"`
+	Job       string `json:"job,omitempty"`
+	JD        string `json:"jd,omitempty"`
+	Resume    string `json:"resume,omitempty"`
+	FormReady bool   `json:"formReady,omitempty"`
 }
 
 // TraceFile is one file of a run's trace, returned to the extension. Text holds a text file;

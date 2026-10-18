@@ -32,12 +32,6 @@ export const MSG = {
   AUTH_STATUS: "acorn:auth-status",
   AUTH_SIGNIN: "acorn:auth-signin",
   AUTH_SIGNOUT: "acorn:auth-signout",
-  LIST_WORKER_JOBS: "acorn:list-worker-jobs",
-  OPEN_WORKER_JOB: "acorn:open-worker-job",
-  GET_TAB_JOB: "acorn:get-tab-job",
-  START_JOB_GENERATE: "acorn:start-job-generate",
-  START_JOB_RECOMMEND: "acorn:start-job-recommend",
-  SELECTION_QA: "acorn:selection-qa",
   /** Debug builds only: a page trace event relayed to the backend debug run. */
   DEBUG_TRACE: "acorn:debug-trace",
 } as const;
@@ -56,10 +50,4 @@ export type AcornNoticePayload = {
    * Omit it for account and connection notices, which stay up in every tab.
    */
   tabId?: number;
-};
-
-export type SelectionQaResponse = {
-  ok: boolean;
-  answer?: string;
-  error?: string;
 };

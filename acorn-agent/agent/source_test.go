@@ -5,8 +5,8 @@ import (
 	"errors"
 	"testing"
 
-	"github.com/sid0709/OpenSeat/acorn-agent/applicant"
-	"github.com/sid0709/OpenSeat/acorn-agent/llm"
+	"github.com/sid0709/acorn/acorn-agent/applicant"
+	"github.com/sid0709/acorn/acorn-agent/llm"
 )
 
 // fakeSource is an applicant read from somewhere else than files: it records who asked.

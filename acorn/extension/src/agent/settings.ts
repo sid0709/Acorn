@@ -20,6 +20,16 @@ export const DEFAULT_AGENT_URL = (
  */
 export const AGENT_SURVEY = false;
 
+/**
+ * Whether the run may make a quick text pass before the model looks at a page: the page's plain fields
+ * (text boxes, native lists, radio groups, checkboxes) are listed as text, answered in one model call
+ * that reads no image, and typed with real keystrokes, so the model's own look checks a first draft
+ * instead of discovering the form (docs 19.14). Off by default until a run has shown it faster. A build
+ * turns it on with VITE_ACORN_AGENT_PREFILL=true.
+ */
+export const AGENT_PREFILL =
+  import.meta.env.VITE_ACORN_AGENT_PREFILL?.trim().toLowerCase() === "true";
+
 export function getAgentUrl(): string {
   return DEFAULT_AGENT_URL;
 }

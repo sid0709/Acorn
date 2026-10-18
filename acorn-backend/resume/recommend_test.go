@@ -6,7 +6,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/sid0709/OpenSeat/acorn-backend/selector"
+	"github.com/sid0709/acorn/acorn-backend/selector"
 )
 
 // fakeMatcher answers like the SelectorGateway and records what it was shown.

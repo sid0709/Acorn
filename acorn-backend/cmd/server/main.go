@@ -9,22 +9,22 @@ import (
 	"log/slog"
 	"os"
 
-	"github.com/sid0709/OpenSeat/acorn-backend/account"
-	"github.com/sid0709/OpenSeat/acorn-backend/acorn"
-	"github.com/sid0709/OpenSeat/acorn-backend/acornapi"
-	"github.com/sid0709/OpenSeat/acorn-backend/admin"
-	"github.com/sid0709/OpenSeat/acorn-backend/aiusage"
-	"github.com/sid0709/OpenSeat/acorn-backend/debugtrace"
-	"github.com/sid0709/OpenSeat/acorn-backend/mailbox"
-	"github.com/sid0709/OpenSeat/acorn-backend/profile"
-	"github.com/sid0709/OpenSeat/acorn-backend/resume"
-	"github.com/sid0709/OpenSeat/acorn-backend/support"
-	"github.com/sid0709/OpenSeat/acorn-backend/supportaccess"
-	"github.com/sid0709/OpenSeat/backend-core/config"
-	"github.com/sid0709/OpenSeat/backend-core/google"
-	"github.com/sid0709/OpenSeat/backend-core/httpkit"
-	"github.com/sid0709/OpenSeat/backend-core/jev"
-	"github.com/sid0709/OpenSeat/backend-core/platform"
+	"github.com/sid0709/acorn/acorn-backend/account"
+	"github.com/sid0709/acorn/acorn-backend/acorn"
+	"github.com/sid0709/acorn/acorn-backend/acornapi"
+	"github.com/sid0709/acorn/acorn-backend/admin"
+	"github.com/sid0709/acorn/acorn-backend/aiusage"
+	"github.com/sid0709/acorn/acorn-backend/config"
+	"github.com/sid0709/acorn/acorn-backend/debugtrace"
+	"github.com/sid0709/acorn/acorn-backend/internal/google"
+	"github.com/sid0709/acorn/acorn-backend/internal/httpkit"
+	"github.com/sid0709/acorn/acorn-backend/internal/platform"
+	"github.com/sid0709/acorn/acorn-backend/jev"
+	"github.com/sid0709/acorn/acorn-backend/mailbox"
+	"github.com/sid0709/acorn/acorn-backend/profile"
+	"github.com/sid0709/acorn/acorn-backend/resume"
+	"github.com/sid0709/acorn/acorn-backend/support"
+	"github.com/sid0709/acorn/acorn-backend/supportaccess"
 	"golang.org/x/sync/errgroup"
 )
 
@@ -84,7 +84,7 @@ func main() {
 		slog.Warn("Gmail is off until GOOGLE_CLIENT_ID, GOOGLE_CLIENT_SECRET, and a Gmail redirect are set (GOOGLE_GMAIL_REDIRECT_URL, or GOOGLE_SIGNIN_REDIRECT_URL ending in /auth/google/callback)")
 	}
 
-	p, err := platform.Open(context.Background(), db, platform.Options{})
+	p, err := platform.Open(context.Background(), db)
 	if err != nil {
 		slog.Error("platform", "error", config.Redact(err, db.MongoURI))
 		os.Exit(1)

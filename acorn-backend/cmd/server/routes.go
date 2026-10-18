@@ -4,8 +4,8 @@ import (
 	"log/slog"
 	"net/http"
 
-	"github.com/sid0709/OpenSeat/acorn-backend/acornapi"
-	"github.com/sid0709/OpenSeat/backend-core/httpkit"
+	"github.com/sid0709/acorn/acorn-backend/acornapi"
+	"github.com/sid0709/acorn/acorn-backend/internal/httpkit"
 )
 
 // routes serves Acorn under /acorn. /health is this process's own: the deploy

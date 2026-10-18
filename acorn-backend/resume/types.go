@@ -93,9 +93,9 @@ type SkillEntry struct {
 }
 
 type LibraryRow struct {
-	ID            string       `json:"id" bson:"id"`
-	AccountID     string       `json:"-" bson:"accountId"`
-	Source        string       `json:"source" bson:"source"`
+	ID        string `json:"id" bson:"id"`
+	AccountID string `json:"-" bson:"accountId"`
+	Source    string `json:"source" bson:"source"`
 	// Kind is KindResume or KindCoverLetter; empty on rows saved before kinds (résumés).
 	Kind          string       `json:"kind,omitempty" bson:"kind,omitempty"`
 	FileName      string       `json:"fileName" bson:"fileName"`

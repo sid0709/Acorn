@@ -4,18 +4,12 @@ import { Badge, Button, Card, Glyph, HStack, ProgressBar, Text, VStack } from "s
 
 import { AgentAsk } from "./AgentAsk";
 import { AgentStopNotice } from "./AgentStopNotice";
-import { GenerateProgressBar } from "./GenerateProgressBar";
 import { MailSearchPanel } from "./MailSearchPanel";
 import { RunCelebration } from "./RunCelebration";
 import { RunCost } from "./RunCost";
 import { RunTimer } from "./RunTimer";
 
-import type { useTabSession } from "./use-tab-session";
-import type { CustomUiProgress } from "../pipeline/custom-generate-progress";
 import type { PipelineProgress } from "@acorn/shared/pipeline-types";
-import type { RecommendedResumeRank } from "@acorn/shared/resume-library";
-
-type TabSession = ReturnType<typeof useTabSession>;
 
 export type NowAction = {
   label: string;
@@ -25,8 +19,6 @@ export type NowAction = {
 };
 
 type NowCardProps = {
-  tabJob: TabSession["tabJob"];
-  jobGenerate: TabSession["jobGenerates"][string] | null;
   progress: PipelineProgress;
   fillBusy: boolean;
   /** Recommend, fill, and advance until the application is done. */
@@ -38,69 +30,6 @@ type NowCardProps = {
   /** Carries on from where the last run on this tab stopped; null when none did. */
   continueRun: NowAction | null;
 };
-
-/** What the card says about the active tab, and which generate run (if any) it shows. */
-function describe({ tabJob, jobGenerate }: Pick<NowCardProps, "tabJob" | "jobGenerate">) {
-  if (!tabJob) {
-    return {
-      title: "No job on this tab",
-      subtitle: "Recommend a library résumé from this page, or fill without one.",
-      status: null,
-      run: null,
-    };
-  }
-  const generating =
-    jobGenerate?.generateStatus === "queued" || jobGenerate?.generateStatus === "running";
-  const recommended = Boolean(jobGenerate?.recommendedResumeId);
-  const generated = Boolean(jobGenerate?.generationId);
-  const text = generating
-    ? jobGenerate?.generateProgress?.label || "Generating…"
-    : generated
-      ? "Generated"
-      : recommended
-        ? "Recommended"
-        : "";
-  return {
-    title: tabJob.title,
-    subtitle: tabJob.company,
-    status: text
-      ? {
-          text,
-          ready: !generating && (generated || recommended),
-          failed: false,
-        }
-      : null,
-    run: generating ? (jobGenerate?.generateProgress ?? null) : null,
-  };
-}
-
-/** Recommend's ranked Library résumés for the active tab's attached job. */
-function recommendedTop({
-  jobGenerate,
-}: Pick<NowCardProps, "jobGenerate">): RecommendedResumeRank[] {
-  return jobGenerate?.recommendedTop ?? [];
-}
-
-function RecommendTop({ top }: { top: RecommendedResumeRank[] }) {
-  return (
-    <VStack gap={1}>
-      <Text type="supporting" weight="semibold">
-        Top matches
-      </Text>
-      {top.map((row, i) => (
-        <HStack key={row.resumeId} gap={2} align="center" justify="between">
-          <Text type="supporting" maxLines={1}>
-            {`${i + 1}. ${row.stack}`}
-          </Text>
-          <Badge
-            variant={i === 0 ? "green" : "neutral"}
-            label={`${Math.round(row.probability * 100)}%`}
-          />
-        </HStack>
-      ))}
-    </VStack>
-  );
-}
 
 function RunStatus({
   progress,
@@ -174,20 +103,9 @@ function RunStatus({
   );
 }
 
-function RunProgress({ run }: { run: CustomUiProgress }) {
-  return (
-    <VStack gap={1}>
-      <GenerateProgressBar progress={run} />
-      <Text type="supporting">{run.label}</Text>
-    </VStack>
-  );
-}
-
-/** The active Chrome tab at the top of Jobs: which job it is, its résumé, any run in flight, and the Run actions. */
+/** The active Chrome tab at the top of Jobs: the run in flight and the Run actions. */
 export function NowCard(props: NowCardProps) {
   const { progress, fillBusy, run: runAction, stop, answerRun, continueRun } = props;
-  const { title, subtitle, status, run } = describe(props);
-  const top = run ? [] : recommendedTop(props);
 
   return (
     <Card padding={4} className="acorn-now" elevation="low">
@@ -196,23 +114,7 @@ export function NowCard(props: NowCardProps) {
           <Text type="supporting" weight="semibold" color="accent">
             On this tab
           </Text>
-          {status ? (
-            <Badge
-              variant={status.failed ? "error" : status.ready ? "green" : "neutral"}
-              label={status.text}
-            />
-          ) : null}
         </HStack>
-        <VStack gap={0}>
-          <Text type="large" weight="semibold" maxLines={2}>
-            {title}
-          </Text>
-          <Text type="supporting" maxLines={2}>
-            {subtitle}
-          </Text>
-        </VStack>
-        {run ? <RunProgress run={run} /> : null}
-        {top.length ? <RecommendTop top={top} /> : null}
         {fillBusy ? <ProgressBar label={progress.message || "Working…"} isIndeterminate /> : null}
         <RunStatus progress={progress} onAnswer={answerRun} />
         {progress.run?.mail && progress.run.report?.outcome !== RUN_OUTCOME.completed ? (

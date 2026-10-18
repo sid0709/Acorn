@@ -14,7 +14,7 @@ import (
 	"sync"
 	"time"
 
-	"github.com/sid0709/OpenSeat/backend-core/google"
+	"github.com/sid0709/acorn/acorn-backend/internal/google"
 	"golang.org/x/sync/singleflight"
 )
 

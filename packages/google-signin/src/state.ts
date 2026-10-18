@@ -5,7 +5,7 @@
  */
 /** Website routes that post to the API under /api. */
 export const GOOGLE_SIGNIN_ROUTE = "/api/auth/google";
-/** Scoutwell's and Admin's routes. */
+/** Routes an app serves itself, without the /api prefix. */
 export const GOOGLE_AUTH_ROUTE = "/auth/google";
 /** Callback for GOOGLE_SIGNIN_ROUTE. */
 export const GOOGLE_CALLBACK_ROUTE = googleCallbackRoute(GOOGLE_SIGNIN_ROUTE);

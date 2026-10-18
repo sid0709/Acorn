@@ -15,9 +15,9 @@ import (
 	"sync"
 	"testing"
 
-	"github.com/sid0709/OpenSeat/acorn-agent/applicant"
-	"github.com/sid0709/OpenSeat/acorn-agent/llm"
-	"github.com/sid0709/OpenSeat/backend-core/jev"
+	"github.com/sid0709/acorn/acorn-agent/applicant"
+	"github.com/sid0709/acorn/acorn-agent/llm"
+	"github.com/sid0709/acorn/acorn-backend/jev"
 )
 
 // scriptedModel answers each call with the next canned reply and records every request.
@@ -59,6 +59,9 @@ type fixedDecider struct {
 	online     float64
 	vetStates  []string
 	onlineFail bool
+	// signOn is the probability it gives that a described control or window signs in through
+	// another service's account.
+	signOn float64
 }
 
 func (d *fixedDecider) Decide(_ context.Context, req jev.Request) (jev.Response, error) {
@@ -79,6 +82,10 @@ func (d *fixedDecider) Decide(_ context.Context, req jev.Request) (jev.Response,
 		p := d.online
 		d.vetStates = append(d.vetStates, req.State)
 		answers[askOnlineSource] = jev.Answer{Type: jev.TypeNoul, Noul: &p}
+	}
+	if _, ok := req.Questions[askSingleSignOn]; ok {
+		p := d.signOn
+		answers[askSingleSignOn] = jev.Answer{Type: jev.TypeNoul, Noul: &p}
 	}
 	if _, ok := req.Questions[resumeQuestion]; ok {
 		d.choiceStates = append(d.choiceStates, req.State)
@@ -494,7 +501,7 @@ func TestHistoryOnlyGrowsAtTheEndSoTheProviderCanCacheIt(t *testing.T) {
 
 func TestHistoryIsCompactedOnceItPassesTheBudgetThenGrowsAgain(t *testing.T) {
 	cfg := DefaultConfig()
-	cfg.KeepTurns, cfg.KeepImages, cfg.HistoryTokens = 4, 2, 9000
+	cfg.KeepTurns, cfg.KeepImages, cfg.HistoryTokens = 4, 2, 9600
 	model := runWaitSteps(t, cfg, 14)
 
 	compactions := 0

@@ -6,7 +6,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/sid0709/OpenSeat/acorn-agent/applicant"
+	"github.com/sid0709/acorn/acorn-agent/applicant"
 )
 
 func traceFileNamed(trace *Trace, name string) (TraceFile, bool) {

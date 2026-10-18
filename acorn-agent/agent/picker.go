@@ -7,7 +7,7 @@ import (
 	"log/slog"
 	"math"
 
-	"github.com/sid0709/OpenSeat/acorn-agent/decide"
+	"github.com/sid0709/acorn/acorn-agent/decide"
 )
 
 // A file button clicked with a plain click opens the browser's file picker. The extension

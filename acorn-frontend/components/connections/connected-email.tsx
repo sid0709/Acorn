@@ -15,15 +15,8 @@ import { ROUTES } from "@/lib/routes";
 import type { Mailbox } from "@/lib/workspace/model";
 import { RecentReplies } from "./recent-replies";
 
-/** Connected inboxes: usage against the plan, label tools, and the latest labelled replies. */
-export function ConnectedEmail({
-  mailboxes,
-  limit,
-}: {
-  mailboxes: Mailbox[];
-  /** Mailboxes the plan allows; null means no limit. */
-  limit: number | null;
-}) {
+/** Connected inboxes: label tools, and the latest labelled replies. */
+export function ConnectedEmail({ mailboxes }: { mailboxes: Mailbox[] }) {
   const router = useRouter();
   const { workspace, update } = useWorkspace();
   const saveMailboxes = useMailboxActions(mailboxes);
@@ -49,8 +42,7 @@ export function ConnectedEmail({
   const markUnread = (id: string) => {
     update({ ...workspace, readMail: workspace.readMail.filter((entry) => entry !== id) });
   };
-  const usage =
-    limit === null ? `${mailboxes.length} connected` : `${mailboxes.length} of ${limit} mailboxes`;
+  const usage = `${mailboxes.length} connected`;
 
   return (
     <SectionCard

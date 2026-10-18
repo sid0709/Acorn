@@ -9,7 +9,7 @@ import (
 	"net/http"
 	"strings"
 
-	"github.com/sid0709/OpenSeat/acorn-backend/support"
+	"github.com/sid0709/acorn/acorn-backend/support"
 	"go.mongodb.org/mongo-driver/v2/mongo"
 )
 

@@ -18,6 +18,10 @@ const STOP_COPY: Record<AgentStopReason, StopCopy> = {
   [AGENT_STOP_REASON.identity]: { heading: "Add your ID details", glyph: "creditCard" },
   [AGENT_STOP_REASON.document]: { heading: "Upload a document", glyph: "upload" },
   [AGENT_STOP_REASON.signIn]: { heading: "Sign in to continue", glyph: "user" },
+  [AGENT_STOP_REASON.accountRejected]: {
+    heading: "The site won't accept the account",
+    glyph: "user",
+  },
   [AGENT_STOP_REASON.pageProblem]: { heading: "The page won't let Acorn go on", glyph: "info" },
   [AGENT_STOP_REASON.other]: { heading: "Acorn needs you here", glyph: "user" },
   [AGENT_STOP_REASON.noChange]: { heading: "The page stopped responding", glyph: "refresh" },

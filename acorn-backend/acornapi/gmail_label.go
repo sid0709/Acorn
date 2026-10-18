@@ -9,10 +9,10 @@ import (
 	"time"
 	"unicode/utf8"
 
-	"github.com/sid0709/OpenSeat/acorn-backend/mailbox"
-	"github.com/sid0709/OpenSeat/acorn-backend/maillabel"
-	"github.com/sid0709/OpenSeat/backend-core/jev"
-	"github.com/sid0709/OpenSeat/backend-core/openai"
+	"github.com/sid0709/acorn/acorn-backend/jev"
+	"github.com/sid0709/acorn/acorn-backend/mailbox"
+	"github.com/sid0709/acorn/acorn-backend/maillabel"
+	"github.com/sid0709/acorn/acorn-backend/openai"
 )
 
 const (

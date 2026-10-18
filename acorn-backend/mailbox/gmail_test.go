@@ -12,7 +12,7 @@ import (
 	"sync/atomic"
 	"testing"
 
-	"github.com/sid0709/OpenSeat/backend-core/google"
+	"github.com/sid0709/acorn/acorn-backend/internal/google"
 )
 
 // fakeGoogle answers token, userinfo, and Gmail API calls in memory.

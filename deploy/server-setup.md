@@ -113,7 +113,7 @@ Variables (`vars.*`): `ACORN_ADMIN_USERNAME`, `ACORN_ADMIN_PWD`, `VITE_ACORN_API
 The agent is a fourth container but has no host name of its own: it is served on `api.acornapply.com` under `/agent/v1/`, and reaches the API privately as `http://acorn-api:8083`. The deploy itself does not touch nginx files, so do this once by hand:
 
 1. **nginx limit zone.** Make sure `/etc/nginx/conf.d/acorn-common.conf` has the `limit_req_zone ... zone=acorn_agent` line (see `deploy/nginx/conf.d/acorn-common.conf`).
-2. **nginx route.** In `/etc/nginx/sites-available/api.acornapply.com` (or `/etc/nginx/sites-available/acornapply.com` if `/agent/` lives in that file) the `/agent/v1/` block must proxy to **8093**, not 8090 (JoinedHQ). The line is:
+2. **nginx route.** In `/etc/nginx/sites-available/api.acornapply.com` (or `/etc/nginx/sites-available/acornapply.com` if `/agent/` lives in that file) the `/agent/v1/` block must proxy to **8093**. The line is:
 
    `proxy_pass http://127.0.0.1:8093;`
 

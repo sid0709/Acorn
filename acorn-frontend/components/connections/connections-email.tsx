@@ -2,7 +2,6 @@
 
 import { useRouter } from "next/navigation";
 import { Banner, Button, EmptyState, Glyph, SectionCard, Stack } from "sid-ui";
-import { CURRENT_PLAN_ID, planById } from "@/lib/billing";
 import { ROUTES } from "@/lib/routes";
 import type { Mailbox } from "@/lib/workspace/model";
 import { ConnectedEmail } from "./connected-email";
@@ -17,9 +16,8 @@ export function ConnectionsEmail({
 }) {
   const router = useRouter();
   const connect = () => router.push(ROUTES.connectGmail);
-  const limit = planById(CURRENT_PLAN_ID).limits.mailboxes;
 
-  if (mailboxes.length > 0) return <ConnectedEmail mailboxes={mailboxes} limit={limit} />;
+  if (mailboxes.length > 0) return <ConnectedEmail mailboxes={mailboxes} />;
   return (
     <SectionCard title="Email" description="Gmail replies from recruiters, sorted for you.">
       <Stack gap={4}>

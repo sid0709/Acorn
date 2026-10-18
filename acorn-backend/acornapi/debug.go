@@ -9,7 +9,7 @@ import (
 	"time"
 	"unicode"
 
-	"github.com/sid0709/OpenSeat/acorn-backend/debugtrace"
+	"github.com/sid0709/acorn/acorn-backend/debugtrace"
 )
 
 // debugShotMaxBytes is a JPEG small enough that its base64 form fits maxBody.

@@ -9,7 +9,7 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/sid0709/OpenSeat/acorn-agent/decide"
+	"github.com/sid0709/acorn/acorn-agent/decide"
 )
 
 // A dropdown the page draws itself hides its options until it is opened, and the driving model

@@ -8,14 +8,25 @@ import {
   AGENT_KEY_HEADER,
   AGENT_ROUTES,
   type AgentContinued,
+  type AgentMemory,
   type AgentErrorBody,
+  type AgentAdvanceRequest,
+  type AgentAdvanceResult,
+  type AgentPickRequest,
+  type AgentPickResult,
   type AgentObservation,
+  type AgentPrefillPlan,
+  type AgentPrefillRequest,
+  type AgentReviewRequest,
+  type AgentReviewResult,
   type AgentStart,
   type AgentStarted,
   type AgentStep,
   type AgentVetTarget,
   type AgentVetVerdict,
 } from "@acorn/shared/agent-contract";
+
+import { PREFILL_TIMEOUT_MS } from "./prefill/settings";
 
 import type { ResumeFile } from "./upload";
 
@@ -132,6 +143,25 @@ export async function continueSession(base: string, sessionId: string): Promise<
   return (await response.json()) as AgentContinued;
 }
 
+/**
+ * What a run knows, to keep when it stops so Continue can go on from it even if the server forgets
+ * the session. A failure here changes nothing for the person, so it is not raised: the run is
+ * kept without it.
+ */
+export async function fetchMemory(
+  base: string,
+  sessionId: string,
+): Promise<AgentMemory | undefined> {
+  try {
+    const response = await call(base, AGENT_ROUTES.memory(sessionId), {
+      timeoutMs: QUICK_TIMEOUT_MS,
+    });
+    return (await response.json()) as AgentMemory;
+  } catch {
+    return undefined;
+  }
+}
+
 export async function sendStep(
   base: string,
   sessionId: string,
@@ -145,6 +175,73 @@ export async function sendStep(
     timeoutMs: STEP_TIMEOUT_MS,
   });
   return (await response.json()) as AgentStep;
+}
+
+/**
+ * Asks the server to answer the page's plain fields in one model call that reads text only. The
+ * answer is what to type; nothing is done to the page here.
+ */
+export async function requestPrefill(
+  base: string,
+  sessionId: string,
+  request: AgentPrefillRequest,
+  signal: AbortSignal,
+): Promise<AgentPrefillPlan> {
+  const response = await call(base, AGENT_ROUTES.prefill(sessionId), {
+    method: "POST",
+    body: request,
+    signal,
+    timeoutMs: PREFILL_TIMEOUT_MS,
+  });
+  return (await response.json()) as AgentPrefillPlan;
+}
+
+/** Reviews the page after the first draft: what is left, whether the screen is clean, whether only the person can go on. */
+export async function requestReview(
+  base: string,
+  sessionId: string,
+  request: AgentReviewRequest,
+  signal: AbortSignal,
+): Promise<AgentReviewResult> {
+  const response = await call(base, AGENT_ROUTES.review(sessionId), {
+    method: "POST",
+    body: request,
+    signal,
+    timeoutMs: QUICK_TIMEOUT_MS,
+  });
+  return (await response.json()) as AgentReviewResult;
+}
+
+/** Asks which control of a clean page continues the application. */
+export async function requestAdvance(
+  base: string,
+  sessionId: string,
+  request: AgentAdvanceRequest,
+  signal: AbortSignal,
+): Promise<AgentAdvanceResult> {
+  const response = await call(base, AGENT_ROUTES.advance(sessionId), {
+    method: "POST",
+    body: request,
+    signal,
+    timeoutMs: QUICK_TIMEOUT_MS,
+  });
+  return (await response.json()) as AgentAdvanceResult;
+}
+
+/** Asks which option answers each choice of the page (a list, a radio group, yes/no buttons, checkboxes). */
+export async function requestPick(
+  base: string,
+  sessionId: string,
+  request: AgentPickRequest,
+  signal: AbortSignal,
+): Promise<AgentPickResult> {
+  const response = await call(base, AGENT_ROUTES.pick(sessionId), {
+    method: "POST",
+    body: request,
+    signal,
+    timeoutMs: QUICK_TIMEOUT_MS,
+  });
+  return (await response.json()) as AgentPickResult;
 }
 
 /** Asks whether a control about to be clicked, or a window a click opened, is an online file source. */

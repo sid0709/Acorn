@@ -7,13 +7,12 @@ import { useCompanionFace } from "../acorn-face/use-companion-face";
 import { MSG } from "../types";
 
 import { pushAcornNotice } from "./acorn-notice";
-import { AskPanel } from "./AskPanel";
 import { JobsPanel } from "./JobsPanel";
 import { LogsPanel } from "./LogsPanel";
 import { NowCard } from "./NowCard";
 import { ReportDialog } from "./ReportDialog";
 import { sendMessage } from "./runtime";
-import { RUN_HINT, actionBarState, isAnyTabWorking, isGenerateBusy } from "./sidebar-work-state";
+import { RUN_HINT, isAnyTabWorking, runButtonLabel } from "./sidebar-work-state";
 import { SidebarHeader } from "./SidebarHeader";
 import { SidebarNav, type AcornMainTab } from "./SidebarNav";
 import { SidebarOverlays } from "./SidebarOverlays";
@@ -22,7 +21,6 @@ import { SupportPanel } from "./SupportPanel";
 import { UpdateDialog } from "./UpdateDialog";
 import { useActiveTabId } from "./use-active-tab";
 import { useAvailableUpdate } from "./use-available-update";
-import { useResumePreview } from "./use-resume-preview";
 import { useSidebarAuth } from "./use-sidebar-auth";
 import { useSocketStatus } from "./use-socket-status";
 import { useSupportClaims } from "./use-support-claims";
@@ -34,11 +32,10 @@ import "./SidebarApp.css";
 
 export default function SidebarApp() {
   const activeTabId = useActiveTabId();
-  const { tabJob, jobGenerates, pipelines, progress, setPipelines } = useTabSession(activeTabId);
+  const { pipelines, progress, setPipelines } = useTabSession(activeTabId);
 
   const [mainTab, setMainTab] = useState<AcornMainTab>("fill");
   const [settingsOpen, setSettingsOpen] = useState(false);
-  const [qaStatus, setQaStatus] = useState({ busy: false, error: false });
   const [helpOpen, setHelpOpen] = useState(false);
   const [reportOpen, setReportOpen] = useState(false);
   // Bumped on every open so the dialog remounts and starts with no notes or picked report.
@@ -63,16 +60,11 @@ export default function SidebarApp() {
     setReportRun((run) => run + 1);
     setReportOpen(true);
   };
-  const { preview, setPreview } = useResumePreview(jobGenerates);
 
   const fillBusy = isFillPhaseBusy(progress.phase);
-  const generateBusy = isGenerateBusy(tabJob, jobGenerates);
-  const tabWorkBusy = fillBusy || generateBusy;
-  const anyTabWorking = isAnyTabWorking(pipelines, jobGenerates);
-  const busyCounts = useMemo(
-    () => countBusyWorkers(pipelines, Object.values(jobGenerates)),
-    [pipelines, jobGenerates],
-  );
+  const tabWorkBusy = fillBusy;
+  const anyTabWorking = isAnyTabWorking(pipelines);
+  const busyCounts = useMemo(() => countBusyWorkers(pipelines), [pipelines]);
   const busyTotal = busyCounts.thinking + busyCounts.working;
   const workersMode =
     busyCounts.working > 0 ? "working" : busyCounts.thinking > 0 ? "thinking" : "waiting";
@@ -80,17 +72,11 @@ export default function SidebarApp() {
 
   const { startRun, stopRun, answerRun } = useTabWork({
     activeTabId,
-    tabJob,
     setPipelines,
     tabWorkBusy,
   });
 
-  const { attachedJobGenerate, runLabel } = actionBarState({
-    tabJob,
-    jobGenerates,
-    progress,
-    fillBusy,
-  });
+  const runLabel = runButtonLabel(progress, fillBusy);
 
   const companionMode = useCompanionFace({
     signedIn: Boolean(session),
@@ -98,16 +84,8 @@ export default function SidebarApp() {
     nameFocused: false,
     connected,
     anyTabWorking,
-    focused: tabInputFromProgress(Boolean(session), progress, {
-      status: attachedJobGenerate?.generateStatus ?? null,
-      label: attachedJobGenerate?.generateProgress?.label ?? null,
-      hasResume: Boolean(
-        attachedJobGenerate?.generationId || attachedJobGenerate?.recommendedResumeId,
-      ),
-    }),
-    qaBusy: qaStatus.busy,
-    qaError: qaStatus.error,
-    inspectOpen: Boolean(preview || helpOpen),
+    focused: tabInputFromProgress(Boolean(session), progress),
+    inspectOpen: helpOpen,
     connectionOpen: settingsOpen,
     jobsLoading: false,
     jobsEmpty: false,
@@ -115,7 +93,6 @@ export default function SidebarApp() {
     opening: false,
   });
 
-  const headerContext = tabJob ? `${tabJob.company} · ${tabJob.title}` : "No job on this tab";
   const nowActions = {
     run: {
       label: runLabel,
@@ -181,15 +158,7 @@ export default function SidebarApp() {
     }
   };
 
-  const nowCard = (
-    <NowCard
-      tabJob={tabJob}
-      jobGenerate={attachedJobGenerate}
-      progress={progress}
-      fillBusy={fillBusy}
-      {...nowActions}
-    />
-  );
+  const nowCard = <NowCard progress={progress} fillBusy={fillBusy} {...nowActions} />;
 
   return (
     <div className={`sidebar-app${session ? " signed-in" : ""} tab-${session ? mainTab : "fill"}`}>
@@ -203,7 +172,6 @@ export default function SidebarApp() {
               busyCounts={busyCounts}
               busyTotal={busyTotal}
               connected={connected}
-              context={headerContext}
               signOutDisabled={authBusy || anyTabWorking}
               onOpenGuide={() => setHelpOpen(true)}
               onOpenSettings={() => setSettingsOpen(true)}
@@ -228,14 +196,6 @@ export default function SidebarApp() {
               socketConnected={connected}
             />
 
-            <AskPanel
-              mainTab={mainTab}
-              fillBusy={fillBusy}
-              setQaStatus={setQaStatus}
-              tabJob={tabJob}
-              tabId={activeTabId}
-            />
-
             <SupportPanel
               mainTab={mainTab}
               support={support}
@@ -249,7 +209,6 @@ export default function SidebarApp() {
             key={reportRun}
             isOpen={reportOpen}
             onOpenChange={setReportOpen}
-            pageLabel={headerContext}
             openClaims={support.claims.filter((claim) => claim.status === CLAIM_STATUS.open)}
             sending={reportSending}
             onSend={submitReport}
@@ -265,8 +224,6 @@ export default function SidebarApp() {
 
       <UpdateDialog update={availableUpdate.update} onDismiss={availableUpdate.dismiss} />
       <SidebarOverlays
-        preview={preview}
-        setPreview={setPreview}
         helpOpen={helpOpen}
         setHelpOpen={setHelpOpen}
         busyCounts={busyCounts}

@@ -9,9 +9,9 @@ import (
 	"time"
 	"unicode"
 
-	"github.com/sid0709/OpenSeat/acorn-backend/acornapi/gateway"
-	"github.com/sid0709/OpenSeat/acorn-backend/aiusage"
-	"github.com/sid0709/OpenSeat/backend-core/openai"
+	"github.com/sid0709/acorn/acorn-backend/acornapi/gateway"
+	"github.com/sid0709/acorn/acorn-backend/aiusage"
+	"github.com/sid0709/acorn/acorn-backend/openai"
 	"go.mongodb.org/mongo-driver/v2/mongo"
 )
 

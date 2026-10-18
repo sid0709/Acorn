@@ -9,13 +9,13 @@ import (
 	"testing"
 	"time"
 
-	"github.com/sid0709/OpenSeat/acorn-backend/account"
-	"github.com/sid0709/OpenSeat/acorn-backend/acorn"
-	"github.com/sid0709/OpenSeat/acorn-backend/profile"
-	"github.com/sid0709/OpenSeat/acorn-backend/resume"
-	"github.com/sid0709/OpenSeat/acorn-backend/selector"
-	"github.com/sid0709/OpenSeat/backend-core/jev"
-	"github.com/sid0709/OpenSeat/backend-core/killswitch"
+	"github.com/sid0709/acorn/acorn-backend/account"
+	"github.com/sid0709/acorn/acorn-backend/acorn"
+	"github.com/sid0709/acorn/acorn-backend/internal/killswitch"
+	"github.com/sid0709/acorn/acorn-backend/jev"
+	"github.com/sid0709/acorn/acorn-backend/profile"
+	"github.com/sid0709/acorn/acorn-backend/resume"
+	"github.com/sid0709/acorn/acorn-backend/selector"
 )
 
 type fakeAccounts struct {

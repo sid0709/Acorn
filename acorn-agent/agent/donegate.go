@@ -5,7 +5,7 @@ import (
 	"fmt"
 	"log/slog"
 
-	"github.com/sid0709/OpenSeat/acorn-agent/decide"
+	"github.com/sid0709/acorn/acorn-agent/decide"
 )
 
 // "Done" means the page confirmed that the application was received. A model can say it without that

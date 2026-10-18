@@ -1,12 +1,13 @@
-# Build context is the Acorn repo. backend-core sits next to acorn-agent,
-# and go.mod replaces the module with ../backend-core. The agent has no
-# database and no third-party modules, so there is no go.sum to copy.
+# Build context is the Acorn repo. acorn-backend sits next to acorn-agent, and go.mod
+# replaces the module with ../acorn-backend. The agent imports only its config, jev,
+# llmhttp, openai and requestid packages, which use the standard library, so there is no
+# go.sum to copy.
 FROM golang:1.26.4-bookworm AS build
 
 WORKDIR /src/acorn-agent
 
 COPY acorn-agent/go.mod ./
-COPY backend-core /src/backend-core
+COPY acorn-backend /src/acorn-backend
 
 COPY acorn-agent/ ./
 

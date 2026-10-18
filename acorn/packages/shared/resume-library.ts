@@ -46,7 +46,7 @@ export type ResumeLibraryRow = {
 
 export const RESUME_LIBRARY_ACCEPT = ".pdf,.doc,.docx,.txt";
 export const RESUME_LIBRARY_MAX_BYTES = 8 * 1024 * 1024;
-/** Parallel library uploads. Matches the Athens library folder upload. */
+/** Parallel library uploads. */
 export const RESUME_BULK_UPLOAD_CONCURRENCY = 8;
 /** How many résumés one folder upload may include. */
 export const RESUME_BULK_UPLOAD_MAX_FILES = 300;
