@@ -54,7 +54,6 @@ const COPY: Record<
 export function ReportDialog({
   isOpen,
   onOpenChange,
-  pageLabel,
   openClaims,
   sending,
   onSend,
@@ -62,7 +61,6 @@ export function ReportDialog({
   isOpen: boolean;
   onOpenChange: (open: boolean) => void;
   /** The page being reported, shown so the person knows what is sent. */
-  pageLabel: string;
   /** The person's open reports, newest conversation first: what a follow-up can join. */
   openClaims: SupportClaim[];
   sending: boolean;
@@ -95,14 +93,7 @@ export function ReportDialog({
     <Dialog isOpen={isOpen} onOpenChange={close} purpose="form">
       <Layout
         height="auto"
-        header={
-          <DialogHeader
-            title="Notes to Support"
-            subtitle={pageLabel}
-            onOpenChange={close}
-            hasDivider
-          />
-        }
+        header={<DialogHeader title="Notes to Support" onOpenChange={close} hasDivider />}
         content={
           <LayoutContent>
             <Stack gap={3}>

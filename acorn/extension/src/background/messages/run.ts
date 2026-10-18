@@ -3,7 +3,6 @@ import { forgetKeptRunOfClosedTab, keepRun, takeKeptRun, type KeptRun } from "..
 import { runAgent } from "../../agent/runner";
 import { getAgentUrl } from "../../agent/settings";
 import { getAccessToken } from "../../auth/acorn-auth";
-import { getStopBeforeSubmit } from "../../run-settings";
 import { syncAutoFocus } from "../auto-focus";
 import { answerRunOnTab, awaitRunAnswer } from "../run-answer";
 import { beginRunStop, claimRunStopTab, endRunStop, stopRunOnTab } from "../run-stop";
@@ -49,7 +48,7 @@ export function handleStartRun(
         tabId,
         agentUrl: getAgentUrl(),
         signal: stop.signal,
-        stopBeforeSubmit: await stopBeforeSubmitFor(message),
+        stopBeforeSubmit: stopBeforeSubmitFor(message),
         resume,
         keepRun,
         accessToken: (await getAccessToken()) ?? undefined,
@@ -109,10 +108,9 @@ export async function endKeptRunOfTab(tabId: number): Promise<void> {
   if (kept) await endSession(getAgentUrl(), kept.sessionId);
 }
 
-/** Stop before Submit as the start message asks for it, else as the sidebar switch says. */
-async function stopBeforeSubmitFor(message: RuntimeMessage): Promise<boolean> {
-  const asked: unknown = (message as { stopBeforeSubmit?: unknown }).stopBeforeSubmit;
-  return typeof asked === "boolean" ? asked : getStopBeforeSubmit();
+/** Whether the start message asks the Run to stop at Submit (only tests do; a Run sends the application). */
+function stopBeforeSubmitFor(message: RuntimeMessage): boolean {
+  return (message as { stopBeforeSubmit?: unknown }).stopBeforeSubmit === true;
 }
 
 /** The person's answer to the question the Run on this tab is waiting on. */

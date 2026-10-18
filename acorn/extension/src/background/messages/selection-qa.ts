@@ -1,6 +1,5 @@
 import { getAcornSession } from "../../auth/acorn-auth";
 import { requestQaAnswer } from "../../pipeline/api/qa";
-import { getTabJob } from "../../tab-job-session";
 
 import type { RuntimeMessage, SendResponse } from "./shared";
 
@@ -22,20 +21,12 @@ export function handleSelectionQa(
         return;
       }
       const tabId = sender.tab?.id;
-      const tabJob = typeof tabId === "number" ? await getTabJob(tabId) : null;
       const answer = await requestQaAnswer(
         {
           question,
           page: {
             title: String(message.title || ""),
             url: String(message.url || ""),
-            job: tabJob
-              ? {
-                  id: tabJob.jobId,
-                  title: tabJob.title,
-                  company: tabJob.company,
-                }
-              : null,
           },
         },
         undefined,

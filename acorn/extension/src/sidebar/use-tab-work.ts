@@ -6,13 +6,11 @@ import {
 import { describeError } from "@acorn/shared/user-messages";
 import { useCallback } from "react";
 
-import { fetchStoredJobDescription } from "../pipeline/api/job-files";
 import { MSG, type AcornNoticePayload } from "../types";
 
 import { pushAcornNotice } from "./acorn-notice";
 import { sendMessage } from "./runtime";
 
-import type { ResumeMode } from "../tab-job-generate-session";
 import type { useTabSession } from "./use-tab-session";
 
 type TabSession = ReturnType<typeof useTabSession>;
@@ -26,15 +24,13 @@ function notify(tabId: number | null | undefined, notice: AcornNoticePayload): v
   pushAcornNotice(typeof tabId === "number" ? { ...notice, tabId } : notice);
 }
 
-/** Actions that start or steer work on a Chrome tab: Run, and Generate / Recommend for a job. */
+/** Actions that start or steer work on a Chrome tab: Run, Stop, and answering a question. */
 export function useTabWork({
   activeTabId,
-  tabJob,
   setPipelines,
   tabWorkBusy,
 }: {
   activeTabId: number | null;
-  tabJob: TabSession["tabJob"];
   setPipelines: TabSession["setPipelines"];
   tabWorkBusy: boolean;
 }) {
@@ -140,59 +136,9 @@ export function useTabWork({
     [activeTabId],
   );
 
-  const startJobWork = useCallback(
-    async (mode: ResumeMode, opts: { continue?: boolean } = {}) => {
-      const tabId = activeTabId;
-      const jobId = tabJob?.jobId ?? "";
-      if (!jobId) {
-        notify(tabId, {
-          kind: "info",
-          title: "No job on this tab",
-          detail: "Generate uses the job description saved for this tab.",
-        });
-        return;
-      }
-      let jobDescription = "";
-      try {
-        jobDescription = await fetchStoredJobDescription(jobId);
-      } catch (err) {
-        notify(tabId, {
-          kind: "error",
-          title: mode === "recommend" ? "Couldn’t recommend" : "Couldn’t generate",
-          detail: err instanceof Error ? err.message : String(err),
-        });
-        return;
-      }
-      try {
-        const res = await sendMessage<{ ok?: boolean; error?: string }>({
-          type: mode === "recommend" ? MSG.START_JOB_RECOMMEND : MSG.START_JOB_GENERATE,
-          jobId,
-          tabId: activeTabId,
-          continue: Boolean(opts.continue),
-          jobDescription,
-        });
-        if (!res?.ok) {
-          notify(tabId, {
-            kind: "error",
-            title: mode === "recommend" ? "Couldn’t recommend" : "Couldn’t generate",
-            detail: res?.error || "Try again.",
-          });
-        }
-      } catch (err) {
-        notify(tabId, {
-          kind: "error",
-          title: mode === "recommend" ? "Couldn’t recommend" : "Couldn’t generate",
-          detail: err instanceof Error ? err.message : String(err),
-        });
-      }
-    },
-    [activeTabId, tabJob?.jobId],
-  );
-
   return {
     startRun,
     stopRun,
     answerRun,
-    startJobWork,
   };
 }

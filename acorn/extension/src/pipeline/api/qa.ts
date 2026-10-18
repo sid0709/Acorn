@@ -5,11 +5,6 @@ import { loggedFetch } from "./api-log";
 export type AcornQaPage = {
   title?: string;
   url?: string;
-  job?: {
-    id?: string;
-    title?: string;
-    company?: string;
-  } | null;
 };
 
 export async function requestQaAnswer(

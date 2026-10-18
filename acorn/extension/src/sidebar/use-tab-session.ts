@@ -3,19 +3,8 @@ import {
   mergePipelineProgress,
   type PipelineProgress,
 } from "@acorn/shared/pipeline-types";
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useState } from "react";
 
-import {
-  JOB_GENERATE_STORAGE_KEY,
-  listJobGenerates,
-  type JobGenerateMap,
-} from "../tab-job-generate-session";
-import {
-  listTabJobs,
-  TAB_JOBS_STORAGE_KEY,
-  type JobAttachment,
-  type TabJobMap,
-} from "../tab-job-session";
 import {
   listTabPipelines,
   TAB_PIPELINES_STORAGE_KEY,
@@ -24,21 +13,13 @@ import {
 import { MSG } from "../types";
 
 export function useTabSession(activeTabId: number | null) {
-  const [tabJobs, setTabJobs] = useState<TabJobMap>({});
-  const [jobGenerates, setJobGenerates] = useState<JobGenerateMap>({});
   const [pipelines, setPipelines] = useState<TabPipelineMap>({});
 
   useEffect(() => {
     let alive = true;
     void (async () => {
-      const [jobs, generates, progress] = await Promise.all([
-        listTabJobs(),
-        listJobGenerates(),
-        listTabPipelines(),
-      ]);
+      const progress = await listTabPipelines();
       if (!alive) return;
-      setTabJobs(jobs);
-      setJobGenerates(generates);
       setPipelines(progress);
     })();
 
@@ -47,14 +28,6 @@ export function useTabSession(activeTabId: number | null) {
       area,
     ) => {
       if (area !== "session") return;
-      if (changes[TAB_JOBS_STORAGE_KEY]) {
-        const next = changes[TAB_JOBS_STORAGE_KEY].newValue;
-        setTabJobs(next && typeof next === "object" ? (next as TabJobMap) : {});
-      }
-      if (changes[JOB_GENERATE_STORAGE_KEY]) {
-        const next = changes[JOB_GENERATE_STORAGE_KEY].newValue;
-        setJobGenerates(next && typeof next === "object" ? (next as JobGenerateMap) : {});
-      }
       if (changes[TAB_PIPELINES_STORAGE_KEY]) {
         const next = changes[TAB_PIPELINES_STORAGE_KEY].newValue;
         setPipelines(next && typeof next === "object" ? (next as TabPipelineMap) : {});
@@ -86,26 +59,11 @@ export function useTabSession(activeTabId: number | null) {
   }, []);
 
   const tabKey = activeTabId != null ? String(activeTabId) : null;
-  const tabJob = tabKey ? (tabJobs[tabKey] ?? null) : null;
   const progress = tabKey ? (pipelines[tabKey] ?? IDLE_PIPELINE_PROGRESS) : IDLE_PIPELINE_PROGRESS;
 
-  const attachments = useMemo(() => {
-    const next: Record<string, JobAttachment> = {};
-    for (const [id, job] of Object.entries(tabJobs)) {
-      const tabId = Number(id);
-      if (!Number.isFinite(tabId)) continue;
-      next[job.jobId] = { tabId, active: tabId === activeTabId };
-    }
-    return next;
-  }, [tabJobs, activeTabId]);
-
   return {
-    tabJobs,
-    tabJob,
-    jobGenerates,
     pipelines,
     progress,
-    attachments,
     setPipelines,
   };
 }
