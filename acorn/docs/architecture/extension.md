@@ -97,7 +97,7 @@ The other apps around it:
 | `acorn/extension/src/background.ts`, `src/background/`                     | Service worker: startup, alarms, tab lifecycle, message router, socket, capture sink.         |
 | `acorn/extension/src/agent/`                                               | The agent Run's extension side: screenshot, input, overlay, the loop (§19).                   |
 | `acorn/extension/src/content/`                                             | Content script: the support handoff and page-error logging.                                   |
-| `acorn/extension/src/pipeline/`                                            | The run log and the API clients (`pipeline/api/`).                                            |
+| `acorn/extension/src/pipeline/`                                            | The run log (`run-log.ts`).                                                                   |
 | `acorn/extension/src/sidebar/`                                             | Side panel React app.                                                                         |
 | `acorn/extension/src/tab-*-session.ts`, `storage-lock.ts`                  | Per-tab state in `chrome.storage.session`, IndexedDB log.                                     |
 | [`acorn/packages/shared`](../../packages/shared) (`@acorn/shared`)         | Contracts shared by extension and site: agent contract, run and progress types, résumé types. |

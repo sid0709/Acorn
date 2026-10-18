@@ -4,7 +4,6 @@ export const ACORN_FACE_BADGE_PX = 18;
 /** Fraction of the badge that hangs past the logo corner. */
 export const ACORN_FACE_BADGE_OVERHANG = 0.28;
 export const ACORN_FACE_HELP_PX = 148;
-export const ACORN_FACE_CHIP_PX = 32;
 /** The smiling acorn at the centre of the applied celebration. */
 export const ACORN_FACE_CELEBRATE_PX = 96;
 
