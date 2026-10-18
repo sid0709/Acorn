@@ -84,7 +84,7 @@ func main() {
 		slog.Warn("Gmail is off until GOOGLE_CLIENT_ID, GOOGLE_CLIENT_SECRET, and a Gmail redirect are set (GOOGLE_GMAIL_REDIRECT_URL, or GOOGLE_SIGNIN_REDIRECT_URL ending in /auth/google/callback)")
 	}
 
-	p, err := platform.Open(context.Background(), db, platform.Options{})
+	p, err := platform.Open(context.Background(), db)
 	if err != nil {
 		slog.Error("platform", "error", config.Redact(err, db.MongoURI))
 		os.Exit(1)
