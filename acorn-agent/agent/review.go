@@ -36,7 +36,8 @@ const (
 	ReviewLoading = "loading"
 	// ReviewSent: the screen shows the application was received.
 	ReviewSent = "sent"
-	// ReviewHuman: only the applicant's own hand can go on; the run ends as need_person.
+	// ReviewHuman: the page may need something only the applicant can give. It is a hint for the driving
+	// model, which decides from the screen; the review itself never ends a run.
 	ReviewHuman = "human"
 	// ReviewLook: the review could not decide (no decision model, or it failed); the driving model looks.
 	ReviewLook = "look"
@@ -137,7 +138,7 @@ func reviewQuestions() map[string]decide.Question {
 			Criteria: map[string]string{
 				humanCaptcha:  "the page asks the visitor to prove they are human and it is not passed yet: a CAPTCHA, an 'I'm not a robot' box, a picture puzzle, a security challenge. A small badge that only says the page is protected by one does not count.",
 				humanCode:     "the page asks for a code that was sent to the applicant's email or phone",
-				humanDocument: "the page asks for a document or an ID the applicant must provide themselves",
+				humanDocument: "the page asks for a document or an ID that only the applicant has, such as a diploma, a transcript, an ID scan or a certificate (not a résumé or a cover letter, which are attached for them)",
 				humanNone:     "the page needs none of these",
 			},
 		},
@@ -192,16 +193,15 @@ func reviewState(screenshot string, vp Viewport, survey []SurveyScreen) []decide
 	return parts
 }
 
-// humanStop is the end of a run that needs the applicant, by what the page asks.
-func humanStop(kind string) (*StopInfo, string) {
-	switch kind {
-	case humanCaptcha:
-		return &StopInfo{Reason: StopCaptcha, Problem: "The page asks you to prove you're not a robot.", Action: "Solve the check on the page, then press Continue."}, "The page needs a check only you can pass."
-	case humanCode:
-		return &StopInfo{Reason: StopVerification, Problem: "The page asks for a code sent to your email or phone.", Action: "Enter the code on the page, then press Continue."}, "The page needs a code that was sent to you."
-	default:
-		return &StopInfo{Reason: StopDocument, Problem: "The page asks for a document or ID that Acorn does not have.", Action: "Provide it on the page, then press Continue."}, "The page needs a document only you can provide."
+// humanHint tells the driving model what a quick read of the page took it to ask for, and that the
+// decision is its own: it can attach the résumé and type from the profile, so what only the applicant
+// can give is for it to judge from the screenshot.
+func humanHint(kind string) string {
+	asks := reviewQuestions()[askHuman].Criteria[kind]
+	if asks == "" {
+		return ""
 	}
+	return "A quick read of the page took it to be asking for this: " + asks + ". That is only a hint and does not end the run: look at the screenshot yourself. Anything you can do, such as attaching the résumé or a cover letter with upload, or typing an answer from the applicant's details, is yours to do. Stop for the applicant only when the page truly needs something only they can give."
 }
 
 // clipList bounds a list of labels from the page: how many, and how long each.
@@ -322,18 +322,16 @@ func (a *Agent) Review(ctx context.Context, id string, req ReviewRequest) (Revie
 	entry.Message = fmt.Sprintf("review: %s (errors %.2f, unanswered %.2f, unticked %.2f, greyed %.2f, loading %.2f, human %s %.2f, sent %.2f, screens %d)",
 		result.Verdict, yes(askVisibleErrors), yes(askUnanswered), yes(askUnticked), yes(askGreyedOut), yes(askLoading), kind, sure, yes(askSent), max(1, len(req.Survey)))
 	if result.Verdict == ReviewHuman {
-		stop, message := humanStop(kind)
-		s.finished, s.stoppedFor = true, message
-		s.plan, s.verify, s.planned, s.sent, s.parts = nil, "", 0, 0, 0
-		result.Step = &Step{Status: StatusNeedPerson, Message: message, Stop: stop, Actions: []Action{}, Number: s.step, Usage: s.usage}
-		entry.Status, entry.Stop = StatusNeedPerson, stop
+		result.Note = humanHint(kind)
 	}
 	return a.finishReview(s, entry, &call, result, req.Screenshot), nil
 }
 
 // finishReview records the review and fills in what the caller needs.
 func (a *Agent) finishReview(s *session, entry stepTrace, call *modelCall, result ReviewResult, screenshot string) ReviewResult {
-	result.Note = reviewNote(result.Verdict, result.Problems)
+	if result.Note == "" {
+		result.Note = reviewNote(result.Verdict, result.Problems)
+	}
 	entry.Usage = s.usage
 	var calls []modelCall
 	if call != nil {

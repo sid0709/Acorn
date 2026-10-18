@@ -152,21 +152,18 @@ func TestAPageStillLoadingAndAConfirmationAreToldApart(t *testing.T) {
 	}
 }
 
-func TestACheckOnlyThePersonCanPassEndsTheRunAskingForThem(t *testing.T) {
+func TestACheckOnlyThePersonCanPassIsAHintAndDoesNotEndTheRun(t *testing.T) {
 	a, id := newDOMAgent(t, &domScreen{human: humanCaptcha, humanSure: 0.95}, false)
 	result, err := a.Review(context.Background(), id, reviewOf(shot(t, 40)))
 	if err != nil {
 		t.Fatal(err)
 	}
-	if result.Verdict != ReviewHuman || result.Step == nil || result.Step.Status != StatusNeedPerson || result.Step.Stop.Reason != StopCaptcha {
-		t.Fatalf("result = %+v", result)
+	if result.Verdict != ReviewHuman || result.Step != nil || !strings.Contains(result.Note, "does not end the run") {
+		t.Fatalf("the review hints and the driving model decides: %+v", result)
 	}
-	if _, err := a.Review(context.Background(), id, reviewOf(shot(t, 40))); !errors.Is(err, ErrSessionOver) {
-		t.Fatalf("the run is over: %v", err)
-	}
-	// Continue takes it back up, as for any run that stopped for the person.
-	if _, err := a.Continue(id); err != nil {
-		t.Fatal(err)
+	// The run goes on: the driving model may still be asked, and may stop for the person itself.
+	if _, err := a.Review(context.Background(), id, reviewOf(shot(t, 40))); err != nil {
+		t.Fatalf("the run is not over: %v", err)
 	}
 }
 
