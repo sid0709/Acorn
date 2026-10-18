@@ -19,6 +19,7 @@ export const AGENT_ROUTES = {
   prefill: (sessionId: string) => `/agent/v1/sessions/${encodeURIComponent(sessionId)}/prefill`,
   review: (sessionId: string) => `/agent/v1/sessions/${encodeURIComponent(sessionId)}/review`,
   advance: (sessionId: string) => `/agent/v1/sessions/${encodeURIComponent(sessionId)}/advance`,
+  pick: (sessionId: string) => `/agent/v1/sessions/${encodeURIComponent(sessionId)}/pick`,
 } as const;
 
 /** Header that carries the person's OpenRouter key when the extension has one. */
@@ -288,6 +289,37 @@ export interface AgentAdvanceCandidate {
   text: string;
   kind: "button" | "submit";
   inForm?: boolean;
+}
+
+/** How a choice is answered: exactly one option, or each option a yes or a no (checkboxes). */
+export const PICK_KIND = { one: "one", many: "many" } as const;
+export type PickKind = (typeof PICK_KIND)[keyof typeof PICK_KIND];
+
+/** One question of the page with its options, as the page words them. */
+export interface AgentPickField {
+  ref: number;
+  kind: PickKind;
+  question: string;
+  options: string[];
+}
+
+export interface AgentPickRequest {
+  url: string;
+  title: string;
+  fields: AgentPickField[];
+}
+
+/** The options to choose for one field (indexes into its options); a field the model was unsure of is absent. */
+export interface AgentPickAnswer {
+  ref: number;
+  choices: number[];
+  sure: number;
+}
+
+export interface AgentPickResult {
+  picks: AgentPickAnswer[] | null;
+  usage: AgentUsage;
+  trace?: AgentTrace;
 }
 
 export interface AgentAdvanceRequest {

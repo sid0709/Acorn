@@ -10,6 +10,7 @@ import { AGENT_ERROR_CODE } from "@acorn/shared/agent-contract";
 import { AgentApiError, requestPrefill } from "../client";
 import { watchInputEffects } from "../input-settle";
 
+import { runChoices, type ChoiceGate } from "./choices";
 import { fillOne, type FillOutcome } from "./fill";
 import { listFrames, scanFrames, serializeFrame } from "./frames";
 import { withoutSecrets } from "./redact";
@@ -25,6 +26,7 @@ import type { PrefillGate } from "./fields";
 import type {
   AgentPrefillLine,
   AgentPrefillPlan,
+  AgentPickResult,
   AgentPrefillReport,
 } from "@acorn/shared/agent-contract";
 
@@ -34,12 +36,16 @@ export interface PrefillOutcome {
   plan: AgentPrefillPlan;
   /** Fields the plan named that already held a value, or a choice. */
   skipped: number;
+  /** What the choice pass cost, when it ran (the server's cumulative use, and its trace). */
+  choices?: AgentPickResult;
 }
 
 export interface PrefillArgs {
   agentUrl: string;
   sessionId: string;
   gate: PrefillGate;
+  /** The choices already asked about. */
+  choiceGate: ChoiceGate;
   tabId: number;
   /** The run's executor, with points in the tab's own CSS pixels. */
   executor: ExecutorContext;
@@ -53,6 +59,8 @@ export interface PrefillArgs {
   onDecision?: (decision: "skip" | "wait" | "busy" | "run", fresh: number) => void;
   /** Called when the pass is about to type, so the overlay can say so. */
   onFilling?: () => void;
+  /** Called after each choice (a list, a group of options) with what came of it. */
+  onChoice?: (status: "filled" | "failed", ms: number, label: string, error?: string) => void;
   /** Called after each fill with how many are done of how many, what came of it and how long it took. */
   onFill?: (
     done: number,
@@ -83,14 +91,12 @@ function pageText(tree: Parameters<typeof formatAnalyzeTrees>[0]): string {
   return text.slice(0, text.lastIndexOf("\n", PREFILL_TREE_MAX_CHARS));
 }
 
-/** Runs the pass for the page as it is now; null when there was nothing worth asking. */
-export async function runPrefill(args: PrefillArgs): Promise<PrefillOutcome | null> {
-  const frames = await listFrames(args.tabId);
-  const decision = args.gate.assess(await scanFrames(args.tabId, frames));
-  if (decision.kind !== "run") {
-    args.onDecision?.(decision.kind, decision.fresh);
-    return null;
-  }
+/** The text half of the pass: the plain fields, answered in text and typed. "busy" when the model's plan is typing. */
+async function runTextPass(
+  args: PrefillArgs,
+  frames: Awaited<ReturnType<typeof listFrames>>,
+  decision: Extract<ReturnType<PrefillGate["assess"]>, { kind: "run" }>,
+): Promise<PrefillOutcome | "busy" | null> {
   const { frameId, fresh } = decision;
   // Serialized again, now that a pass is to be made: the numbers in this tree are the ones the fills use.
   const page = await serializeFrame(args.tabId, frameId);
@@ -108,7 +114,7 @@ export async function runPrefill(args: PrefillArgs): Promise<PrefillOutcome | nu
     // The model is still carrying out its own plan on these fields: they are asked about later.
     if (err instanceof AgentApiError && err.code === AGENT_ERROR_CODE.prefillBusy) {
       args.onDecision?.("busy", fresh.length);
-      return null;
+      return "busy";
     }
     // Any other failure is not retried for the same fields, or a broken pass would repeat every look.
     args.gate.attempt(fresh);
@@ -160,4 +166,49 @@ export async function runPrefill(args: PrefillArgs): Promise<PrefillOutcome | nu
   }
   await effects?.settle(args.sleep);
   return { report: { filled, failed }, plan, skipped };
+}
+
+/**
+ * Runs the quick pass for the page as it is now: the plain fields in text, then the choices among options
+ * (lists the page draws, radio buttons, yes/no buttons, checkboxes). Null when there was nothing worth doing.
+ */
+export async function runPrefill(args: PrefillArgs): Promise<PrefillOutcome | null> {
+  const frames = await listFrames(args.tabId);
+  const decision = args.gate.assess(await scanFrames(args.tabId, frames));
+  let text: PrefillOutcome | null = null;
+  if (decision.kind === "run") {
+    const outcome = await runTextPass(args, frames, decision);
+    if (outcome === "busy") return null;
+    text = outcome;
+  } else {
+    args.onDecision?.(decision.kind, decision.fresh);
+    // A page that can fill itself from a résumé is left alone first, as for the plain fields.
+    if (decision.kind === "wait") return null;
+  }
+  const tab = await chrome.tabs.get(args.tabId).catch(() => null);
+  const choices = await runChoices({
+    agentUrl: args.agentUrl,
+    sessionId: args.sessionId,
+    gate: args.choiceGate,
+    tabId: args.tabId,
+    executor: args.executor,
+    signal: args.signal,
+    sleep: args.sleep,
+    checkStopped: args.checkStopped,
+    url: tab?.url ?? "",
+    title: tab?.title ?? "",
+    onFilling: args.onFilling,
+    onChoice: args.onChoice,
+  });
+  if (!choices) return text;
+  const report: AgentPrefillReport = {
+    filled: [...(text?.report.filled ?? []), ...choices.filled],
+    failed: [...(text?.report.failed ?? []), ...choices.failed],
+  };
+  return {
+    report,
+    plan: text?.plan ?? { fills: null, usage: choices.result.usage },
+    skipped: text?.skipped ?? 0,
+    choices: choices.result,
+  };
 }

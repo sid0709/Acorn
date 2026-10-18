@@ -24,6 +24,14 @@ export const PREFILL_MESSAGE = {
   locate: "acorn:prefill-locate",
   /** What an element holds now. */
   read: "acorn:prefill-read",
+  /** The questions of this frame's page that are a choice among options, with their options when they show them. */
+  choices: "acorn:prefill-choices",
+  /** Where a choice, or one of its options, is, in this frame's own viewport. */
+  choiceLocate: "acorn:prefill-choice-locate",
+  /** The options a list shows now that it is open, and which is chosen. */
+  choiceOptions: "acorn:prefill-choice-options",
+  /** Which options of a choice are chosen now, and what its list button shows. */
+  choiceState: "acorn:prefill-choice-state",
   /** Listen for a child frame's probe (below). */
   armProbe: "acorn:prefill-arm-probe",
   /** A child frame announces itself to its parent. */
@@ -84,6 +92,26 @@ export type Located = { ok: true; x: number; y: number } | { ok: false; error: s
 export type ReadBack =
   { ok: true; value: string; checked: boolean; selected: string } | { ok: false; error: string };
 
+/** What a choice is drawn as: a list the page draws, a group that takes one, a group of boxes that take several. */
+export type ChoiceKind = "dropdown" | "group" | "boxes";
+
+export interface ChoiceWidget {
+  id: number;
+  kind: ChoiceKind;
+  question: string;
+  /** A group's options; a list shows its own only once it is open. */
+  options: string[];
+  /** A member is already chosen. */
+  answered: boolean;
+}
+
+export type ChoiceScan = { ok: true; widgets: ChoiceWidget[] } | { ok: false; error: string };
+export type ChoiceLocated = { ok: true; x: number; y: number } | { ok: false; error: string };
+export type ChoiceOptions =
+  { ok: true; options: string[]; selected: number } | { ok: false; error: string };
+export type ChoiceState =
+  { ok: true; chosen: number[]; text: string } | { ok: false; error: string };
+
 export type ProbeRead = { ok: true; found: boolean; x: number; y: number } | { ok: false };
 
 export type PrefillRequestMessage =
@@ -95,6 +123,10 @@ export type PrefillRequestMessage =
   | { type: typeof PREFILL_MESSAGE.reveal; nodeId: number }
   | { type: typeof PREFILL_MESSAGE.locate; nodeId: number }
   | { type: typeof PREFILL_MESSAGE.read; nodeId: number }
+  | { type: typeof PREFILL_MESSAGE.choices }
+  | { type: typeof PREFILL_MESSAGE.choiceLocate; id: number; option?: number }
+  | { type: typeof PREFILL_MESSAGE.choiceOptions; id: number }
+  | { type: typeof PREFILL_MESSAGE.choiceState; id: number }
   | { type: typeof PREFILL_MESSAGE.armProbe; token: string }
   | { type: typeof PREFILL_MESSAGE.sendProbe; token: string }
   | { type: typeof PREFILL_MESSAGE.readProbe; token: string };

@@ -12,6 +12,8 @@ import {
   type AgentErrorBody,
   type AgentAdvanceRequest,
   type AgentAdvanceResult,
+  type AgentPickRequest,
+  type AgentPickResult,
   type AgentObservation,
   type AgentPrefillPlan,
   type AgentPrefillRequest,
@@ -224,6 +226,22 @@ export async function requestAdvance(
     timeoutMs: QUICK_TIMEOUT_MS,
   });
   return (await response.json()) as AgentAdvanceResult;
+}
+
+/** Asks which option answers each choice of the page (a list, a radio group, yes/no buttons, checkboxes). */
+export async function requestPick(
+  base: string,
+  sessionId: string,
+  request: AgentPickRequest,
+  signal: AbortSignal,
+): Promise<AgentPickResult> {
+  const response = await call(base, AGENT_ROUTES.pick(sessionId), {
+    method: "POST",
+    body: request,
+    signal,
+    timeoutMs: QUICK_TIMEOUT_MS,
+  });
+  return (await response.json()) as AgentPickResult;
 }
 
 /** Asks whether a control about to be clicked, or a window a click opened, is an online file source. */

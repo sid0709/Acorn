@@ -69,6 +69,9 @@ const (
 	envMaxPrefills    = "ACORN_AGENT_MAX_PREFILLS"
 	envMaxReviews     = "ACORN_AGENT_MAX_REVIEWS"
 	envMaxAdvances    = "ACORN_AGENT_MAX_ADVANCES"
+	envMaxPicks       = "ACORN_AGENT_MAX_PICKS"
+	envPickMatch      = "ACORN_AGENT_PICK_PERCENT"
+	envPickMargin     = "ACORN_AGENT_PICK_MARGIN_PERCENT"
 	envHumanStop      = "ACORN_AGENT_HUMAN_STOP_PERCENT"
 	envReviewProblem  = "ACORN_AGENT_REVIEW_PROBLEM_PERCENT"
 	envAdvanceMatch   = "ACORN_AGENT_ADVANCE_PERCENT"
@@ -148,6 +151,9 @@ func run() error {
 	cfg.MaxPrefills = config.EnvInt(envMaxPrefills, cfg.MaxPrefills)
 	cfg.MaxReviews = config.EnvInt(envMaxReviews, cfg.MaxReviews)
 	cfg.MaxAdvances = config.EnvInt(envMaxAdvances, cfg.MaxAdvances)
+	cfg.MaxPicks = config.EnvInt(envMaxPicks, cfg.MaxPicks)
+	cfg.PickMatch = percent(envPickMatch, cfg.PickMatch)
+	cfg.PickMargin = percent(envPickMargin, cfg.PickMargin)
 	cfg.HumanStop = percent(envHumanStop, cfg.HumanStop)
 	cfg.ReviewErrors = percent(envReviewProblem, cfg.ReviewErrors)
 	cfg.AdvanceMatch = percent(envAdvanceMatch, cfg.AdvanceMatch)

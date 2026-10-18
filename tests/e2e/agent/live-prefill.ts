@@ -16,7 +16,7 @@ import { MSG } from "../../../acorn/extension/src/types";
 import { startSimpleSite } from "./simple-site";
 
 // `local` runs the small three-page site that this harness starts itself; it may be submitted.
-const LOCAL = ["local", "local-gated", "local-honeypot", "local-dates"].includes(
+const LOCAL = ["local", "local-gated", "local-honeypot", "local-dates", "local-choices"].includes(
   process.argv[2] ?? "",
 );
 const simple = LOCAL ? startSimpleSite() : null;
@@ -25,6 +25,7 @@ const LOCAL_URLS: Record<string, string | undefined> = {
   "local-gated": simple?.gatedUrl,
   "local-honeypot": simple?.honeypotUrl,
   "local-dates": simple?.datesUrl,
+  "local-choices": simple?.choicesUrl,
 };
 const URL_TO_TEST = LOCAL_URLS[process.argv[2] ?? ""] ?? process.argv[2];
 if (!URL_TO_TEST)
@@ -134,8 +135,7 @@ try {
   const workerHandle = await worker.worker();
   workerHandle?.on("console", (message) => {
     const text = message.text();
-    if (!text.includes("[acorn:run]") || !/agent-(dom|click|prefill:error|prefill:fill)/.test(text))
-      return;
+    if (!text.includes("[acorn:run]") || !/agent-(dom|click|prefill)/.test(text)) return;
     void Promise.all(message.args().map((arg) => arg.jsonValue().catch(() => "?"))).then((parts) =>
       console.log(
         `EVT ${parts

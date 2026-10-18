@@ -75,6 +75,7 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("POST "+BasePath+"/sessions/{id}/prefill", s.prefill)
 	mux.HandleFunc("POST "+BasePath+"/sessions/{id}/review", s.review)
 	mux.HandleFunc("POST "+BasePath+"/sessions/{id}/advance", s.advance)
+	mux.HandleFunc("POST "+BasePath+"/sessions/{id}/pick", s.pick)
 	mux.HandleFunc("POST "+BasePath+"/sessions/{id}/continue", s.continueRun)
 	mux.HandleFunc("GET "+BasePath+"/sessions/{id}/memory", s.memory)
 	mux.HandleFunc("POST "+BasePath+"/sessions/{id}/vet", s.vet)
@@ -172,6 +173,21 @@ func (s *Server) advance(w http.ResponseWriter, r *http.Request) {
 	ctx, cancel := context.WithTimeout(r.Context(), vetTimeout)
 	defer cancel()
 	result, err := s.agent.Advance(ctx, r.PathValue("id"), req)
+	if err != nil {
+		writeError(w, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, result)
+}
+
+func (s *Server) pick(w http.ResponseWriter, r *http.Request) {
+	var req agent.PickRequest
+	if !decode(w, r, &req) {
+		return
+	}
+	ctx, cancel := context.WithTimeout(r.Context(), vetTimeout)
+	defer cancel()
+	result, err := s.agent.Pick(ctx, r.PathValue("id"), req)
 	if err != nil {
 		writeError(w, err)
 		return
@@ -298,7 +314,7 @@ func writeError(w http.ResponseWriter, err error) {
 	case errors.Is(err, agent.ErrPrefillBusy):
 		status, code = http.StatusConflict, "prefill_busy"
 	case errors.Is(err, agent.ErrPrefillOff), errors.Is(err, agent.ErrPrefillLimit),
-		errors.Is(err, agent.ErrReviewLimit), errors.Is(err, agent.ErrAdvanceLimit):
+		errors.Is(err, agent.ErrReviewLimit), errors.Is(err, agent.ErrAdvanceLimit), errors.Is(err, agent.ErrPickLimit):
 		status, code = http.StatusConflict, "prefill_unavailable"
 	case errors.Is(err, applicant.ErrSignedOut):
 		status, code = http.StatusUnauthorized, "signed_out"

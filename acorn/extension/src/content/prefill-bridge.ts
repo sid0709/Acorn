@@ -25,6 +25,8 @@ import {
 import { scanTree } from "../agent/prefill/scan";
 import { PREFILL_LABEL_MAX_CHARS, PREFILL_PROBE_MAX } from "../agent/prefill/settings";
 
+import { createChoices } from "./prefill-choices";
+
 const STAMP = "data-acorn-id";
 
 /** The text around an element that asks its question (Oak's `nearbyQuestionText`, plan-step-runner.ts). */
@@ -517,8 +519,24 @@ function serialize(): SerializedFrame {
   }
 }
 
+const choices = createChoices({
+  clean,
+  shown,
+  everyElement: () => everyElement(),
+  optionLabel,
+  locate,
+});
+
 function answer(message: PrefillRequestMessage): unknown {
   switch (message.type) {
+    case PREFILL_MESSAGE.choices:
+      return choices.scan();
+    case PREFILL_MESSAGE.choiceLocate:
+      return choices.locate(message.id, message.option);
+    case PREFILL_MESSAGE.choiceOptions:
+      return choices.options(message.id);
+    case PREFILL_MESSAGE.choiceState:
+      return choices.state(message.id);
     case PREFILL_MESSAGE.scan:
       return scan();
     case PREFILL_MESSAGE.review:

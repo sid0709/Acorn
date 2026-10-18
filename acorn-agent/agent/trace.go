@@ -52,6 +52,8 @@ const (
 	sourceAdvance = "advance"
 	// sourceStopCheck marks an entry where the decision model read the screen to confirm a stop for the applicant.
 	sourceStopCheck = "stopcheck"
+	// sourcePick marks an entry where the decision model chose among the options of the page's fields.
+	sourcePick = "pick"
 )
 
 // sourceAsk marks an entry where the run waited on the person's answer, or acted on it.
@@ -69,7 +71,9 @@ type stepTrace struct {
 	SurveyScreens int            `json:"surveyScreens,omitempty"`
 	Check         *checkTrace    `json:"check,omitempty"`
 	// Advance is what the decision model was asked about the controls of a clean page, and what it said.
-	Advance     *advanceTrace  `json:"advance,omitempty"`
+	Advance *advanceTrace `json:"advance,omitempty"`
+	// Picks is each choice the decision model was asked and what it said.
+	Picks       []string       `json:"picks,omitempty"`
 	At          time.Time      `json:"at"`
 	URL         string         `json:"url"`
 	Title       string         `json:"title"`

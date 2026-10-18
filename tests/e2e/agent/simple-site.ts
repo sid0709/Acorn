@@ -72,6 +72,34 @@ button{margin:20px 8px 0 0;padding:10px 18px;font:inherit}fieldset{margin:14px 0
 box.addEventListener('click',()=>inp.focus());inp.addEventListener('input',()=>{shown.textContent=inp.value||(b==='m'?'MM':'YYYY')})}</script>`,
         );
       }
+      // Choices that are not native: a list the page draws (a button that opens a listbox), yes/no buttons,
+      // a group of radio buttons and a group of checkboxes.
+      if (url.pathname === "/choices") {
+        return page(
+          "Application questions",
+          `<style>ul[role=listbox]{list-style:none;margin:4px 0;padding:0;border:1px solid #888;width:260px}ul[role=listbox][hidden]{display:none}
+li[role=option]{padding:8px;cursor:pointer}li[aria-selected=true]{background:#cde}
+[role=radio]{padding:8px 16px;margin-right:8px}[role=radio][aria-checked=true]{background:#cde}</style>
+<h1>Application questions</h1>
+<div id="q-degree">What is your highest level of education? *</div>
+<button type="button" id="dd" aria-haspopup="listbox" aria-expanded="false" aria-labelledby="q-degree">Select One</button>
+<ul role="listbox" id="lb" hidden><li role="option">High school</li><li role="option">Bachelor's degree</li><li role="option">Master's degree</li><li role="option">Doctorate</li></ul>
+<div id="q-auth">Are you legally authorized to work in the United States? *</div>
+<div role="radiogroup" aria-labelledby="q-auth"><button type="button" role="radio" aria-checked="false">Yes</button><button type="button" role="radio" aria-checked="false">No</button></div>
+<fieldset><legend>How did you hear about us? *</legend>
+<label><input type="radio" name="src" value="board"> Job board</label>
+<label><input type="radio" name="src" value="friend"> Referral</label>
+<label><input type="radio" name="src" value="other"> Other</label></fieldset>
+<fieldset><legend>Languages you speak (check all that apply)</legend>
+<label><input type="checkbox" name="l1"> English</label><label><input type="checkbox" name="l2"> French</label><label><input type="checkbox" name="l3"> Spanish</label></fieldset>
+<form onsubmit="event.preventDefault();location.href='/done'"><button type="submit">Save and Continue</button></form>
+<script>const dd=document.getElementById('dd'),lb=document.getElementById('lb');
+dd.addEventListener('click',()=>{const open=lb.hidden;lb.hidden=!open;dd.setAttribute('aria-expanded',String(open))});
+document.addEventListener('keydown',e=>{if(e.key==='Escape'){lb.hidden=true;dd.setAttribute('aria-expanded','false')}});
+lb.addEventListener('click',e=>{const li=e.target.closest('li');if(!li)return;lb.querySelectorAll('li').forEach(x=>x.removeAttribute('aria-selected'));li.setAttribute('aria-selected','true');dd.textContent=li.textContent;lb.hidden=true;dd.setAttribute('aria-expanded','false')});
+document.querySelectorAll('[role=radio]').forEach(b=>b.addEventListener('click',()=>{b.parentElement.querySelectorAll('[role=radio]').forEach(x=>x.setAttribute('aria-checked','false'));b.setAttribute('aria-checked','true')}))</script>`,
+        );
+      }
       if (url.pathname === "/step2") {
         return page(
           "Apply: questions",
@@ -103,6 +131,7 @@ box.addEventListener('click',()=>inp.focus());inp.addEventListener('input',()=>{
     server,
     url: `http://127.0.0.1:${server.port}/`,
     gatedUrl: `http://127.0.0.1:${server.port}/gated`,
+    choicesUrl: `http://127.0.0.1:${server.port}/choices`,
     datesUrl: `http://127.0.0.1:${server.port}/dates`,
     honeypotUrl: `http://127.0.0.1:${server.port}/honeypot`,
   };

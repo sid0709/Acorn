@@ -58,6 +58,7 @@ import {
 } from "./mail-verification";
 import { readFocus, readPageText } from "./page-info";
 import { forLog, stateOf } from "./point-info";
+import { ChoiceGate } from "./prefill/choices";
 import { DomFirst, type DomFirstOutcome } from "./prefill/dom-first";
 import { PrefillGate } from "./prefill/fields";
 import { runPrefill } from "./prefill/run";
@@ -257,6 +258,7 @@ export async function runAgent(args: AgentRunArgs): Promise<RunReport> {
   const files = new Map<string, Promise<ResumeFile>>();
   /** Which fields the quick text pass has been asked about, so each is asked once. */
   const prefillGate = new PrefillGate();
+  const choiceGate = new ChoiceGate();
   /** The last decision logged about the pass, so a look that decides the same is not logged again. */
   let lastPrefillDecision = "";
   /** What the pass did since the model last looked; it goes with the next look and is then cleared. */
@@ -357,6 +359,7 @@ export async function runAgent(args: AgentRunArgs): Promise<RunReport> {
         agentUrl: args.agentUrl,
         sessionId: must(sessionId),
         gate: prefillGate,
+        choiceGate,
         tabId: here.tabId,
         executor: passExecutor,
         signal,
@@ -372,6 +375,16 @@ export async function runAgent(args: AgentRunArgs): Promise<RunReport> {
           domWorking = true;
           domPassStartedAt = passStartedAt;
           void here.overlay.setLabel(PREFILL_OVERLAY_LABEL);
+        },
+        onChoice: (status, ms, label, error) => {
+          log.event("agent-prefill:choice", {
+            status,
+            ms,
+            label,
+            ...(error ? { error: error.replace(/"[^"]*"/g, '"…"') } : {}),
+          });
+          domStats.filled += status === "filled" ? 1 : 0;
+          domStats.failed += status === "failed" ? 1 : 0;
         },
         onFill: (done, total, status, ms, label, error) => {
           // Why a field did not take is logged, with what the page showed taken out: the log holds no answers.
@@ -389,20 +402,23 @@ export async function runAgent(args: AgentRunArgs): Promise<RunReport> {
         },
       });
       if (!outcome) return false;
-      lastUsage = outcome.plan.usage;
+      // The server's use is cumulative: the choice pass, when it ran, is the later reading.
+      const usage = outcome.choices?.usage ?? outcome.plan.usage;
+      lastUsage = usage;
       domStats.passes += 1;
-      domStats.calls += outcome.plan.usage.calls - callsBefore;
-      domStats.costUsd += outcome.plan.usage.cost - costBefore;
+      domStats.calls += usage.calls - callsBefore;
+      domStats.costUsd += usage.cost - costBefore;
       domStats.ms += Date.now() - passStartedAt;
       recordAgentTrace(log, outcome.plan.trace);
+      recordAgentTrace(log, outcome.choices?.trace);
       prefillReport = outcome.report;
       log.event("agent-prefill", {
         filled: outcome.report.filled?.length ?? 0,
         failed: outcome.report.failed?.length ?? 0,
         skipped: outcome.skipped,
         dropped: outcome.plan.dropped?.length ?? 0,
-        calls: outcome.plan.usage.calls,
-        costUsd: outcome.plan.usage.cost,
+        calls: usage.calls,
+        costUsd: usage.cost,
       });
       void here.overlay.setLabel(OVERLAY_LABEL);
       return (outcome.report.filled?.length ?? 0) > 0;

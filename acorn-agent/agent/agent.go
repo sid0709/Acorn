@@ -69,6 +69,10 @@ type Config struct {
 	MaxPrefills int
 	// MaxReviews and MaxAdvances are the most reviews and advances one run may make (review.go, advance.go).
 	MaxReviews, MaxAdvances int
+	// MaxPicks is the most choice passes one run may make (pick.go); PickMatch is how sure the decision model must
+	// be of an option for it to be clicked, and PickMargin how far it must lead the next option.
+	MaxPicks              int
+	PickMatch, PickMargin float64
 	// ReviewErrors is how sure the decision model must be, of an error showing, a question unanswered,
 	// a box unticked, or the continue control greyed out, for a page to need fixing.
 	ReviewErrors float64
@@ -151,6 +155,9 @@ func DefaultConfig() Config {
 		MaxPrefills:        20,
 		MaxReviews:         80,
 		MaxAdvances:        40,
+		MaxPicks:           40,
+		PickMatch:          0.6,
+		PickMargin:         0.15,
 		ReviewErrors:       0.3,
 		HumanStop:          0.85,
 		AdvanceMatch:       0.8,

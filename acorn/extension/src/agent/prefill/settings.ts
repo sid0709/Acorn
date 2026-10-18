@@ -33,6 +33,8 @@ export const PREFILL_PROBE_READS = 5;
 export const PREFILL_PROBE_MAX = 64;
 /** The wait after typing into a field, so the page's own handlers settle before it is read back. */
 export const PREFILL_SETTLE_MS = 80;
+/** How long a list the page draws is given to open before its options are read. */
+export const PREFILL_LIST_OPEN_MS = 450;
 /** How long a pass waits for the server's answer; the server stops its own calls a little later. */
 export const PREFILL_TIMEOUT_MS = 90_000;
 /** The longest one field may take (find it, click it, type, read it back) before the pass goes on without it. */
