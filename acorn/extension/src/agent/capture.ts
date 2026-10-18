@@ -124,6 +124,19 @@ async function shoot(cdp: Cdp): Promise<Shot> {
  * Takes the screenshot. A tab in the background may not draw frames, so a shot that does
  * not come is asked for again with the tab brought forward.
  */
+/** Whether the tab is not shown (a background tab draws no frames, so its screenshots and cursor wait). */
+export async function isTabHidden(cdp: Cdp): Promise<boolean> {
+  try {
+    const answer = await cdp.send<{ result?: { value?: unknown } }>("Runtime.evaluate", {
+      expression: `document.visibilityState === "hidden"`,
+      returnByValue: true,
+    });
+    return answer.result?.value === true;
+  } catch {
+    return false;
+  }
+}
+
 export async function captureShot(cdp: Cdp): Promise<Shot> {
   try {
     return await within(shoot(cdp), SHOT_TIMEOUT_MS, "the screenshot");

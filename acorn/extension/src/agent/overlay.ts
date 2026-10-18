@@ -54,6 +54,13 @@ export const CURSOR_TIP_PX = {
   ),
 };
 
+/**
+ * Names the overlay a page holds: the build, and where its cursor's tip is. A page that already has an
+ * overlay of another build (the extension was updated while the page stayed open, or a run left one
+ * behind) has it taken off and the current one put on, instead of keeping the old cursor.
+ */
+const OVERLAY_VERSION = `${import.meta.env?.VITE_ACORN_VERSION ?? "dev"}:${CURSOR_TIP_PX.x},${CURSOR_TIP_PX.y}`;
+
 const OVERLAY_CSS = `
   :host { all: initial; }
   .root { position: fixed; inset: 0; z-index: ${OVERLAY_Z_INDEX}; pointer-events: none; font: 13px/1.3 system-ui, sans-serif; opacity: 1; transition: opacity ${CAPTURE_FADE_IN_MS}ms ease-out; }
@@ -189,8 +196,10 @@ export const OVERLAY_SCRIPT = `(() => {
   const ARRIVE_PX = ${CURSOR_ARRIVE_PX};
   const ARRIVE_MAX_MS = ${CURSOR_ARRIVE_MAX_MS};
   const PRESS_MS = ${CLICK_PRESS_MS};
+  const VERSION = ${JSON.stringify(OVERLAY_VERSION)};
   const existing = window[NAME];
-  if (existing) { existing.attach(); return true; }
+  if (existing && existing.version === VERSION) { existing.attach(); return true; }
+  if (existing) { try { existing.remove(); } catch (e) { /* an overlay of another build that cannot be removed is replaced */ } }
   const host = document.createElement("div");
   host.setAttribute("data-acorn-agent-overlay", "");
   const shadow = host.attachShadow({ mode: "closed" });
@@ -452,6 +461,7 @@ export const OVERLAY_SCRIPT = `(() => {
   }
 
   const controller = {
+    version: VERSION,
     attach() {
       const parent = document.documentElement;
       if (parent && !host.isConnected) parent.appendChild(host);
@@ -471,6 +481,13 @@ export const OVERLAY_SCRIPT = `(() => {
       cursor.classList.remove("hovering");
       mouse.x = x;
       mouse.y = y;
+      // A tab that is not shown draws no frames, so the cursor would never glide: it is placed and
+      // the move is done, not waited for (up to ARRIVE_MAX_MS for every point of every plan).
+      if (document.visibilityState === "hidden") {
+        virtual.x = x;
+        virtual.y = y;
+        return Promise.resolve();
+      }
       return new Promise((done) => {
         arrivals.push({ done, until: Date.now() + ARRIVE_MAX_MS });
         setTimeout(() => settle(false), ARRIVE_MAX_MS);

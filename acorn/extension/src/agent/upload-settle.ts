@@ -18,12 +18,13 @@ export const UPLOAD_PROCESS_MAX_MS = 45_000;
 /** Request types that usually carry résumé parsing or autofill after an upload. */
 const UPLOAD_NETWORK_TYPES = new Set(["XHR", "Fetch"]);
 
-type NetworkTracker = {
+export type NetworkTracker = {
   pending: Set<string>;
   stop: () => void;
 };
 
-function trackUploadNetwork(cdp: Cdp): NetworkTracker {
+/** Follows the page's XHR and fetch requests: which are in flight now. */
+export function trackUploadNetwork(cdp: Cdp): NetworkTracker {
   const pending = new Set<string>();
   const stop = cdp.onEvent((method, params) => {
     if (method === "Network.requestWillBeSent") {

@@ -125,11 +125,17 @@ func TestADropdownNoOptionAnswersIsLeftOpenWholeForTheModel(t *testing.T) {
 	step = stepOK(t, a, id, obs) // nothing matched the open list: the answer is typed
 	obs = observation(shot(t, 120))
 	obs.Results = resultsOf(step)
+	step = stepOK(t, a, id, obs) // still nothing: a list loaded from a server gets one more beat
+	if len(step.Actions) != 1 || step.Actions[0].Kind != KindWait {
+		t.Fatalf("the list should be waited for once, got %v", sent(step.Actions))
+	}
+	obs = observation(shot(t, 160))
+	obs.Results = resultsOf(step)
 	step = stepOK(t, a, id, obs) // still nothing: the typing is taken back out
 	if len(step.Actions) != 1 || !strings.HasPrefix(step.Actions[0].Keys, "Backspace") || len(strings.Fields(step.Actions[0].Keys)) != len("Heterosexual") {
 		t.Fatalf("the typed answer should be cleared, got %v", sent(step.Actions))
 	}
-	obs = observation(shot(t, 160))
+	obs = observation(shot(t, 200))
 	obs.Results = resultsOf(step)
 	step = stepOK(t, a, id, obs) // the list is whole again and still nothing answers: the model looks
 	if model.count() != 2 || len(step.Actions) != 1 || step.Actions[0].Kind != KindClick {
@@ -340,4 +346,30 @@ func TestANativeListWithNoMatchingOptionIsLeftToTheModelAndNeverClickedAgain(t *
 	if model.count() != 2 || len(step.Actions) != 1 || step.Actions[0].X == nil || *step.Actions[0].X != 60 {
 		t.Fatalf("the model must look next, not another click at the same control: %+v", step)
 	}
+}
+
+func TestAListThatLoadsFromAServerIsGivenABeatBeforeTheTypingIsTakenBack(t *testing.T) {
+	model := &scriptedModel{replies: []string{plan("answering", nil, chooseAction(500, 300, "93705", "it shows the answer"))}}
+	// The list is not there when first looked at after the typing; one beat later it is, and the option is the 1st.
+	screen := &fakeScreen{options: []optionVerdict{{0, 0}, {0, 0}, {1, 0.95}}}
+	a := newAgentWithScreen(t, model, &fixedDecider{}, screen, DefaultConfig())
+	id := start(t, a)
+	step := stepOK(t, a, id, observation(shot(t, 40)))
+	step = stepOK(t, a, id, withResults(observation(shot(t, 80)), step)) // open: no sure option, so type
+	if got := strings.Join(sent(step.Actions), " "); got != "type:93705" {
+		t.Fatalf("typed %s", got)
+	}
+	step = stepOK(t, a, id, withResults(observation(shot(t, 120)), step)) // nothing yet
+	if len(step.Actions) != 1 || step.Actions[0].Kind != KindWait {
+		t.Fatalf("it should wait: %v", sent(step.Actions))
+	}
+	step = stepOK(t, a, id, withResults(observation(shot(t, 160)), step)) // the list has arrived
+	if got := strings.Join(sent(step.Actions), " "); got != "key:Home Enter" {
+		t.Fatalf("the option should be picked once it arrived, got %s", got)
+	}
+}
+
+func withResults(obs Observation, step Step) Observation {
+	obs.Results = resultsOf(step)
+	return obs
 }

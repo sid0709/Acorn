@@ -53,6 +53,10 @@ const (
 	choosePrefix = "ch"
 )
 
+// optionLoadWaitMs is the extra beat a narrowed list is given when it shows nothing, in case its
+// options are still being fetched.
+const optionLoadWaitMs = 800
+
 // nudgeOffsets are how far, in screenshot pixels, the next try at opening a dropdown clicks below
 // (positive) or above (negative) the point the model gave, when the click opened nothing. A
 // model's point can land on a control's label, or on the gap between label and box, and a person
@@ -84,6 +88,9 @@ type openList struct {
 	// that they were taken back out, so the next look is at the whole list.
 	typed   int
 	cleared bool
+	// waited is that the narrowed list was given one more beat to arrive (a list that loads from a
+	// server can be empty when first looked at) before the typing was taken back out.
+	waited bool
 	// nudges is how many more clicks were made because the list did not open.
 	nudges int
 }
@@ -280,6 +287,12 @@ func (a *Agent) continueScript(ctx context.Context, s *session, obs Observation,
 	case err != nil || open.cleared:
 		// Nothing answers even in the whole list (or the checker failed): the model looks, with the list open.
 		return a.giveUp(s, obs, entry, open, []modelCall{check.call(err)})
+	case open.typed > 0 && !open.waited:
+		// A list that loads from a server as one types may not be there yet: wait a beat and look again
+		// before deciding that the words found nothing.
+		open.waited = true
+		pause := Action{ID: sc.nextID(s.seq), Kind: KindWait, Ms: optionLoadWaitMs}
+		step = Step{Status: StatusWorking, Message: s.message, Actions: []Action{pause}, Number: s.step, Usage: s.usage}
 	case open.typed > 0:
 		// The typed words found no option: take them back out and look at the whole list.
 		open.cleared = true
@@ -312,7 +325,7 @@ func (a *Agent) continueScript(ctx context.Context, s *session, obs Observation,
 // and picks for itself, with a note saying which answer it was.
 func (a *Agent) giveUp(s *session, obs Observation, entry stepTrace, open *openList, calls []modelCall) (Step, bool) {
 	s.script = nil
-	s.notes = append(s.notes, fmt.Sprintf("You asked Acorn to choose %q in the dropdown at %.0f,%.0f, but no option of its list was a sure match, so nothing was chosen. Its list is open on this screen: pick the option yourself, then plan the rest of the screen again.", open.choose.Text, *open.choose.X, *open.choose.Y))
+	s.notes = append(s.notes, fmt.Sprintf("You asked Acorn to choose %q in the dropdown at %.0f,%.0f, but no option of its list was a sure match, so nothing was chosen. Its list is open on this screen: click the option you can see on the screenshot, then plan the rest of the screen again.", open.choose.Text, *open.choose.X, *open.choose.Y))
 	a.abandon(s, "The rest of your plan did not run.")
 	entry.Status, entry.Message, entry.Usage = StatusWorking, s.message, s.usage
 	a.record(s, entry, obs.Screenshot, calls)

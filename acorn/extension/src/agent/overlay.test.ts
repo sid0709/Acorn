@@ -21,3 +21,17 @@ describe("the overlay's cursor", () => {
     assert.match(OVERLAY_SCRIPT, /50 14 Z"/);
   });
 });
+
+describe("the overlay in a tab that is not shown", () => {
+  it("does not wait for a cursor that cannot glide, since a hidden tab draws no frames", () => {
+    assert.match(OVERLAY_SCRIPT, /document\.visibilityState === "hidden"/);
+  });
+});
+
+describe("an overlay left on a page by another build", () => {
+  it("is taken off and replaced, so an updated extension never keeps drawing the old cursor", () => {
+    assert.match(OVERLAY_SCRIPT, /existing\.version === VERSION/);
+    assert.match(OVERLAY_SCRIPT, /existing\.remove\(\)/);
+    assert.match(OVERLAY_SCRIPT, /version: VERSION/);
+  });
+});

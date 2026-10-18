@@ -16,6 +16,7 @@ import {
 import { NO_FOCUS_MESSAGE, nothingHasFocus, scrollsAPage } from "./focus-guard";
 import { BLOCKED_MESSAGE, type GuardVerdict } from "./guard";
 import { clickAt, moveMouse, pressKeys, typeText, wheelAt } from "./input";
+import { watchInputEffects } from "./input-settle";
 import { scrollForAction } from "./survey";
 import { uploadAt, type ResumeFile } from "./upload";
 import { waitForUploadProcessing } from "./upload-settle";
@@ -193,6 +194,9 @@ export async function runActions(
 ): Promise<AgentActionResult[]> {
   const results: AgentActionResult[] = [];
   let failed = false;
+  // A step that types is looked at only once the page has answered what the typing asked of it.
+  const typing = actions.some((action) => action.kind === "type" || action.kind === "key");
+  const effects = typing ? await watchInputEffects(ctx.cdp) : null;
   for (const action of actions) {
     if (failed) {
       results.push({
@@ -221,5 +225,6 @@ export async function runActions(
       });
     }
   }
+  await effects?.settle(ctx.sleep);
   return results;
 }

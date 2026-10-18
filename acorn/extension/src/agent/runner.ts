@@ -27,7 +27,7 @@ import {
 
 import { RunLog, logUrl } from "../pipeline/run-log";
 
-import { captureShot, type Shot } from "./capture";
+import { captureShot, isTabHidden, type Shot } from "./capture";
 import {
   AgentApiError,
   continueSession,
@@ -198,6 +198,8 @@ export async function runAgent(args: AgentRunArgs): Promise<RunReport> {
   let tabClosed = false;
   let lastUsage: AgentUsage | null = null;
   let stepNumber = 0;
+  /** How long the last step's actions took to run, for the log. */
+  let lastActionsMs = 0;
   /**
    * When the last actions that change a page began (a click, typing, a key, an upload): a site
    * sends its code or link in answer to one of these, so only mail from after it can be the site's.
@@ -537,6 +539,7 @@ export async function runAgent(args: AgentRunArgs): Promise<RunReport> {
         await here.overlay.hideForCapture(false);
       }
       const captureMs = Date.now() - captureStartedAt;
+      const tabHidden = await isTabHidden(here.cdp);
       checkStopped();
       if (survey) log.event("agent-survey", { screens: survey.length });
       const [focus, text] = await Promise.all([
@@ -586,6 +589,9 @@ export async function runAgent(args: AgentRunArgs): Promise<RunReport> {
         dropped: step.dropped,
         ms: Date.now() - askedAt,
         captureMs,
+        // Where a slow run lost its time: capturing, the actions of the step before, and whether the tab was not shown.
+        actionsMs: lastActionsMs,
+        hidden: tabHidden,
         calls: step.usage.calls,
         costUsd: step.usage.cost,
         url: logUrl(info.url ?? ""),
@@ -653,6 +659,7 @@ export async function runAgent(args: AgentRunArgs): Promise<RunReport> {
 
       const actionsBeganAt = Date.now();
       results = await runActions(executor, actions);
+      lastActionsMs = Date.now() - actionsBeganAt;
       for (const result of results) {
         if (!result.ok) log.event("agent-action:failed", { id: result.id, error: result.error });
       }
