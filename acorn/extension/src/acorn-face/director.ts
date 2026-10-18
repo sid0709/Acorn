@@ -14,8 +14,6 @@ export type CompanionFaceInput = {
   connected: boolean;
   anyTabWorking: boolean;
   focused: TabFaceInput;
-  qaBusy: boolean;
-  qaError: boolean;
   inspectOpen: boolean;
   connectionOpen: boolean;
   jobsLoading: boolean;
@@ -63,8 +61,6 @@ export function resolveTabHold(input: TabFaceInput): AcornFaceMode {
 export function resolveCompanionHold(input: CompanionFaceInput): AcornFaceMode {
   const focused = resolveTabHold(input.focused);
   if (focused === "working" || focused === "thinking" || focused === "sad") return focused;
-  if (input.qaBusy) return "thinking";
-  if (input.qaError) return "sad";
   if (input.opening || input.authBusy) return "working";
   if (input.jobsLoading || input.inspectOpen || input.connectionOpen) return "thinking";
   if (input.anyTabWorking) return "working";

@@ -7,7 +7,6 @@ import { useCompanionFace } from "../acorn-face/use-companion-face";
 import { MSG } from "../types";
 
 import { pushAcornNotice } from "./acorn-notice";
-import { AskPanel } from "./AskPanel";
 import { JobsPanel } from "./JobsPanel";
 import { LogsPanel } from "./LogsPanel";
 import { NowCard } from "./NowCard";
@@ -37,7 +36,6 @@ export default function SidebarApp() {
 
   const [mainTab, setMainTab] = useState<AcornMainTab>("fill");
   const [settingsOpen, setSettingsOpen] = useState(false);
-  const [qaStatus, setQaStatus] = useState({ busy: false, error: false });
   const [helpOpen, setHelpOpen] = useState(false);
   const [reportOpen, setReportOpen] = useState(false);
   // Bumped on every open so the dialog remounts and starts with no notes or picked report.
@@ -87,8 +85,6 @@ export default function SidebarApp() {
     connected,
     anyTabWorking,
     focused: tabInputFromProgress(Boolean(session), progress),
-    qaBusy: qaStatus.busy,
-    qaError: qaStatus.error,
     inspectOpen: helpOpen,
     connectionOpen: settingsOpen,
     jobsLoading: false,
@@ -198,13 +194,6 @@ export default function SidebarApp() {
               tabId={activeTabId}
               signedIn={Boolean(session)}
               socketConnected={connected}
-            />
-
-            <AskPanel
-              mainTab={mainTab}
-              fillBusy={fillBusy}
-              setQaStatus={setQaStatus}
-              tabId={activeTabId}
             />
 
             <SupportPanel

@@ -32,7 +32,6 @@ export const MSG = {
   AUTH_STATUS: "acorn:auth-status",
   AUTH_SIGNIN: "acorn:auth-signin",
   AUTH_SIGNOUT: "acorn:auth-signout",
-  SELECTION_QA: "acorn:selection-qa",
   /** Debug builds only: a page trace event relayed to the backend debug run. */
   DEBUG_TRACE: "acorn:debug-trace",
 } as const;
@@ -51,10 +50,4 @@ export type AcornNoticePayload = {
    * Omit it for account and connection notices, which stay up in every tab.
    */
   tabId?: number;
-};
-
-export type SelectionQaResponse = {
-  ok: boolean;
-  answer?: string;
-  error?: string;
 };

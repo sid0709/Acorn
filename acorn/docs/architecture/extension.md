@@ -52,7 +52,7 @@ Four design rules run through the whole codebase:
 ┌───────────────────────────────── Chrome ──────────────────────────────────┐
 │                                                                           │
 │  Side panel  (React + sid-ui, sidebar.html)                               │
-│    Jobs · Ask · Support · Logs                                            │
+│    Jobs · Support · Logs                                                  │
 │        │  chrome.runtime.sendMessage        ▲  storage.onChanged,         │
 │        │  port "acorn-sidebar" (keep-alive) │  PIPELINE_PROGRESS,         │
 │        ▼                                    │  OPERATOR_NOTICE            │
@@ -62,7 +62,7 @@ Four design rules run through the whole codebase:
 │        │  chrome.debugger (CDP): screenshots, input, file pickers         │
 │        ▼                                                                  │
 │  Content script  (src/content/index.ts) — one per frame, all frames       │
-│    selection Q&A chip · support handoff                                   │
+│    support handoff                                                        │
 └──────────┬─────────────────────────────────────────────┬──────────────────┘
            │ HTTPS  /acorn/*                              │ Socket.IO
            │ Authorization: Bearer <session token>        │ path /acorn/socket.io
@@ -96,7 +96,7 @@ The other apps around it:
 | [`acorn/extension`](../../extension)                                       | The extension (workspace `acorn-extension`). Version lives only in `package.json`.            |
 | `acorn/extension/src/background.ts`, `src/background/`                     | Service worker: startup, alarms, tab lifecycle, message router, socket, capture sink.         |
 | `acorn/extension/src/agent/`                                               | The agent Run's extension side: screenshot, input, overlay, the loop (§19).                   |
-| `acorn/extension/src/content/`                                             | Content script: the selection Q&A chip and the support handoff.                               |
+| `acorn/extension/src/content/`                                             | Content script: the support handoff and page-error logging.                                   |
 | `acorn/extension/src/pipeline/`                                            | The run log and the API clients (`pipeline/api/`).                                            |
 | `acorn/extension/src/sidebar/`                                             | Side panel React app.                                                                         |
 | `acorn/extension/src/tab-*-session.ts`, `storage-lock.ts`                  | Per-tab state in `chrome.storage.session`, IndexedDB log.                                     |
@@ -167,7 +167,6 @@ Messages the router handles (constants in [`types.ts`](../../extension/src/types
 | ---------------------------------------------------- | --------------------------------------------- | ---------------------------------------------------------------------------- |
 | `acorn:start-run`, `acorn:stop-run`                  | sidebar → `messages/run.ts`                   | Start the agent Run on a tab (a test may pass `stopBeforeSubmit`); abort it. |
 | `acorn:answer-run`                                   | sidebar → `messages/run.ts`                   | The person's answer to the question a Run is waiting on.                     |
-| `acorn:selection-qa`                                 | content → `messages/selection-qa.ts`          | Answer selected text on the page via `/acorn/qa`.                            |
 | `acorn:support-handoff-relay`                        | content (Acorn site only) → `support-session` | Redeem a support sign-in code.                                               |
 | `acorn:submit-support-claim`                         | sidebar → `messages/support-claim.ts`         | Full-page screenshot + notes → new claim or follow-up message.               |
 | `acorn:refresh-tab-usage`                            | sidebar → `tab-usage-store.ts`                | Reconcile a tab's AI usage with `GET /acorn/ai-usage`.                       |
@@ -183,16 +182,15 @@ Handlers that start work reply `{ ok: true }` immediately and report progress as
 
 ### 4.3 Content script
 
-[`content/index.ts`](../../extension/src/content/index.ts) runs in every frame. It starts the selection Q&A chip ([`selection-qa.ts`](../../extension/src/content/selection-qa.ts)) and, on the Acorn site only, the support handoff listener ([`support-handoff.ts`](../../extension/src/content/support-handoff.ts)), and writes the extension's own page errors to the tab's log (`page:error`). It answers no message from the worker: the agent Run does not use it, since it sees the page as a screenshot and acts through the debugger (§19). Until v1.83.0 the content script also serialized the DOM, ran plan steps, and clicked controls for the page-reading Run; that code was removed.
+[`content/index.ts`](../../extension/src/content/index.ts) runs in every frame. On the Acorn site only, it starts the support handoff listener ([`support-handoff.ts`](../../extension/src/content/support-handoff.ts)), and writes the extension's own page errors to the tab's log (`page:error`). It answers no message from the worker: the agent Run does not use it, since it sees the page as a screenshot and acts through the debugger (§19). Until v1.83.0 the content script also serialized the DOM, ran plan steps, and clicked controls for the page-reading Run; that code was removed.
 
 ### 4.4 Side panel
 
 The panel is a React app ([`sidebar/main.tsx`](../../extension/src/sidebar/main.tsx) → [`SidebarApp.tsx`](../../extension/src/sidebar/SidebarApp.tsx)) built from `sid-ui`. Signed out, it shows the sign-in card ([`SignInCard.tsx`](../../extension/src/sidebar/SignInCard.tsx)). Signed in:
 
 - **Header**: the live Acorn Face, a busy-workers count, and an account menu (Acorn Face guide, Settings, Report, Sign out / End support session). The avatar dot is the socket state. The Report dialog closes and discards its notes when the active browser tab changes, and starts empty each time it opens.
-- **Nav** (`PillNav`, hash routed): **Jobs**, **Ask**, **Support**, **Logs**.
+- **Nav** (`PillNav`, hash routed): **Jobs**, **Support**, **Logs**.
 - **Jobs**: the **Now card** for the active tab, the **Activity** feed, the **Auto-Focus** switch, and the tab's AI usage list. **Activity** ([`ActivityFeed.tsx`](../../extension/src/sidebar/ActivityFeed.tsx)) tells the latest run step by step in plain words — "Read the page · 493 elements", "Read the page with the AI · 3.2 s", "Chose the résumé: Data Engineer", "Clicked Submit Application", "Filled the form · 15 done", "Wait for the applicant", "Found the site's email" — with a spinner on what is running and a warning on a call that got no answer. It is a view over the tab's local log built by [`buildActivityFeed`](../../extension/src/activity-feed.ts) (nothing is stored twice); each row opens to its facts and the log entries behind it. The newest 14 rows show, the rest behind "Show all". **The feed accounts for the whole run's time.** Rows are laid out on the clock in the order things happened (whatever order the log was written in), each with when it began (`+12.3 s` from the run's first step) and how long it took; what happened _inside_ the form fill (the plan call, the writer's answers, dropdown picks) is nested under it, so no duration is counted twice; a click owns the wait for the page to answer it; time between steps that no step accounts for is its own **Waiting** row; and the run's last row opens to **where the time went** — every phase the run timed plus a "Not measured" remainder, adding up to the run's total. On the Jobs tab the Now card shows **Run** (or "Run again"), **Continue** after a stopped run, and **Stop** while running. While a run works, the card shows its timer, step and cost, and the stop reason when it fails.
-- **Ask**: Q&A with the same writer as text-field filling (`POST /acorn/qa`). Selecting ≥ 8 characters on any page also shows an in-page Acorn chip that answers the selection and offers Copy.
 - **Support**: the user's claims, threads, and unread replies (pushed over the socket).
 - **Logs**: the per-tab log (IndexedDB `acorn-tab-log`), grouped by run: DOM tree stats, compressed and meta trees, analysis, **every backend call** (request, answer, status and latency, or why it got no answer), the run's **decisions** and what they rested on (`decision` entries: why it clicked, waited, or stopped), plan, every trace event, and errors that were caught. Each entry carries its level, run, step, page, duration, and a group that links a call's request, answer and decision. Filter by view (All / Problems / Run / AI / Trees), search titles and contents, copy, or **Download** the whole log (not only what the view or search shows) as one compressed zip (each entry deflated; typically a tenth of the size) that opens with `00-summary.json` (each run's outcome, reason, durations per phase) and `01-index.json`. It stays in the browser; see §12.7.
 - **Settings drawer**: socket state, Acorn version, and the API URL (saved to `chrome.storage.local`; ignored by debug builds).
@@ -360,7 +358,7 @@ The backend still has résumé generation (`POST /acorn/custom/generate`, its `/
 | `POST /acorn/auth/extension/signin`                                                                    | Email + extension password → session token.                                                                                                                                                                                                        |
 | `POST /acorn/auth/signout`, `GET /acorn/auth/me`                                                       | Revoke / describe the session.                                                                                                                                                                                                                     |
 | `POST /acorn/auth/support/redeem`                                                                      | Redeem a support handoff code.                                                                                                                                                                                                                     |
-| `POST /acorn/qa`                                                                                       | Writer answer to one question (Ask tab, selection chip).                                                                                                                                                                                           |
+| `POST /acorn/qa`                                                                                       | Writer answer to one question (the extension no longer calls it).                                                                                                                                                                                  |
 | `POST /acorn/custom/recommend`                                                                         | Recommend a Library résumé for a job posting.                                                                                                                                                                                                      |
 | `POST /acorn/custom/generate` (+ `/continue`, `GET` poll)                                              | Résumé generation.                                                                                                                                                                                                                                 |
 | `GET /acorn/custom/library-resumes/:id` (+ `/preview`), `/custom/resumes/:generationId` (+ `/preview`) | Library or generated file `{file:{key,name,mimeType,base64,label,format,variants}}`, with an `ETag` and `304 Not Modified` for `If-None-Match` (as is `GET /acorn/jobs/:jobId/recommended-resume`); HTML previews.                                 |
@@ -381,7 +379,7 @@ For each request, [`acornapi/model.go`](../../../acorn-backend/acornapi/model.go
 - the **text model**: `openai.OpenRouter(key)` — OpenRouter's OpenAI-compatible chat API, model `openai/gpt-6-luna` (`acorn-backend/config.OpenRouterModel`), reasoning off, JSON-schema outputs;
 - the **decision model**: `jev.New(key)` — `typesafe/jev-1.13` at `https://openrouter.ai/api/alpha/decisions` (`config.JevModel`, `config.OpenRouterDecisionsURL`), wrapped as `selector.Gateway`.
 
-An account without a key gets "Add your OpenRouter API key in profile settings" (503 on the Q&A, generate, and recommend routes).
+An account without a key gets "Add your OpenRouter API key in profile settings" (503 on the Q&A, generate, and recommend routes; the extension no longer calls the Q&A route).
 
 **Error codes.** Every failed model call carries a stable `code` beside its message ([`acornapi/errcode.go`](../../../acorn-backend/acornapi/errcode.go), `modelErrorCode`): `openrouter_no_key` (503), `openrouter_invalid_key` (OpenRouter 401/403), `openrouter_no_credits` (OpenRouter 402, answered **402**), `openrouter_rate_limited` (429), `provider_error` (5xx or unreachable), `model_timeout`, `model_bad_answer` (unparseable or empty), `model_unavailable` (no model configured), plus `signed_out` (401) and `kill_switch` (503). The provider's refusal keeps its status (`openai.StatusError`), so a spent balance is told apart from a bad key. Routes that answer 200 with `ok:false` (the run's decision routes) carry the same `code`. The extension turns codes into words ([`user-messages.ts`](../../packages/shared/user-messages.ts)); the messages beside them are for logs and may change.
 
@@ -426,7 +424,7 @@ Worker Pool jobs come from the shared jobs catalog ([`acorn-backend/internal/job
 
 | Decision                                                     | Model | Where                                                    |
 | ------------------------------------------------------------ | ----- | -------------------------------------------------------- |
-| Free-text answers (Ask tab, selection chip), first person    | text  | `acorn.Answer`, prompt `prompts/prose_system.txt`        |
+| Free-text answers, first person                              | text  | `acorn.Answer`, prompt `prompts/prose_system.txt`        |
 | Is this text a job posting, and which Library résumé fits it | Jev   | `selector.MatchPosting`                                  |
 | Gmail labels for a message (the site's labeling)             | Jev   | [`maillabel`](../../../acorn-backend/maillabel/label.go) |
 | Everything the agent Run does on a page                      | text  | acorn-agent (§19), not acorn-backend                     |
@@ -443,13 +441,13 @@ The writer prompt ([`prose_system.txt`](../../../acorn-backend/acorn/prompts/pro
 
 ### 14.1 What each party sees
 
-| Data                                                 | Text model                                           | Jev                                        | Stored server-side                               |
-| ---------------------------------------------------- | ---------------------------------------------------- | ------------------------------------------ | ------------------------------------------------ |
-| Profile facts (name, contact, history, demographics) | yes (applicant JSON, for Q&A)                        | no                                         | `acorn_profiles`                                 |
-| Page text                                            | only a question or selection the person sends to Q&A | only the job posting text, for Recommend   | the tab's local log; a support claim if reported |
-| Default account password                             | never                                                | never                                      | `acorn_profiles` (plain text)                    |
-| Extension password, OpenRouter key                   | never                                                | never                                      | `acorn_profiles` (plain text)                    |
-| Gmail contents                                       | never                                                | message rows, for the site's labeling only | Gmail refresh token in `acorn_gmail_mailboxes`   |
+| Data                                                 | Text model                                  | Jev                                        | Stored server-side                               |
+| ---------------------------------------------------- | ------------------------------------------- | ------------------------------------------ | ------------------------------------------------ |
+| Profile facts (name, contact, history, demographics) | yes (applicant JSON, for Q&A)               | no                                         | `acorn_profiles`                                 |
+| Page text                                            | nothing (the extension no longer sends Q&A) | only the job posting text, for Recommend   | the tab's local log; a support claim if reported |
+| Default account password                             | never                                       | never                                      | `acorn_profiles` (plain text)                    |
+| Extension password, OpenRouter key                   | never                                       | never                                      | `acorn_profiles` (plain text)                    |
+| Gmail contents                                       | never                                       | message rows, for the site's labeling only | Gmail refresh token in `acorn_gmail_mailboxes`   |
 
 The agent Run (§19) sends the model a **screenshot** of the page and the applicant's `profile.json`; see §19.8 for who sees what.
 

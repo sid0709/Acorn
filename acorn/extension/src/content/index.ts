@@ -1,6 +1,5 @@
 import { traceFromPage } from "../debug-trace";
 
-import { initSelectionQa } from "./selection-qa";
 import { initSupportHandoff } from "./support-handoff";
 
 // A failure in the extension's own page code is written to the tab's log. The page's
@@ -53,6 +52,5 @@ function startSafely(name: string, start: () => void): void {
 if (!contentScriptAlive()) {
   contentWindow[CONTENT_BOOT] = () => Boolean(chrome.runtime?.id);
 
-  startSafely("selection-qa", initSelectionQa);
   startSafely("support-handoff", initSupportHandoff);
 }

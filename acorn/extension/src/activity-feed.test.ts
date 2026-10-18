@@ -153,7 +153,7 @@ describe("buildActivityFeed", () => {
   });
 
   it("stops showing an old item as running", () => {
-    const request = entry({ kind: "api", title: "→ POST qa", group: "qa#4" });
+    const request = entry({ kind: "api", title: "→ POST match-option", group: "match-option#4" });
     const [item] = buildActivityFeed([request], request.t + 500_000);
     assert.equal(item.status, "warn");
     assert.match(item.title, /no answer logged/);

@@ -9,7 +9,6 @@ import {
   handleSocketStatus,
 } from "./messages/auth";
 import { handleAnswerRun, handleStartRun, handleStopRun } from "./messages/run";
-import { handleSelectionQa } from "./messages/selection-qa";
 import { handleSubmitSupportClaim } from "./messages/support-claim";
 import { handleSupportHandoff } from "./messages/support-session";
 import { refreshTabUsage } from "./tab-usage-store";
@@ -46,11 +45,6 @@ export function routeMessage(
 
   if (message.type === MSG.AUTH_SIGNOUT) {
     handleAuthSignOut(sendResponse);
-    return true;
-  }
-
-  if (message.type === MSG.SELECTION_QA) {
-    handleSelectionQa(message, sender, sendResponse);
     return true;
   }
 
