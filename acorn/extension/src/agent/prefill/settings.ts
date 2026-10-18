@@ -58,6 +58,12 @@ export const ADVANCE_NAVIGATION_APPEAR_MS = 1_500;
 /** Told to the model when no control was chosen with enough certainty to press: the one that continues may simply be out of sight. */
 export const ADVANCE_UNSURE_NOTE =
   "Acorn could not tell which control continues the application from the part of the page it could see. It may be below the visible part: scroll to find it.";
+/**
+ * A control that continues is greyed out for the moment a page takes to submit after it was pressed. A
+ * page that shows one is read again after this long, and the control is reported only if it is still
+ * disabled.
+ */
+export const REVIEW_BLOCKED_RECHECK_MS = 1_200;
 /** What the overlay's bar says while the page is reviewed, and while its next control is pressed. */
 export const REVIEW_OVERLAY_LABEL = "Acorn is reviewing the page";
 export const ADVANCE_OVERLAY_LABEL = "Acorn is continuing to the next step";

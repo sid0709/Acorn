@@ -16,10 +16,14 @@ import { MSG } from "../../../acorn/extension/src/types";
 import { startSimpleSite } from "./simple-site";
 
 // `local` runs the small three-page site that this harness starts itself; it may be submitted.
-const LOCAL = process.argv[2] === "local" || process.argv[2] === "local-gated";
+const LOCAL = ["local", "local-gated", "local-honeypot"].includes(process.argv[2] ?? "");
 const simple = LOCAL ? startSimpleSite() : null;
-const URL_TO_TEST =
-  (process.argv[2] === "local-gated" ? simple?.gatedUrl : simple?.url) ?? process.argv[2];
+const LOCAL_URLS: Record<string, string | undefined> = {
+  local: simple?.url,
+  "local-gated": simple?.gatedUrl,
+  "local-honeypot": simple?.honeypotUrl,
+};
+const URL_TO_TEST = LOCAL_URLS[process.argv[2] ?? ""] ?? process.argv[2];
 if (!URL_TO_TEST)
   throw new Error("usage: bun tests/e2e/agent/live-prefill.ts <application url | local>");
 /** Whether the run stops before it would send the application: always for a real site. */

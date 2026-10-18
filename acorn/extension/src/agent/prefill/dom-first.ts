@@ -36,6 +36,7 @@ import {
   ADVANCE_OVERLAY_LABEL,
   ADVANCE_STUCK_TRIES,
   ADVANCE_UNSURE_NOTE,
+  REVIEW_BLOCKED_RECHECK_MS,
   REVIEW_LOADING_WAIT_MS,
   REVIEW_LOADING_WAITS,
   REVIEW_OVERLAY_LABEL,
@@ -122,8 +123,15 @@ export class DomFirst {
   async afterLook(look: DomLook): Promise<DomFirstOutcome> {
     if (this.submitted) return { kind: "skip" };
     const frames = await listFrames(this.deps.tabId());
-    const findings = await this.readFindings(frames, look.failed);
+    let findings = await this.readFindings(frames, look.failed);
     if (!findings) return { kind: "skip" };
+    // A disabled continue control right after a press is usually the page submitting: it is reported
+    // only if it is still disabled after a beat (a page that moved on has other things to say).
+    if ((findings.blocked?.length ?? 0) > 0) {
+      await this.deps.sleep(REVIEW_BLOCKED_RECHECK_MS);
+      findings = await this.readFindings(await listFrames(this.deps.tabId()), look.failed);
+      if (!findings) return { kind: "skip" };
+    }
 
     // The same page, already reviewed clean with no control to press: the driving model has been told, and
     // another review would say the same. It is looked at again once something on the page changes.

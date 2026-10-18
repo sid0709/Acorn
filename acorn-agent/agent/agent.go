@@ -82,11 +82,11 @@ type Config struct {
 	// least AdvanceTopMin and leads the next control by AdvanceMargin. A pick that changes nothing is
 	// found out by the extension (the same control pressed twice) and left to the driving model.
 	AdvanceNoneMax, AdvanceTopMin, AdvanceMargin float64
-	// A stop for the applicant is sent back once (StopOverridePasses per run) when a review made within
-	// StopOverrideSteps steps, on the same page, found it clean and was at least StopOverrideNone sure
-	// that nothing there needs the applicant: the model is told to use the control that continues.
-	StopOverridePasses, StopOverrideSteps int
-	StopOverrideNone                      float64
+	// A stop for the applicant is held to the screen (stopcheck.go): it stands only when the decision model
+	// is at least StopConfirm sure the page needs what the stop says. One that is not confirmed is sent back,
+	// at most StopOverridePasses times in a run; after that it stands, so a run cannot loop on its stops.
+	StopOverridePasses int
+	StopConfirm        float64
 	// KeepTurns is how many recent steps stay in full when the history is compacted; older
 	// ones are folded into one line each.
 	KeepTurns int
@@ -150,9 +150,8 @@ func DefaultConfig() Config {
 		AdvanceNoneMax:     0.2,
 		AdvanceTopMin:      0.5,
 		AdvanceMargin:      0.15,
-		StopOverridePasses: 1,
-		StopOverrideSteps:  4,
-		StopOverrideNone:   0.9,
+		StopOverridePasses: 2,
+		StopConfirm:        0.6,
 		KeepTurns:          8,
 		KeepImages:         3,
 		HistoryTokens:      30_000,
@@ -513,7 +512,7 @@ func (a *Agent) step(ctx context.Context, id string, obs Observation) (Step, err
 	}
 	status = answer.Status
 	// The applicant is asked last: a stop is first sent back to finish everything else on the page.
-	if note, held := a.holdStop(s, obs.URL, status, answer); held {
+	if note, held := a.holdStop(ctx, s, obs, status, answer); held {
 		status, answer.Message = StatusWorking, stopPassMessage
 		planned = []Action{{ID: fmt.Sprintf("s%da1", number), Kind: KindWait, Ms: stopPassWaitMs}}
 		s.notes = append(s.notes, note)

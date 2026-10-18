@@ -50,6 +50,8 @@ const sourcePrefill = "prefill"
 const (
 	sourceReview  = "review"
 	sourceAdvance = "advance"
+	// sourceStopCheck marks an entry where the decision model read the screen to confirm a stop for the applicant.
+	sourceStopCheck = "stopcheck"
 )
 
 // sourceAsk marks an entry where the run waited on the person's answer, or acted on it.

@@ -29,6 +29,9 @@ type domScreen struct {
 	finalP         float64
 	// probs, when set, is every probability the model gives for the advance question.
 	probs map[string]float64
+	// need is what the screen is said to need from the applicant (the stop check), and how sure; "" is none.
+	need     string
+	needSure float64
 }
 
 func (d *domScreen) Name() string { return "dom-screen" }
@@ -50,6 +53,13 @@ func (d *domScreen) Decide(_ context.Context, req decide.Request) (decide.Respon
 			human = humanNone
 		}
 		answers[askHuman] = decide.Answer{Type: decide.TypeChoice, Choice: human, Probabilities: map[string]float64{human: d.humanSure}}
+	}
+	if _, ok := req.Questions[askHumanRequired]; ok {
+		need := d.need
+		if need == "" {
+			need = needNone
+		}
+		answers[askHumanRequired] = decide.Answer{Type: decide.TypeChoice, Choice: need, Probabilities: map[string]float64{need: d.needSure, needNone: 1 - d.needSure}}
 	}
 	if _, ok := req.Questions[askAdvance]; ok {
 		next, final := d.next, d.final
@@ -422,48 +432,12 @@ func TestAnAdvanceIsTracedWithEveryControlAndProbabilityAndWhy(t *testing.T) {
 	}
 }
 
-func TestAStopForTheApplicantIsSentBackWhenAReviewOfThePageContradictsIt(t *testing.T) {
-	a, id := newDOMAgent(t, &domScreen{humanSure: 0.99}, false)
-	if _, err := a.Review(context.Background(), id, reviewOf(shot(t, 40))); err != nil {
-		t.Fatal(err)
+func TestADisabledControlIsToldToTheModelAsProbablyStillSubmitting(t *testing.T) {
+	note := reviewNote(ReviewFix, []string{"blocked: a control that continues is disabled: Save and Continue"})
+	if !strings.Contains(note, "still submitting") {
+		t.Fatalf("note = %s", note)
 	}
-	s, _ := a.sessions.get(id)
-	if note, held := a.holdContradictedStop(s, "https://jobs.example/apply", StatusNeedPerson); !held || !strings.Contains(note, "Do not stop for the applicant") {
-		t.Fatalf("held %v: %s", held, note)
-	}
-	if _, held := a.holdContradictedStop(s, "https://jobs.example/apply", StatusNeedPerson); held {
-		t.Fatal("a stop was sent back twice")
-	}
-}
-
-func TestAStopStandsWhenTheReviewDoesNotContradictIt(t *testing.T) {
-	cases := map[string]func(*Agent, *session) (string, string){
-		"another page": func(a *Agent, s *session) (string, string) { return "https://other.example/", StatusNeedPerson },
-		"stuck":        func(a *Agent, s *session) (string, string) { return "https://jobs.example/apply", StatusStuck },
-		"too long ago": func(a *Agent, s *session) (string, string) {
-			s.step += a.cfg.StopOverrideSteps + 1
-			return "https://jobs.example/apply", StatusNeedPerson
-		},
-	}
-	for name, setup := range cases {
-		a, id := newDOMAgent(t, &domScreen{humanSure: 0.99}, false)
-		_, _ = a.Review(context.Background(), id, reviewOf(shot(t, 40)))
-		s, _ := a.sessions.get(id)
-		url, status := setup(a, s)
-		if _, held := a.holdContradictedStop(s, url, status); held {
-			t.Fatalf("%s: a stop the review does not contradict was sent back", name)
-		}
-	}
-	// A review that found the page unclean, or was unsure of the human check, contradicts nothing.
-	for name, screen := range map[string]*domScreen{
-		"unanswered":   {unanswered: 0.9, humanSure: 0.99},
-		"unsure human": {humanSure: 0.6},
-	} {
-		a, id := newDOMAgent(t, screen, false)
-		_, _ = a.Review(context.Background(), id, reviewOf(shot(t, 40)))
-		s, _ := a.sessions.get(id)
-		if _, held := a.holdContradictedStop(s, "https://jobs.example/apply", StatusNeedPerson); held {
-			t.Fatalf("%s: stop sent back", name)
-		}
+	if strings.Contains(reviewNote(ReviewFix, []string{"still empty: Phone"}), "still submitting") {
+		t.Fatal("an ordinary problem was told to wait")
 	}
 }

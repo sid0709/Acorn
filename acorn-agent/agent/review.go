@@ -225,46 +225,21 @@ func clipList(items []string) []string {
 func reviewNote(verdict string, problems []string) string {
 	switch verdict {
 	case ReviewFix:
-		return "A review after the first draft found these left to do on this page: " + strings.Join(problems, "; ") +
+		note := "A review after the first draft found these left to do on this page: " + strings.Join(problems, "; ") +
 			". Do exactly these, then continue."
+		for _, problem := range problems {
+			if strings.HasPrefix(problem, "blocked:") {
+				// A control that continues is usually greyed out for the moment after it was pressed.
+				return note + " A control that is disabled right after it was pressed is usually the page still submitting: wait a moment and look again before deciding anything."
+			}
+		}
+		return note
 	case ReviewClean:
 		return "A review of the whole page after the first draft found its questions answered, no error showing, and nothing in the way. Go to the control that continues (Next, Continue or Submit) and use it; it may be below the part of the page on screen."
 	case ReviewSent:
 		return "A check reads this screen as showing that the application was sent. Confirm it from the screenshot and report done."
 	}
 	return ""
-}
-
-// reviewMark is the last review that found a page clean: where, when (the step the run was at), and how
-// sure the decision model was that nothing on it needs the applicant.
-type reviewMark struct {
-	url       string
-	step      int
-	humanNone float64
-	clean     bool
-}
-
-// humanNoneP is how sure the decision model was that the page needs nothing of the applicant.
-func humanNoneP(answer decide.Answer) float64 {
-	if answer.Probabilities == nil {
-		return 0
-	}
-	return answer.Probabilities[humanNone]
-}
-
-// holdContradictedStop sends a stop for the applicant back when a recent review of the same page found
-// nothing that needs them. It reads no words: the review's own answers (clean, and sure that no check,
-// code or document is asked for) are what contradict the stop.
-func (a *Agent) holdContradictedStop(s *session, url, status string) (string, bool) {
-	mark := s.review
-	if status != StatusNeedPerson || !mark.clean || mark.url != url || s.overrides >= a.cfg.StopOverridePasses {
-		return "", false
-	}
-	if s.step-mark.step > a.cfg.StopOverrideSteps || mark.humanNone < a.cfg.StopOverrideNone {
-		return "", false
-	}
-	s.overrides++
-	return "A review of the whole page a moment ago found its questions answered, no error showing, and nothing that needs the applicant: no check to pass, no code and no document asked for. Do not stop for the applicant. Use the control that continues the application; it may be below the part of the page on screen. Stop for the applicant again only if something new has appeared since.", true
 }
 
 // Review judges the page after the first draft. A failure here changes nothing for the run: the
@@ -287,7 +262,6 @@ func (a *Agent) Review(ctx context.Context, id string, req ReviewRequest) (Revie
 		return ReviewResult{}, ErrReviewLimit
 	}
 	s.reviews++
-	s.review = reviewMark{}
 	problems := clipList(req.DOM.problems())
 	result := ReviewResult{Verdict: ReviewFix, Problems: problems}
 	entry := stepTrace{Seq: s.seq + 1, Step: s.step, At: a.now(), Source: sourceReview, URL: req.URL, Title: req.Title, Viewport: req.Viewport, Memo: s.memo, Job: s.job}
@@ -345,7 +319,6 @@ func (a *Agent) Review(ctx context.Context, id string, req ReviewRequest) (Revie
 			}
 		}
 	}
-	s.review = reviewMark{url: req.URL, step: s.step, humanNone: humanNoneP(human), clean: result.Verdict == ReviewClean}
 	entry.Message = fmt.Sprintf("review: %s (errors %.2f, unanswered %.2f, unticked %.2f, greyed %.2f, loading %.2f, human %s %.2f, sent %.2f, screens %d)",
 		result.Verdict, yes(askVisibleErrors), yes(askUnanswered), yes(askUnticked), yes(askGreyedOut), yes(askLoading), kind, sure, yes(askSent), max(1, len(req.Survey)))
 	if result.Verdict == ReviewHuman {

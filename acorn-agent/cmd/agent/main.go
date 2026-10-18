@@ -75,8 +75,7 @@ const (
 	envAdvanceTop     = "ACORN_AGENT_ADVANCE_TOP_MIN_PERCENT"
 	envAdvanceMargin  = "ACORN_AGENT_ADVANCE_MARGIN_PERCENT"
 	envOverridePasses = "ACORN_AGENT_STOP_OVERRIDE_PASSES"
-	envOverrideSteps  = "ACORN_AGENT_STOP_OVERRIDE_STEPS"
-	envOverrideNone   = "ACORN_AGENT_STOP_OVERRIDE_PERCENT"
+	envStopConfirm    = "ACORN_AGENT_STOP_CONFIRM_PERCENT"
 	// envBackendURL is where acorn-backend is. When set, the applicant is the signed-in person's
 	// own profile and Library there (the person's session comes with each run); otherwise it is the
 	// profile.json and résumé folder on this computer.
@@ -153,8 +152,7 @@ func run() error {
 	cfg.AdvanceTopMin = percent(envAdvanceTop, cfg.AdvanceTopMin)
 	cfg.AdvanceMargin = percent(envAdvanceMargin, cfg.AdvanceMargin)
 	cfg.StopOverridePasses = config.EnvInt(envOverridePasses, cfg.StopOverridePasses)
-	cfg.StopOverrideSteps = config.EnvInt(envOverrideSteps, cfg.StopOverrideSteps)
-	cfg.StopOverrideNone = percent(envOverrideNone, cfg.StopOverrideNone)
+	cfg.StopConfirm = percent(envStopConfirm, cfg.StopConfirm)
 	cfg.KeepTurns = config.EnvInt(envKeepTurns, cfg.KeepTurns)
 	cfg.KeepImages = config.EnvInt(envKeepImages, cfg.KeepImages)
 	cfg.MaxStale = config.EnvInt(envMaxStale, cfg.MaxStale)

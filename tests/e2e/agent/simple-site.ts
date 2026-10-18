@@ -39,6 +39,20 @@ button{margin:20px 8px 0 0;padding:10px 18px;font:inherit}fieldset{margin:14px 0
 <script>document.getElementById('agree').addEventListener('change',e=>{document.getElementById('go').disabled=!e.target.checked})</script>`,
         );
       }
+      // A page whose only question is a trap for bots, and a continue control that is greyed out for
+      // a few seconds after it is pressed, as a page does while it submits.
+      if (url.pathname === "/honeypot") {
+        return page(
+          "Application Questions 2 of 2",
+          `<h1>Application Questions 2 of 2</h1>
+<p>The core idea is to present a question that is easy for humans but difficult for bots.</p>
+<label for="trap">Leave this field blank. If you are human, do not type anything here.</label>
+<textarea id="trap" name="trap" rows="3"></textarea>
+<div><button type="button" onclick="history.back()">Back</button>
+<form id="f" style="display:inline" onsubmit="event.preventDefault();var b=document.getElementById('go');b.disabled=true;setTimeout(function(){location.href='/done'},3500)">
+<button id="go" type="submit">Save and Continue</button></form></div>`,
+        );
+      }
       if (url.pathname === "/step2") {
         return page(
           "Apply: questions",
@@ -70,5 +84,6 @@ button{margin:20px 8px 0 0;padding:10px 18px;font:inherit}fieldset{margin:14px 0
     server,
     url: `http://127.0.0.1:${server.port}/`,
     gatedUrl: `http://127.0.0.1:${server.port}/gated`,
+    honeypotUrl: `http://127.0.0.1:${server.port}/honeypot`,
   };
 }

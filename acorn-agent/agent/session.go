@@ -111,9 +111,7 @@ type session struct {
 	accountSteps int
 	// stopPasses counts the stops for the applicant that were sent back to finish the page first.
 	stopPasses int
-	// review is what the last review found, for a stop that the page contradicts (stopoverride in review.go).
-	review reviewMark
-	// overrides counts the stops sent back because a review contradicted them.
+	// overrides counts the stops for the applicant sent back because the screen did not show the need (stopcheck.go).
 	overrides int
 	// prefills, reviews and advances count the quick text passes, reviews and advances made, which a run
 	// may make only so many of.
