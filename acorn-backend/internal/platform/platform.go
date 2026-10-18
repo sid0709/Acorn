@@ -5,10 +5,10 @@ import (
 	"context"
 	"fmt"
 
+	"github.com/sid0709/OpenSeat/acorn-backend/internal/database"
+	"github.com/sid0709/OpenSeat/acorn-backend/internal/jobs"
+	"github.com/sid0709/OpenSeat/acorn-backend/internal/killswitch"
 	"github.com/sid0709/OpenSeat/backend-core/config"
-	"github.com/sid0709/OpenSeat/backend-core/database"
-	"github.com/sid0709/OpenSeat/backend-core/jobs"
-	"github.com/sid0709/OpenSeat/backend-core/killswitch"
 	"go.mongodb.org/mongo-driver/v2/mongo"
 )
 
@@ -28,7 +28,7 @@ func Open(ctx context.Context, db config.Database) (*Platform, error) {
 	if err != nil {
 		return nil, fmt.Errorf("mongo: %w", err)
 	}
-	listings := jobs.NewStore(client, db.SourceDB, db.SourceCollection, db.DestDB, db.DestCollection, db.JobsCollection, db.SourceCompanies, db.CompaniesCollection, db.TempCompaniesCollection)
+	listings := jobs.NewStore(client, db.DestDB, db.JobsCollection, db.CompaniesCollection)
 	return &Platform{
 		client:       client,
 		Jobs:         listings,

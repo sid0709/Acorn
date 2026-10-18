@@ -10,7 +10,7 @@ import (
 	"time"
 
 	"github.com/sid0709/OpenSeat/acorn-backend/account"
-	"github.com/sid0709/OpenSeat/backend-core/google"
+	"github.com/sid0709/OpenSeat/acorn-backend/internal/google"
 )
 
 // googleTimeout bounds the code exchange and profile read with Google.

@@ -8,20 +8,12 @@ import (
 	"os"
 	"strconv"
 	"strings"
-	"time"
 )
 
 const (
-	defaultSourceDB            = "AthensDB"
-	defaultSourceCollection    = "jobs"
 	defaultDestDB              = "AcornDB"
-	defaultDestCollection      = "temp_jobs"
 	defaultJobsCollection      = "jobs"
-	defaultSourceCompanies     = "companies"
 	defaultCompaniesCollection = "companies"
-	defaultTempCompanies       = "temp_companies"
-	defaultOpenAIModel         = "gpt-4o-mini"
-	defaultOpenAIBaseURL       = "https://api.openai.com/v1"
 
 	// OpenRouter is the only model Acorn calls. The key lives on the account profile,
 	// not in the environment.
@@ -39,35 +31,12 @@ const (
 	envFileName            = ".env"
 )
 
-// Database is the MongoDB every service shares: one set of accounts, jobs, and companies.
+// Database is the MongoDB Acorn's server uses: its own collections and the shared job catalog.
 type Database struct {
 	MongoURI            string
-	SourceDB            string
-	SourceCollection    string
 	DestDB              string
-	DestCollection      string
 	JobsCollection      string
-	SourceCompanies     string
 	CompaniesCollection string
-	// TempCompaniesCollection holds copied companies until research publishes them.
-	TempCompaniesCollection string
-}
-
-func (d Database) SourceName() string {
-	return d.SourceDB + "." + d.SourceCollection
-}
-
-func (d Database) DestName() string {
-	return d.DestDB + "." + d.DestCollection
-}
-
-// OpenAI is the model a service uses to read and research job posts.
-type OpenAI struct {
-	APIKey string
-	Model  string
-	// SearchModel answers web-search requests. Blank means Model.
-	SearchModel string
-	BaseURL     string
 }
 
 // Google is the OAuth client from Google Cloud and where Sign in with Google
@@ -87,8 +56,7 @@ type HTTP struct {
 
 // ErrorReporting is optional monitoring. Empty fields mean no outbound calls.
 type ErrorReporting struct {
-	SentryDSN     string
-	UptimePingURL string
+	SentryDSN string
 }
 
 // LoadEnvFile reads .env from the working directory. Variables already set in
@@ -104,29 +72,15 @@ func LoadEnvFileAt(path string) {
 
 func LoadDatabase() (Database, error) {
 	db := Database{
-		MongoURI:                strings.TrimSpace(os.Getenv("MONGO_URI")),
-		SourceDB:                Env("SOURCE_DB", defaultSourceDB),
-		SourceCollection:        Env("SOURCE_COLLECTION", defaultSourceCollection),
-		DestDB:                  Env("DEST_DB", defaultDestDB),
-		DestCollection:          Env("DEST_COLLECTION", defaultDestCollection),
-		JobsCollection:          Env("JOBS_COLLECTION", defaultJobsCollection),
-		SourceCompanies:         Env("SOURCE_COMPANIES", defaultSourceCompanies),
-		CompaniesCollection:     Env("COMPANIES_COLLECTION", defaultCompaniesCollection),
-		TempCompaniesCollection: Env("TEMP_COMPANIES_COLLECTION", defaultTempCompanies),
+		MongoURI:            strings.TrimSpace(os.Getenv("MONGO_URI")),
+		DestDB:              Env("DEST_DB", defaultDestDB),
+		JobsCollection:      Env("JOBS_COLLECTION", defaultJobsCollection),
+		CompaniesCollection: Env("COMPANIES_COLLECTION", defaultCompaniesCollection),
 	}
 	if db.MongoURI == "" {
 		return Database{}, fmt.Errorf("MONGO_URI is required")
 	}
 	return db, nil
-}
-
-func LoadOpenAI() OpenAI {
-	return OpenAI{
-		APIKey:      strings.TrimSpace(os.Getenv("OPENAI_API_KEY")),
-		Model:       Env("OPENAI_MODEL", defaultOpenAIModel),
-		SearchModel: strings.TrimSpace(os.Getenv("OPENAI_SEARCH_MODEL")),
-		BaseURL:     Env("OPENAI_BASE_URL", defaultOpenAIBaseURL),
-	}
 }
 
 func LoadGoogle() Google {
@@ -165,26 +119,11 @@ func LoadHTTP(defaultAddr string, defaultOrigins []string) (HTTP, error) {
 	return cfg, nil
 }
 
-// SearchEnsureIndex returns whether the job search text index should be created at startup.
-// Defaults to false. Set SEARCH_ENSURE_INDEX=true to enable in development.
-func SearchEnsureIndex() bool {
-	explicit := strings.TrimSpace(os.Getenv("SEARCH_ENSURE_INDEX"))
-	return explicit == "true" || explicit == "1"
-}
-
-// JobsExpiryCheckerEnabled reports whether the in-process dead-link checker should run.
-// Defaults to false. Set JOBS_EXPIRY_CHECKER_ENABLED=true to turn it on.
-func JobsExpiryCheckerEnabled() bool {
-	value := strings.ToLower(strings.TrimSpace(os.Getenv("JOBS_EXPIRY_CHECKER_ENABLED")))
-	return value == "true" || value == "1"
-}
-
-// LoadErrorReporting reads SENTRY_DSN and UPTIME_PING_URL from the environment.
-// Both are optional. An empty value does not crash and does not dial out.
+// LoadErrorReporting reads SENTRY_DSN from the environment.
+// It is optional. An empty value does not crash and does not dial out.
 func LoadErrorReporting() ErrorReporting {
 	return ErrorReporting{
-		SentryDSN:     strings.TrimSpace(os.Getenv("SENTRY_DSN")),
-		UptimePingURL: strings.TrimSpace(os.Getenv("UPTIME_PING_URL")),
+		SentryDSN: strings.TrimSpace(os.Getenv("SENTRY_DSN")),
 	}
 }
 
@@ -204,19 +143,6 @@ func EnvInt(key string, fallback int) int {
 		return fallback
 	}
 	return value
-}
-
-// EnvDuration returns key as a positive duration, or fallback when it is unset or not one.
-func EnvDuration(key string, fallback time.Duration) time.Duration {
-	value := Env(key, "")
-	if value == "" {
-		return fallback
-	}
-	parsed, err := time.ParseDuration(value)
-	if err != nil || parsed < 1 {
-		return fallback
-	}
-	return parsed
 }
 
 func Redact(err error, uri string) string {

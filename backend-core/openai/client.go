@@ -26,14 +26,12 @@ var ErrMissingAPIKey = errors.New("OPENAI_API_KEY is not set")
 type Client struct {
 	apiKey      string
 	model       string
-	searchModel string
 	baseURL     string
 	missingKey  error
 	jsonObject  bool
 	noThinking  bool
 	noReasoning bool
 	http        *http.Client
-	searchHTTP  *http.Client
 }
 
 func New(apiKey, model, baseURL string) *Client {
@@ -43,7 +41,6 @@ func New(apiKey, model, baseURL string) *Client {
 		baseURL:    strings.TrimRight(baseURL, "/"),
 		missingKey: ErrMissingAPIKey,
 		http:       llmhttp.NewClient(requestTimeout),
-		searchHTTP: llmhttp.NewClient(searchTimeout),
 	}
 }
 

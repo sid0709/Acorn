@@ -32,9 +32,6 @@ func TestWrapLogging(t *testing.T) {
 	logger := slog.New(slog.NewJSONHandler(&buf, nil))
 
 	handler := Wrap(logger, nil, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if RequestID(r.Context()) == "" {
-			t.Error("request ID not set in context")
-		}
 		w.WriteHeader(http.StatusOK)
 		_, _ = w.Write([]byte("ok"))
 	}))
@@ -77,9 +74,6 @@ func TestWrapReuseRequestID(t *testing.T) {
 	existingID := "test-request-id-123"
 
 	handler := Wrap(logger, nil, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if got := RequestID(r.Context()); got != existingID {
-			t.Errorf("got request ID %q, want %q", got, existingID)
-		}
 		w.WriteHeader(http.StatusOK)
 	}))
 

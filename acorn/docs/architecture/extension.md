@@ -91,29 +91,29 @@ The other apps around it:
 
 ## 3. Repository map
 
-| Path                                                                       | What it is                                                                                         |
-| -------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------- |
-| [`acorn/extension`](../../extension)                                       | The extension (workspace `acorn-extension`). Version lives only in `package.json`.                 |
-| `acorn/extension/src/background.ts`, `src/background/`                     | Service worker: startup, alarms, tab lifecycle, message router, socket, capture sink.              |
-| `acorn/extension/src/agent/`                                               | The agent Run's extension side: screenshot, input, overlay, the loop (§19).                        |
-| `acorn/extension/src/content/`                                             | Content script: the selection Q&A chip and the support handoff.                                    |
-| `acorn/extension/src/pipeline/`                                            | Résumé recommend/generate for a job, the run log, API clients (`pipeline/api/`).                   |
-| `acorn/extension/src/sidebar/`                                             | Side panel React app.                                                                              |
-| `acorn/extension/src/tab-*-session.ts`, `storage-lock.ts`                  | Per-tab state in `chrome.storage.session`, IndexedDB log.                                          |
-| [`acorn/packages/shared`](../../packages/shared) (`@acorn/shared`)         | Contracts shared by extension and site: agent contract, run and progress types, résumé types.      |
-| [`acorn/packages/acorn-face`](../../packages/acorn-face) (`@acorn/face`)   | The animated mascot face (canvas, worker-rendered). UI only.                                       |
-| [`packages/support-chat`](../../../packages/support-chat)                  | Support-claim UI and API paths shared by the extension and the site.                               |
-| [`packages/app-theme`](../../../packages/app-theme)                        | `AppTheme` wrapper around `sid-ui`.                                                                |
-| [`acorn-backend/cmd/server`](../../../acorn-backend/cmd/server)            | `main.go` wires stores and mounts `acornapi`; `routes.go` adds `/health` and CORS.                 |
-| [`acorn-backend/acornapi`](../../../acorn-backend/acornapi)                | HTTP handlers for every `/acorn/*` route; `gateway/` is the Socket.IO server.                      |
-| [`acorn-backend/acorn`](../../../acorn-backend/acorn)                      | The writer: answers to free-text questions from the applicant profile, and its prompt.             |
-| [`acorn-backend/selector`](../../../acorn-backend/selector)                | SelectorGateway: the Jev question that picks a Library résumé for a posting.                       |
-| [`acorn-agent`](../../../acorn-agent)                                      | The agent server: the model loop behind the agent Run (§19).                                       |
-| `acorn-backend/mailbox`                                                    | Gmail OAuth and API.                                                                               |
-| `acorn-backend/profile`, `resume`, `account`                               | Profile document, résumé Library/recommend/generate, accounts and sessions.                        |
-| `acorn-backend/aiusage`, `debugtrace`, `support`, `supportaccess`, `admin` | Usage metering, process capture, support claims, support sign-in, admin console.                   |
-| [`backend-core`](../../../backend-core)                                    | Shared Go: `config` (model ids, URLs), `openai` (OpenRouter client), `jev` (decision client), etc. |
-| [`tests/e2e/agent`](../../../tests/e2e/agent)                              | Headless end-to-end test of the real extension and the agent server on a local site.               |
+| Path                                                                       | What it is                                                                                                                                     |
+| -------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------- |
+| [`acorn/extension`](../../extension)                                       | The extension (workspace `acorn-extension`). Version lives only in `package.json`.                                                             |
+| `acorn/extension/src/background.ts`, `src/background/`                     | Service worker: startup, alarms, tab lifecycle, message router, socket, capture sink.                                                          |
+| `acorn/extension/src/agent/`                                               | The agent Run's extension side: screenshot, input, overlay, the loop (§19).                                                                    |
+| `acorn/extension/src/content/`                                             | Content script: the selection Q&A chip and the support handoff.                                                                                |
+| `acorn/extension/src/pipeline/`                                            | Résumé recommend/generate for a job, the run log, API clients (`pipeline/api/`).                                                               |
+| `acorn/extension/src/sidebar/`                                             | Side panel React app.                                                                                                                          |
+| `acorn/extension/src/tab-*-session.ts`, `storage-lock.ts`                  | Per-tab state in `chrome.storage.session`, IndexedDB log.                                                                                      |
+| [`acorn/packages/shared`](../../packages/shared) (`@acorn/shared`)         | Contracts shared by extension and site: agent contract, run and progress types, résumé types.                                                  |
+| [`acorn/packages/acorn-face`](../../packages/acorn-face) (`@acorn/face`)   | The animated mascot face (canvas, worker-rendered). UI only.                                                                                   |
+| [`packages/support-chat`](../../../packages/support-chat)                  | Support-claim UI and API paths shared by the extension and the site.                                                                           |
+| [`packages/app-theme`](../../../packages/app-theme)                        | `AppTheme` wrapper around `sid-ui`.                                                                                                            |
+| [`acorn-backend/cmd/server`](../../../acorn-backend/cmd/server)            | `main.go` wires stores and mounts `acornapi`; `routes.go` adds `/health` and CORS.                                                             |
+| [`acorn-backend/acornapi`](../../../acorn-backend/acornapi)                | HTTP handlers for every `/acorn/*` route; `gateway/` is the Socket.IO server.                                                                  |
+| [`acorn-backend/acorn`](../../../acorn-backend/acorn)                      | The writer: answers to free-text questions from the applicant profile, and its prompt.                                                         |
+| [`acorn-backend/selector`](../../../acorn-backend/selector)                | SelectorGateway: the Jev question that picks a Library résumé for a posting.                                                                   |
+| [`acorn-agent`](../../../acorn-agent)                                      | The agent server: the model loop behind the agent Run (§19).                                                                                   |
+| `acorn-backend/mailbox`                                                    | Gmail OAuth and API.                                                                                                                           |
+| `acorn-backend/profile`, `resume`, `account`                               | Profile document, résumé Library/recommend/generate, accounts and sessions.                                                                    |
+| `acorn-backend/aiusage`, `debugtrace`, `support`, `supportaccess`, `admin` | Usage metering, process capture, support claims, support sign-in, admin console.                                                               |
+| [`backend-core`](../../../backend-core)                                    | Go shared by the API and the agent: `config` (model ids, URLs), `openai` (OpenRouter client), `jev` (decision client), `llmhttp`, `requestid`. |
+| [`tests/e2e/agent`](../../../tests/e2e/agent)                              | Headless end-to-end test of the real extension and the agent server on a local site.                                                           |
 
 ---
 
@@ -416,7 +416,7 @@ All data is in MongoDB (`AcornDB`):
 
 Library files are slow to read from Mongo (seconds per file), so [`resume/file_cache.go`](../../../acorn-backend/resume/file_cache.go) keeps whole rows with their bytes in memory by account and id, up to 256 MB, the copies used longest ago dropped first. A copy is served without asking Mongo for 30 s; after that one query that skips the bytes (`uploadedAt`, `size`, names, `analyzedAt`, primary) says whether it is current, and only a changed file is read again. Requests for one file at once share one read (singleflight), a stack's formats load side by side, a write through the process drops the copy, and a read is bounded to 60 s. The `ETag` of a Library or job résumé file is the hash of the versions it was built from, so a `304` costs no bytes read at all once the copy is warm. When Recommend picks a résumé it reads that stack and up to three cover-letter stacks into memory beside the request.
 
-Worker Pool jobs come from the shared jobs catalog (`backend-core/jobs`).
+Worker Pool jobs come from the shared jobs catalog ([`acorn-backend/internal/jobs`](../../../acorn-backend/internal/jobs)).
 
 ### 12.7 Process capture and support reports
 

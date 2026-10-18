@@ -3,9 +3,6 @@ package killswitch
 import (
 	"context"
 	"errors"
-	"net/http"
-	"net/http/httptest"
-	"strings"
 	"testing"
 	"time"
 )
@@ -124,40 +121,6 @@ func TestFetchErrorWithoutCacheUsesEnv(t *testing.T) {
 	}
 	if !store.Enabled(context.Background(), AcornAI) {
 		t.Fatal("env default should stay on when mongo has never answered")
-	}
-}
-
-func TestWriteDisabledAndGuard(t *testing.T) {
-	mem := NewMemory(Defaults{AcornAI: false})
-	rec := httptest.NewRecorder()
-	WriteDisabled(rec, AcornAI)
-	if rec.Code != http.StatusServiceUnavailable || !strings.Contains(rec.Body.String(), "Acorn AI") {
-		t.Fatalf("disabled = %d %s", rec.Code, rec.Body.String())
-	}
-
-	inner := http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
-		w.WriteHeader(http.StatusNoContent)
-	})
-	blocked := httptest.NewRecorder()
-	Guard(mem, AcornAI, inner).ServeHTTP(blocked, httptest.NewRequest(http.MethodPost, "/acorn/analyze", nil))
-	if blocked.Code != http.StatusServiceUnavailable {
-		t.Fatalf("guard off = %d", blocked.Code)
-	}
-	open := httptest.NewRecorder()
-	Guard(nil, AcornAI, inner).ServeHTTP(open, httptest.NewRequest(http.MethodPost, "/acorn/analyze", nil))
-	if open.Code != http.StatusNoContent {
-		t.Fatalf("nil switches = %d", open.Code)
-	}
-}
-
-func TestCheck(t *testing.T) {
-	ctx := context.Background()
-	if err := Check(ctx, nil, AcornAI); err != nil {
-		t.Fatal(err)
-	}
-	mem := NewMemory(Defaults{AcornAI: false})
-	if err := Check(ctx, mem, AcornAI); !errors.Is(err, ErrDisabled) {
-		t.Fatalf("err = %v", err)
 	}
 }
 

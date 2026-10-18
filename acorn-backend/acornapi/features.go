@@ -4,12 +4,12 @@ package acornapi
 // feature instead of by URL. Every route that calls a model has one here; a
 // route missing from routeFeatures is recorded under its pattern.
 const (
-	featureAsk            = "ask"
-	featureResumeGenerate = "resume_generate"
-	featureResumeAnalyze  = "resume_analyze"
-	featureRecommend      = "recommend"
-	featureProfileImport  = "profile_import"
-	featureGmailLabel        = "gmail_label"
+	featureAsk                 = "ask"
+	featureResumeGenerate      = "resume_generate"
+	featureResumeAnalyze       = "resume_analyze"
+	featureRecommend           = "recommend"
+	featureProfileImport       = "profile_import"
+	featureGmailLabel          = "gmail_label"
 	featureRunMailVerification = "run_mail_verification"
 )
 

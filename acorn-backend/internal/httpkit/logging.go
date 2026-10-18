@@ -39,14 +39,6 @@ func recordFrom(ctx context.Context) *requestRecord {
 	return rec
 }
 
-// RequestID returns the request ID from the context, or "" if none is set.
-func RequestID(ctx context.Context) string {
-	if rec := recordFrom(ctx); rec != nil {
-		return rec.id
-	}
-	return ""
-}
-
 // SetUserID records the authenticated user for the request log line.
 // Session and role middleware should call this once they resolve the user.
 func SetUserID(ctx context.Context, userID string) {

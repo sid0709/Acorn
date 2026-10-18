@@ -9,7 +9,7 @@ import (
 
 	"github.com/sid0709/OpenSeat/acorn-backend/account"
 	"github.com/sid0709/OpenSeat/acorn-backend/acorn"
-	"github.com/sid0709/OpenSeat/backend-core/google"
+	"github.com/sid0709/OpenSeat/acorn-backend/internal/google"
 )
 
 func TestGoogleStartNeedsConfiguration(t *testing.T) {

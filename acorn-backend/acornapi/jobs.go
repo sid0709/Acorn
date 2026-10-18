@@ -7,9 +7,8 @@ import (
 	"net/http"
 	"net/url"
 	"strings"
-	"time"
 
-	"github.com/sid0709/OpenSeat/backend-core/jobs"
+	"github.com/sid0709/OpenSeat/acorn-backend/internal/jobs"
 )
 
 const notSpecified = "Not specified"
@@ -35,7 +34,7 @@ type workerJob struct {
 }
 
 func (s *Server) workerJob(ctx context.Context, id string) (workerJob, error) {
-	job, err := s.listings.GetCatalogJob(ctx, id, time.Now())
+	job, err := s.listings.GetCatalogJob(ctx, id)
 	if err != nil {
 		return workerJob{}, err
 	}

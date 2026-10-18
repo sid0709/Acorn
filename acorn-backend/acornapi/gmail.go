@@ -10,8 +10,8 @@ import (
 	"strings"
 	"time"
 
+	"github.com/sid0709/OpenSeat/acorn-backend/internal/google"
 	"github.com/sid0709/OpenSeat/acorn-backend/mailbox"
-	"github.com/sid0709/OpenSeat/backend-core/google"
 )
 
 func (s *Server) gmailReady() bool {
