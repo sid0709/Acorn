@@ -11,10 +11,6 @@ import (
 	"time"
 )
 
-// DefaultDeepSeekMaxSearches caps the web searches behind one research answer: enough
-// to find a company's own site and a profile or two, few enough to stay fast.
-const DefaultDeepSeekMaxSearches = 4
-
 const (
 	defaultSourceDB            = "AthensDB"
 	defaultSourceCollection    = "jobs"
@@ -26,7 +22,6 @@ const (
 	defaultTempCompanies       = "temp_companies"
 	defaultOpenAIModel         = "gpt-4o-mini"
 	defaultOpenAIBaseURL       = "https://api.openai.com/v1"
-	defaultDeepSeekModel       = "deepseek-flash"
 
 	// OpenRouter is the only model Acorn calls. The key lives on the account profile,
 	// not in the environment.
@@ -39,11 +34,9 @@ const (
 	// ScreenDecisionModel is the decision model that reads a screenshot and says whether it
 	// shows what was expected (the acorn-agent's checks between steps). It is billed on input
 	// tokens only, at the same rate as GPT-6 Luna's input.
-	ScreenDecisionModel      = "openai/gpt-6-luna-decisions"
-	OpenRouterDecisionsURL   = "https://openrouter.ai/api/alpha/decisions"
-	defaultDeepSeekBaseURL   = "https://api.deepseek.com"
-	defaultDeepSeekSearchURL = "https://api.deepseek.com/anthropic"
-	envFileName              = ".env"
+	ScreenDecisionModel    = "openai/gpt-6-luna-decisions"
+	OpenRouterDecisionsURL = "https://openrouter.ai/api/alpha/decisions"
+	envFileName            = ".env"
 )
 
 // Database is the MongoDB every service shares: one set of accounts, jobs, and companies.
@@ -75,18 +68,6 @@ type OpenAI struct {
 	// SearchModel answers web-search requests. Blank means Model.
 	SearchModel string
 	BaseURL     string
-}
-
-// DeepSeek is the model the admin migration uses to read job posts and to research
-// companies on the web. BaseURL serves chat completions; SearchURL is DeepSeek's
-// Anthropic-format endpoint, the one that runs web search on DeepSeek's side.
-type DeepSeek struct {
-	APIKey    string
-	Model     string
-	BaseURL   string
-	SearchURL string
-	// MaxSearches caps the web searches behind one research answer.
-	MaxSearches int
 }
 
 // Google is the OAuth client from Google Cloud and where Sign in with Google
@@ -145,16 +126,6 @@ func LoadOpenAI() OpenAI {
 		Model:       Env("OPENAI_MODEL", defaultOpenAIModel),
 		SearchModel: strings.TrimSpace(os.Getenv("OPENAI_SEARCH_MODEL")),
 		BaseURL:     Env("OPENAI_BASE_URL", defaultOpenAIBaseURL),
-	}
-}
-
-func LoadDeepSeek() DeepSeek {
-	return DeepSeek{
-		APIKey:      strings.TrimSpace(os.Getenv("DEEPSEEK_API_KEY")),
-		Model:       Env("DEEPSEEK_MODEL", defaultDeepSeekModel),
-		BaseURL:     Env("DEEPSEEK_BASE_URL", defaultDeepSeekBaseURL),
-		SearchURL:   Env("DEEPSEEK_SEARCH_URL", defaultDeepSeekSearchURL),
-		MaxSearches: EnvInt("DEEPSEEK_MAX_SEARCHES", DefaultDeepSeekMaxSearches),
 	}
 }
 

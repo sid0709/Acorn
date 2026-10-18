@@ -9,10 +9,6 @@ import (
 type Name string
 
 const (
-	// Signup is email and Google account creation. Existing sign-in stays up.
-	Signup Name = "signup"
-	// Email is outbound transactional mail (verification, password reset).
-	Email Name = "email"
 	// JobImports is Athens → Acorn copies (admin migration and copy CLIs).
 	JobImports Name = "job_imports"
 	// AcornAI is Acorn's model-backed routes.
@@ -24,8 +20,6 @@ const (
 )
 
 const (
-	envSignup           = "KILLSWITCH_SIGNUP"
-	envEmail            = "KILLSWITCH_EMAIL"
 	envJobImports       = "KILLSWITCH_JOB_IMPORTS"
 	envAcornAI          = "KILLSWITCH_ACORN_AI"
 	envScoutSubmissions = "KILLSWITCH_SCOUT_SUBMISSIONS"
@@ -45,11 +39,9 @@ const (
 const DefaultCache = 5 * time.Second
 
 // Names is every switch, in the order staff APIs list them.
-var Names = []Name{Signup, Email, JobImports, AcornAI, ScoutSubmissions, Checkout}
+var Names = []Name{JobImports, AcornAI, ScoutSubmissions, Checkout}
 
 var envKeys = map[Name]string{
-	Signup:           envSignup,
-	Email:            envEmail,
 	JobImports:       envJobImports,
 	AcornAI:          envAcornAI,
 	ScoutSubmissions: envScoutSubmissions,
@@ -57,8 +49,6 @@ var envKeys = map[Name]string{
 }
 
 var disabledMessages = map[Name]string{
-	Signup:           "Sign-up is temporarily unavailable.",
-	Email:            "Email is temporarily unavailable.",
 	JobImports:       "Job imports are temporarily unavailable.",
 	AcornAI:          "Acorn AI is temporarily unavailable.",
 	ScoutSubmissions: "Scout submissions are temporarily unavailable.",

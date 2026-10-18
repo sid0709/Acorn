@@ -18,9 +18,6 @@ const (
 	collectionName = "app_settings"
 	// DocumentAcorn is the document holding Acorn's OpenAI settings.
 	DocumentAcorn = "acorn-ai"
-	// DocumentDeepSeek is the document holding the DeepSeek settings job analysis,
-	// company research, and company autofill use.
-	DocumentDeepSeek = "deepseek"
 
 	maxKeyLength   = 400
 	maxModelLength = 80

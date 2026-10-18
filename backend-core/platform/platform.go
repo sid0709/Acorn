@@ -35,8 +35,6 @@ type Platform struct {
 	Staff    *staff.Store
 	// AISettings holds the OpenAI settings staff save for Acorn.
 	AISettings *aisettings.Store
-	// DeepSeekSettings holds the DeepSeek settings staff save for admin analysis.
-	DeepSeekSettings *aisettings.Store
 	// KillSwitches are runtime feature toggles. Env is the default; Mongo can override.
 	KillSwitches *killswitch.Store
 	// ScamHolds scores jobs at publish time and queues risky ones for staff.
@@ -91,10 +89,9 @@ func Open(ctx context.Context, db config.Database, opts Options) (*Platform, err
 		Scouts:   scouts,
 		Staff:    moderation,
 
-		AISettings:       aisettings.NewStore(client, db.DestDB, box),
-		DeepSeekSettings: aisettings.NewStoreFor(client, db.DestDB, box, aisettings.DocumentDeepSeek),
-		KillSwitches:     killswitch.NewStore(client, db.DestDB, killswitch.LoadDefaults()),
-		ScamHolds:        scamHolds,
+		AISettings:   aisettings.NewStore(client, db.DestDB, box),
+		KillSwitches: killswitch.NewStore(client, db.DestDB, killswitch.LoadDefaults()),
+		ScamHolds:    scamHolds,
 	}
 	if err := p.ensureIndexes(ctx); err != nil {
 		p.Close()
