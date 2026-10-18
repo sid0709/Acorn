@@ -71,6 +71,7 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("POST "+BasePath+"/sessions", s.start)
 	mux.HandleFunc("POST "+BasePath+"/sessions/{id}/step", s.step)
 	mux.HandleFunc("POST "+BasePath+"/sessions/{id}/continue", s.continueRun)
+	mux.HandleFunc("GET "+BasePath+"/sessions/{id}/memory", s.memory)
 	mux.HandleFunc("POST "+BasePath+"/sessions/{id}/vet", s.vet)
 	mux.HandleFunc("GET "+BasePath+"/sessions/{id}/resume", s.resume)
 	mux.HandleFunc("DELETE "+BasePath+"/sessions/{id}", s.end)
@@ -130,6 +131,15 @@ func (s *Server) continueRun(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(w, http.StatusOK, continued)
+}
+
+func (s *Server) memory(w http.ResponseWriter, r *http.Request) {
+	memory, err := s.agent.Memory(r.PathValue("id"))
+	if err != nil {
+		writeError(w, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, memory)
 }
 
 func (s *Server) vet(w http.ResponseWriter, r *http.Request) {

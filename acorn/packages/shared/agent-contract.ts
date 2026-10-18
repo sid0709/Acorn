@@ -15,6 +15,7 @@ export const AGENT_ROUTES = {
   session: (sessionId: string) => `/agent/v1/sessions/${encodeURIComponent(sessionId)}`,
   vet: (sessionId: string) => `/agent/v1/sessions/${encodeURIComponent(sessionId)}/vet`,
   continue: (sessionId: string) => `/agent/v1/sessions/${encodeURIComponent(sessionId)}/continue`,
+  memory: (sessionId: string) => `/agent/v1/sessions/${encodeURIComponent(sessionId)}/memory`,
 } as const;
 
 /** Header that carries the person's OpenRouter key when the extension has one. */
@@ -272,6 +273,22 @@ export interface AgentStart {
   trace?: boolean;
   /** Let the run survey a long page (several screenshots from top to bottom). Off: it sees the current screen only. */
   survey?: boolean;
+  /** What a stopped run knew, to start a run that goes on from it when the server forgot the session. */
+  memory?: AgentMemory;
+}
+
+/**
+ * The part of a run that is costly to find again and does not depend on its step history: the
+ * notes and job the model recorded, the job description read from the page, the résumé chosen
+ * from it, and whether the application form was already found. The extension keeps it when a run
+ * stops, so Continue goes on from it even when the agent's session is gone.
+ */
+export interface AgentMemory {
+  memo?: string;
+  job?: string;
+  jd?: string;
+  resume?: string;
+  formReady?: boolean;
 }
 
 export interface AgentResumeInfo {

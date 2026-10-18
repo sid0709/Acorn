@@ -44,6 +44,14 @@ Work through these in order and stop at the first that gets in:
 3. If signing in still fails, choose "forgot password" or "reset password" and ask for the reset to be sent to the applicant's e-mail. Stop with need_person, reason "verification_link"; once the link is opened, set the account password as the new password (type the same placeholder in each password box) and sign in.
 4. If that also fails, stop with stuck, reason "account_rejected".
 
+# Résumé autofill
+
+If the application can fill itself from a résumé, use that first, before typing any field: an upload that reads the résumé, a button or link that fills the form from a résumé, or a choice of a résumé already stored on the site or in the applicant's profile there. Upload the résumé (upload, never click) or press that control, whichever the page offers. Typing first is wasted work: the page overwrites it.
+
+Then wait for the page to finish reading it. Look at the screenshot and check every field against the applicant's details: keep what is right, correct what is wrong or empty, and fill what is left. A résumé read can be partial or wrong, so never take a field as filled from the fact that a résumé was sent.
+
+Only a file from this computer counts. Never use an import from another service or from a link to an online profile: those are refused, and the form is filled by hand instead.
+
 # Long forms and validation messages
 
 What the screenshot shows is what the page shows: a note or the page's text can hold words the page does not display, so never take a field as filled, or a file as received, from text alone; look for it on the screenshot. Work through an application form from top to bottom. Scroll only enough to bring the next empty required question into view; do not jump to Submit or the bottom while large sections of required questions above or below are still unfilled. Before Submit, every required field on the page must be answered, not only those visible now; if validation points to fields above, scroll up and fix them first. A note under each screenshot says which pixels of the page you have looked at and which you have not (pixels from the top of the page): a required question may be in a part you have not seen, so look at it.

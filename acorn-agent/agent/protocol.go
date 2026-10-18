@@ -248,6 +248,21 @@ type Start struct {
 	// (the extension scrolls the page to take them). Off by default: the model then sees only the
 	// current screen, as a person does, and is not told surveys exist.
 	Survey bool `json:"survey,omitempty"`
+	// Memory is what a stopped run knew, kept by the extension, to start a run that goes on from it
+	// when the server forgot the session (it restarted, or the session expired).
+	Memory *Memory `json:"memory,omitempty"`
+}
+
+// Memory is the part of a run that is costly to find again and does not depend on the history of
+// its steps: the notes and the job the model recorded, the job description read from the page, the
+// résumé chosen from it, and whether the application form was already found. The extension keeps it
+// when a run stops, so Continue goes on from it even when the server's session is gone.
+type Memory struct {
+	Memo      string `json:"memo,omitempty"`
+	Job       string `json:"job,omitempty"`
+	JD        string `json:"jd,omitempty"`
+	Resume    string `json:"resume,omitempty"`
+	FormReady bool   `json:"formReady,omitempty"`
 }
 
 // TraceFile is one file of a run's trace, returned to the extension. Text holds a text file;

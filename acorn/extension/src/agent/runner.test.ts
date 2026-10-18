@@ -61,6 +61,15 @@ type Seen = { method: string; path: string; body: unknown };
 let requests: Seen[];
 /** What the server answers to a Continue; null is a run it still holds, at step 4. */
 let continueReply: { status: number; body: unknown } | null = null;
+/** What the server answers to a request for a run's memory; null is the run's notes and job description. */
+let memoryReply: { status: number; body: unknown } | null = null;
+const MEMORY = {
+  memo: "name and email are in",
+  job: "Backend engineer",
+  jd: "We need a Go developer.",
+  resume: "Go",
+  formReady: true,
+};
 
 /** An agent server that answers each step with the next scripted one. */
 function installServer(steps: (AgentStep | { status: number; body: unknown })[]) {
@@ -75,6 +84,10 @@ function installServer(steps: (AgentStep | { status: number; body: unknown })[])
         sessionId: "s1",
         resumes: [{ id: "a.pdf", fileName: "a.pdf", size: 3 }],
       });
+    }
+    if (path.endsWith("/memory")) {
+      if (memoryReply) return Response.json(memoryReply.body, { status: memoryReply.status });
+      return Response.json(MEMORY);
     }
     if (path.endsWith("/continue")) {
       if (continueReply) return Response.json(continueReply.body, { status: continueReply.status });
@@ -128,6 +141,7 @@ const mouse = (type: string) =>
 
 beforeEach(() => {
   continueReply = null;
+  memoryReply = null;
   installBrowser();
 });
 afterEach(() => {
@@ -587,6 +601,20 @@ describe("runAgent", () => {
       assert.equal(deleted().length, 1);
       assert.equal(progress.at(-1)?.run?.canContinue, false);
     });
+
+    it("keeps what the run knew beside the session, for when the agent forgets it", async () => {
+      installServer([finished("need_person", 3, "There is a CAPTCHA on this page")]);
+      await run({ keepRun });
+      assert.deepEqual(kept[0].run.memory, MEMORY);
+    });
+
+    it("keeps the run without its memory when the agent cannot give it", async () => {
+      memoryReply = { status: 500, body: { error: "boom" } };
+      installServer([finished("need_person", 3, "There is a CAPTCHA on this page")]);
+      await run({ keepRun });
+      assert.equal(kept.length, 1);
+      assert.equal(kept[0].run.memory, undefined);
+    });
   });
 
   describe("Continue", () => {
@@ -638,6 +666,23 @@ describe("runAgent", () => {
       });
       assert.deepEqual(claimed, [9]);
       assert.deepEqual(seen.at(-1), [7, 9]);
+    });
+
+    it("goes on from the kept memory, in the same settings, when the agent forgot the run", async () => {
+      continueReply = { status: 404, body: { error: "no such session", code: "no_session" } };
+      installServer([finished("done", 1, "ok")]);
+      const { report, progress } = await run({
+        resume: { ...resume, memory: MEMORY },
+        stopBeforeSubmit: false,
+      });
+      const opened = sessionsOpened();
+      assert.equal(opened.length, 1);
+      const start = opened[0].body as { memory?: unknown; stopBeforeSubmit?: boolean };
+      assert.deepEqual(start.memory, MEMORY);
+      assert.equal(start.stopBeforeSubmit, true, "the run goes on as it was started");
+      assert.equal(report.outcome, "ready_to_submit");
+      assert.ok(progress.some((p) => /kept the job description/.test(p.message)));
+      assert.ok(!progress.some((p) => /starts over/.test(p.message)));
     });
 
     it("starts over, and says so, when the agent no longer remembers the run", async () => {

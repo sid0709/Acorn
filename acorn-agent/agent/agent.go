@@ -194,10 +194,12 @@ func (a *Agent) Start(ctx context.Context, key string, auth applicant.Auth, star
 	if err != nil {
 		return Started{}, err
 	}
-	a.sessions.add(&session{
+	fresh := &session{
 		id: id, key: key, auth: auth, start: start, snap: snap, system: system, maxActions: maxActions, fallback: fallback,
 		created: now, touched: now, wantTrace: start.Trace, stepLimit: a.cfg.MaxSteps,
-	})
+	}
+	fresh.remember(start.Memory)
+	a.sessions.add(fresh)
 	stacks, documents := catalog(snap.Resumes)
 	startTrace, err := a.trace.recordSession(id, system, sessionTrace{
 		Started: now, Start: start, Model: a.modelName(key), ScreenModel: a.screenName(key), Config: a.cfg, Resumes: stacks, Documents: documents,
@@ -212,6 +214,35 @@ func (a *Agent) Start(ctx context.Context, key string, auth applicant.Auth, star
 		infos[i] = ResumeInfo{ID: resume.ID, FileName: resume.FileName, Size: resume.Size}
 	}
 	return Started{SessionID: id, Resumes: infos, Trace: startTrace}, nil
+}
+
+// remember starts the run from what a run that stopped knew, when the extension passes it. The
+// history of that run's steps is gone, so the model is told so and to judge by the screenshot.
+func (s *session) remember(m *Memory) {
+	if m == nil {
+		return
+	}
+	s.memo = clipText(strings.TrimSpace(m.Memo), maxMemoChars)
+	s.job = clipText(strings.TrimSpace(m.Job), maxJobChars)
+	s.jd = clipText(strings.TrimSpace(m.JD), maxJDChars)
+	s.resume = strings.TrimSpace(m.Resume)
+	s.formReady = m.FormReady
+	if s.jd != "" {
+		s.jdChecks = 1
+	}
+	s.notes = append(s.notes, "The run was paused and the applicant pressed Continue, but the earlier steps of the run are no longer held, so you have your notes and the job description only. Judge by the screenshot, not by a plan you may have made, and do not redo what the screen shows is done.")
+}
+
+// Memory is what a run knows that is costly to find again, for the extension to keep.
+func (a *Agent) Memory(id string) (Memory, error) {
+	s, ok := a.sessions.get(id)
+	if !ok {
+		return Memory{}, ErrNoSession
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.touched = a.now()
+	return Memory{Memo: s.memo, Job: s.job, JD: s.jd, Resume: s.resume, FormReady: s.formReady}, nil
 }
 
 // End drops a session once the run is over.

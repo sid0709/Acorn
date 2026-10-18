@@ -12,6 +12,7 @@ import {
   type AgentAsk,
   type AgentSurveyScreen,
   type AgentActionResult,
+  type AgentMemory,
   type AgentStep,
   type AgentUsage,
 } from "@acorn/shared/agent-contract";
@@ -31,6 +32,7 @@ import { captureShot, isTabHidden, type Shot } from "./capture";
 import {
   AgentApiError,
   continueSession,
+  fetchMemory,
   endSession,
   fetchResumeFile,
   isRetryable,
@@ -61,6 +63,7 @@ import {
   failureFromStatus,
   runningProgress,
   AGENT_EXPIRED_MESSAGE,
+  AGENT_RESTORED_MESSAGE,
   AGENT_STARTING_MESSAGE,
 } from "./progress";
 import { waitForScrollRest } from "./scroll-rest";
@@ -132,6 +135,19 @@ export interface AgentRunArgs {
   keepRun?: (tabIds: number[], run: KeptRun) => Promise<void>;
 }
 
+/**
+ * Keeps a stopped run for Continue, with what it knows beside the session: the agent's session
+ * can be gone by the time Continue is pressed (the server restarted, or it expired).
+ */
+async function keepWithMemory(
+  args: Pick<AgentRunArgs, "agentUrl" | "keepRun">,
+  tabs: number[],
+  run: KeptRun,
+): Promise<void> {
+  const memory = await fetchMemory(args.agentUrl, run.sessionId);
+  await args.keepRun?.(tabs, memory ? { ...run, memory } : run).catch(() => undefined);
+}
+
 /** Whether a failure leaves the run's memory on the server for Continue: not when it is gone. */
 function runSurvives(err: unknown): boolean {
   return !(err instanceof AgentApiError && err.code === AGENT_ERROR_CODE.noSession);
@@ -196,6 +212,7 @@ export async function runAgent(args: AgentRunArgs): Promise<RunReport> {
   const tabs: number[] = [args.tabId];
   let current: AgentTab | null = null;
   let sessionId: string | null = null;
+  let restoredMemory: AgentMemory | undefined;
   /** Set when the run ends in a way Continue can take up again: the server keeps its memory. */
   let keepSession = false;
   // A continued run keeps what it was started with: the agent's prompt was fixed then.
@@ -474,10 +491,21 @@ export async function runAgent(args: AgentRunArgs): Promise<RunReport> {
       } catch (err) {
         // A run the agent forgot (it expired, or the server restarted) cannot be continued: start over.
         if (!(err instanceof AgentApiError && err.code === AGENT_ERROR_CODE.noSession)) throw err;
-        log.event("agent-continue:lost", { sessionId: args.resume.sessionId });
+        log.event("agent-continue:lost", {
+          sessionId: args.resume.sessionId,
+          restored: Boolean(args.resume.memory),
+        });
         sessionId = null;
-        stopBeforeSubmit = args.stopBeforeSubmit;
-        emit(runningProgress(runState(), AGENT_EXPIRED_MESSAGE));
+        restoredMemory = args.resume.memory;
+        // With the run's memory kept, the new session goes on from it as it was started; without it
+        // the run starts over, as the person's settings are now.
+        if (!restoredMemory) stopBeforeSubmit = args.stopBeforeSubmit;
+        emit(
+          runningProgress(
+            runState(),
+            restoredMemory ? AGENT_RESTORED_MESSAGE : AGENT_EXPIRED_MESSAGE,
+          ),
+        );
       }
     }
     if (!sessionId) {
@@ -489,6 +517,7 @@ export async function runAgent(args: AgentRunArgs): Promise<RunReport> {
           stopBeforeSubmit,
           trace: true,
           survey: surveyOn,
+          ...(restoredMemory ? { memory: restoredMemory } : {}),
         },
         args.key,
         args.accessToken,
@@ -705,9 +734,12 @@ export async function runAgent(args: AgentRunArgs): Promise<RunReport> {
     frames.stop?.();
     if (sessionId && keepSession && args.keepRun) {
       // The agent keeps this run's memory; Continue takes it back up on the tab it stopped in.
-      await args
-        .keepRun(tabs, { sessionId, runId, tabId: current?.tabId ?? workTabId, stopBeforeSubmit })
-        .catch(() => undefined);
+      await keepWithMemory(args, tabs, {
+        sessionId,
+        runId,
+        tabId: current?.tabId ?? workTabId,
+        stopBeforeSubmit,
+      });
     } else if (sessionId) {
       await endSession(args.agentUrl, sessionId);
     }

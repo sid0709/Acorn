@@ -252,6 +252,24 @@ func TestVetAnswersForARunAndRefusesAnUnknownOne(t *testing.T) {
 	}
 }
 
+func TestARunsMemoryComesBackAndSeedsANewRun(t *testing.T) {
+	_, ts := newServer(t, fakeModel{content: workingReply}, "server-key")
+	seed := agent.Memory{Memo: "on the work history step", Job: "Backend engineer", JD: "We need a Go developer.", Resume: "Go", FormReady: true}
+	_, body := send(t, http.MethodPost, ts.URL+BasePath+"/sessions", agent.Start{URL: "https://jobs.example", Memory: &seed}, nil)
+	var started agent.Started
+	if err := json.Unmarshal(body, &started); err != nil {
+		t.Fatal(err)
+	}
+	response, body := send(t, http.MethodGet, ts.URL+BasePath+"/sessions/"+started.SessionID+"/memory", nil, nil)
+	var got agent.Memory
+	if err := json.Unmarshal(body, &got); err != nil || response.StatusCode != 200 || got != seed {
+		t.Fatalf("memory = %d %+v %v", response.StatusCode, got, err)
+	}
+	if response, _ := send(t, http.MethodGet, ts.URL+BasePath+"/sessions/nope/memory", nil, nil); response.StatusCode != http.StatusNotFound {
+		t.Fatalf("unknown run = %d", response.StatusCode)
+	}
+}
+
 // tokenSource is an applicant that lives behind a sign-in: it knows one session token.
 type tokenSource struct{ asked []string }
 

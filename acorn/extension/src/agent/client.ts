@@ -8,6 +8,7 @@ import {
   AGENT_KEY_HEADER,
   AGENT_ROUTES,
   type AgentContinued,
+  type AgentMemory,
   type AgentErrorBody,
   type AgentObservation,
   type AgentStart,
@@ -130,6 +131,25 @@ export async function continueSession(base: string, sessionId: string): Promise<
     timeoutMs: QUICK_TIMEOUT_MS,
   });
   return (await response.json()) as AgentContinued;
+}
+
+/**
+ * What a run knows, to keep when it stops so Continue can go on from it even if the server forgets
+ * the session. A failure here changes nothing for the person, so it is not raised: the run is
+ * kept without it.
+ */
+export async function fetchMemory(
+  base: string,
+  sessionId: string,
+): Promise<AgentMemory | undefined> {
+  try {
+    const response = await call(base, AGENT_ROUTES.memory(sessionId), {
+      timeoutMs: QUICK_TIMEOUT_MS,
+    });
+    return (await response.json()) as AgentMemory;
+  } catch {
+    return undefined;
+  }
 }
 
 export async function sendStep(
