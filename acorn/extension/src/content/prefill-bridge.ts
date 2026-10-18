@@ -133,9 +133,18 @@ function hits(target: Element, point: Element | null): boolean {
   return isTwin(target, point) || isOwnLayer(target, point);
 }
 
-/** How many times the field's own area the wrapper of its drawn layers may take: a page-wide layer is not its own. */
+/**
+ * How big the wrapper of a field's own layers may be: no more than this many times the larger of the field
+ * and the layer, and no more than this fraction of the window. A page-wide layer is not a field's own.
+ */
 const OWN_LAYER_MAX_AREA_RATIO = 4;
+const OWN_LAYER_MAX_WINDOW_FRACTION = 0.1;
 const CONTROL_SELECTOR = "input:not([type=hidden]), select, textarea";
+
+const areaOf = (el: Element): number => {
+  const box = el.getBoundingClientRect();
+  return box.width * box.height;
+};
 
 /**
  * A layer a widget draws over its own field (a formatted display over a transparent input): it sits in the
@@ -145,16 +154,15 @@ const CONTROL_SELECTOR = "input:not([type=hidden]), select, textarea";
  */
 function isOwnLayer(target: Element, point: Element): boolean {
   if (!target.matches(CONTROL_SELECTOR)) return false;
-  const field = target.getBoundingClientRect();
-  const fits = (el: Element) => {
-    const box = el.getBoundingClientRect();
-    return box.width * box.height <= OWN_LAYER_MAX_AREA_RATIO * field.width * field.height;
-  };
+  const limit = Math.min(
+    OWN_LAYER_MAX_AREA_RATIO * Math.max(areaOf(target), areaOf(point)),
+    OWN_LAYER_MAX_WINDOW_FRACTION * window.innerWidth * window.innerHeight,
+  );
   let wrapper: Element = target;
   while (
     wrapper.parentElement &&
     wrapper.parentElement.querySelectorAll(CONTROL_SELECTOR).length === 1 &&
-    fits(wrapper.parentElement)
+    areaOf(wrapper.parentElement) <= limit
   ) {
     wrapper = wrapper.parentElement;
   }
@@ -163,6 +171,18 @@ function isOwnLayer(target: Element, point: Element): boolean {
     wrapper.contains(point) &&
     mostlyOverlap(target.getBoundingClientRect(), point.getBoundingClientRect())
   );
+}
+
+/** What sits over a point, in words for the log: its tag, role and class tokens. */
+function describeCover(el: Element | null): string {
+  if (!el) return "nothing";
+  const role = el.getAttribute("role");
+  const classes = String(el.getAttribute("class") ?? "")
+    .split(/\s+/)
+    .filter(Boolean)
+    .slice(0, 3)
+    .join(".");
+  return `${el.tagName.toLowerCase()}${role ? `[role=${role}]` : ""}${classes ? `.${classes}` : ""}`;
 }
 
 /**
@@ -205,7 +225,13 @@ function locate(el: Element): Located {
     if (x < 0 || y < 0 || x > window.innerWidth || y > window.innerHeight) continue;
     if (hits(target, el.ownerDocument.elementFromPoint(x, y))) return { ok: true, x, y };
   }
-  return { ok: false, error: "something covers the field or it is off the screen" };
+  const cx = rect.left + rect.width / 2;
+  const cy = rect.top + rect.height / 2;
+  const over = el.ownerDocument.elementFromPoint(cx, cy);
+  return {
+    ok: false,
+    error: `something covers the field or it is off the screen (at its middle: ${describeCover(over)}, ${Math.round(rect.width)}x${Math.round(rect.height)})`,
+  };
 }
 
 function read(el: Element): ReadBack {

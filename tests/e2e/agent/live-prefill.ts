@@ -134,7 +134,8 @@ try {
   const workerHandle = await worker.worker();
   workerHandle?.on("console", (message) => {
     const text = message.text();
-    if (!text.includes("[acorn:run]") || !/agent-(dom|click|prefill:error)/.test(text)) return;
+    if (!text.includes("[acorn:run]") || !/agent-(dom|click|prefill:error|prefill:fill)/.test(text))
+      return;
     void Promise.all(message.args().map((arg) => arg.jsonValue().catch(() => "?"))).then((parts) =>
       console.log(
         `EVT ${parts

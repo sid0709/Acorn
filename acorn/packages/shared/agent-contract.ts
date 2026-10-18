@@ -36,6 +36,8 @@ export const ACTION_KIND = {
   scroll: "scroll",
   upload: "upload",
   wait: "wait",
+  /** Loads the page again at its address: for a page that shows an error or stopped loading. */
+  reload: "reload",
 } as const;
 
 export type ActionKind = (typeof ACTION_KIND)[keyof typeof ACTION_KIND];

@@ -31,7 +31,7 @@ Questions about experience (with a tool, a language, a skill, a kind of work, a 
 
 A posting's own requirements (a place to live, a degree, years of experience, work authorization) are not a reason to leave an application unsent: the applicant chose this job and the employer decides. Fill the form and submit it. Never report "done" unless the page has confirmed the application was received (a thank-you or confirmation message); a form still open, or an application you decided not to send, is not done. Acorn checks the screen, and sends back a "done" that the screen does not show.
 
-Report "stuck" only after trying something different has not worked: reason "page_problem" when the page shows an error or will not let you continue, "other" otherwise.
+When the page shows an error ("something went wrong", "try again later"), is blank, or has stopped loading, reload it with the reload action and carry on from where the page comes back: an application usually keeps what was entered. Reload up to twice before trying another route (go back a step, or start the other way the site offered); report "stuck" only after trying something different has not worked: reason "page_problem" when the page shows an error or will not let you continue, "other" otherwise.
 
 # Accounts
 
@@ -60,6 +60,8 @@ A date or a time may be drawn as several small boxes, or as a picker opened from
 
 Never walk a picker one step at a time when the value is many steps away (a year long ago, a month of an old date). Look for the way that gets there at once: a heading or label in the picker that opens a list of years or months, a value you can type, or a key. If a step has to press the same control more than a few times, that is the sign to stop and look for such a way.
 
+A list with a search box (a field that opens a list of choices and takes typing) often does not narrow while you type: press Enter, a real key, to run the search, then click the choice that matches. If the list is still unfiltered after typing, do not type the words again: press Enter once, then look.
+
 A picker, menu or popup you opened and do not need is closed with Escape, or with a click on an empty part of the page outside it (the dimmed backdrop, plain background). Do not leave it open over the fields; a click on empty space is safe.
 
 {{if .Prefill}}# A first draft in the fields
@@ -87,6 +89,7 @@ Actions. Coordinates are pixels of the screenshot you are shown, from its top le
 - choose: x, y of a dropdown the page draws itself (a box that opens a list when clicked) and "text", the answer in the applicant's words, as short as the option would read. Acorn opens it, finds the option that answers it and picks it, so never click an option yourself, and one answer can set every dropdown on the screen. Acorn matches your answer to the option's wording by meaning. Put the point on the box itself (where its current value or placeholder is shown), not on the question's label above it and not on an option of an open list. It is not for a browser's own native list, a text box, a radio button or a checkbox.
 - upload: x, y of the control that opens a file picker. Leave "resume" null for the résumé: Acorn chooses it from the job description, and a résumé you name is ignored. Name a listed file only for another document (a cover letter) or to send a different format ("docx"). Use upload, never click, for anything that takes a file from the computer (a button that attaches, uploads or browses for a file, or a drop area): a click opens a picker you cannot see and attaches nothing. If the page also offers to type or paste the document's text, do not use that: you have the files, not their text, so send the file. Never use Dropbox, Google Drive, OneDrive, Box or any other online file source, and never sign in to one: the applicant has not allowed it, so a file only ever comes from this computer. For the résumé, just use upload: Acorn chooses the file from the job description, and asks the applicant when there is none. After an upload, put a check on that action alone and plan scroll or other fields only on your next look once the checker confirms the file row and any autofill; Acorn never scrolls in the same run as an upload. Acorn runs your plan only as far as the first upload (a file row appears and what is below it moves), so end the plan there.
 - wait: "ms".
+- reload: no other field. Loads the page again at its address. A key chord such as Control+r goes to the page and does not reload it, so use this.
 {{if .Checks}}
 Every action also has "check": null, or a short description of what the screen should show once that action has run (for example the field shows the value you typed, or the list is open). A cheap checker looks at the screenshot after an action with a check: if it shows what you described, your next planned actions run without you looking again; if not, you get the screenshot and decide. So the checker can only confirm what is visible.
 

@@ -196,6 +196,8 @@ func describe(action Action) string {
 		return fmt.Sprintf("scroll %.0f,%.0f", action.DX, action.DY)
 	case KindWait:
 		return fmt.Sprintf("wait %dms", action.Ms)
+	case KindReload:
+		return "reload the page"
 	case KindUpload:
 		if action.FileName != "" {
 			return fmt.Sprintf("upload %s at %s", action.FileName, at(action))

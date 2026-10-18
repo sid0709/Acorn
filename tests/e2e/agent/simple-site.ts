@@ -59,7 +59,7 @@ button{margin:20px 8px 0 0;padding:10px 18px;font:inherit}fieldset{margin:14px 0
         return page(
           "Work experience",
           `<style>.seg{position:relative;display:inline-block;width:70px;height:36px;border:1px solid #888;margin-right:6px}
-.seg input{position:absolute;inset:0;width:100%;height:100%;border:0;opacity:0.02;box-sizing:border-box}
+.seg input{position:absolute;left:0;top:0;width:3px;height:3px;border:0;opacity:0.02;box-sizing:border-box}
 .seg .shown{position:absolute;inset:0;display:flex;align-items:center;padding-left:8px}</style>
 <h1>Work experience</h1>
 <label for="jt">Job title *</label><input type="text" id="jt" name="job_title" required>

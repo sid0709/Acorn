@@ -152,6 +152,29 @@ async function clickWatchingForPicker(
   return opened ? { opened: ACTION_OPENED.filePicker } : {};
 }
 
+/** How long a reloaded page is waited for, and how often it is asked whether it has loaded. */
+const RELOAD_WAIT_MS = 15_000;
+const RELOAD_POLL_MS = 250;
+
+/** Waits until the page says it has loaded; a page still loading at the limit is looked at as it is. */
+async function waitForDocumentReady(cdp: Cdp, sleep: (ms: number) => Promise<void>): Promise<void> {
+  // The old document may still answer once before the new one replaces it.
+  await sleep(RELOAD_POLL_MS * 2);
+  for (let waited = 0; waited < RELOAD_WAIT_MS; waited += RELOAD_POLL_MS) {
+    try {
+      const answer = await cdp.send<{ result?: { value?: unknown } }>("Runtime.evaluate", {
+        expression: `document.readyState`,
+        returnByValue: true,
+      });
+      if (answer.result?.value === "complete") break;
+    } catch {
+      // The page is between documents.
+    }
+    await sleep(RELOAD_POLL_MS);
+  }
+  await sleep(SETTLE_MS);
+}
+
 async function perform(ctx: ExecutorContext, action: AgentAction): Promise<Done> {
   const { cdp } = ctx;
   switch (action.kind) {
@@ -227,6 +250,12 @@ async function perform(ctx: ExecutorContext, action: AgentAction): Promise<Done>
     }
     case "wait": {
       await ctx.sleep(action.ms ?? 1000);
+      return {};
+    }
+    case "reload": {
+      // A key chord goes to the page, not the browser, so a reload is the browser's own.
+      await cdp.send("Page.reload", { ignoreCache: false });
+      await waitForDocumentReady(cdp, ctx.sleep);
       return {};
     }
     default:

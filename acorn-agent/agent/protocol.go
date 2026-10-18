@@ -19,6 +19,8 @@ const (
 	KindScroll      = "scroll"
 	KindUpload      = "upload"
 	KindWait        = "wait"
+	// KindReload loads the page again at its address, for a page that shows an error or stopped loading.
+	KindReload = "reload"
 	// KindChoose is not sent to the extension: it sets a dropdown the page draws itself to an
 	// answer given in words. The agent opens it, finds the option and picks it (choose.go).
 	KindChoose = "choose"
