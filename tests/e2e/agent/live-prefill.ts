@@ -153,12 +153,16 @@ try {
   // session (reading the verification email in their Gmail). The email and password come from the
   // environment and are never written anywhere.
   if (process.env.LIVE_ACORN_EMAIL && process.env.LIVE_ACORN_PASSWORD) {
+    type SignIn = { ok?: boolean; error?: string };
     const signedIn = await control.evaluate(
-      async (email, password) =>
-        (await chrome.runtime.sendMessage({ type: "acorn:auth-signin", email, password })) as {
-          ok?: boolean;
-          error?: string;
-        },
+      async (email, password): Promise<SignIn> => {
+        const reply: unknown = await chrome.runtime.sendMessage({
+          type: "acorn:auth-signin",
+          email,
+          password,
+        });
+        return reply as SignIn;
+      },
       process.env.LIVE_ACORN_EMAIL,
       process.env.LIVE_ACORN_PASSWORD,
     );
