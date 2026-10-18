@@ -12,7 +12,6 @@ const NEVER_FILLED = new Set([
   "button",
   "image",
   "reset",
-  "password",
   "search",
   "range",
   "color",

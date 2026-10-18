@@ -67,7 +67,7 @@ func TestPrefillKeepsOnlyFillsThatAreSafeToType(t *testing.T) {
 			planned(10, "select_radio", "Newsletter", "Sign me up"),
 			planned(11, "fill", "Résumé", "resume.pdf"),             // a file input is not typed into
 			planned(12, "fill", "Citizenship", "Canada"),            // a dropdown the page draws itself
-			planned(13, "fill", "Password", "hunter2"),              // a password box
+			planned(13, "fill", "Password", "hunter2"),              // a password box, with a password the model made up
 			planned(14, "fill", "Submit", "now"),                    // a button
 			planned(8, "select_radio", "Authorized to work?", "No"), // answered twice
 			planned(99, "fill", "Nowhere", "x"),                     // not in the tree
@@ -98,14 +98,76 @@ func TestPrefillKeepsOnlyFillsThatAreSafeToType(t *testing.T) {
 	}
 }
 
-func TestPrefillNeverTypesTheAccountPassword(t *testing.T) {
-	model := &scriptedModel{replies: []string{planReply(planned(3, "fill", "Full name", "my "+applicant.AccountPasswordToken)), classified()}}
+func TestTheAccountPasswordIsTypedOnlyIntoAPasswordFieldAndOnlyAsItsPlaceholder(t *testing.T) {
+	token := applicant.AccountPasswordToken
+	model := &scriptedModel{replies: []string{
+		planReply(
+			planned(13, "fill", "Password", token),
+			planned(3, "fill", "Full name", "my "+token), // the placeholder in a text box
+			planned(4, "fill", "Email", token),           // alone, but not in a password field
+			planned(14, "fill", "Submit", token),         // a button
+		),
+		classified(),
+	}}
+	a := newTestAgent(t, model, &fixedDecider{}, DefaultConfig())
+	id := startWithPrefill(t, a)
+	s, _ := a.sessions.get(id)
+	s.snap.Secrets = map[string]string{token: "Real-Passw0rd!"}
+	plan, err := a.Prefill(context.Background(), id, treeRequest())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(plan.Fills) != 1 || plan.Fills[0].Ref != 13 || !plan.Fills[0].Secret || len(plan.Dropped) != 3 {
+		t.Fatalf("plan = %+v", plan)
+	}
+}
+
+func TestAPasswordFieldTakesNoPasswordTheModelMadeUp(t *testing.T) {
+	model := &scriptedModel{replies: []string{planReply(planned(13, "fill", "Password", "hunter2")), classified()}}
 	a := newTestAgent(t, model, &fixedDecider{}, DefaultConfig())
 	plan, err := a.Prefill(context.Background(), startWithPrefill(t, a), treeRequest())
 	if err != nil {
 		t.Fatal(err)
 	}
 	if len(plan.Fills) != 0 || len(plan.Dropped) != 1 {
+		t.Fatalf("plan = %+v", plan)
+	}
+}
+
+func TestTheRealPasswordComesFromTheProfileAndIsCountedAsAnAccountStep(t *testing.T) {
+	model := &scriptedModel{replies: []string{planReply(planned(13, "fill", "Password", applicant.AccountPasswordToken)), classified()}}
+	a := newTestAgent(t, model, &fixedDecider{}, DefaultConfig())
+	id := startWithPrefill(t, a)
+	s, _ := a.sessions.get(id)
+	s.snap.Secrets = map[string]string{applicant.AccountPasswordToken: "Real-Passw0rd!"}
+	plan, err := a.Prefill(context.Background(), id, treeRequest())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(plan.Fills) != 1 || plan.Fills[0].Value != "Real-Passw0rd!" || !plan.Fills[0].Secret {
+		t.Fatalf("plan = %+v", plan)
+	}
+	if s.accountSteps != 1 {
+		t.Fatalf("account steps = %d", s.accountSteps)
+	}
+	// The real password is not in anything the trace keeps of the model's side of the call.
+	for _, request := range model.requests {
+		for _, message := range request.Messages {
+			if strings.Contains(message.Text, "Real-Passw0rd!") {
+				t.Fatal("the real password was sent to the model")
+			}
+		}
+	}
+}
+
+func TestAProfileWithoutAPasswordLeavesThePasswordFieldToTheDrivingModel(t *testing.T) {
+	model := &scriptedModel{replies: []string{planReply(planned(13, "fill", "Password", applicant.AccountPasswordToken)), classified()}}
+	a := newTestAgent(t, model, &fixedDecider{}, DefaultConfig())
+	id := startWithPrefill(t, a)
+	s, _ := a.sessions.get(id)
+	s.snap.Secrets = nil
+	plan, _ := a.Prefill(context.Background(), id, treeRequest())
+	if len(plan.Fills) != 0 || len(plan.Dropped) != 1 || !strings.Contains(plan.Dropped[0], "no account password") {
 		t.Fatalf("plan = %+v", plan)
 	}
 }

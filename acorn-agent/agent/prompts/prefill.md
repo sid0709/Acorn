@@ -33,7 +33,7 @@ Rules:
     - Different groups can differ: an export-control / restricted-country group may correctly be None while a citizenship / residency group must use the matching status option from the same details.
     - Do not tick a box that consents, agrees, certifies or acknowledges something, or that opts in to messages: the second step decides those.
 13. Leave a field out when it already holds a value, when you are unsure which control it is, or when no answer is right. Leaving a field out is always safe: the second step looks at everything you leave.
-14. Never type the account password. The details show it as {{.Token}}; do not write that anywhere.
+14. The account password. The details show it as {{.Token}}. Use it only for a password field (an input of type password) of a page whose only way forward is to sign in or to create an account: no guest option is offered. Write it exactly as {{.Token}} (action "fill"), in every password field of that form, including one that asks to confirm or repeat it. Never write any other password, never write it in any other kind of field, and leave a password field out when the page does not need an account.
 15. Applicant identity (overrides rules 6–7 only for the cases below): every answer is the human applicant from the profile. The applicant is not an AI, bot, automated agent, or automation tool.
     - If a question asks whether the applicant used AI, a chatbot, a bot, or an automated tool to write, fill, or submit THIS application, choose that control's no / have not / not applicable option. Never choose yes / used AI / automated.
     - Never select an option that identifies the applicant as an AI, bot, or automated agent.

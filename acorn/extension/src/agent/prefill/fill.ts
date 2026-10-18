@@ -13,7 +13,7 @@ import { runActions, type ExecutorContext } from "../executor";
 import { rewriteApplicantIdentityValue } from "./applicant-identity";
 import { askFrame, toTabViewport, type FrameInfo } from "./frames";
 import { PREFILL_MESSAGE, type Described, type Located, type ReadBack } from "./messages";
-import { PREFILL_REVEAL_MS, PREFILL_SETTLE_MS } from "./settings";
+import { PREFILL_REVEAL_MS, PREFILL_SECRET_SHOWN, PREFILL_SETTLE_MS } from "./settings";
 
 import type { AgentAction, AgentPrefillFill } from "@acorn/shared/agent-contract";
 
@@ -104,7 +104,8 @@ async function fillTextBox(
   described: Extract<Described, { ok: true }>,
 ): Promise<FillOutcome> {
   if (!described.empty) return { status: "skipped", why: "it already holds a value" };
-  const value = intended(fill, described);
+  // The account password is typed as the server sent it: no wording rule reads it, and nothing shows it.
+  const value = fill.secret ? (fill.value ?? "") : intended(fill, described);
   if (!value) return failed("there is nothing to type");
   if (described.maxLength > 0 && [...value].length > described.maxLength) {
     return failed(`the text is longer than the ${described.maxLength} characters the field takes`);
@@ -117,7 +118,13 @@ async function fillTextBox(
   ]);
   if (error) return failed(error);
   const read = await readBack(ctx, frameId, fill.ref);
-  if (read?.ok && showsAnswer(read.value, value)) return { status: "filled", shown: read.value };
+  if (read?.ok && showsAnswer(read.value, value)) {
+    return { status: "filled", shown: fill.secret ? PREFILL_SECRET_SHOWN : read.value };
+  }
+  if (fill.secret)
+    return failed(
+      read?.ok && read.value ? "the field shows something else" : "the field stayed empty",
+    );
   return failed(
     read?.ok && read.value.trim() ? `the field shows "${read.value}"` : "the field stayed empty",
   );

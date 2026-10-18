@@ -78,6 +78,8 @@ type PrefillFill struct {
 	// Role is what kind of control the model took it for ("textbox", "combobox", "radio").
 	Role  string `json:"role,omitempty"`
 	Value string `json:"value,omitempty"`
+	// Secret marks a value that is the account password: the extension types it and never logs or shows it.
+	Secret bool `json:"secret,omitempty"`
 }
 
 // PrefillPlan is what the extension types.
@@ -239,6 +241,10 @@ func (a *Agent) Prefill(ctx context.Context, id string, req PrefillRequest) (Pre
 		}
 	}
 
+	// The account password is typed from the profile, as the agent's own typing does: the model wrote only
+	// its placeholder.
+	fills, dropped = a.substituteSecrets(s, fills, dropped)
+
 	entry.Message = fmt.Sprintf("quick text pass: %d fields answered", len(fills))
 	entry.Dropped, entry.Usage = dropped, s.usage
 	a.record(s, entry, "", calls)
@@ -334,7 +340,10 @@ func readPrefill(content string, nodes map[int]treeNode) ([]PrefillFill, []strin
 			continue
 		}
 		done[in.ElementIndex] = true
-		fills = append(fills, PrefillFill{Ref: in.ElementIndex, Action: in.Action, Label: label, Role: strings.TrimSpace(in.ExpectedRole), Value: value})
+		fills = append(fills, PrefillFill{
+			Ref: in.ElementIndex, Action: in.Action, Label: label, Role: strings.TrimSpace(in.ExpectedRole), Value: value,
+			Secret: node.inputType == "password",
+		})
 	}
 	return fills, dropped, nil
 }
@@ -353,8 +362,21 @@ func checkFill(node treeNode, action, value string) string {
 	if value == "" {
 		return "there is nothing to put in"
 	}
-	if strings.Contains(value, applicant.AccountPasswordToken) {
-		return "the account password is not typed here"
+	// The account password is written as its placeholder, and only into a password field, alone: the
+	// server types the real one (substituteSecrets). Any other password, or the placeholder anywhere
+	// else, is refused.
+	isToken := strings.Contains(value, applicant.AccountPasswordToken)
+	switch {
+	case node.tag == "input" && node.inputType == "password":
+		if value != applicant.AccountPasswordToken {
+			return "a password field takes only the account password"
+		}
+		if action != FillText {
+			return fmt.Sprintf("%q is not an action of this pass", action)
+		}
+		return ""
+	case isToken:
+		return "the account password goes only into a password field"
 	}
 	if len([]rune(value)) > maxTypeChars {
 		return "the text is too long"
@@ -443,4 +465,30 @@ func (a *Agent) learnPrefill(s *session, obs Observation) {
 	if len(obs.Prefill.Filled) > 0 {
 		s.formReady = true
 	}
+}
+
+// substituteSecrets puts the real account password in the fills that name its placeholder, and counts
+// the pass among the steps that typed it (a site that keeps refusing the account ends the run). A
+// profile without a password leaves those fields to the driving model, which asks the person.
+func (a *Agent) substituteSecrets(s *session, fills []PrefillFill, dropped []string) ([]PrefillFill, []string) {
+	secret := s.snap.Secrets[applicant.AccountPasswordToken]
+	out := make([]PrefillFill, 0, len(fills))
+	typed := false
+	for _, fill := range fills {
+		if !fill.Secret {
+			out = append(out, fill)
+			continue
+		}
+		if secret == "" {
+			dropped = append(dropped, fmt.Sprintf("element %d (%s): the profile has no account password", fill.Ref, fill.Label))
+			continue
+		}
+		fill.Value = secret
+		typed = true
+		out = append(out, fill)
+	}
+	if typed {
+		s.accountSteps++
+	}
+	return out, dropped
 }

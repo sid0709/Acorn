@@ -69,8 +69,8 @@ type AdvanceRequest struct {
 type AdvanceResult struct {
 	Action string `json:"action"`
 	// Ref is always sent: 0 is the first control, not an absent one.
-	Ref    int    `json:"ref"`
-	Text   string `json:"text,omitempty"`
+	Ref  int    `json:"ref"`
+	Text string `json:"text,omitempty"`
 	// Submit is whether the control sends the application rather than moving to another step.
 	Submit bool `json:"submit,omitempty"`
 	// Sure is how sure the decision model was of the pick, and None how sure it was that no control continues.

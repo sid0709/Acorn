@@ -57,7 +57,7 @@ import {
   waitForMailVerification,
 } from "./mail-verification";
 import { readFocus, readPageText } from "./page-info";
-import { stateOf } from "./point-info";
+import { forLog, stateOf } from "./point-info";
 import { DomFirst, type DomFirstOutcome } from "./prefill/dom-first";
 import { PrefillGate } from "./prefill/fields";
 import { runPrefill } from "./prefill/run";
@@ -522,10 +522,12 @@ export async function runAgent(args: AgentRunArgs): Promise<RunReport> {
     checkStopped,
     guard: clickGuard,
     afterClick: () => frames.sweep(),
+    noFocus: (at, info, refocused) =>
+      log.event("agent-type:no-focus", { at, info: forLog(info), refocused }),
     inspected: (at, before, after) => {
       // A click on a box, list or expander that left it as it was: what was there, and what covered it.
       if (stateOf(before) !== stateOf(after)) return;
-      log.event("agent-click:no-change", { at, before, after });
+      log.event("agent-click:no-change", { at, before: forLog(before), after: forLog(after) });
     },
   };
 

@@ -17,7 +17,14 @@ import { NO_FOCUS_MESSAGE, nothingHasFocus, scrollsAPage } from "./focus-guard";
 import { blockedMessage, type GuardVerdict } from "./guard";
 import { clickAt, moveMouse, pressKeys, typeText, wheelAt } from "./input";
 import { watchInputEffects } from "./input-settle";
-import { hasState, readPointInfo, type PointInfo } from "./point-info";
+import {
+  centerEdgeTarget,
+  focusControlAt,
+  hasState,
+  readPointInfo,
+  restoreScroll,
+  type PointInfo,
+} from "./point-info";
 import { scrollForAction } from "./survey";
 import { uploadAt, type ResumeFile } from "./upload";
 import { waitForUploadProcessing } from "./upload-settle";
@@ -27,6 +34,13 @@ import type { Overlay } from "./overlay";
 
 /** The pause after an action that changes the page, so what it did has drawn before the next look. */
 export const SETTLE_MS = 350;
+/**
+ * A click within this fraction of the window's height of its top or bottom edge is made after scrolling
+ * the control to the middle, and the page is then put back. Clicks that close to an edge did nothing
+ * on a page where the same click at mid-screen worked, and nothing in the page said why (four sightings
+ * in Workday runs), so the cause is unverified; a click away from the edges is made as it was.
+ */
+export const EDGE_BAND_RATIO = 0.08;
 /** The pause after a scroll, which a page may answer by loading more. */
 export const SCROLL_SETTLE_MS = 500;
 
@@ -55,6 +69,15 @@ export interface ExecutorContext {
    * can be explained. It never blocks or changes the click.
    */
   inspected?: (at: { x: number; y: number }, before: PointInfo, after: PointInfo | null) => void;
+  /**
+   * Told when text was about to be typed and nothing had focus: where the last click was, what was
+   * under it, and whether focusing the control there put the focus right. For the run's log.
+   */
+  noFocus?: (
+    at: { x: number; y: number } | null,
+    info: PointInfo | null,
+    refocused: boolean,
+  ) => void;
   /** How long an upload waits for the click to open a file picker; the default when unset. */
   fileChooserWaitMs?: number;
 }
@@ -91,6 +114,9 @@ async function refuseIfBlocked(verdict: Promise<GuardVerdict> | undefined): Prom
 
 type Done = { detail?: string; opened?: ActionOpened };
 
+/** Where each executor last clicked: typing goes to the control that click was meant for. */
+const lastClicks = new WeakMap<object, { x: number; y: number }>();
+
 /**
  * Clicks, and says whether the click opened a file picker. The session intercepts pickers so no
  * system dialog appears, which also hides them from a screenshot: without this the model would
@@ -106,17 +132,22 @@ async function clickWatchingForPicker(
   const stop = ctx.cdp.onEvent((method) => {
     if (method === "Page.fileChooserOpened") opened = true;
   });
-  const before = ctx.inspected ? await readPointInfo(ctx.cdp, x, y) : null;
+  lastClicks.set(ctx, { x, y });
+  // Near an edge the control is brought to mid-screen for the click (and the page put back after it).
+  const edge = await centerEdgeTarget(ctx.cdp, x, y, EDGE_BAND_RATIO);
+  const at = edge ?? { x, y };
+  const before = ctx.inspected ? await readPointInfo(ctx.cdp, at.x, at.y) : null;
   try {
-    await clickAt(ctx.cdp, x, y, options);
+    await clickAt(ctx.cdp, at.x, at.y, options);
     await ctx.sleep(SETTLE_MS);
     await ctx.afterClick?.();
     if (before && hasState(before)) {
-      const after = await readPointInfo(ctx.cdp, x, y);
-      ctx.inspected?.({ x, y }, before, after);
+      const after = await readPointInfo(ctx.cdp, at.x, at.y);
+      ctx.inspected?.({ x: at.x, y: at.y }, before, after);
     }
   } finally {
     stop();
+    if (edge) await restoreScroll(ctx.cdp, edge.scrollX, edge.scrollY);
   }
   return opened ? { opened: ACTION_OPENED.filePicker } : {};
 }
@@ -151,7 +182,15 @@ async function perform(ctx: ExecutorContext, action: AgentAction): Promise<Done>
     }
     case "type": {
       if (!action.text) throw new Error("there is no text to type");
-      if (await nothingHasFocus(cdp)) throw new Error(NO_FOCUS_MESSAGE);
+      if (await nothingHasFocus(cdp)) {
+        // The click did not put focus in the control (something took it, or the page moved the focus
+        // away): the control at that point is focused, as a person would tab to it, and the text is
+        // typed with the same real keys. Without a control there, the text is refused as before.
+        const at = lastClicks.get(ctx) ?? null;
+        const refocused = at ? await focusControlAt(cdp, at.x, at.y) : false;
+        ctx.noFocus?.(at, at ? await readPointInfo(cdp, at.x, at.y) : null, refocused);
+        if (!refocused) throw new Error(NO_FOCUS_MESSAGE);
+      }
       await typeText(cdp, action.text);
       await ctx.sleep(SETTLE_MS / 2);
       return { detail: `${[...action.text].length} characters` };

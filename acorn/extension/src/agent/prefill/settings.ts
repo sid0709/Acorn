@@ -39,6 +39,8 @@ export const PREFILL_TIMEOUT_MS = 90_000;
 export const PREFILL_FILL_TIMEOUT_MS = 25_000;
 /** The longest the whole pass may type; fields it did not reach are left to the model's look. */
 export const PREFILL_TOTAL_TIMEOUT_MS = 120_000;
+/** What a field that holds the account password is reported as: the password itself is never shown or logged. */
+export const PREFILL_SECRET_SHOWN = "(hidden)";
 /** What the overlay's bar says while the pass types. */
 export const PREFILL_OVERLAY_LABEL = "Acorn is filling the plain fields";
 

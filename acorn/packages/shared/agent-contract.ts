@@ -205,6 +205,8 @@ export interface AgentPrefillFill {
   role?: string;
   /** The text to type, or the option's own wording for a list or a group. */
   value?: string;
+  /** The value is the account password: typed, never logged or shown. */
+  secret?: boolean;
 }
 
 export interface AgentPrefillPlan {
