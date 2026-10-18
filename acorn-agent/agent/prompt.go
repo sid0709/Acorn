@@ -7,7 +7,7 @@ import (
 	"text/template"
 	"time"
 
-	"github.com/sid0709/OpenSeat/acorn-agent/applicant"
+	"github.com/sid0709/acorn/acorn-agent/applicant"
 )
 
 //go:embed prompts/system.md

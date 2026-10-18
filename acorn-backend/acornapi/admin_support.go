@@ -8,8 +8,8 @@ import (
 	"strings"
 	"time"
 
-	"github.com/sid0709/OpenSeat/acorn-backend/account"
-	"github.com/sid0709/OpenSeat/acorn-backend/supportaccess"
+	"github.com/sid0709/acorn/acorn-backend/account"
+	"github.com/sid0709/acorn/acorn-backend/supportaccess"
 )
 
 // supportLandingPath is acorn-frontend's route that redeems a support handoff code.

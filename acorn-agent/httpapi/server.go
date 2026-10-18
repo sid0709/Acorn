@@ -13,9 +13,9 @@ import (
 	"strings"
 	"time"
 
-	"github.com/sid0709/OpenSeat/acorn-agent/agent"
-	"github.com/sid0709/OpenSeat/acorn-agent/applicant"
-	"github.com/sid0709/OpenSeat/acorn-agent/llm"
+	"github.com/sid0709/acorn/acorn-agent/agent"
+	"github.com/sid0709/acorn/acorn-agent/applicant"
+	"github.com/sid0709/acorn/acorn-agent/llm"
 )
 
 const (

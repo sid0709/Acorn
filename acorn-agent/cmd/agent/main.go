@@ -13,13 +13,13 @@ import (
 	"syscall"
 	"time"
 
-	"github.com/sid0709/OpenSeat/acorn-agent/agent"
-	"github.com/sid0709/OpenSeat/acorn-agent/applicant"
-	"github.com/sid0709/OpenSeat/acorn-agent/decide"
-	"github.com/sid0709/OpenSeat/acorn-agent/httpapi"
-	"github.com/sid0709/OpenSeat/acorn-agent/llm"
-	"github.com/sid0709/OpenSeat/acorn-backend/config"
-	"github.com/sid0709/OpenSeat/acorn-backend/jev"
+	"github.com/sid0709/acorn/acorn-agent/agent"
+	"github.com/sid0709/acorn/acorn-agent/applicant"
+	"github.com/sid0709/acorn/acorn-agent/decide"
+	"github.com/sid0709/acorn/acorn-agent/httpapi"
+	"github.com/sid0709/acorn/acorn-agent/llm"
+	"github.com/sid0709/acorn/acorn-backend/config"
+	"github.com/sid0709/acorn/acorn-backend/jev"
 )
 
 const (

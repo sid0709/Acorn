@@ -7,9 +7,9 @@ import (
 	"net/http/httptest"
 	"testing"
 
-	"github.com/sid0709/OpenSeat/acorn-backend/acornapi/gateway"
-	"github.com/sid0709/OpenSeat/acorn-backend/aiusage"
-	"github.com/sid0709/OpenSeat/acorn-backend/openai"
+	"github.com/sid0709/acorn/acorn-backend/acornapi/gateway"
+	"github.com/sid0709/acorn/acorn-backend/aiusage"
+	"github.com/sid0709/acorn/acorn-backend/openai"
 )
 
 type fakeUsageStore struct {

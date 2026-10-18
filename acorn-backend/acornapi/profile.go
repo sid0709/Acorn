@@ -5,8 +5,8 @@ import (
 	"errors"
 	"net/http"
 
-	"github.com/sid0709/OpenSeat/acorn-backend/account"
-	"github.com/sid0709/OpenSeat/acorn-backend/profile"
+	"github.com/sid0709/acorn/acorn-backend/account"
+	"github.com/sid0709/acorn/acorn-backend/profile"
 )
 
 func (s *Server) getProfile(w http.ResponseWriter, r *http.Request) {

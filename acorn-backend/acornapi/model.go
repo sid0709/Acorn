@@ -5,12 +5,12 @@ import (
 	"log/slog"
 	"net/http"
 
-	"github.com/sid0709/OpenSeat/acorn-backend/acorn"
-	"github.com/sid0709/OpenSeat/acorn-backend/debugtrace"
-	"github.com/sid0709/OpenSeat/acorn-backend/resume"
-	"github.com/sid0709/OpenSeat/acorn-backend/selector"
-	"github.com/sid0709/OpenSeat/acorn-backend/jev"
-	"github.com/sid0709/OpenSeat/acorn-backend/openai"
+	"github.com/sid0709/acorn/acorn-backend/acorn"
+	"github.com/sid0709/acorn/acorn-backend/debugtrace"
+	"github.com/sid0709/acorn/acorn-backend/jev"
+	"github.com/sid0709/acorn/acorn-backend/openai"
+	"github.com/sid0709/acorn/acorn-backend/resume"
+	"github.com/sid0709/acorn/acorn-backend/selector"
 )
 
 // openRouterKey is the signed-in account's OpenRouter key; "" when the profile has none.

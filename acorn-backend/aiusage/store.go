@@ -5,7 +5,7 @@ import (
 	"context"
 	"time"
 
-	"github.com/sid0709/OpenSeat/acorn-backend/openai"
+	"github.com/sid0709/acorn/acorn-backend/openai"
 	"go.mongodb.org/mongo-driver/v2/bson"
 	"go.mongodb.org/mongo-driver/v2/mongo"
 	"go.mongodb.org/mongo-driver/v2/mongo/options"

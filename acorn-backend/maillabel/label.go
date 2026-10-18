@@ -11,7 +11,7 @@ import (
 	"sync"
 	"unicode/utf8"
 
-	"github.com/sid0709/OpenSeat/acorn-backend/jev"
+	"github.com/sid0709/acorn/acorn-backend/jev"
 	"golang.org/x/sync/errgroup"
 )
 

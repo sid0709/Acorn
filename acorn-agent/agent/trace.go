@@ -10,7 +10,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/sid0709/OpenSeat/acorn-agent/llm"
+	"github.com/sid0709/acorn/acorn-agent/llm"
 )
 
 // tracer writes a run to disk when a trace folder is set, so a run can be debugged without

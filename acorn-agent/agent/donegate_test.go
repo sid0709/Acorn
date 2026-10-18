@@ -5,7 +5,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/sid0709/OpenSeat/acorn-agent/applicant"
+	"github.com/sid0709/acorn/acorn-agent/applicant"
 )
 
 func TestADoneThatTheScreenDoesNotConfirmIsSentBackAndNeverEndsAsSent(t *testing.T) {

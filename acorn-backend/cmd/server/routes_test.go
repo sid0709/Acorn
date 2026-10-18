@@ -9,10 +9,10 @@ import (
 	"testing"
 	"time"
 
-	"github.com/sid0709/OpenSeat/acorn-backend/account"
-	"github.com/sid0709/OpenSeat/acorn-backend/acorn"
-	"github.com/sid0709/OpenSeat/acorn-backend/acornapi"
-	"github.com/sid0709/OpenSeat/acorn-backend/acornapi/gateway"
+	"github.com/sid0709/acorn/acorn-backend/account"
+	"github.com/sid0709/acorn/acorn-backend/acorn"
+	"github.com/sid0709/acorn/acorn-backend/acornapi"
+	"github.com/sid0709/acorn/acorn-backend/acornapi/gateway"
 )
 
 func named(name string) http.Handler {

@@ -8,7 +8,7 @@ import (
 	"net/url"
 	"strings"
 
-	"github.com/sid0709/OpenSeat/acorn-backend/internal/jobs"
+	"github.com/sid0709/acorn/acorn-backend/internal/jobs"
 )
 
 const notSpecified = "Not specified"

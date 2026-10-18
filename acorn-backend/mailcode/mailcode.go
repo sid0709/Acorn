@@ -19,9 +19,9 @@ import (
 	"strconv"
 	"time"
 
-	"github.com/sid0709/OpenSeat/acorn-backend/mailbox"
-	"github.com/sid0709/OpenSeat/acorn-backend/selector"
-	"github.com/sid0709/OpenSeat/acorn-backend/jev"
+	"github.com/sid0709/acorn/acorn-backend/jev"
+	"github.com/sid0709/acorn/acorn-backend/mailbox"
+	"github.com/sid0709/acorn/acorn-backend/selector"
 )
 
 const (

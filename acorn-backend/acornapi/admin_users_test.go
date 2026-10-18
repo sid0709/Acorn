@@ -4,7 +4,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/sid0709/OpenSeat/acorn-backend/account"
+	"github.com/sid0709/acorn/acorn-backend/account"
 )
 
 func TestAccountRowIncludesDeactivatedAt(t *testing.T) {

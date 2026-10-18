@@ -5,7 +5,7 @@ import (
 	"errors"
 	"testing"
 
-	"github.com/sid0709/OpenSeat/acorn-backend/selector"
+	"github.com/sid0709/acorn/acorn-backend/selector"
 )
 
 func putFile(t *testing.T, svc *Service, row LibraryRow) {

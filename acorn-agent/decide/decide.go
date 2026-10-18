@@ -16,8 +16,8 @@ import (
 	"strings"
 	"time"
 
-	"github.com/sid0709/OpenSeat/acorn-agent/llm"
-	"github.com/sid0709/OpenSeat/acorn-backend/llmhttp"
+	"github.com/sid0709/acorn/acorn-agent/llm"
+	"github.com/sid0709/acorn/acorn-backend/llmhttp"
 )
 
 const (

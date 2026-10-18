@@ -7,8 +7,8 @@ import (
 	"strconv"
 	"time"
 
-	"github.com/sid0709/OpenSeat/acorn-backend/account"
-	"github.com/sid0709/OpenSeat/acorn-backend/aiusage"
+	"github.com/sid0709/acorn/acorn-backend/account"
+	"github.com/sid0709/acorn/acorn-backend/aiusage"
 )
 
 const (

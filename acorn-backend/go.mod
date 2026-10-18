@@ -1,4 +1,4 @@
-module github.com/sid0709/OpenSeat/acorn-backend
+module github.com/sid0709/acorn/acorn-backend
 
 go 1.26.4
 

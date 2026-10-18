@@ -8,8 +8,8 @@ import (
 	"strings"
 	"time"
 
-	"github.com/sid0709/OpenSeat/acorn-backend/jev"
-	"github.com/sid0709/OpenSeat/acorn-backend/openai"
+	"github.com/sid0709/acorn/acorn-backend/jev"
+	"github.com/sid0709/acorn/acorn-backend/openai"
 )
 
 const (

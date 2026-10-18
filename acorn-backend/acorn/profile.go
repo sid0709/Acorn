@@ -4,7 +4,7 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/sid0709/OpenSeat/acorn-backend/internal/candidate"
+	"github.com/sid0709/acorn/acorn-backend/internal/candidate"
 )
 
 // applicantNotes tell the planner how to read settings. They mirror the notes the

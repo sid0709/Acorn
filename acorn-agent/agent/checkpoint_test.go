@@ -11,7 +11,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/sid0709/OpenSeat/acorn-agent/decide"
+	"github.com/sid0709/acorn/acorn-agent/decide"
 )
 
 // fakeScreen answers each check with the next canned verdict and records what it was asked.

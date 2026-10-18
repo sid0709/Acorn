@@ -3,7 +3,7 @@ package acornapi
 import (
 	"testing"
 
-	"github.com/sid0709/OpenSeat/acorn-backend/support"
+	"github.com/sid0709/acorn/acorn-backend/support"
 )
 
 // A claim's captured session keeps its run folders in the download, and no stored

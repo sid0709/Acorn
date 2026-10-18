@@ -7,10 +7,10 @@ import (
 	"path/filepath"
 	"strings"
 
-	"github.com/sid0709/OpenSeat/acorn-backend/config"
+	"github.com/sid0709/acorn/acorn-backend/config"
 )
 
-const acornModule = "module github.com/sid0709/OpenSeat/acorn-backend"
+const acornModule = "module github.com/sid0709/acorn/acorn-backend"
 
 // loadAcornEnv reads acorn-backend/.env, walking up from the working directory
 // until it finds that module. A .env in another folder is ignored.

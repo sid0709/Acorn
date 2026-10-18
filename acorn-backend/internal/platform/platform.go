@@ -5,10 +5,10 @@ import (
 	"context"
 	"fmt"
 
-	"github.com/sid0709/OpenSeat/acorn-backend/internal/database"
-	"github.com/sid0709/OpenSeat/acorn-backend/internal/jobs"
-	"github.com/sid0709/OpenSeat/acorn-backend/internal/killswitch"
-	"github.com/sid0709/OpenSeat/acorn-backend/config"
+	"github.com/sid0709/acorn/acorn-backend/config"
+	"github.com/sid0709/acorn/acorn-backend/internal/database"
+	"github.com/sid0709/acorn/acorn-backend/internal/jobs"
+	"github.com/sid0709/acorn/acorn-backend/internal/killswitch"
 	"go.mongodb.org/mongo-driver/v2/mongo"
 )
 

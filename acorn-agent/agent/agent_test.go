@@ -15,9 +15,9 @@ import (
 	"sync"
 	"testing"
 
-	"github.com/sid0709/OpenSeat/acorn-agent/applicant"
-	"github.com/sid0709/OpenSeat/acorn-agent/llm"
-	"github.com/sid0709/OpenSeat/acorn-backend/jev"
+	"github.com/sid0709/acorn/acorn-agent/applicant"
+	"github.com/sid0709/acorn/acorn-agent/llm"
+	"github.com/sid0709/acorn/acorn-backend/jev"
 )
 
 // scriptedModel answers each call with the next canned reply and records every request.

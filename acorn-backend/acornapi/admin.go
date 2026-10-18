@@ -7,8 +7,8 @@ import (
 	"strings"
 	"time"
 
-	"github.com/sid0709/OpenSeat/acorn-backend/admin"
-	"github.com/sid0709/OpenSeat/acorn-backend/internal/httpkit"
+	"github.com/sid0709/acorn/acorn-backend/admin"
+	"github.com/sid0709/acorn/acorn-backend/internal/httpkit"
 )
 
 const DefaultAdminSessionCookie = "acorn_admin_session"

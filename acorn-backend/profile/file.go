@@ -10,7 +10,7 @@ import (
 	"regexp"
 	"strings"
 
-	"github.com/sid0709/OpenSeat/acorn-backend/resume"
+	"github.com/sid0709/acorn/acorn-backend/resume"
 )
 
 // docxBodyParts are the parts of a .docx that carry visible text, in reading order.

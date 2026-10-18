@@ -8,7 +8,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/sid0709/OpenSeat/acorn-backend/selector"
+	"github.com/sid0709/acorn/acorn-backend/selector"
 )
 
 const (

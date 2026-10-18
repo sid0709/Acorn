@@ -8,7 +8,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/sid0709/OpenSeat/acorn-agent/applicant"
+	"github.com/sid0709/acorn/acorn-agent/applicant"
 )
 
 // surveyObservation is a look at a page of three screens, scrolled to the top.

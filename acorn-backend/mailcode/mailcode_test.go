@@ -7,8 +7,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/sid0709/OpenSeat/acorn-backend/mailbox"
-	"github.com/sid0709/OpenSeat/acorn-backend/selector"
+	"github.com/sid0709/acorn/acorn-backend/mailbox"
+	"github.com/sid0709/acorn/acorn-backend/selector"
 )
 
 // rankInOrder ranks the emails as listed, all equally likely, as Jev may when

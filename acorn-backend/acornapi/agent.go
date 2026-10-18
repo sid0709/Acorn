@@ -4,8 +4,8 @@ import (
 	"encoding/base64"
 	"net/http"
 
-	"github.com/sid0709/OpenSeat/acorn-backend/profile"
-	"github.com/sid0709/OpenSeat/acorn-backend/resume"
+	"github.com/sid0709/acorn/acorn-backend/profile"
+	"github.com/sid0709/acorn/acorn-backend/resume"
 )
 
 // What acorn-agent reads about the signed-in person. The agent holds no database: it asks for

@@ -13,9 +13,9 @@ import (
 	"strings"
 	"time"
 
-	"github.com/sid0709/OpenSeat/acorn-backend/config"
-	"github.com/sid0709/OpenSeat/acorn-backend/llmhttp"
-	"github.com/sid0709/OpenSeat/acorn-backend/openai"
+	"github.com/sid0709/acorn/acorn-backend/config"
+	"github.com/sid0709/acorn/acorn-backend/llmhttp"
+	"github.com/sid0709/acorn/acorn-backend/openai"
 )
 
 const (
