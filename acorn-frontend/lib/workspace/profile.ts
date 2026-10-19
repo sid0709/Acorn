@@ -2,7 +2,6 @@ import type { AcornAccount } from "@/lib/auth/session";
 
 export const AGE_MAX = 3;
 export const SALARY_MAX = 12;
-export const PATH_MAX = 180;
 export const SECRET_MAX = 200;
 export const LINK_MAX = 200;
 export const ADDRESS_MAX = 120;
@@ -73,7 +72,6 @@ export type ApplicantProfile = {
   openaiApiKey: string;
   defaultAccountPassword: string;
   extensionPassword: string;
-  resumeFolderPath: string;
   timeline: CareerEntry[];
 };
 
@@ -205,7 +203,6 @@ export function sampleProfile(account: AcornAccount): ApplicantProfile {
     openaiApiKey: "",
     defaultAccountPassword: "sample-account-password",
     extensionPassword: "",
-    resumeFolderPath: "~/Documents/Resumes",
     timeline: [
       {
         id: "role-northwind",

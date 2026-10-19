@@ -111,7 +111,6 @@ type Document struct {
 	OpenaiApiKey           string  `json:"openaiApiKey" bson:"openaiApiKey"`
 	DefaultAccountPassword string  `json:"defaultAccountPassword" bson:"defaultAccountPassword"`
 	ExtensionPassword      string  `json:"extensionPassword" bson:"extensionPassword"`
-	ResumeFolderPath       string  `json:"resumeFolderPath" bson:"resumeFolderPath"`
 	Timeline               []Entry `json:"timeline" bson:"timeline"`
 }
 
@@ -332,7 +331,6 @@ func normalize(doc Document) Document {
 	doc.OpenaiApiKey = clip(doc.OpenaiApiKey, maxSecret)
 	doc.DefaultAccountPassword = clip(doc.DefaultAccountPassword, maxSecret)
 	doc.ExtensionPassword = clip(doc.ExtensionPassword, maxSecret)
-	doc.ResumeFolderPath = clip(doc.ResumeFolderPath, maxContact)
 	if len(doc.Timeline) > maxTimeline {
 		doc.Timeline = doc.Timeline[:maxTimeline]
 	}
