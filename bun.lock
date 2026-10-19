@@ -35,6 +35,7 @@
       },
       "devDependencies": {
         "@tailwindcss/postcss": "catalog:",
+        "@types/bun": "catalog:",
         "@types/node": "catalog:",
         "@types/react": "catalog:",
         "@types/react-dom": "catalog:",
@@ -80,7 +81,7 @@
     },
     "acorn/extension": {
       "name": "acorn-extension",
-      "version": "1.96.1",
+      "version": "1.98.0",
       "dependencies": {
         "@acorn/app-theme": "workspace:*",
         "@acorn/face": "workspace:*",
