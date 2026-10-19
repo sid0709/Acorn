@@ -128,12 +128,10 @@ func (a *Agent) keepApplicantHuman(ctx context.Context, s *session, fills []Pref
 	}
 	callCtx, cancel := context.WithTimeout(ctx, identityTimeout)
 	defer cancel()
-	resp, err := a.newModel(s.key).Complete(callCtx, llm.Request{Messages: messages, SchemaName: identitySchemaName, Schema: identitySchema})
+	resp, err := a.driver(s).Complete(callCtx, llm.Request{Messages: messages, SchemaName: identitySchemaName, Schema: identitySchema})
 	s.charge(resp.Usage)
-	call := &modelCall{
-		Messages: traceMessages(messages), Content: resp.Content, FinishReason: resp.FinishReason, Model: resp.Model,
-		Usage: resp.Usage, LatencyMs: resp.Latency.Milliseconds(), HTTPAttempts: resp.Attempts,
-	}
+	traced := tracedCall(messages, resp)
+	call := &traced
 	var refs map[int]bool
 	if err == nil {
 		refs, err = applicationAIRefs(resp.Content, allowed)

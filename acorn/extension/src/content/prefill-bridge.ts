@@ -25,7 +25,7 @@ import {
 import { scanTree } from "../agent/prefill/scan";
 import { PREFILL_LABEL_MAX_CHARS, PREFILL_PROBE_MAX } from "../agent/prefill/settings";
 
-import { createChoices } from "./prefill-choices";
+import { createChoices, isListPicker } from "./prefill-choices";
 
 const STAMP = "data-acorn-id";
 
@@ -90,6 +90,7 @@ function describe(el: Element): Described {
       options,
       members: [],
       maxLength: 0,
+      listPicker: false,
     };
   }
   if (el instanceof HTMLInputElement && (el.type === "radio" || el.type === "checkbox")) {
@@ -109,6 +110,7 @@ function describe(el: Element): Described {
       options: [],
       members,
       maxLength: 0,
+      listPicker: false,
     };
   }
   if (el instanceof HTMLTextAreaElement || el instanceof HTMLInputElement) {
@@ -121,6 +123,7 @@ function describe(el: Element): Described {
       options: [],
       members: [],
       maxLength: el.maxLength > 0 ? el.maxLength : 0,
+      listPicker: isListPicker(el),
     };
   }
   return { ok: false, error: `a <${el.tagName.toLowerCase()}> is not a plain field` };

@@ -84,6 +84,8 @@ export type Described =
       /** A radio group's members, or the checkbox itself. */
       members: GroupMember[];
       maxLength: number;
+      /** A box that picks from a list (a search box): the choice pass fills it, not typing. */
+      listPicker: boolean;
     }
   | { ok: false; error: string };
 
@@ -110,7 +112,7 @@ export type ChoiceLocated = { ok: true; x: number; y: number } | { ok: false; er
 export type ChoiceOptions =
   { ok: true; options: string[]; selected: number } | { ok: false; error: string };
 export type ChoiceState =
-  { ok: true; chosen: number[]; text: string } | { ok: false; error: string };
+  { ok: true; chosen: number[]; text: string; answered: boolean } | { ok: false; error: string };
 
 export type ProbeRead = { ok: true; found: boolean; x: number; y: number } | { ok: false };
 

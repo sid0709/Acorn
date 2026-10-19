@@ -45,6 +45,101 @@ type call struct {
 		Cost         float64 `json:"cost"`
 	} `json:"usage"`
 	LatencyMs int64 `json:"latencyMs"`
+	// Where the call went, for comparing providers: the API, who answered (OpenRouter's provider), the model, the
+	// request's size, and whether the cost was reported or priced from rates.
+	Provider   string `json:"provider"`
+	Served     string `json:"served"`
+	Model      string `json:"model"`
+	RequestKB  int    `json:"requestKb"`
+	CostSource string `json:"costSource"`
+	NewConn    bool   `json:"newConn"`
+	ConnectMs  int64  `json:"connectMs"`
+}
+
+// group is the driving model's calls to one provider, and who answered them.
+type group struct {
+	latencies           []int64
+	in, out, cached, kb int
+	cost                float64
+	priced              int
+	newConns            int
+	connectMs           int64
+}
+
+func (g *group) add(c call) {
+	g.latencies = append(g.latencies, c.LatencyMs)
+	g.in += c.Usage.InputTokens
+	g.out += c.Usage.OutputTokens
+	g.cached += c.Usage.CachedTokens
+	g.kb += c.RequestKB
+	g.cost += c.Usage.Cost
+	if c.CostSource == "priced" {
+		g.priced++
+	}
+	if c.NewConn {
+		g.newConns++
+		g.connectMs += c.ConnectMs
+	}
+}
+
+// groupKey names where a call went. A call from before the trace recorded it went to OpenRouter.
+func groupKey(c call) string {
+	provider := c.Provider
+	if provider == "" {
+		provider = "openrouter"
+	}
+	served := c.Served
+	if served == "" {
+		served = "-"
+	}
+	return provider + " / " + served + " / " + c.Model
+}
+
+// groups are every run's driving-model calls so far, by where they went.
+var groups = map[string]*group{}
+
+// decisionGroups are the decision model's calls, which go only to OpenRouter.
+var decisionGroups = map[string]*group{}
+
+func percentile(sorted []int64, q float64) int64 {
+	if len(sorted) == 0 {
+		return 0
+	}
+	return sorted[min(len(sorted)-1, int(float64(len(sorted))*q))]
+}
+
+// printGroups is the comparison of providers: how long a call took, what it cost, and how much it carried. The
+// latency is the call's whole time as the agent saw it, so it includes the network to the provider.
+func printGroups(title string, groups map[string]*group) {
+	if len(groups) == 0 {
+		return
+	}
+	keys := make([]string, 0, len(groups))
+	for key := range groups {
+		keys = append(keys, key)
+	}
+	sort.Strings(keys)
+	fmt.Printf("  %s\n", title)
+	fmt.Printf("    %-52s %5s %8s %8s %9s %8s %7s %7s\n", "provider / served by / model", "calls", "median s", "p90 s", "$/call", "in/call", "cached", "KB/call")
+	for _, key := range keys {
+		g := groups[key]
+		sorted := append([]int64(nil), g.latencies...)
+		sort.Slice(sorted, func(i, j int) bool { return sorted[i] < sorted[j] })
+		n := len(sorted)
+		cachedShare := 0.0
+		if g.in > 0 {
+			cachedShare = 100 * float64(g.cached) / float64(g.in)
+		}
+		note := ""
+		if g.priced > 0 {
+			note = "  (cost priced from rates)"
+		}
+		if g.newConns > 0 {
+			note += fmt.Sprintf("  (%d of %d opened a new connection, %d ms each)", g.newConns, n, g.connectMs/int64(g.newConns))
+		}
+		fmt.Printf("    %-52s %5d %8.1f %8.1f %9.5f %8d %6.0f%% %7d%s\n", key, n,
+			float64(percentile(sorted, 0.5))/1000, float64(percentile(sorted, 0.9))/1000, per(g.cost, n), perInt(g.in, n), cachedShare, perInt(g.kb, n), note)
+	}
 }
 
 type tally struct {
@@ -80,6 +175,8 @@ func summarize(dir string) error {
 	}
 	sort.Strings(steps)
 	var model, screen, prefill tally
+	runGroups := map[string]*group{}
+	runDecisions := map[string]*group{}
 	outcomes := map[string]int{}
 	reviews, advances := 0, 0
 	actions, failures := 0, 0
@@ -114,7 +211,21 @@ func summarize(dir string) error {
 		for _, c := range calls {
 			if c.Kind == "decision" {
 				screen.add(c)
+				key := groupKey(c)
+				for _, into := range []map[string]*group{runDecisions, decisionGroups} {
+					if into[key] == nil {
+						into[key] = &group{}
+					}
+					into[key].add(c)
+				}
 				continue
+			}
+			key := groupKey(c)
+			for _, into := range []map[string]*group{runGroups, groups} {
+				if into[key] == nil {
+					into[key] = &group{}
+				}
+				into[key].add(c)
 			}
 			if e.Source == sourcePrefill {
 				prefill.add(c)
@@ -142,7 +253,10 @@ func summarize(dir string) error {
 		fmt.Printf("  checks: %3d calls  in %d  $%.4f  %s  (%.2fs/call)  outcomes %v\n",
 			screen.calls, screen.in, screen.cost, screen.latency.Round(time.Millisecond), per(screen.latency.Seconds(), screen.calls), outcomes)
 	}
-	fmt.Printf("  extension and waiting: %s   total cost $%.4f\n\n", rest.Round(time.Second), model.cost+screen.cost+prefill.cost)
+	fmt.Printf("  extension and waiting: %s   total cost $%.4f\n", rest.Round(time.Second), model.cost+screen.cost+prefill.cost)
+	printGroups("driving-model calls by where they went:", runGroups)
+	printGroups("decision-model calls:", runDecisions)
+	fmt.Println()
 	return nil
 }
 
@@ -173,6 +287,10 @@ func main() {
 			fmt.Fprintln(os.Stderr, err)
 			status = 1
 		}
+	}
+	if len(dirs) > 1 {
+		printGroups("every run together, driving-model calls by where they went:", groups)
+		printGroups("every run together, decision-model calls:", decisionGroups)
 	}
 	os.Exit(status)
 }

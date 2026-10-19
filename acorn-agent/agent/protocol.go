@@ -302,6 +302,8 @@ type ResumeInfo struct {
 type Started struct {
 	SessionID string       `json:"sessionId"`
 	Resumes   []ResumeInfo `json:"resumes"`
+	// Model is the model that drives the run and the API it is called on, for the run's log.
+	Model string `json:"model,omitempty"`
 	// Trace holds the run's start (session.json, system.txt) when the run asked for a trace.
 	Trace *Trace `json:"trace,omitempty"`
 }
