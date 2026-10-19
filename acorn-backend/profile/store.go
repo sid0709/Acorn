@@ -108,6 +108,7 @@ type Document struct {
 	VeteranStatus          string  `json:"veteranStatus" bson:"veteranStatus"`
 	DesiredSalary          string  `json:"desiredSalary" bson:"desiredSalary"`
 	OpenrouterApiKey       string  `json:"openrouterApiKey" bson:"openrouterApiKey"`
+	OpenaiApiKey           string  `json:"openaiApiKey" bson:"openaiApiKey"`
 	DefaultAccountPassword string  `json:"defaultAccountPassword" bson:"defaultAccountPassword"`
 	ExtensionPassword      string  `json:"extensionPassword" bson:"extensionPassword"`
 	ResumeFolderPath       string  `json:"resumeFolderPath" bson:"resumeFolderPath"`
@@ -328,6 +329,7 @@ func normalize(doc Document) Document {
 	doc.VeteranStatus = orDefault(clip(doc.VeteranStatus, maxContact), defaultVeteranStatus)
 	doc.DesiredSalary = clip(doc.DesiredSalary, maxContact)
 	doc.OpenrouterApiKey = clip(doc.OpenrouterApiKey, maxSecret)
+	doc.OpenaiApiKey = clip(doc.OpenaiApiKey, maxSecret)
 	doc.DefaultAccountPassword = clip(doc.DefaultAccountPassword, maxSecret)
 	doc.ExtensionPassword = clip(doc.ExtensionPassword, maxSecret)
 	doc.ResumeFolderPath = clip(doc.ResumeFolderPath, maxContact)

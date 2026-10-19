@@ -483,6 +483,8 @@ export interface AgentResumeInfo {
 export interface AgentStarted {
   sessionId: string;
   resumes: AgentResumeInfo[];
+  /** The model that drives the run and the API it is called on ("gpt-6-luna (OpenAI)"), for the run's log. */
+  model?: string;
   /** The run's start (session.json, system.txt), when the run asked for the trace. */
   trace?: AgentTrace;
 }

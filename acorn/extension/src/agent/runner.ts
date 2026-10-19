@@ -825,7 +825,7 @@ export async function runAgent(args: AgentRunArgs): Promise<RunReport> {
       );
       sessionId = started.sessionId;
       watchHttp(sessionId);
-      log.event("agent-session", { resumes: started.resumes.length });
+      log.event("agent-session", { resumes: started.resumes.length, model: started.model });
       recordAgentTrace(log, started.trace);
     }
 

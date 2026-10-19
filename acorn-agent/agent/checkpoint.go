@@ -124,6 +124,7 @@ func (v verdict) call(err error) modelCall {
 	answers, _ := json.Marshal(v.response.Answers)
 	call := modelCall{
 		Kind:      "decision",
+		Provider:  llm.ProviderOpenRouter,
 		Messages:  []tracedMessage{{Role: "state", Text: "expected: " + v.prompt, Images: 1}},
 		Content:   string(answers),
 		Model:     v.response.Model,

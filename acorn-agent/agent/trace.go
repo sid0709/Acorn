@@ -118,6 +118,27 @@ type modelCall struct {
 	// HTTPAttempts is how many requests the call sent (a rate limit is retried).
 	HTTPAttempts int    `json:"httpAttempts"`
 	Error        string `json:"error,omitempty"`
+	// Provider is the API the call went to ("openai", "openrouter"), Served who answered it when OpenRouter says
+	// (OpenAI, Azure, Amazon Bedrock), RequestKB how large the request was, and CostSource whether the cost was
+	// reported by the provider or priced from its rates.
+	Provider   string `json:"provider,omitempty"`
+	Served     string `json:"served,omitempty"`
+	RequestKB  int    `json:"requestKb,omitempty"`
+	CostSource string `json:"costSource,omitempty"`
+}
+
+// tracedCall is a model call as the trace shows it: what was sent and what came back, how long it took, what it
+// cost and where it went. The extra it carries over the bare fields is what a comparison of providers needs.
+func tracedCall(messages []llm.Message, resp llm.Response) modelCall {
+	source := "reported"
+	if resp.Provider == llm.ProviderOpenAI {
+		source = "priced"
+	}
+	return modelCall{
+		Messages: traceMessages(messages), Content: resp.Content, FinishReason: resp.FinishReason, Model: resp.Model,
+		Usage: resp.Usage, LatencyMs: resp.Latency.Milliseconds(), HTTPAttempts: resp.Attempts,
+		Provider: resp.Provider, Served: resp.Served, RequestKB: resp.RequestBytes / 1024, CostSource: source,
+	}
 }
 
 func traceMessages(messages []llm.Message) []tracedMessage {

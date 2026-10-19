@@ -33,7 +33,7 @@ type Request struct {
 	Schema     json.RawMessage
 }
 
-// Usage is what one call cost. Cost is USD, as OpenRouter reports it, and 0 when it does not.
+// Usage is what one call cost. Cost is USD: as OpenRouter reports it, or priced from the provider's rates, and 0 when neither.
 // CachedTokens is the part of InputTokens the provider read from its prompt cache, which it
 // bills at a fraction of the normal rate; CacheWriteTokens is the part it stored for later.
 type Usage struct {
@@ -62,6 +62,11 @@ type Response struct {
 	// Latency is how long the call took, retries included; Attempts is how many requests it sent.
 	Latency  time.Duration
 	Attempts int
+	// Provider is the API the call went to (ProviderOpenRouter or ProviderOpenAI), Served who answered it when
+	// OpenRouter says (OpenAI, Azure, Amazon Bedrock), and RequestBytes how large the request was.
+	Provider     string
+	Served       string
+	RequestBytes int
 }
 
 // Model is what the agent loop needs from a model. *OpenRouter is the real one.
@@ -71,7 +76,7 @@ type Model interface {
 }
 
 // ErrNoKey is returned when a call has no OpenRouter key.
-var ErrNoKey = errors.New("Add your OpenRouter API key: set OPENROUTER_API_KEY for the agent server, or keep openrouterApiKey in profile.json")
+var ErrNoKey = errors.New("Add your OpenRouter or OpenAI API key: set it on your Acorn profile, or OPENROUTER_API_KEY for the agent server")
 
 // StatusError is a model request the provider refused or failed.
 type StatusError struct {

@@ -9,6 +9,7 @@ import (
 	"net/http"
 	"os"
 	"os/signal"
+	"strconv"
 	"strings"
 	"syscall"
 	"time"
@@ -35,6 +36,16 @@ const (
 	// defaultReasoning is the reasoning effort sent with each step. "none" keeps the JSON
 	// answer in the message content, as the rest of Acorn calls Luna.
 	defaultReasoning = "none"
+	// The model that drives a run on a person's OpenAI key, and its list prices in USD per million tokens. OpenAI's own
+	// API reports no cost, so each call is priced from these. They are OpenRouter's published rates for
+	// openai/gpt-6-luna (prompt 0.10, completion 0.50, cache read 0.01, cache write 0.125), which OpenAI's price
+	// pages repeat; check developers.openai.com/api/docs/pricing and set the ACORN_AGENT_OPENAI_PRICE_* values if they differ.
+	defaultOpenAIBaseURL         = "https://api.openai.com/v1"
+	defaultOpenAIModel           = "gpt-6-luna"
+	defaultOpenAIPriceInput      = 0.10
+	defaultOpenAIPriceCached     = 0.01
+	defaultOpenAIPriceCacheWrite = 0.125
+	defaultOpenAIPriceOutput     = 0.50
 	// defaultMaxModelCalls bounds the steps in flight across every run.
 	defaultMaxModelCalls = 256
 	shutdownTimeout      = 10 * time.Second
@@ -46,18 +57,26 @@ const (
 	envBaseURL       = "OPENROUTER_BASE_URL"
 	envModel         = "ACORN_AGENT_MODEL"
 	envReasoning     = "ACORN_AGENT_REASONING"
-	envDataDir       = "ACORN_AGENT_DATA_DIR"
-	envHideFields    = "ACORN_AGENT_PROFILE_HIDE"
-	envTrace         = "ACORN_AGENT_TRACE"
-	envTraceDir      = "ACORN_AGENT_TRACE_DIR"
-	envMaxSteps      = "ACORN_AGENT_MAX_STEPS"
-	envStopPasses    = "ACORN_AGENT_STOP_PASSES"
-	envDonePasses    = "ACORN_AGENT_DONE_PASSES"
-	envDoneConfirm   = "ACORN_AGENT_DONE_CONFIRM_PERCENT"
-	envMaxActions    = "ACORN_AGENT_MAX_ACTIONS"
-	envChecks        = "ACORN_AGENT_CHECKS"
-	envScreenModel   = "ACORN_AGENT_SCREEN_MODEL"
-	envDecisionsURL  = "ACORN_AGENT_DECISIONS_URL"
+	// ACORN_AGENT_OPENAI=false drives every run on OpenRouter, whatever keys the profiles hold.
+	envOpenAI                = "ACORN_AGENT_OPENAI"
+	envOpenAIBaseURL         = "ACORN_AGENT_OPENAI_BASE_URL"
+	envOpenAIModel           = "ACORN_AGENT_OPENAI_MODEL"
+	envOpenAIPriceInput      = "ACORN_AGENT_OPENAI_PRICE_INPUT"
+	envOpenAIPriceCached     = "ACORN_AGENT_OPENAI_PRICE_CACHED"
+	envOpenAIPriceCacheWrite = "ACORN_AGENT_OPENAI_PRICE_CACHE_WRITE"
+	envOpenAIPriceOutput     = "ACORN_AGENT_OPENAI_PRICE_OUTPUT"
+	envDataDir               = "ACORN_AGENT_DATA_DIR"
+	envHideFields            = "ACORN_AGENT_PROFILE_HIDE"
+	envTrace                 = "ACORN_AGENT_TRACE"
+	envTraceDir              = "ACORN_AGENT_TRACE_DIR"
+	envMaxSteps              = "ACORN_AGENT_MAX_STEPS"
+	envStopPasses            = "ACORN_AGENT_STOP_PASSES"
+	envDonePasses            = "ACORN_AGENT_DONE_PASSES"
+	envDoneConfirm           = "ACORN_AGENT_DONE_CONFIRM_PERCENT"
+	envMaxActions            = "ACORN_AGENT_MAX_ACTIONS"
+	envChecks                = "ACORN_AGENT_CHECKS"
+	envScreenModel           = "ACORN_AGENT_SCREEN_MODEL"
+	envDecisionsURL          = "ACORN_AGENT_DECISIONS_URL"
 	// envFallbackResume names the résumé folder offered to the person when a résumé is wanted and no
 	// job description was found, when the applicant is a local folder.
 	envFallbackResume = "DEFAULT_FALLBACK_RESUME"
@@ -114,6 +133,15 @@ func isOff(value string) bool {
 		return true
 	}
 	return false
+}
+
+// number reads a decimal setting, such as a price per million tokens; a value that is not a number is the fallback.
+func number(name string, fallback float64) float64 {
+	value, err := strconv.ParseFloat(strings.TrimSpace(config.Env(name, "")), 64)
+	if err != nil || value < 0 {
+		return fallback
+	}
+	return value
 }
 
 // percent reads a probability given as a whole percent (90 is 0.9).
@@ -203,6 +231,19 @@ func run() error {
 		func(key string) agent.Decider { return jev.NewWithURL(key, decisionsURL) },
 		newScreen,
 	)
+	// A run whose profile holds an OpenAI key is driven on it, directly: OpenRouter caps a new account at 20 requests
+	// a minute for the model, and OpenAI does not. The checks and the choices stay on OpenRouter's decision model.
+	if !isOff(config.Env(envOpenAI, "")) {
+		openAIModel := config.Env(envOpenAIModel, defaultOpenAIModel)
+		openAIURL := config.Env(envOpenAIBaseURL, defaultOpenAIBaseURL)
+		prices := llm.Prices{
+			Input:      number(envOpenAIPriceInput, defaultOpenAIPriceInput),
+			Cached:     number(envOpenAIPriceCached, defaultOpenAIPriceCached),
+			CacheWrite: number(envOpenAIPriceCacheWrite, defaultOpenAIPriceCacheWrite),
+			Output:     number(envOpenAIPriceOutput, defaultOpenAIPriceOutput),
+		}
+		a.WithOpenAI(func(key string) llm.Model { return llm.NewOpenAI(key, openAIModel, openAIURL, reasoning, prices) })
+	}
 	defaultKey := config.Env(envOpenRouterKey, "")
 	server := &http.Server{
 		Addr: httpConfig.Addr,
