@@ -18,6 +18,7 @@
 #   ACORN_API_IMAGE, ACORN_WEB_IMAGE, ACORN_ADMIN_IMAGE, ACORN_AGENT_IMAGE (optional image names)
 #   ACORN_ADMIN_USERNAME, ACORN_ADMIN_PWD
 #   VITE_ACORN_API_URL, VITE_ACORN_WEB_URL (optional; baked into the extension zip)
+#   VITE_ACORN_AGENT_PREFILL (optional, default true; "false" builds the extension without the DOM pass)
 #
 # If ACORN_ADMIN_SESSION_SECRET is unset, the deploy step generates one on the VPS
 # and keeps it in deploy.env.
@@ -195,6 +196,7 @@ jobs:
           build-args: |
             VITE_ACORN_API_URL=${{ vars.VITE_ACORN_API_URL || vars.ACORN_EXTENSION_API_URL || env.PRODUCTION_API_ORIGIN }}
             VITE_ACORN_WEB_URL=${{ vars.VITE_ACORN_WEB_URL || vars.ACORN_EXTENSION_WEB_URL || env.PRODUCTION_WEB_ORIGIN }}
+            VITE_ACORN_AGENT_PREFILL=${{ vars.VITE_ACORN_AGENT_PREFILL || 'true' }}
           tags: |
             ${{ env.WEB_IMAGE }}:${{ steps.plan.outputs.image_tag }}
             ${{ env.WEB_IMAGE }}:latest
