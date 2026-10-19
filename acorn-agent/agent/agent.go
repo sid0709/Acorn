@@ -183,7 +183,9 @@ type Agent struct {
 	applicants applicant.Source
 	newModel   func(key string) llm.Model
 	// newOpenAI builds the model that drives a run on a person's OpenAI key; nil means the OpenRouter one always drives.
-	newOpenAI  func(key string) llm.Model
+	newOpenAI func(key string) llm.Model
+	// warm opens the pooled connections a run is about to use, so its first calls do not pay a handshake; nil does nothing.
+	warm       func(ctx context.Context, openAI bool)
 	newDecider func(key string) Decider
 	// newScreen builds the decision model that checks the screen; nil means no checks.
 	newScreen func(key string) Screen
@@ -214,6 +216,13 @@ func New(cfg Config, applicants applicant.Source, newModel func(key string) llm.
 // checks and the choices stay on the OpenRouter key: only the decision model there answers them.
 func (a *Agent) WithOpenAI(newOpenAI func(key string) llm.Model) *Agent {
 	a.newOpenAI = newOpenAI
+	return a
+}
+
+// WithWarm sets what opens the connections a run uses when it starts, given whether it is driven on OpenAI. It runs
+// in the background and its failure changes nothing.
+func (a *Agent) WithWarm(warm func(ctx context.Context, openAI bool)) *Agent {
+	a.warm = warm
 	return a
 }
 
@@ -273,6 +282,9 @@ func (a *Agent) Start(ctx context.Context, key string, auth applicant.Auth, star
 	}
 	fresh.remember(start.Memory)
 	a.sessions.add(fresh)
+	if a.warm != nil {
+		go a.warm(context.Background(), openAIKey != "")
+	}
 	stacks, documents := catalog(snap.Resumes)
 	startTrace, err := a.trace.recordSession(id, system, sessionTrace{
 		Started: now, Start: start, Model: a.driverName(key, openAIKey), ScreenModel: a.screenName(key), Config: a.cfg, Resumes: stacks, Documents: documents,

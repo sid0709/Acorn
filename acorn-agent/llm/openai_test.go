@@ -70,3 +70,44 @@ func TestOpenRouterStillSendsItsOwnFieldsAndKeepsTheReportedCostAndProvider(t *t
 		t.Fatalf("response = %+v", resp)
 	}
 }
+
+func TestASecondCallReusesTheConnectionTheFirstOpened(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		_, _ = w.Write([]byte(openAIBody))
+	}))
+	defer server.Close()
+	client := NewOpenAI("k", "gpt-6-luna", server.URL, "none", testPrices)
+	request := Request{Messages: []Message{{Role: RoleUser, Text: "hi"}}}
+	first, err := client.Complete(context.Background(), request)
+	if err != nil {
+		t.Fatal(err)
+	}
+	second, err := client.Complete(context.Background(), request)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if first.ConnReused {
+		t.Fatal("the first call opens a connection")
+	}
+	if !second.ConnReused {
+		t.Fatal("the second call must use the pooled connection, not open another")
+	}
+}
+
+func TestWarmOpensAConnectionTheNextCallUses(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method == http.MethodHead {
+			return
+		}
+		_, _ = w.Write([]byte(openAIBody))
+	}))
+	defer server.Close()
+	Warm(context.Background(), server.URL)
+	resp, err := NewOpenAI("k", "gpt-6-luna", server.URL, "none", testPrices).Complete(context.Background(), Request{Messages: []Message{{Role: RoleUser, Text: "hi"}}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !resp.ConnReused {
+		t.Fatal("a warmed connection is the one the first call uses")
+	}
+}

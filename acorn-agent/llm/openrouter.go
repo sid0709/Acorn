@@ -57,8 +57,20 @@ type OpenRouter struct {
 	http      *http.Client
 }
 
+// idleConnTimeout keeps a pooled connection open between calls: a new one costs a TCP and a TLS handshake, and a run
+// waits seconds between its calls (a stop for the person, a rate limit) that the default 90 s would not cover.
+const idleConnTimeout = 15 * time.Minute
+
 // sharedHTTP is one pool for every client, since a client is built per session key.
-var sharedHTTP = llmhttp.NewClient(requestTimeout)
+var sharedHTTP = newHTTPClient()
+
+func newHTTPClient() *http.Client {
+	client := llmhttp.NewClient(requestTimeout)
+	if transport, ok := client.Transport.(*http.Transport); ok {
+		transport.IdleConnTimeout = idleConnTimeout
+	}
+	return client
+}
 
 // NewOpenRouter is a client for model on baseURL. reasoning is the effort sent to the
 // provider ("none", "low", "medium", "high"); empty sends none of it.
@@ -231,7 +243,8 @@ func retryable(err error) bool {
 }
 
 func (c *OpenRouter) once(ctx context.Context, body []byte) (Response, string, error) {
-	request, err := http.NewRequestWithContext(ctx, http.MethodPost, c.baseURL+"/chat/completions", bytes.NewReader(body))
+	var conn ConnTrace
+	request, err := http.NewRequestWithContext(WithConnTrace(ctx, &conn), http.MethodPost, c.baseURL+"/chat/completions", bytes.NewReader(body))
 	if err != nil {
 		return Response{}, "", fmt.Errorf("build model request: %w", err)
 	}
@@ -257,7 +270,9 @@ func (c *OpenRouter) once(ctx context.Context, body []byte) (Response, string, e
 			CacheWriteTokens: decoded.Usage.PromptTokensDetails.CacheWriteTokens,
 			Cost:             decoded.Usage.Cost,
 		},
-		Served: decoded.Provider,
+		Served:     decoded.Provider,
+		ConnReused: conn.Reused,
+		ConnectMs:  conn.Wait.Milliseconds(),
 	}
 	// A provider that does not report the cost is priced from its rates.
 	if got.Usage.Cost == 0 && c.prices != nil {

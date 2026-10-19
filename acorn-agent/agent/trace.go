@@ -125,6 +125,10 @@ type modelCall struct {
 	Served     string `json:"served,omitempty"`
 	RequestKB  int    `json:"requestKb,omitempty"`
 	CostSource string `json:"costSource,omitempty"`
+	// NewConn is set when the call opened a new connection (a TCP and a TLS handshake) instead of using a pooled one,
+	// and ConnectMs is how long it waited for its connection.
+	NewConn   bool  `json:"newConn,omitempty"`
+	ConnectMs int64 `json:"connectMs,omitempty"`
 }
 
 // tracedCall is a model call as the trace shows it: what was sent and what came back, how long it took, what it
@@ -138,6 +142,7 @@ func tracedCall(messages []llm.Message, resp llm.Response) modelCall {
 		Messages: traceMessages(messages), Content: resp.Content, FinishReason: resp.FinishReason, Model: resp.Model,
 		Usage: resp.Usage, LatencyMs: resp.Latency.Milliseconds(), HTTPAttempts: resp.Attempts,
 		Provider: resp.Provider, Served: resp.Served, RequestKB: resp.RequestBytes / 1024, CostSource: source,
+		NewConn: resp.Provider != "" && !resp.ConnReused, ConnectMs: resp.ConnectMs,
 	}
 }
 

@@ -133,6 +133,8 @@ func (v verdict) call(err error) modelCall {
 	}
 	if err != nil {
 		call.Error = err.Error()
+	} else {
+		call.NewConn, call.ConnectMs = !v.response.ConnReused, v.response.ConnectMs
 	}
 	return call
 }

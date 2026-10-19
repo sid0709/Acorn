@@ -67,6 +67,10 @@ type Response struct {
 	Provider     string
 	Served       string
 	RequestBytes int
+	// ConnReused is whether the request used a pooled connection, and ConnectMs how long it waited for one: a new
+	// connection pays a TCP and a TLS handshake.
+	ConnReused bool
+	ConnectMs  int64
 }
 
 // Model is what the agent loop needs from a model. *OpenRouter is the real one.

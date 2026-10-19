@@ -52,6 +52,8 @@ type call struct {
 	Model      string `json:"model"`
 	RequestKB  int    `json:"requestKb"`
 	CostSource string `json:"costSource"`
+	NewConn    bool   `json:"newConn"`
+	ConnectMs  int64  `json:"connectMs"`
 }
 
 // group is the driving model's calls to one provider, and who answered them.
@@ -60,6 +62,8 @@ type group struct {
 	in, out, cached, kb int
 	cost                float64
 	priced              int
+	newConns            int
+	connectMs           int64
 }
 
 func (g *group) add(c call) {
@@ -71,6 +75,10 @@ func (g *group) add(c call) {
 	g.cost += c.Usage.Cost
 	if c.CostSource == "priced" {
 		g.priced++
+	}
+	if c.NewConn {
+		g.newConns++
+		g.connectMs += c.ConnectMs
 	}
 }
 
@@ -89,6 +97,9 @@ func groupKey(c call) string {
 
 // groups are every run's driving-model calls so far, by where they went.
 var groups = map[string]*group{}
+
+// decisionGroups are the decision model's calls, which go only to OpenRouter.
+var decisionGroups = map[string]*group{}
 
 func percentile(sorted []int64, q float64) int64 {
 	if len(sorted) == 0 {
@@ -122,6 +133,9 @@ func printGroups(title string, groups map[string]*group) {
 		note := ""
 		if g.priced > 0 {
 			note = "  (cost priced from rates)"
+		}
+		if g.newConns > 0 {
+			note += fmt.Sprintf("  (%d of %d opened a new connection, %d ms each)", g.newConns, n, g.connectMs/int64(g.newConns))
 		}
 		fmt.Printf("    %-52s %5d %8.1f %8.1f %9.5f %8d %6.0f%% %7d%s\n", key, n,
 			float64(percentile(sorted, 0.5))/1000, float64(percentile(sorted, 0.9))/1000, per(g.cost, n), perInt(g.in, n), cachedShare, perInt(g.kb, n), note)
@@ -162,6 +176,7 @@ func summarize(dir string) error {
 	sort.Strings(steps)
 	var model, screen, prefill tally
 	runGroups := map[string]*group{}
+	runDecisions := map[string]*group{}
 	outcomes := map[string]int{}
 	reviews, advances := 0, 0
 	actions, failures := 0, 0
@@ -196,6 +211,13 @@ func summarize(dir string) error {
 		for _, c := range calls {
 			if c.Kind == "decision" {
 				screen.add(c)
+				key := groupKey(c)
+				for _, into := range []map[string]*group{runDecisions, decisionGroups} {
+					if into[key] == nil {
+						into[key] = &group{}
+					}
+					into[key].add(c)
+				}
 				continue
 			}
 			key := groupKey(c)
@@ -233,6 +255,7 @@ func summarize(dir string) error {
 	}
 	fmt.Printf("  extension and waiting: %s   total cost $%.4f\n", rest.Round(time.Second), model.cost+screen.cost+prefill.cost)
 	printGroups("driving-model calls by where they went:", runGroups)
+	printGroups("decision-model calls:", runDecisions)
 	fmt.Println()
 	return nil
 }
@@ -267,6 +290,7 @@ func main() {
 	}
 	if len(dirs) > 1 {
 		printGroups("every run together, driving-model calls by where they went:", groups)
+		printGroups("every run together, decision-model calls:", decisionGroups)
 	}
 	os.Exit(status)
 }

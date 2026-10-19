@@ -91,3 +91,13 @@ func containsAny(text string, needles ...string) bool {
 	}
 	return false
 }
+
+func TestAStartWarmsTheConnectionsTheRunWillUse(t *testing.T) {
+	warmed := make(chan bool, 1)
+	a := agentWithProfile(t, `{"name":"Ada Lovelace","openaiApiKey":"sk-proj-test"}`, &scriptedModel{}, &scriptedModel{})
+	a.WithWarm(func(_ context.Context, openAI bool) { warmed <- openAI })
+	startWithPrefill(t, a)
+	if openAI := <-warmed; !openAI {
+		t.Fatal("a run driven on OpenAI warms OpenAI's connection too")
+	}
+}

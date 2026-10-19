@@ -11,6 +11,7 @@ import (
 	"os/signal"
 	"strconv"
 	"strings"
+	"sync"
 	"syscall"
 	"time"
 
@@ -46,6 +47,8 @@ const (
 	defaultOpenAIPriceCached     = 0.01
 	defaultOpenAIPriceCacheWrite = 0.125
 	defaultOpenAIPriceOutput     = 0.50
+	// warmTimeout bounds opening a run's connections when it starts.
+	warmTimeout = 10 * time.Second
 	// defaultMaxModelCalls bounds the steps in flight across every run.
 	defaultMaxModelCalls = 256
 	shutdownTimeout      = 10 * time.Second
@@ -231,6 +234,7 @@ func run() error {
 		func(key string) agent.Decider { return jev.NewWithURL(key, decisionsURL) },
 		newScreen,
 	)
+	openAIHost := ""
 	// A run whose profile holds an OpenAI key is driven on it, directly: OpenRouter caps a new account at 20 requests
 	// a minute for the model, and OpenAI does not. The checks and the choices stay on OpenRouter's decision model.
 	if !isOff(config.Env(envOpenAI, "")) {
@@ -243,7 +247,30 @@ func run() error {
 			Output:     number(envOpenAIPriceOutput, defaultOpenAIPriceOutput),
 		}
 		a.WithOpenAI(func(key string) llm.Model { return llm.NewOpenAI(key, openAIModel, openAIURL, reasoning, prices) })
+		openAIHost = openAIURL
 	}
+	// A run that starts opens its connections at once: a new one costs about a second of handshakes from far away,
+	// which would land on the run's first look.
+	a.WithWarm(func(ctx context.Context, openAI bool) {
+		ctx, cancel := context.WithTimeout(ctx, warmTimeout)
+		defer cancel()
+		var warming sync.WaitGroup
+		warm := func(open func(context.Context)) {
+			warming.Add(1)
+			go func() {
+				defer warming.Done()
+				open(ctx)
+			}()
+		}
+		warm(func(ctx context.Context) { llm.Warm(ctx, baseURL) })
+		if openAI && openAIHost != "" {
+			warm(func(ctx context.Context) { llm.Warm(ctx, openAIHost) })
+		}
+		if newScreen != nil {
+			warm(func(ctx context.Context) { decide.Warm(ctx, decisionsURL) })
+		}
+		warming.Wait()
+	})
 	defaultKey := config.Env(envOpenRouterKey, "")
 	server := &http.Server{
 		Addr: httpConfig.Addr,
