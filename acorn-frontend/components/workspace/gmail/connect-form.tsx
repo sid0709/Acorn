@@ -4,7 +4,7 @@ import { useState, type FormEvent } from "react";
 import { GMAIL_AUTH_ROUTE } from "@acorn/google-gmail";
 import { Banner, Button, Stack, Text, TextInput } from "sid-ui";
 import { ROUTES } from "@/lib/routes";
-import { MAILBOX_LABEL_MAX, isEmail } from "@/lib/workspace/model";
+import { isEmail } from "@/lib/workspace/model";
 
 /** Pick the Gmail to connect; OAuth uses this address as a hint, not your Acorn login. */
 export function GmailConnectForm({
@@ -15,7 +15,6 @@ export function GmailConnectForm({
   error?: string;
 }) {
   const [email, setEmail] = useState("");
-  const [label, setLabel] = useState("");
   const [localError, setLocalError] = useState("");
 
   const submit = (event: FormEvent<HTMLFormElement>) => {
@@ -40,7 +39,6 @@ export function GmailConnectForm({
         <Stack gap={4}>
           <input type="hidden" name="next" value={next} />
           <input type="hidden" name="email" value={email.trim().toLowerCase()} />
-          <input type="hidden" name="label" value={label.trim()} />
           <TextInput
             label="Gmail address"
             type="email"
@@ -49,13 +47,6 @@ export function GmailConnectForm({
             placeholder="you@gmail.com"
             autoComplete="email"
             isRequired
-          />
-          <TextInput
-            label="Label in Acorn"
-            value={label}
-            onChange={(value) => setLabel(value.slice(0, MAILBOX_LABEL_MAX))}
-            placeholder="Applications"
-            isOptional
           />
           <Button label="Connect with Google" variant="primary" type="submit" />
         </Stack>

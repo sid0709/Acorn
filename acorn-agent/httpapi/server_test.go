@@ -227,6 +227,17 @@ func TestHealthReportsWithoutLeakingTheKey(t *testing.T) {
 	}
 }
 
+func TestEveryAnswerSaysHowLongTheServerTookAndLetsTheExtensionReadIt(t *testing.T) {
+	_, ts := newServer(t, fakeModel{}, "k")
+	response, _ := send(t, http.MethodGet, ts.URL+BasePath+"/health", nil, nil)
+	if got := response.Header.Get("Server-Timing"); !strings.HasPrefix(got, "handler;dur=") {
+		t.Fatalf("Server-Timing = %q", got)
+	}
+	if response.Header.Get("Access-Control-Expose-Headers") != "Server-Timing" {
+		t.Fatalf("the extension cannot read the timing: %v", response.Header)
+	}
+}
+
 func TestVetAnswersForARunAndRefusesAnUnknownOne(t *testing.T) {
 	_, ts := newServer(t, fakeModel{content: workingReply}, "server-key")
 	_, body := send(t, http.MethodPost, ts.URL+BasePath+"/sessions", agent.Start{URL: "https://jobs.example"}, nil)

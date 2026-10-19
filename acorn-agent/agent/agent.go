@@ -182,6 +182,10 @@ type Agent struct {
 	cfg        Config
 	applicants applicant.Source
 	newModel   func(key string) llm.Model
+	// newOpenAI builds the model that drives a run on a person's OpenAI key; nil means the OpenRouter one always drives.
+	newOpenAI func(key string) llm.Model
+	// warm opens the pooled connections a run is about to use, so its first calls do not pay a handshake; nil does nothing.
+	warm       func(ctx context.Context, openAI bool)
 	newDecider func(key string) Decider
 	// newScreen builds the decision model that checks the screen; nil means no checks.
 	newScreen func(key string) Screen
@@ -208,6 +212,29 @@ func New(cfg Config, applicants applicant.Source, newModel func(key string) llm.
 	}
 }
 
+// WithOpenAI lets a run whose profile holds an OpenAI key be driven on it, through the model newOpenAI builds. The
+// checks and the choices stay on the OpenRouter key: only the decision model there answers them.
+func (a *Agent) WithOpenAI(newOpenAI func(key string) llm.Model) *Agent {
+	a.newOpenAI = newOpenAI
+	return a
+}
+
+// WithWarm sets what opens the connections a run uses when it starts, given whether it is driven on OpenAI. It runs
+// in the background and its failure changes nothing.
+func (a *Agent) WithWarm(warm func(ctx context.Context, openAI bool)) *Agent {
+	a.warm = warm
+	return a
+}
+
+// driver is the model that drives this run: on the person's OpenAI key when they have one and the server can use
+// it, else on their OpenRouter key.
+func (a *Agent) driver(s *session) llm.Model {
+	if s.openAIKey != "" && a.newOpenAI != nil {
+		return a.newOpenAI(s.openAIKey)
+	}
+	return a.newModel(s.key)
+}
+
 // Sessions is how many runs are live.
 func (a *Agent) Sessions() int { return a.sessions.len() }
 
@@ -223,7 +250,12 @@ func (a *Agent) Start(ctx context.Context, key string, auth applicant.Auth, star
 	if strings.TrimSpace(key) == "" {
 		key = strings.TrimSpace(snap.APIKey)
 	}
-	if key == "" {
+	openAIKey := ""
+	if a.newOpenAI != nil {
+		openAIKey = strings.TrimSpace(snap.OpenAIKey)
+	}
+	// A run needs a key for its model and for its checks; either one alone still lets it begin.
+	if key == "" && openAIKey == "" {
 		return Started{}, llm.ErrNoKey
 	}
 	now := a.now()
@@ -245,14 +277,17 @@ func (a *Agent) Start(ctx context.Context, key string, auth applicant.Auth, star
 		return Started{}, err
 	}
 	fresh := &session{
-		id: id, key: key, auth: auth, start: start, snap: snap, system: system, maxActions: maxActions, fallback: fallback,
+		id: id, key: key, openAIKey: openAIKey, auth: auth, start: start, snap: snap, system: system, maxActions: maxActions, fallback: fallback,
 		created: now, touched: now, wantTrace: start.Trace, stepLimit: a.cfg.MaxSteps,
 	}
 	fresh.remember(start.Memory)
 	a.sessions.add(fresh)
+	if a.warm != nil {
+		go a.warm(context.Background(), openAIKey != "")
+	}
 	stacks, documents := catalog(snap.Resumes)
 	startTrace, err := a.trace.recordSession(id, system, sessionTrace{
-		Started: now, Start: start, Model: a.modelName(key), ScreenModel: a.screenName(key), Config: a.cfg, Resumes: stacks, Documents: documents,
+		Started: now, Start: start, Model: a.driverName(key, openAIKey), ScreenModel: a.screenName(key), Config: a.cfg, Resumes: stacks, Documents: documents,
 	}, start.Trace)
 	if err != nil {
 		slog.Warn("trace not written", "session", id, "error", err)
@@ -263,7 +298,7 @@ func (a *Agent) Start(ctx context.Context, key string, auth applicant.Auth, star
 	for i, resume := range snap.Resumes {
 		infos[i] = ResumeInfo{ID: resume.ID, FileName: resume.FileName, Size: resume.Size}
 	}
-	return Started{SessionID: id, Resumes: infos, Trace: startTrace}, nil
+	return Started{SessionID: id, Resumes: infos, Model: a.driverName(key, openAIKey), Trace: startTrace}, nil
 }
 
 // remember starts the run from what a run that stopped knew, when the extension passes it. The
@@ -640,7 +675,7 @@ func stopFor(status string, answer reply) *StopInfo {
 // sent back to the model once with the reason, as a person would be told what was wrong.
 // Every call is returned for the trace, whether or not it was accepted.
 func (a *Agent) ask(ctx context.Context, s *session, messages []llm.Message) (reply, string, llm.Usage, []modelCall, error) {
-	model := a.newModel(s.key)
+	model := a.driver(s)
 	var total llm.Usage
 	var calls []modelCall
 	var lastErr error
@@ -648,10 +683,8 @@ func (a *Agent) ask(ctx context.Context, s *session, messages []llm.Message) (re
 	for attempt := 0; attempt < 2; attempt++ {
 		resp, err := model.Complete(ctx, llm.Request{Messages: messages, SchemaName: replySchemaName, Schema: replySchema})
 		total.Add(resp.Usage)
-		call := modelCall{
-			Repair: attempt > 0, Messages: traceMessages(sent), Content: resp.Content, FinishReason: resp.FinishReason,
-			Model: resp.Model, Usage: resp.Usage, LatencyMs: resp.Latency.Milliseconds(), HTTPAttempts: resp.Attempts,
-		}
+		call := tracedCall(sent, resp)
+		call.Repair = attempt > 0
 		if err != nil {
 			call.Error = err.Error()
 			return reply{}, "", total, append(calls, call), err
@@ -676,8 +709,11 @@ func (a *Agent) ask(ctx context.Context, s *session, messages []llm.Message) (re
 	return reply{}, "", total, calls, lastErr
 }
 
-// modelName is the id of the model a run with this key is driven by.
-func (a *Agent) modelName(key string) string {
+// driverName is the id of the model a run with these keys is driven by.
+func (a *Agent) driverName(key, openAIKey string) string {
+	if openAIKey != "" && a.newOpenAI != nil {
+		return a.newOpenAI(openAIKey).Name() + " (OpenAI)"
+	}
 	if model := a.newModel(key); model != nil {
 		return model.Name()
 	}

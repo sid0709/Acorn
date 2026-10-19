@@ -196,12 +196,19 @@ func TestReviewsAndAdvancesAreOffWithoutThePassAndBoundedWithIt(t *testing.T) {
 	cfg.MaxReviews, cfg.MaxAdvances = 1, 1
 	b := newAgentWithScreen(t, &scriptedModel{}, &fixedDecider{}, &domScreen{next: "c0", nextP: 0.9}, cfg)
 	started, _ := b.Start(context.Background(), "key", applicant.Auth{}, Start{Prefill: true})
+	// A review the page's own state settles asks no model, so it does not count against the limit.
 	bad := reviewOf("")
 	bad.DOM.Empty = []string{"x"}
-	if _, err := b.Review(context.Background(), started.SessionID, bad); err != nil {
+	for i := 0; i < 3; i++ {
+		if _, err := b.Review(context.Background(), started.SessionID, bad); err != nil {
+			t.Fatalf("free review %d: %v", i, err)
+		}
+	}
+	clean := reviewOf(shot(t, 40))
+	if _, err := b.Review(context.Background(), started.SessionID, clean); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := b.Review(context.Background(), started.SessionID, bad); !errors.Is(err, ErrReviewLimit) {
+	if _, err := b.Review(context.Background(), started.SessionID, clean); !errors.Is(err, ErrReviewLimit) {
 		t.Fatalf("review limit: %v", err)
 	}
 }

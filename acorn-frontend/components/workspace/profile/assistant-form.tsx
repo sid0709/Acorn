@@ -1,14 +1,13 @@
 import { FormLayout, SectionCard, Stack, TextInput } from "sid-ui";
 import {
   AI_MODEL_LABEL,
-  PATH_MAX,
   SALARY_MAX,
   SECRET_MAX,
   type ApplicantProfile,
   type SetProfileField,
 } from "@/lib/workspace/profile";
 
-/** Salary, the OpenRouter key, and the résumé folder. */
+/** Salary, and the OpenRouter and OpenAI keys. */
 export function AssistantForm({
   profile,
   onChange,
@@ -25,7 +24,7 @@ export function AssistantForm({
 
 function JobBid({ profile, onChange }: { profile: ApplicantProfile; onChange: SetProfileField }) {
   return (
-    <SectionCard title="Job bid assistant" description="Salary, API key, and resume path.">
+    <SectionCard title="Job bid assistant" description="Salary and API keys.">
       <FormLayout>
         <TextInput
           label="Desired salary (annual)"
@@ -39,7 +38,14 @@ function JobBid({ profile, onChange }: { profile: ApplicantProfile; onChange: Se
           type="password"
           value={profile.openrouterApiKey}
           onChange={(value) => onChange("openrouterApiKey", value.slice(0, SECRET_MAX))}
-          description="Used for every AI request."
+          description="Used for Acorn's fast checks and choices, and for every AI request if you add no OpenAI key."
+        />
+        <TextInput
+          label="OpenAI API key"
+          type="password"
+          value={profile.openaiApiKey}
+          onChange={(value) => onChange("openaiApiKey", value.slice(0, SECRET_MAX))}
+          description="Optional. When set, the model that runs your applications is called on your OpenAI account directly: it has no request limit for new accounts and is billed by OpenAI to you."
         />
         <TextInput label="Model" value={AI_MODEL_LABEL} isReadOnly />
         <TextInput
@@ -48,11 +54,6 @@ function JobBid({ profile, onChange }: { profile: ApplicantProfile; onChange: Se
           value={profile.defaultAccountPassword}
           onChange={(value) => onChange("defaultAccountPassword", value.slice(0, SECRET_MAX))}
           description="Used when an application requires sign-up / sign-in."
-        />
-        <TextInput
-          label="Resume folder path"
-          value={profile.resumeFolderPath}
-          onChange={(value) => onChange("resumeFolderPath", value.slice(0, PATH_MAX))}
         />
       </FormLayout>
     </SectionCard>

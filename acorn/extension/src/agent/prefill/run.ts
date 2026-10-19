@@ -10,7 +10,7 @@ import { AGENT_ERROR_CODE } from "@acorn/shared/agent-contract";
 import { AgentApiError, requestPrefill } from "../client";
 import { watchInputEffects } from "../input-settle";
 
-import { runChoices, type ChoiceGate } from "./choices";
+import { runChoices, type ChoiceGate, type ChoicesReport } from "./choices";
 import { fillOne, type FillOutcome } from "./fill";
 import { listFrames, scanFrames, serializeFrame } from "./frames";
 import { withoutSecrets } from "./redact";
@@ -59,6 +59,8 @@ export interface PrefillArgs {
   onDecision?: (decision: "skip" | "wait" | "busy" | "run", fresh: number) => void;
   /** Called when the pass is about to type, so the overlay can say so. */
   onFilling?: () => void;
+  /** Called once with what the choice pass found and did, whenever the page had any choice. */
+  onChoices?: (report: ChoicesReport) => void;
   /** Called after each choice (a list, a group of options) with what came of it. */
   onChoice?: (status: "filled" | "failed", ms: number, label: string, error?: string) => void;
   /** Called after each fill with how many are done of how many, what came of it and how long it took. */
@@ -198,6 +200,7 @@ export async function runPrefill(args: PrefillArgs): Promise<PrefillOutcome | nu
     url: tab?.url ?? "",
     title: tab?.title ?? "",
     onFilling: args.onFilling,
+    onReport: args.onChoices,
     onChoice: args.onChoice,
   });
   if (!choices) return text;

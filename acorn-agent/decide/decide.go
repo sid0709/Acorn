@@ -98,6 +98,9 @@ type Response struct {
 	Usage   Usage             `json:"usage"`
 	// Latency is how long the call took, retries included.
 	Latency time.Duration `json:"-"`
+	// ConnReused is whether the last request used a pooled connection, and ConnectMs how long it waited for one.
+	ConnReused bool  `json:"-"`
+	ConnectMs  int64 `json:"-"`
 }
 
 // Client calls one decision model on a person's OpenRouter key.
@@ -185,7 +188,8 @@ func retryable(err error) bool {
 }
 
 func (c *Client) once(ctx context.Context, body []byte) (Response, string, error) {
-	request, err := http.NewRequestWithContext(ctx, http.MethodPost, c.url, bytes.NewReader(body))
+	var conn llm.ConnTrace
+	request, err := http.NewRequestWithContext(llm.WithConnTrace(ctx, &conn), http.MethodPost, c.url, bytes.NewReader(body))
 	if err != nil {
 		return Response{}, "", fmt.Errorf("build decision request: %w", err)
 	}
@@ -207,6 +211,7 @@ func (c *Client) once(ctx context.Context, body []byte) (Response, string, error
 	if err := json.Unmarshal(payload, &decoded); err != nil {
 		return Response{}, "", fmt.Errorf("decode decision response: %w", err)
 	}
+	decoded.ConnReused, decoded.ConnectMs = conn.Reused, conn.Wait.Milliseconds()
 	return decoded, "", nil
 }
 

@@ -115,6 +115,9 @@ export class DomFirst {
   private pageKey = "";
   /** The page as it was when a control was last pressed: the same page at the next look means the press did not move it. */
   private pressedPageKey = "";
+  /** The page a review found problems on, and the note it gave: the same page again is told the same, with no request. */
+  private fixKey = "";
+  private fixNotes: string[] = [];
 
   constructor(private readonly deps: DomFirstDeps) {}
 
@@ -146,8 +149,15 @@ export class DomFirst {
       ...(findings.empty ?? []),
       ...(findings.errors ?? []),
       ...(findings.blocked ?? []),
+      ...(findings.failed ?? []),
     ].join("|");
     if (this.pageKey === this.unsureKey) return { kind: "skip" };
+    // The page's own state found the same things as at the last look: what was said then still stands, and
+    // nothing is asked of the server. Looks come after every chunk of the model's plan, and a form is worked
+    // through over many of them.
+    if (hasProblems(findings) && this.pageKey === this.fixKey) {
+      return { kind: "notes", notes: this.fixNotes };
+    }
 
     // Forward first: a page whose own state is clean, or that has no fields at all (a review page, a
     // job description), goes straight to its continue control with no screens taken and no review. The
@@ -210,6 +220,8 @@ export class DomFirst {
       case REVIEW_VERDICT.clean:
         return this.advance(frames, look, findings, notes, survey);
       case REVIEW_VERDICT.fix:
+        this.fixKey = this.pageKey;
+        this.fixNotes = notes;
         return { kind: "notes", notes };
       default:
         return { kind: "skip" };
@@ -359,10 +371,13 @@ export class DomFirst {
     }
 
     this.deps.setLabel(ADVANCE_OVERLAY_LABEL);
+    const pressBegan = Date.now();
     const error = await this.press(frames, chosen);
     this.deps.log("agent-dom:pressed", {
       submit: Boolean(advance.submit),
       ok: error == null,
+      // The press alone (its click and the wait for what it set off), apart from choosing the control.
+      pressMs: Date.now() - pressBegan,
       ms: Date.now() - began,
     });
     if (error) {

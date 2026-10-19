@@ -35,6 +35,43 @@ interface Target {
   members: Element[];
   /** A list's options, as last read. */
   items: Element[];
+  /** The options that were showing before the list was opened: a popup's options are the ones that are new. */
+  before: Set<Element>;
+}
+
+/** What an option of a popup list is, by its role. */
+const OPTION_SELECTOR = '[role="option"], [role="menuitem"], [role="menuitemradio"]';
+/** The controls that hold a value; a field's wrapper is the largest box around it that holds no other. */
+const CONTROL_SELECTOR = "input:not([type=hidden]), select, textarea";
+/** How many levels above a box are looked through for the selected item the field shows beside it. */
+const WRAPPER_CLIMB = 5;
+/** The popups an element can open that are lists of choices. */
+const LIST_POPUPS = new Set(["listbox", "grid", "tree"]);
+/** Input types that are never a box that picks from a list. */
+const NOT_LIST_INPUTS = new Set([
+  "hidden",
+  "checkbox",
+  "radio",
+  "file",
+  "button",
+  "submit",
+  "password",
+]);
+
+/**
+ * Whether an input is a box that picks from a list rather than a place text goes: a search box, or one that
+ * declares a popup or a combobox. It is left to the choice pass, which opens it and reads its options.
+ */
+export function isListPicker(el: Element): boolean {
+  if (!(el instanceof HTMLInputElement) || NOT_LIST_INPUTS.has(el.type)) return false;
+  const popup = el.getAttribute("aria-haspopup");
+  return (
+    el.type === "search" ||
+    el.getAttribute("enterkeyhint") === "search" ||
+    ["combobox", "searchbox"].includes(el.getAttribute("role") ?? "") ||
+    Boolean(el.getAttribute("aria-autocomplete")) ||
+    Boolean(popup && LIST_POPUPS.has(popup))
+  );
 }
 
 const CHECKED_ATTRIBUTES = ["aria-checked", "aria-pressed", "aria-selected"];
@@ -71,19 +108,22 @@ export function createChoices(helpers: ChoiceHelpers): {
       .map((id) => el.ownerDocument.getElementById(id)?.textContent ?? "")
       .join(" ");
 
-  /** The words that ask the question of a control or a group: what it is labelled by, then what is next to it. */
+  /** The words that ask the question of a control or a group, from what the page ties to it. */
   function questionOf(el: Element): string {
+    // What is tied to the control by the page: a label for it, what it is labelled by, a fieldset's legend. The
+    // control's own aria-label comes after, because it often carries the current answer ("State Select One").
     let node: Element | null = el;
     for (let climb = 0; climb < QUESTION_CLIMB && node; climb += 1) {
       const text = clean(
-        textOfIds(node, "aria-labelledby") ||
-          node.getAttribute("aria-label") ||
-          (node.tagName === "FIELDSET" ? node.querySelector("legend")?.textContent : "") ||
-          ((node as HTMLInputElement).labels?.[0]?.textContent ?? ""),
+        ((node as HTMLInputElement).labels?.[0]?.textContent ?? "") ||
+          textOfIds(node, "aria-labelledby") ||
+          (node.tagName === "FIELDSET" ? node.querySelector("legend")?.textContent : ""),
       );
       if (text) return text.slice(0, QUESTION_MAX_CHARS);
       node = node.parentElement;
     }
+    const own = clean(el.getAttribute("aria-label"));
+    if (own) return own.slice(0, QUESTION_MAX_CHARS);
     node = el;
     for (let climb = 0; climb < QUESTION_CLIMB && node; climb += 1) {
       const before = node.previousElementSibling;
@@ -93,6 +133,45 @@ export function createChoices(helpers: ChoiceHelpers): {
     }
     return "";
   }
+
+  const visibleOptions = (): Element[] =>
+    everyElement().filter((el) => el.matches(OPTION_SELECTOR) && shown(el));
+
+  /** The box around an input that holds no other control: where the page shows what was selected in it. */
+  function ownWrapper(input: Element): Element {
+    let wrapper = input;
+    for (let climb = 0; climb < WRAPPER_CLIMB; climb += 1) {
+      const parent = wrapper.parentElement;
+      if (!parent || parent.querySelectorAll(CONTROL_SELECTOR).length !== 1) break;
+      wrapper = parent;
+    }
+    return wrapper;
+  }
+
+  /**
+   * Whether a list already holds an answer: a button that carries a value, or a box that shows a selected item
+   * (an option beside it). The prompt a list starts on ("Select One") is not an answer, and neither is an
+   * option the page only highlights.
+   */
+  function isAnswered(trigger: Element): boolean {
+    if (trigger instanceof HTMLButtonElement) return trigger.value.trim() !== "";
+    if (trigger instanceof HTMLInputElement) {
+      return Boolean(ownWrapper(trigger).querySelector(OPTION_SELECTOR));
+    }
+    return false;
+  }
+
+  /** Whether an option is the chosen one. aria-selected on the option the list highlights (its active one) is not. */
+  function isChosenOption(el: Element): boolean {
+    if (el.getAttribute("aria-checked") === "true" || el.querySelector("input:checked"))
+      return true;
+    if (el.getAttribute("aria-selected") !== "true") return false;
+    const list = el.closest('[role="listbox"], [role="menu"]');
+    return !(list && el.id && list.getAttribute("aria-activedescendant") === el.id);
+  }
+
+  const textOf = (el: Element): string =>
+    clean((el as HTMLElement).innerText || el.getAttribute("aria-label") || el.textContent);
 
   const memberText = (el: Element): string =>
     el instanceof HTMLInputElement
@@ -108,7 +187,7 @@ export function createChoices(helpers: ChoiceHelpers): {
       kind: target.kind,
       question,
       options,
-      answered: target.members.some(isChecked),
+      answered: target.trigger ? isAnswered(target.trigger) : target.members.some(isChecked),
     });
   }
 
@@ -143,7 +222,7 @@ export function createChoices(helpers: ChoiceHelpers): {
       if (key.endsWith("|") || own.length < 2) continue;
       add(
         widgets,
-        { kind: "group", members: own, items: [] },
+        { kind: "group", members: own, items: [], before: new Set() },
         questionOf(own[0].closest("fieldset") ?? own[0]),
         own.map(memberText),
       );
@@ -153,7 +232,7 @@ export function createChoices(helpers: ChoiceHelpers): {
       if (own.length < 2) continue;
       add(
         widgets,
-        { kind: "group", members: own, items: [] },
+        { kind: "group", members: own, items: [], before: new Set() },
         questionOf(group),
         own.map(memberText),
       );
@@ -163,11 +242,21 @@ export function createChoices(helpers: ChoiceHelpers): {
       if (own.length < 2) continue;
       add(
         widgets,
-        { kind: "boxes", members: own, items: [] },
+        { kind: "boxes", members: own, items: [], before: new Set() },
         questionOf(group),
         own.map(memberText),
       );
     }
+  }
+
+  /** Whether an element names the popup it opens (aria-controls or aria-owns) and that popup is a list. */
+  function controlsList(el: Element): boolean {
+    return ["aria-controls", "aria-owns"].some((name) =>
+      (el.getAttribute(name) ?? "").split(/\s+/).some((id) => {
+        const target = id ? el.ownerDocument.getElementById(id) : null;
+        return ["listbox", "menu", "tree", "grid"].includes(target?.getAttribute("role") ?? "");
+      }),
+    );
   }
 
   /** Lists the page draws itself: a button or box that opens a list. A text box that is typed into is not one. */
@@ -175,14 +264,20 @@ export function createChoices(helpers: ChoiceHelpers): {
     const found = new Set<Element>();
     for (const el of everyElement()) {
       const popup = el.getAttribute("aria-haspopup");
+      const picker = isListPicker(el);
+      // A popup that is a list of choices (listbox, grid, tree), not a menu of actions (menu, or true, which
+      // means a menu) and not a dialog: the page's own navigation menu is not a question.
       const opens =
-        (popup && popup !== "false" && popup !== "dialog") ||
-        el.getAttribute("role") === "combobox";
+        picker ||
+        (popup !== null && LIST_POPUPS.has(popup)) ||
+        el.getAttribute("role") === "combobox" ||
+        (el.hasAttribute("aria-expanded") && controlsList(el));
       if (!opens || found.has(el) || isDisabled(el)) continue;
+      // A text box is a list only when it declares itself a search or a popup (isListPicker).
       if (
         el instanceof HTMLSelectElement ||
-        el instanceof HTMLInputElement ||
-        el instanceof HTMLTextAreaElement
+        el instanceof HTMLTextAreaElement ||
+        (el instanceof HTMLInputElement && !picker)
       )
         continue;
       if (
@@ -191,10 +286,17 @@ export function createChoices(helpers: ChoiceHelpers): {
         !shown(el)
       )
         continue;
+      // One control drawn as a box with a button inside it is one list, not two.
+      if ([...found].some((other) => other.contains(el) || el.contains(other))) continue;
       found.add(el);
     }
     for (const trigger of found) {
-      add(widgets, { kind: "dropdown", trigger, members: [], items: [] }, questionOf(trigger), []);
+      add(
+        widgets,
+        { kind: "dropdown", trigger, members: [], items: [], before: new Set() },
+        questionOf(trigger),
+        [],
+      );
     }
   }
 
@@ -222,6 +324,11 @@ export function createChoices(helpers: ChoiceHelpers): {
             ? target.items[option]
             : target.members[option];
       if (!el?.isConnected) return { ok: false, error: "the page no longer has this option" };
+      // About to open the list: what shows now is not the popup's.
+      if (option === undefined && target.kind === "dropdown") {
+        target.before = new Set(visibleOptions());
+        target.items = [];
+      }
       el.scrollIntoView({ block: "center", inline: "nearest", behavior: "instant" });
       return helpers.locate(el);
     },
@@ -230,45 +337,41 @@ export function createChoices(helpers: ChoiceHelpers): {
       const target = targets.get(id);
       const trigger = target?.trigger;
       if (!target || !trigger) return { ok: false, error: "the page no longer has this list" };
-      const controlled = ["aria-controls", "aria-owns"]
-        .flatMap((name) => (trigger.getAttribute(name) ?? "").split(/\s+/))
-        .map((ref) => (ref ? trigger.ownerDocument.getElementById(ref) : null))
-        .filter((el): el is HTMLElement => Boolean(el) && shown(el as Element));
-      const box = trigger.getBoundingClientRect();
-      const distance = (el: Element): number => {
-        const r = el.getBoundingClientRect();
-        return Math.hypot(r.left - box.left, r.top - box.bottom);
-      };
-      const lists = controlled.length
-        ? controlled
-        : everyElement()
-            .filter(
-              (el) => ["listbox", "menu"].includes(el.getAttribute("role") ?? "") && shown(el),
-            )
-            .sort((a, b) => distance(a) - distance(b));
-      const list = lists[0];
-      if (!list) return { ok: false, error: "no list opened" };
-      const items = Array.from(
-        list.querySelectorAll('[role="option"], [role="menuitem"], [role="menuitemradio"], li'),
-      ).filter((el) => shown(el) && clean((el as HTMLElement).innerText || el.textContent));
-      const texts = items.map((el) => clean((el as HTMLElement).innerText || el.textContent));
-      const unique = items.filter((_, i) => texts.indexOf(texts[i]) === i);
-      if (unique.length < 2) return { ok: false, error: "the list shows no options" };
-      target.items = unique;
-      return {
-        ok: true,
-        options: unique.map((el) => clean((el as HTMLElement).innerText || el.textContent)),
-        selected: unique.findIndex(isChecked),
-      };
+      // The popup's options are the ones that were not showing before it opened, and not the ones read at the
+      // level before (a list that drills in replaces its options with those of the item that was pressed).
+      const known = new Set([...target.before, ...target.items]);
+      let fresh = visibleOptions().filter((el) => !known.has(el));
+      if (fresh.length === 0) {
+        // A list of plain items that the control names (aria-controls, aria-owns).
+        fresh = ["aria-controls", "aria-owns"]
+          .flatMap((name) => (trigger.getAttribute(name) ?? "").split(/\s+/))
+          .map((ref) => (ref ? trigger.ownerDocument.getElementById(ref) : null))
+          .flatMap((list) => (list && shown(list) ? Array.from(list.querySelectorAll("li")) : []))
+          .filter((el) => shown(el) && !known.has(el));
+      }
+      const prompt = isAnswered(trigger) ? "" : textOf(trigger);
+      const items: Element[] = [];
+      const texts: string[] = [];
+      for (const el of fresh) {
+        const text = textOf(el);
+        if (!text || texts.includes(text) || (prompt && text === prompt)) continue;
+        items.push(el);
+        texts.push(text);
+      }
+      if (items.length < 2) return { ok: false, error: "the list shows no options" };
+      target.items = items;
+      return { ok: true, options: texts, selected: items.findIndex(isChosenOption) };
     },
 
     state(id): ChoiceState {
       const target = targets.get(id);
       if (!target) return { ok: false, error: "the page no longer has this choice" };
       const trigger = target.trigger;
+      const chosen = target.members.flatMap((m, i) => (isChecked(m) ? [i] : []));
       return {
         ok: true,
-        chosen: target.members.flatMap((m, i) => (isChecked(m) ? [i] : [])),
+        chosen,
+        answered: trigger ? isAnswered(trigger) : chosen.length > 0,
         text: trigger
           ? clean(
               (trigger as HTMLElement).innerText ||

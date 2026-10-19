@@ -207,12 +207,9 @@ func (a *Agent) Prefill(ctx context.Context, id string, req PrefillRequest) (Pre
 		{Role: llm.RoleSystem, Text: system},
 		{Role: llm.RoleUser, Text: prefillUser(req)},
 	}
-	resp, err := a.newModel(s.key).Complete(ctx, llm.Request{Messages: messages, SchemaName: prefillSchemaName, Schema: prefillSchema})
+	resp, err := a.driver(s).Complete(ctx, llm.Request{Messages: messages, SchemaName: prefillSchemaName, Schema: prefillSchema})
 	s.charge(resp.Usage)
-	calls := []modelCall{{
-		Messages: traceMessages(messages), Content: resp.Content, FinishReason: resp.FinishReason, Model: resp.Model,
-		Usage: resp.Usage, LatencyMs: resp.Latency.Milliseconds(), HTTPAttempts: resp.Attempts,
-	}}
+	calls := []modelCall{tracedCall(messages, resp)}
 	entry := stepTrace{
 		Seq: s.seq, Step: s.step, At: a.now(), Source: sourcePrefill, URL: req.URL, Title: req.Title,
 		Memo: s.memo, Job: s.job, Usage: s.usage,

@@ -22,17 +22,55 @@ const (
 	maxErrorText   = 300
 )
 
-// OpenRouter calls OpenRouter's chat completions with images and a JSON schema.
+// The providers a client can speak to. Both take the same chat request; they differ in how reasoning is
+// asked for, whether the cost comes back, and which fields say who served the call.
+const (
+	ProviderOpenRouter = "openrouter"
+	ProviderOpenAI     = "openai"
+)
+
+// Prices are what a provider charges, in USD per million tokens. They price a call when the provider does
+// not report its cost (OpenAI's own API does not).
+type Prices struct {
+	Input      float64
+	Cached     float64
+	CacheWrite float64
+	Output     float64
+}
+
+// Cost prices a call: tokens read from the cache and tokens written to it are billed at their own rates, the
+// rest of the input at the normal one.
+func (p Prices) Cost(u Usage) float64 {
+	plain := max(0, u.InputTokens-u.CachedTokens-u.CacheWriteTokens)
+	return (float64(plain)*p.Input + float64(u.CachedTokens)*p.Cached +
+		float64(u.CacheWriteTokens)*p.CacheWrite + float64(u.OutputTokens)*p.Output) / 1e6
+}
+
+// OpenRouter calls a provider's chat completions with images and a JSON schema: OpenRouter's, or OpenAI's own.
 type OpenRouter struct {
 	apiKey    string
 	model     string
 	baseURL   string
 	reasoning string
+	provider  string
+	prices    *Prices
 	http      *http.Client
 }
 
+// idleConnTimeout keeps a pooled connection open between calls: a new one costs a TCP and a TLS handshake, and a run
+// waits seconds between its calls (a stop for the person, a rate limit) that the default 90 s would not cover.
+const idleConnTimeout = 15 * time.Minute
+
 // sharedHTTP is one pool for every client, since a client is built per session key.
-var sharedHTTP = llmhttp.NewClient(requestTimeout)
+var sharedHTTP = newHTTPClient()
+
+func newHTTPClient() *http.Client {
+	client := llmhttp.NewClient(requestTimeout)
+	if transport, ok := client.Transport.(*http.Transport); ok {
+		transport.IdleConnTimeout = idleConnTimeout
+	}
+	return client
+}
 
 // NewOpenRouter is a client for model on baseURL. reasoning is the effort sent to the
 // provider ("none", "low", "medium", "high"); empty sends none of it.
@@ -42,8 +80,17 @@ func NewOpenRouter(apiKey, model, baseURL, reasoning string) *OpenRouter {
 		model:     model,
 		baseURL:   strings.TrimRight(baseURL, "/"),
 		reasoning: strings.TrimSpace(reasoning),
+		provider:  ProviderOpenRouter,
 		http:      sharedHTTP,
 	}
+}
+
+// NewOpenAI is a client for OpenAI's own API. It reports no cost, so prices price each call.
+func NewOpenAI(apiKey, model, baseURL, reasoning string, prices Prices) *OpenRouter {
+	client := NewOpenRouter(apiKey, model, baseURL, reasoning)
+	client.provider = ProviderOpenAI
+	client.prices = &prices
+	return client
 }
 
 // Name is the model id.
@@ -54,7 +101,9 @@ type chatRequest struct {
 	Messages       []chatMessage    `json:"messages"`
 	ResponseFormat *responseFormat  `json:"response_format,omitempty"`
 	Reasoning      *reasoningEffort `json:"reasoning,omitempty"`
-	Usage          usageOption      `json:"usage"`
+	// ReasoningEffort is OpenAI's own way to ask for it.
+	ReasoningEffort string       `json:"reasoning_effort,omitempty"`
+	Usage           *usageOption `json:"usage,omitempty"`
 }
 
 type usageOption struct {
@@ -92,8 +141,10 @@ type jsonSchema struct {
 }
 
 type chatResponse struct {
-	Model   string `json:"model"`
-	Choices []struct {
+	Model string `json:"model"`
+	// Provider is who served the call, when OpenRouter says.
+	Provider string `json:"provider"`
+	Choices  []struct {
 		Message struct {
 			Content string `json:"content"`
 		} `json:"message"`
@@ -115,7 +166,10 @@ type chatResponse struct {
 
 // body builds the provider request. A message with images sends its content as parts.
 func (c *OpenRouter) body(req Request) ([]byte, error) {
-	out := chatRequest{Model: c.model, Usage: usageOption{Include: true}}
+	out := chatRequest{Model: c.model}
+	if c.provider == ProviderOpenRouter {
+		out.Usage = &usageOption{Include: true}
+	}
 	for _, message := range req.Messages {
 		if len(message.Images) == 0 {
 			out.Messages = append(out.Messages, chatMessage{Role: message.Role, Content: message.Text})
@@ -134,7 +188,11 @@ func (c *OpenRouter) body(req Request) ([]byte, error) {
 		}
 	}
 	if c.reasoning != "" {
-		out.Reasoning = &reasoningEffort{Effort: c.reasoning}
+		if c.provider == ProviderOpenAI {
+			out.ReasoningEffort = c.reasoning
+		} else {
+			out.Reasoning = &reasoningEffort{Effort: c.reasoning}
+		}
 	}
 	return json.Marshal(out)
 }
@@ -150,13 +208,16 @@ func (c *OpenRouter) Complete(ctx context.Context, req Request) (Response, error
 	}
 	var lastErr error
 	var usage Usage
+	var served string
 	started := time.Now()
 	for attempt := 0; attempt < maxAttempts; attempt++ {
 		response, retryAfter, err := c.once(ctx, body)
 		usage.Add(response.Usage)
+		served = response.Served
 		if err == nil {
 			response.Usage = usage
 			response.Latency, response.Attempts = time.Since(started), attempt+1
+			response.Provider, response.RequestBytes = c.provider, len(body)
 			return response, nil
 		}
 		lastErr = err
@@ -169,7 +230,7 @@ func (c *OpenRouter) Complete(ctx context.Context, req Request) (Response, error
 		case <-time.After(llmhttp.RetryDelay(attempt, retryAfter)):
 		}
 	}
-	return Response{Usage: usage, Latency: time.Since(started), Attempts: maxAttempts}, lastErr
+	return Response{Usage: usage, Latency: time.Since(started), Attempts: maxAttempts, Provider: c.provider, Served: served, RequestBytes: len(body)}, lastErr
 }
 
 // retryable is true for a rate limit, a provider failure, or a dropped connection.
@@ -182,7 +243,8 @@ func retryable(err error) bool {
 }
 
 func (c *OpenRouter) once(ctx context.Context, body []byte) (Response, string, error) {
-	request, err := http.NewRequestWithContext(ctx, http.MethodPost, c.baseURL+"/chat/completions", bytes.NewReader(body))
+	var conn ConnTrace
+	request, err := http.NewRequestWithContext(WithConnTrace(ctx, &conn), http.MethodPost, c.baseURL+"/chat/completions", bytes.NewReader(body))
 	if err != nil {
 		return Response{}, "", fmt.Errorf("build model request: %w", err)
 	}
@@ -208,6 +270,13 @@ func (c *OpenRouter) once(ctx context.Context, body []byte) (Response, string, e
 			CacheWriteTokens: decoded.Usage.PromptTokensDetails.CacheWriteTokens,
 			Cost:             decoded.Usage.Cost,
 		},
+		Served:     decoded.Provider,
+		ConnReused: conn.Reused,
+		ConnectMs:  conn.Wait.Milliseconds(),
+	}
+	// A provider that does not report the cost is priced from its rates.
+	if got.Usage.Cost == 0 && c.prices != nil {
+		got.Usage.Cost = c.prices.Cost(got.Usage)
 	}
 	if response.StatusCode < 200 || response.StatusCode >= 300 {
 		message := ""

@@ -27,12 +27,13 @@ const (
 )
 
 const (
-	pickOptionKey  = "o%d"
-	pickNone       = "none"
-	pickFieldKey   = "q%d"
-	pickManyKey    = "q%do%d"
-	maxPickFields  = 60
-	maxPickOptions = 60
+	pickOptionKey = "o%d"
+	pickNone      = "none"
+	pickFieldKey  = "q%d"
+	pickManyKey   = "q%do%d"
+	maxPickFields = 60
+	// maxPickOptions bounds the options of one list: a country list has a few hundred, each a few words.
+	maxPickOptions = 400
 	maxPickText    = 120
 )
 
