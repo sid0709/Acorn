@@ -93,7 +93,7 @@ func pickQuestions(fields []PickField, answerNo map[int]bool) map[string]decide.
 			}
 			continue
 		}
-		criteria := map[string]string{pickNone: "the applicant's details do not answer it and no option is a sensible answer"}
+		criteria := map[string]string{pickNone: "the question is marked optional or voluntary, or the applicant's details do not answer it and no option is a sensible answer"}
 		for i, option := range field.Options {
 			criteria[fmt.Sprintf(pickOptionKey, i)] = pickText(option)
 		}

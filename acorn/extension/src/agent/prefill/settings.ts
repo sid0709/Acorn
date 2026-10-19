@@ -51,6 +51,11 @@ export const REVIEW_LOADING_WAITS = 4;
 export const REVIEW_LOADING_WAIT_MS = 1_000;
 /** A control pressed this many times with the page not moving on is left to the model's own look. */
 export const ADVANCE_STUCK_TRIES = 2;
+/**
+ * Whether a page whose own state is clean (or that has no fields) is moved on at once, with no review of
+ * the whole page first. The review runs when a press did not move the page.
+ */
+export const DOM_OPTIMISTIC_ADVANCE = true;
 /** After pressing a control: how long the tab gets to finish loading, how often it is asked, and the beat before the first ask. */
 export const ADVANCE_LOAD_MAX_MS = 8_000;
 export const ADVANCE_LOAD_POLL_MS = 150;

@@ -13,7 +13,12 @@
     },
     "build": {
       "dependsOn": ["^build"],
-      "env": ["VITE_ACORN_API_URL", "VITE_ACORN_WEB_URL", "ACORN_API_URL"],
+      "env": [
+        "VITE_ACORN_API_URL",
+        "VITE_ACORN_WEB_URL",
+        "VITE_ACORN_AGENT_PREFILL",
+        "ACORN_API_URL"
+      ],
       "outputs": [".next/**", "!.next/cache/**", "dist/**"]
     }
   }

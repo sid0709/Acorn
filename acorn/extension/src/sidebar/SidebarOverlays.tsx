@@ -1,11 +1,8 @@
-import { useEffect, useState } from "react";
-
-import { fetchGmailConnectionStatus } from "../agent/gmail-connection";
-
 import { FaceGuidePanel } from "./FaceGuidePanel";
 import { SettingsDrawer } from "./SettingsDrawer";
 
 import type { BusyCounts, SidebarAuth } from "./sidebar-panel-types";
+import type { GmailStatus } from "./use-gmail-status";
 
 interface Props {
   helpOpen: boolean;
@@ -17,6 +14,7 @@ interface Props {
   session: SidebarAuth["session"];
   apiUrl: SidebarAuth["apiUrl"];
   setApiUrl: SidebarAuth["setApiUrl"];
+  gmail: GmailStatus;
 }
 
 /** Drawers and panels over the sidebar: the Face guide, and settings. */
@@ -30,27 +28,8 @@ export function SidebarOverlays({
   session,
   apiUrl,
   setApiUrl,
+  gmail,
 }: Props) {
-  const [gmailLoading, setGmailLoading] = useState(false);
-  const [gmailConnected, setGmailConnected] = useState(false);
-  const [gmailEmail, setGmailEmail] = useState<string | undefined>();
-
-  useEffect(() => {
-    if (!settingsOpen || !session?.accessToken) {
-      setGmailLoading(false);
-      setGmailConnected(false);
-      setGmailEmail(undefined);
-      return;
-    }
-    setGmailLoading(true);
-    void fetchGmailConnectionStatus(session.accessToken, apiUrl)
-      .then((status) => {
-        setGmailConnected(status.connected);
-        setGmailEmail(status.email);
-      })
-      .finally(() => setGmailLoading(false));
-  }, [settingsOpen, session?.accessToken, apiUrl]);
-
   return (
     <>
       {/* Mounted only while open: the guide runs a live Acorn Face per mood. */}
@@ -70,9 +49,9 @@ export function SidebarOverlays({
           signedIn={Boolean(session)}
           apiUrl={apiUrl}
           onApiUrlChange={setApiUrl}
-          gmailConnected={gmailConnected}
-          gmailEmail={gmailEmail}
-          gmailLoading={gmailLoading}
+          gmailConnected={gmail.connected}
+          gmailEmail={gmail.email}
+          gmailLoading={gmail.loading}
         />
       ) : null}
     </>

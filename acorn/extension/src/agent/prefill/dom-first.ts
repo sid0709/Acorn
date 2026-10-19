@@ -36,6 +36,7 @@ import {
   ADVANCE_OVERLAY_LABEL,
   ADVANCE_STUCK_TRIES,
   ADVANCE_UNSURE_NOTE,
+  DOM_OPTIMISTIC_ADVANCE,
   REVIEW_BLOCKED_RECHECK_MS,
   REVIEW_LOADING_WAIT_MS,
   REVIEW_LOADING_WAITS,
@@ -112,6 +113,8 @@ export class DomFirst {
   /** A clean page where no control was chosen with enough certainty: not reviewed again until it changes. */
   private unsureKey = "";
   private pageKey = "";
+  /** The page as it was when a control was last pressed: the same page at the next look means the press did not move it. */
+  private pressedPageKey = "";
 
   constructor(private readonly deps: DomFirstDeps) {}
 
@@ -132,6 +135,7 @@ export class DomFirst {
       findings = await this.readFindings(await listFrames(this.deps.tabId()), look.failed);
       if (!findings) return { kind: "skip" };
     }
+    const hasFields = findings.fields > 0;
 
     // The same page, already reviewed clean with no control to press: the driving model has been told, and
     // another review would say the same. It is looked at again once something on the page changes.
@@ -145,11 +149,22 @@ export class DomFirst {
     ].join("|");
     if (this.pageKey === this.unsureKey) return { kind: "skip" };
 
+    // Forward first: a page whose own state is clean, or that has no fields at all (a review page, a
+    // job description), goes straight to its continue control with no screens taken and no review. The
+    // page's own validation answers if something is missing, and the screens are read only when a press
+    // did not move the page.
+    if (DOM_OPTIMISTIC_ADVANCE && this.pageKey !== this.pressedPageKey && !hasProblems(findings)) {
+      const controls = await this.listControls(frames);
+      if (controls.length > 0) return this.advance(frames, look, findings, [], null, controls);
+    }
+
     this.deps.setLabel(REVIEW_OVERLAY_LABEL);
     const began = Date.now();
     // What the page says of itself settles it when there is anything wrong, so no screens are taken then.
-    // Otherwise the decision model is the judge, and it reads the whole page, not the part on screen.
-    const survey = hasProblems(findings) ? null : await look.survey().catch(() => null);
+    // Otherwise the decision model is the judge, and it reads the whole page, not the part on screen. A page
+    // with no fields is read as the one screen it shows: there is nothing on it to check below.
+    const survey =
+      hasProblems(findings) || !hasFields ? null : await look.survey().catch(() => null);
     let review;
     try {
       review = await requestReview(
@@ -239,7 +254,7 @@ export class DomFirst {
       for (const text of answer.blocked)
         if (!findings.blocked.includes(text)) findings.blocked.push(text);
     }
-    return findings.fields > 0 ? findings : null;
+    return answers.some((answer) => answer?.ok) ? findings : null;
   }
 
   /** The controls of every frame that could be pressed, numbered across frames. */
@@ -278,8 +293,9 @@ export class DomFirst {
     findings: AgentReviewFindings,
     notes: string[],
     survey: AgentSurveyScreen[] | null,
+    listed?: FrameControl[],
   ): Promise<DomFirstOutcome> {
-    const controls = await this.listControls(frames);
+    const controls = listed ?? (await this.listControls(frames));
     const key = [
       look.url,
       look.title,
@@ -360,6 +376,7 @@ export class DomFirst {
     }
     this.lastAdvanceKey = key;
     this.lastAdvanceText = chosen.candidate.text;
+    this.pressedPageKey = this.pageKey;
     // The application is on its way: the driving model confirms that it was received, as ever.
     if (advance.submit) this.submitted = true;
     return { kind: "advanced" };
