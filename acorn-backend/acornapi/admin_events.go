@@ -1,6 +1,7 @@
 package acornapi
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"log/slog"
@@ -92,14 +93,41 @@ func serveEvents(w http.ResponseWriter, r *http.Request, events <-chan feed.Even
 	}
 }
 
+// eventSentAt is the payload field that stamps an event with the server's clock (Unix ms), so
+// each side can record how long the push took to arrive. The same string is `sentAt` in
+// @acorn/support-chat's ClaimPush.
+const eventSentAt = "sentAt"
+
+// eventCountsTimeout bounds counting the inbox for an event; without counts the console
+// reloads its lists instead.
+const eventCountsTimeout = 3 * time.Second
+
+// staffPayload is what a console receives about a claim: the claim, its new counts, and the
+// send time. The counts let it update every list in place instead of asking for them again.
+func (s *Server) staffPayload(claim support.Claim) map[string]any {
+	payload := map[string]any{"claim": claimRow(claim, support.AuthorAdmin), eventSentAt: time.Now().UnixMilli()}
+	if s.claims == nil {
+		return payload
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), eventCountsTimeout)
+	defer cancel()
+	open, awaiting, err := s.claims.Counts(ctx)
+	if err != nil {
+		slog.Warn("acorn admin event counts", "error", err)
+		return payload
+	}
+	payload["open"], payload["awaitingSupport"] = open, awaiting
+	return payload
+}
+
 // publishStaffClaim tells every open console that a claim was filed.
 func (s *Server) publishStaffClaim(claim support.Claim) {
-	s.staff.Publish(gateway.SupportClaimEvent, map[string]any{"claim": claimRow(claim, support.AuthorAdmin)})
+	s.staff.Publish(gateway.SupportClaimEvent, s.staffPayload(claim))
 }
 
 // publishStaffMessage tells every open console about a new message on a claim.
 func (s *Server) publishStaffMessage(claim support.Claim, message map[string]any) {
-	s.staff.Publish(gateway.SupportMessageEvent, map[string]any{
-		"claim": claimRow(claim, support.AuthorAdmin), "message": message,
-	})
+	payload := s.staffPayload(claim)
+	payload["message"] = message
+	s.staff.Publish(gateway.SupportMessageEvent, payload)
 }
