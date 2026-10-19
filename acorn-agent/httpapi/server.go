@@ -7,6 +7,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"io"
 	"log/slog"
 	"net/http"
@@ -380,7 +381,7 @@ func (s *Server) allowed(origin string) bool {
 func logged(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		started := time.Now()
-		recorder := &statusRecorder{ResponseWriter: w, status: http.StatusOK}
+		recorder := &statusRecorder{ResponseWriter: w, status: http.StatusOK, started: started}
 		next.ServeHTTP(recorder, r)
 		slog.Debug("request", "method", r.Method, "path", r.URL.Path, "status", recorder.status, "ms", time.Since(started).Milliseconds())
 	})
@@ -388,10 +389,32 @@ func logged(next http.Handler) http.Handler {
 
 type statusRecorder struct {
 	http.ResponseWriter
-	status int
+	status  int
+	started time.Time
+	wrote   bool
 }
 
+// serverTimingHeader and exposedHeaders let the extension read how long the server itself took, so a slow
+// request can be told apart into the server's part and everything else (the browser, the connection).
+const (
+	serverTimingHeader = "Server-Timing"
+	exposedHeaders     = "Access-Control-Expose-Headers"
+)
+
 func (r *statusRecorder) WriteHeader(status int) {
+	if !r.wrote {
+		r.wrote = true
+		r.ResponseWriter.Header().Set(serverTimingHeader, fmt.Sprintf("handler;dur=%d", time.Since(r.started).Milliseconds()))
+		r.ResponseWriter.Header().Set(exposedHeaders, serverTimingHeader)
+	}
 	r.status = status
 	r.ResponseWriter.WriteHeader(status)
+}
+
+// Write sends the status first when the handler did not, so the timing header is always set.
+func (r *statusRecorder) Write(body []byte) (int, error) {
+	if !r.wrote {
+		r.WriteHeader(http.StatusOK)
+	}
+	return r.ResponseWriter.Write(body)
 }

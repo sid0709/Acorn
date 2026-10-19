@@ -258,10 +258,6 @@ func (a *Agent) Review(ctx context.Context, id string, req ReviewRequest) (Revie
 	if !s.start.Prefill {
 		return ReviewResult{}, ErrPrefillOff
 	}
-	if s.reviews >= a.cfg.MaxReviews {
-		return ReviewResult{}, ErrReviewLimit
-	}
-	s.reviews++
 	problems := clipList(req.DOM.problems())
 	result := ReviewResult{Verdict: ReviewFix, Problems: problems}
 	entry := stepTrace{Seq: s.seq + 1, Step: s.step, At: a.now(), Source: sourceReview, URL: req.URL, Title: req.Title, Viewport: req.Viewport, Memo: s.memo, Job: s.job}
@@ -277,6 +273,12 @@ func (a *Agent) Review(ctx context.Context, id string, req ReviewRequest) (Revie
 		entry.Message = "review: no decision model to read the screen"
 		return a.finishReview(s, entry, nil, result, ""), nil
 	}
+	// Only a review that asks the decision model counts against the run's limit: one the page's own state
+	// settles costs nothing, and the page may be looked at many times while a form is worked through.
+	if s.reviews >= a.cfg.MaxReviews {
+		return ReviewResult{}, ErrReviewLimit
+	}
+	s.reviews++
 
 	// A page the screens do not show whole cannot be called clean: what is below is not known.
 	if !seesWholePage(req.Viewport, req.Survey, req.Viewport.ScrollY) {

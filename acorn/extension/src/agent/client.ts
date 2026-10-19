@@ -72,6 +72,34 @@ type CallOptions = {
   timeoutMs: number;
 };
 
+/** How long one request to the agent took, and how much of it was the server's own handler. */
+export interface AgentHttpTiming {
+  route: string;
+  /** From sending the request to the answer's headers, in the browser. */
+  roundTripMs: number;
+  /** The server's own time before it began its answer (its Server-Timing header), when it sent one. */
+  serverMs?: number;
+  status: number;
+  /** The request body, in kilobytes: a screenshot makes it large. */
+  bodyKb: number;
+}
+
+const timingSinks = new Map<string, (timing: AgentHttpTiming) => void>();
+const SESSION_IN_PATH = /\/sessions\/([^/]+)/;
+const SERVER_TIMING_MS = /dur=(\d+(?:\.\d+)?)/;
+
+/**
+ * Reports the timing of every request of one run's session, so a slow step can be told into the server's part and
+ * the rest. Returns the function that stops it.
+ */
+export function watchAgentHttp(
+  sessionId: string,
+  sink: (timing: AgentHttpTiming) => void,
+): () => void {
+  timingSinks.set(sessionId, sink);
+  return () => timingSinks.delete(sessionId);
+}
+
 async function call(base: string, path: string, options: CallOptions): Promise<Response> {
   const headers: Record<string, string> = {};
   if (options.body !== undefined) headers["Content-Type"] = "application/json";
@@ -80,11 +108,13 @@ async function call(base: string, path: string, options: CallOptions): Promise<R
   const timeout = AbortSignal.timeout(options.timeoutMs);
   const signal = options.signal ? AbortSignal.any([options.signal, timeout]) : timeout;
   let response: Response;
+  const body = options.body === undefined ? undefined : JSON.stringify(options.body);
+  const sentAt = performance.now();
   try {
     response = await fetch(`${base}${path}`, {
       method: options.method ?? "GET",
       headers,
-      body: options.body === undefined ? undefined : JSON.stringify(options.body),
+      body,
       signal,
     });
   } catch (err) {
@@ -96,16 +126,27 @@ async function call(base: string, path: string, options: CallOptions): Promise<R
       "unreachable",
     );
   }
+  const sink = timingSinks.get(SESSION_IN_PATH.exec(path)?.[1] ?? "");
+  if (sink) {
+    const timing = SERVER_TIMING_MS.exec(response.headers.get("Server-Timing") ?? "")?.[1];
+    sink({
+      route: path.replace(SESSION_IN_PATH, "/sessions/:id"),
+      roundTripMs: Math.round(performance.now() - sentAt),
+      serverMs: timing === undefined ? undefined : Math.round(Number(timing)),
+      status: response.status,
+      bodyKb: Math.round((body?.length ?? 0) / 1024),
+    });
+  }
   if (response.ok) return response;
-  let body: Partial<AgentErrorBody> = {};
+  let errorBody: Partial<AgentErrorBody> = {};
   try {
-    body = (await response.json()) as Partial<AgentErrorBody>;
+    errorBody = (await response.json()) as Partial<AgentErrorBody>;
   } catch {
     // The server sent no JSON: the status says what it can.
   }
   throw new AgentApiError(
-    body.error || `The agent server answered ${response.status}.`,
-    body.code || "error",
+    errorBody.error || `The agent server answered ${response.status}.`,
+    errorBody.code || "error",
     response.status,
   );
 }

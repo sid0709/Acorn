@@ -61,6 +61,27 @@ export class ChoiceGate {
   }
 }
 
+/** What one choice pass found and did, for the log: a pass that does nothing must be able to say why. */
+export interface ChoicesReport {
+  /** Choices the frames reported, and how many of them were left out and why. */
+  widgets: number;
+  answered: number;
+  alreadyAsked: number;
+  noQuestion: number;
+  /** Choices that were new: asked about now unless the server was busy. */
+  fresh: number;
+  busy: boolean;
+  /** Lists opened, how many showed options, and why the first that did not failed. */
+  listsOpened: number;
+  listsWithOptions: number;
+  firstListError?: string;
+  /** Questions sent to the server, and how many it answered with enough certainty to click. */
+  asked: number;
+  picked: number;
+  filled: number;
+  failed: number;
+}
+
 export interface ChoicesArgs {
   agentUrl: string;
   sessionId: string;
@@ -75,6 +96,8 @@ export interface ChoicesArgs {
   title: string;
   /** Called once the choices are known, before the first click, so the overlay can say so. */
   onFilling?: () => void;
+  /** Called once with what the pass found and did, whenever the page had any choice at all. */
+  onReport?: (report: ChoicesReport) => void;
   /** Called after each choice with what came of it and how long it took. */
   onChoice?: (status: "filled" | "failed", ms: number, label: string, error?: string) => void;
 }
@@ -137,7 +160,11 @@ async function openList(
 }
 
 /** The choices of every frame that have not been asked about and are not answered yet. */
-async function scanFresh(args: ChoicesArgs, ctx: FillContext): Promise<Found[]> {
+async function scanFresh(
+  args: ChoicesArgs,
+  ctx: FillContext,
+  report: ChoicesReport,
+): Promise<Found[]> {
   const fresh: Found[] = [];
   for (const frame of ctx.frames) {
     const scan = await askFrame<ChoiceScan>(args.tabId, frame.frameId, {
@@ -145,17 +172,25 @@ async function scanFresh(args: ChoicesArgs, ctx: FillContext): Promise<Found[]> 
     });
     if (!scan?.ok) continue;
     for (const widget of scan.widgets) {
+      report.widgets += 1;
+      if (widget.answered) report.answered += 1;
+      else if (args.gate.has(frame.frameId, widget)) report.alreadyAsked += 1;
       // A choice with no words asking it cannot be answered from the applicant's details: it is not guessed at.
-      if (widget.question.trim() && !widget.answered && !args.gate.has(frame.frameId, widget)) {
-        fresh.push({ frameId: frame.frameId, widget, options: widget.options });
-      }
+      else if (!widget.question.trim()) report.noQuestion += 1;
+      else fresh.push({ frameId: frame.frameId, widget, options: widget.options });
     }
   }
+  report.fresh = fresh.length;
   return fresh;
 }
 
 /** Opens each list with a real click to read its options; keeps the choices that can be asked. */
-async function readOptions(args: ChoicesArgs, ctx: FillContext, fresh: Found[]): Promise<Found[]> {
+async function readOptions(
+  args: ChoicesArgs,
+  ctx: FillContext,
+  fresh: Found[],
+  report: ChoicesReport,
+): Promise<Found[]> {
   const found: Found[] = [];
   for (const item of fresh) {
     args.gate.mark(item.frameId, item.widget);
@@ -164,6 +199,7 @@ async function readOptions(args: ChoicesArgs, ctx: FillContext, fresh: Found[]):
       found.push(item);
       continue;
     }
+    report.listsOpened += 1;
     const opened = await within(
       openList(ctx, item.frameId, item.widget.id),
       PREFILL_FILL_TIMEOUT_MS,
@@ -171,8 +207,13 @@ async function readOptions(args: ChoicesArgs, ctx: FillContext, fresh: Found[]):
     );
     await closeList(ctx);
     await ctx.sleep(PREFILL_SETTLE_MS);
-    // A list that already shows a chosen option was answered; one that opened no options is left alone.
-    if (opened.ok && opened.selected < 0) found.push({ ...item, options: opened.options });
+    if (!opened.ok) {
+      report.firstListError ??= opened.error;
+      continue;
+    }
+    report.listsWithOptions += 1;
+    // A list that already shows a chosen option was answered.
+    if (opened.selected < 0) found.push({ ...item, options: opened.options });
   }
   return found;
 }
@@ -249,8 +290,27 @@ export async function runChoices(args: ChoicesArgs): Promise<ChoicesOutcome | nu
     sleep: args.sleep,
     checkStopped: args.checkStopped,
   };
-  const fresh = await scanFresh(args, ctx);
-  if (fresh.length === 0) return null;
+  const report: ChoicesReport = {
+    widgets: 0,
+    answered: 0,
+    alreadyAsked: 0,
+    noQuestion: 0,
+    fresh: 0,
+    busy: false,
+    listsOpened: 0,
+    listsWithOptions: 0,
+    asked: 0,
+    picked: 0,
+    filled: 0,
+    failed: 0,
+  };
+  // Said once, whatever happened, when the page had any choice at all.
+  const finish = <T>(outcome: T): T => {
+    if (report.widgets > 0) args.onReport?.(report);
+    return outcome;
+  };
+  const fresh = await scanFresh(args, ctx, report);
+  if (fresh.length === 0) return finish(null);
   // Asked of the server before any list is opened: while the model's own plan is typing into the page, nothing here begins.
   const may = await requestPick(
     args.agentUrl,
@@ -264,9 +324,12 @@ export async function runChoices(args: ChoicesArgs): Promise<ChoicesOutcome | nu
       throw err;
     },
   );
-  if (!may) return null;
-  const found = await readOptions(args, ctx, fresh);
-  if (found.length === 0) return null;
+  if (!may) {
+    report.busy = true;
+    return finish(null);
+  }
+  const found = await readOptions(args, ctx, fresh, report);
+  if (found.length === 0) return finish(null);
 
   const fields: AgentPickField[] = found.map((item, ref) => ({
     ref,
@@ -274,6 +337,7 @@ export async function runChoices(args: ChoicesArgs): Promise<ChoicesOutcome | nu
     question: item.widget.question,
     options: item.options,
   }));
+  report.asked = fields.length;
   const result = await requestPick(
     args.agentUrl,
     args.sessionId,
@@ -281,6 +345,7 @@ export async function runChoices(args: ChoicesArgs): Promise<ChoicesOutcome | nu
     args.signal,
   );
   const picks = result.picks ?? [];
+  report.picked = picks.length;
   if (picks.length > 0) args.onFilling?.();
   const filled: AgentPrefillLine[] = [];
   const failed: AgentPrefillLine[] = [];
@@ -300,5 +365,7 @@ export async function runChoices(args: ChoicesArgs): Promise<ChoicesOutcome | nu
       args.onChoice?.("failed", Date.now() - began, label, outcome.error);
     }
   }
-  return { filled, failed, result };
+  report.filled = filled.length;
+  report.failed = failed.length;
+  return finish({ filled, failed, result });
 }

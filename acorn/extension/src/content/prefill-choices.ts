@@ -170,6 +170,16 @@ export function createChoices(helpers: ChoiceHelpers): {
     }
   }
 
+  /** Whether an element names the popup it opens (aria-controls or aria-owns) and that popup is a list. */
+  function controlsList(el: Element): boolean {
+    return ["aria-controls", "aria-owns"].some((name) =>
+      (el.getAttribute(name) ?? "").split(/\s+/).some((id) => {
+        const target = id ? el.ownerDocument.getElementById(id) : null;
+        return ["listbox", "menu", "tree", "grid"].includes(target?.getAttribute("role") ?? "");
+      }),
+    );
+  }
+
   /** Lists the page draws itself: a button or box that opens a list. A text box that is typed into is not one. */
   function dropdowns(widgets: ChoiceWidget[]): void {
     const found = new Set<Element>();
@@ -177,7 +187,8 @@ export function createChoices(helpers: ChoiceHelpers): {
       const popup = el.getAttribute("aria-haspopup");
       const opens =
         (popup && popup !== "false" && popup !== "dialog") ||
-        el.getAttribute("role") === "combobox";
+        el.getAttribute("role") === "combobox" ||
+        (el.hasAttribute("aria-expanded") && controlsList(el));
       if (!opens || found.has(el) || isDisabled(el)) continue;
       if (
         el instanceof HTMLSelectElement ||
@@ -191,6 +202,8 @@ export function createChoices(helpers: ChoiceHelpers): {
         !shown(el)
       )
         continue;
+      // One control drawn as a box with a button inside it is one list, not two.
+      if ([...found].some((other) => other.contains(el) || el.contains(other))) continue;
       found.add(el);
     }
     for (const trigger of found) {

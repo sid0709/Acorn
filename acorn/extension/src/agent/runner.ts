@@ -35,6 +35,7 @@ import {
   continueSession,
   fetchMemory,
   endSession,
+  watchAgentHttp,
   fetchResumeFile,
   isRetryable,
   sendStep,
@@ -259,6 +260,7 @@ export async function runAgent(args: AgentRunArgs): Promise<RunReport> {
   /** Which fields the quick text pass has been asked about, so each is asked once. */
   const prefillGate = new PrefillGate();
   const choiceGate = new ChoiceGate();
+  let lastChoicesReport = "";
   /** The last decision logged about the pass, so a look that decides the same is not logged again. */
   let lastPrefillDecision = "";
   /** What the pass did since the model last looked; it goes with the next look and is then cleared. */
@@ -375,6 +377,13 @@ export async function runAgent(args: AgentRunArgs): Promise<RunReport> {
           domWorking = true;
           domPassStartedAt = passStartedAt;
           void here.overlay.setLabel(PREFILL_OVERLAY_LABEL);
+        },
+        onChoices: (report) => {
+          // The same findings as at the last look are not said again.
+          const key = JSON.stringify(report);
+          if (key === lastChoicesReport) return;
+          lastChoicesReport = key;
+          log.event("agent-prefill:choices", { ...report });
         },
         onChoice: (status, ms, label, error) => {
           log.event("agent-prefill:choice", {
@@ -711,6 +720,13 @@ export async function runAgent(args: AgentRunArgs): Promise<RunReport> {
     return { kind: "step", step, askedAt };
   };
 
+  /** Logs how long each request of this run's session took, and how much of it was the server's own handler. */
+  const httpTiming: { stop: (() => void) | null } = { stop: null };
+  const watchHttp = (id: string): void => {
+    httpTiming.stop?.();
+    httpTiming.stop = watchAgentHttp(id, (timing) => log.event("agent-http", { ...timing }));
+  };
+
   const finish = (report: RunReport, resumable = false): RunReport => {
     chrome.tabs.onCreated.removeListener(onCreated);
     keepSession = resumable && Boolean(sessionId) && Boolean(args.keepRun);
@@ -765,6 +781,7 @@ export async function runAgent(args: AgentRunArgs): Promise<RunReport> {
     if (args.resume) {
       // Held from now on, so a Continue that fails for want of the network can be tried again.
       sessionId = args.resume.sessionId;
+      watchHttp(sessionId);
       try {
         const continued = await continueSession(args.agentUrl, sessionId);
         stepNumber = continued.number;
@@ -807,6 +824,7 @@ export async function runAgent(args: AgentRunArgs): Promise<RunReport> {
         args.accessToken,
       );
       sessionId = started.sessionId;
+      watchHttp(sessionId);
       log.event("agent-session", { resumes: started.resumes.length });
       recordAgentTrace(log, started.trace);
     }
@@ -1020,6 +1038,7 @@ export async function runAgent(args: AgentRunArgs): Promise<RunReport> {
     return finish(report(RUN_OUTCOME.failed, failureFromError(err)), runSurvives(err));
   } finally {
     chrome.tabs.onCreated.removeListener(onCreated);
+    httpTiming.stop?.();
     frames.stop?.();
     if (sessionId && keepSession && args.keepRun) {
       // The agent keeps this run's memory; Continue takes it back up on the tab it stopped in.
