@@ -218,9 +218,105 @@ async function readOptions(
   return found;
 }
 
+/** How many levels a list that drills in (a category that opens its own options) is followed. */
+const MAX_DRILL_LEVELS = 3;
+/** After a click, how often the page is asked whether it took, and how many times. */
+const ANSWER_POLL_MS = 120;
+const ANSWER_POLLS = 4;
+
+const readState = (ctx: FillContext, frameId: number, id: number): Promise<ChoiceState | null> =>
+  askFrame<ChoiceState>(ctx.tabId, frameId, { type: PREFILL_MESSAGE.choiceState, id });
+
+/** What a list shows once its option was clicked, waiting a moment for the page to take it. */
+async function stateAfterClick(
+  ctx: FillContext,
+  frameId: number,
+  id: number,
+  took: (state: Extract<ChoiceState, { ok: true }>) => boolean,
+): Promise<ChoiceState | null> {
+  let state: ChoiceState | null = null;
+  for (let poll = 0; poll < ANSWER_POLLS; poll += 1) {
+    await ctx.sleep(poll === 0 ? PREFILL_SETTLE_MS : ANSWER_POLL_MS);
+    state = await readState(ctx, frameId, id);
+    if (state?.ok && took(state)) return state;
+  }
+  return state;
+}
+
+/**
+ * Opens a list, clicks the option the server chose and checks that the page shows it. A list that drills in
+ * (the option was a category and the list now shows its own options) is asked about again, with the path so
+ * far, until an answer is chosen.
+ */
+async function applyListPick(
+  ctx: FillContext,
+  args: ChoicesArgs,
+  item: Found,
+  firstChoice: string,
+): Promise<{ shown: string } | { error: string }> {
+  const { frameId, widget } = item;
+  const before = await readState(ctx, frameId, widget.id);
+  const opened = await openList(ctx, frameId, widget.id);
+  if (!opened.ok) return { error: opened.error };
+  let options = opened.options;
+  let wanted = firstChoice;
+  const path: string[] = [];
+  for (let level = 0; level < MAX_DRILL_LEVELS; level += 1) {
+    const index = options.findIndex((candidate) => plain(candidate) === plain(wanted));
+    if (index < 0) {
+      await closeList(ctx);
+      return { error: "the list no longer shows that option" };
+    }
+    path.push(options[index]);
+    const point = await pointOfChoice(ctx, frameId, widget.id, index);
+    if (typeof point === "string") return { error: point };
+    const error = await act(ctx, [{ id: "p1", kind: ACTION_KIND.click, x: point.x, y: point.y }]);
+    if (error) return { error };
+    const state = await stateAfterClick(ctx, frameId, widget.id, (now) => now.answered);
+    if (state?.ok && state.answered) return { shown: path.join(" > ") };
+    // A list that carries no value shows the choice in its own text.
+    if (state?.ok && state.text && (!before?.ok || plain(before.text) !== plain(state.text))) {
+      return { shown: state.text };
+    }
+    // Nothing is chosen yet: the option may have been a category that opened its own options.
+    const deeper = await askFrame<ChoiceOptions>(ctx.tabId, frameId, {
+      type: PREFILL_MESSAGE.choiceOptions,
+      id: widget.id,
+    });
+    if (!deeper?.ok) return { error: "the list did not show the choice" };
+    const answer = await requestPick(
+      args.agentUrl,
+      args.sessionId,
+      {
+        url: args.url,
+        title: args.title,
+        fields: [
+          {
+            ref: 0,
+            kind: PICK_KIND.one,
+            question: `${widget.question} (${path.join(" > ")})`,
+            options: deeper.options,
+          },
+        ],
+      },
+      args.signal,
+    );
+    const choice = answer.picks?.[0]?.choices[0];
+    if (choice === undefined || !deeper.options[choice]) {
+      await closeList(ctx);
+      return { error: `not sure which option inside ${path.join(" > ")}` };
+    }
+    options = deeper.options;
+    wanted = deeper.options[choice];
+  }
+  await closeList(ctx);
+  return { error: "the list went deeper than it is followed" };
+}
+
 /** Clicks the option the server chose for one choice and checks that the page shows it. */
 async function applyPick(
   ctx: FillContext,
+  args: ChoicesArgs,
   item: Found,
   choices: number[],
 ): Promise<{ shown: string } | { error: string }> {
@@ -233,35 +329,7 @@ async function applyPick(
       return { error: "left to the model: it asks about AI or automated tools" };
     }
   }
-  if (widget.kind === "dropdown") {
-    const before = await askFrame<ChoiceState>(ctx.tabId, frameId, {
-      type: PREFILL_MESSAGE.choiceState,
-      id: widget.id,
-    });
-    const opened = await openList(ctx, frameId, widget.id);
-    if (!opened.ok) return { error: opened.error };
-    const index = opened.options.findIndex((candidate) => plain(candidate) === plain(meant[0]));
-    if (index < 0) {
-      await closeList(ctx);
-      return { error: "the list no longer shows that option" };
-    }
-    const point = await pointOfChoice(ctx, frameId, widget.id, index);
-    if (typeof point === "string") return { error: point };
-    const error = await act(ctx, [{ id: "p1", kind: ACTION_KIND.click, x: point.x, y: point.y }]);
-    if (error) return { error };
-    await ctx.sleep(PREFILL_SETTLE_MS);
-    const after = await askFrame<ChoiceState>(ctx.tabId, frameId, {
-      type: PREFILL_MESSAGE.choiceState,
-      id: widget.id,
-    });
-    const text = after?.ok ? after.text : "";
-    const changed = !before?.ok || plain(before.text) !== plain(text);
-    return text && changed && plain(text).includes(plain(meant[0]).slice(0, 12))
-      ? { shown: meant[0] }
-      : text && changed
-        ? { shown: text }
-        : { error: "the list did not show the choice" };
-  }
+  if (widget.kind === "dropdown") return applyListPick(ctx, args, item, meant[0]);
   for (const index of choices) {
     const point = await pointOfChoice(ctx, frameId, widget.id, index);
     if (typeof point === "string") return { error: point };
@@ -271,10 +339,7 @@ async function applyPick(
     if (error) return { error };
     await ctx.sleep(PREFILL_SETTLE_MS);
   }
-  const state = await askFrame<ChoiceState>(ctx.tabId, frameId, {
-    type: PREFILL_MESSAGE.choiceState,
-    id: widget.id,
-  });
+  const state = await readState(ctx, frameId, widget.id);
   return state?.ok && choices.every((i) => state.chosen.includes(i))
     ? { shown: meant.join("; ") }
     : { error: "the choice did not stay chosen" };
@@ -354,9 +419,13 @@ export async function runChoices(args: ChoicesArgs): Promise<ChoicesOutcome | nu
     if (!item) continue;
     const label = item.widget.question || "(a choice with no label)";
     const began = Date.now();
-    const outcome = await within(applyPick(ctx, item, pick.choices), PREFILL_FILL_TIMEOUT_MS, {
-      error: "the choice took too long",
-    });
+    const outcome = await within(
+      applyPick(ctx, args, item, pick.choices),
+      PREFILL_FILL_TIMEOUT_MS,
+      {
+        error: "the choice took too long",
+      },
+    );
     if ("shown" in outcome) {
       filled.push({ label, value: outcome.shown });
       args.onChoice?.("filled", Date.now() - began, label);

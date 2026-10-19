@@ -142,3 +142,22 @@ func TestPicksStopAtTheRunsLimit(t *testing.T) {
 		t.Fatalf("err = %v", err)
 	}
 }
+
+func TestALongListKeepsItsOptionsUpToTheBound(t *testing.T) {
+	var options []string
+	for i := 0; i < 250; i++ {
+		options = append(options, fmt.Sprintf("Country %d", i))
+	}
+	fields := validPickFields([]PickField{{Ref: 1, Kind: PickOne, Question: "Country", Options: options}})
+	if len(fields) != 1 || len(fields[0].Options) != 250 {
+		t.Fatalf("a list of 250 options is cut: %d", len(fields[0].Options))
+	}
+	many := make([]string, maxPickOptions+50)
+	for i := range many {
+		many[i] = fmt.Sprintf("Option %d", i)
+	}
+	fields = validPickFields([]PickField{{Ref: 1, Kind: PickOne, Question: "Q", Options: many}})
+	if len(fields[0].Options) != maxPickOptions {
+		t.Fatalf("the bound is %d, got %d", maxPickOptions, len(fields[0].Options))
+	}
+}

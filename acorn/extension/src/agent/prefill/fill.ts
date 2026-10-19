@@ -190,6 +190,11 @@ export async function fillOne(
   });
   if (!described) return failed("the page did not answer");
   if (!described.ok) return failed(described.error);
+  // A search box that picks from a list is not a place text goes: typing into it leaves a word in the box and
+  // nothing chosen. The choice pass opens it and picks an option.
+  if (described.kind === "text" && described.listPicker) {
+    return { status: "skipped", why: "it picks from a list: the choice pass does it" };
+  }
   if (fill.action === PREFILL_ACTION.selectRadio) {
     return described.kind === "radio" || described.kind === "checkbox"
       ? fillGroup(ctx, frameId, fill, described)
