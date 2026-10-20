@@ -48,6 +48,10 @@ type Config struct {
 	// whole page at once. The plan also runs as one piece, with no cut every ChunkActions, and
 	// without the UncheckedActions limit when no decision model checks the screen.
 	FastFillActions int
+	// PointMatch is how sure the decision model must be that a labelled point of a fast-fill plan
+	// is on the control its label names for the point to be acted on (a probability, 0 to 1; 0
+	// turns the check off).
+	PointMatch float64
 	// FastFill makes every run a fast-fill run, whatever its start request says: the server's own
 	// switch (ACORN_AGENT_FAST_FILL), so the agent can be tried without rebuilding the extension.
 	// The answer to Start says so, and the extension follows it.
@@ -117,6 +121,7 @@ func DefaultConfig() Config {
 		UncheckedActions:  6,
 		ChunkActions:      6,
 		FastFillActions:   60,
+		PointMatch:        0.7,
 		CheckMatch:        0.9,
 		CheckBlocked:      0.2,
 		CheckLoading:      0.3,
@@ -428,7 +433,7 @@ func (a *Agent) step(ctx context.Context, id string, obs Observation) (Step, err
 	images := []string{obs.Screenshot}
 	if len(screens) > 0 {
 		notes = append(notes, surveyNote(obs))
-		images = surveyImages(obs)
+		images = badgedImages(obs)
 	}
 	body := observationText(number, s.stepLimit, obs, results, notes, stale)
 	messages := append([]llm.Message{{Role: llm.RoleSystem, Text: s.system}},
@@ -497,6 +502,10 @@ func (a *Agent) step(ctx context.Context, id string, obs Observation) (Step, err
 		planned = nil
 	}
 	planned, dropped = a.resolveUploads(ctx, s, planned, dropped)
+	var pointCalls []modelCall
+	planned, pointCalls = a.checkPlanPoints(ctx, s, planned, obs)
+	calls = append(calls, pointCalls...)
+	entry.Usage = s.usage
 	status := answer.Status
 	// "Done" is the page's confirmation, not the model's word: a done the screen does not show is sent back.
 	if note, held := a.holdDone(ctx, s, obs, &answer); held {

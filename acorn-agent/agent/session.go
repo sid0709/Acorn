@@ -120,6 +120,9 @@ type session struct {
 	// (zones.go).
 	zones   []ZoneShot
 	anchors map[string]anchor
+	// surveyAgain asks for the next look to be a survey: points of the last plan were not carried
+	// out, and the model must see the whole page again to plan them.
+	surveyAgain bool
 	// script is a run of the model's actions with a dropdown to set in it, being carried out.
 	script *script
 	// cover is what the run has looked at on the page it is on, in pixels from the top.

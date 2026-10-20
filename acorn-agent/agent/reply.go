@@ -31,6 +31,7 @@ type modelAction struct {
 	Ms     *int     `json:"ms"`
 	Resume *string  `json:"resume"`
 	Check  *string  `json:"check"`
+	Label  *string  `json:"label"`
 }
 
 // parseReply reads the model's JSON answer. It reads the first JSON object and ignores what
@@ -65,6 +66,7 @@ const (
 	maxWaitMs      = 10_000
 	maxScrollPages = 3
 	maxCheckChars  = 300
+	maxLabelChars  = 80
 )
 
 // checkActions turns the model's actions into ones the extension can run, and says why
@@ -87,6 +89,9 @@ func checkActions(step int, raw []modelAction, vp Viewport, maxActions int, scre
 		}
 		if in.Check != nil {
 			action.Check = clipText(strings.TrimSpace(*in.Check), maxCheckChars)
+		}
+		if in.Label != nil {
+			action.Label = clipText(strings.TrimSpace(*in.Label), maxLabelChars)
 		}
 		valid = append(valid, action)
 	}

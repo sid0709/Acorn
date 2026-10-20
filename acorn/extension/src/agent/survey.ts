@@ -8,41 +8,26 @@
  */
 
 import { captureShot, type Shot } from "./capture";
+import { SCROLL_TOLERANCE_PX, pageState, scrollPageSlowly } from "./page-scroll";
 
 import type { Cdp } from "./cdp";
-import type { AgentAction, AgentSurveyScreen } from "@acorn/shared/agent-contract";
+import type {
+  AgentAction,
+  AgentActionResult,
+  AgentSurveyScreen,
+  AgentZoneShot,
+} from "@acorn/shared/agent-contract";
 
 /** The most screens one survey takes; a longer page is surveyed down to here. */
 export const SURVEY_MAX_SCREENS = 8;
 /** How much of a screen the next one repeats, so a field on the seam is whole in one of them. */
 export const SURVEY_OVERLAP = 0.15;
 /** The pause after scrolling, for what the page draws or loads at the new place. */
-export const SURVEY_SETTLE_MS = 120;
+export const SURVEY_SETTLE_MS = 350;
 /** A page this many times taller than its window is worth a survey; a shorter one is one screen. */
 export const SURVEY_MIN_PAGE_RATIO = 1.25;
 /** How much taller or shorter than the survey saw it the page may be and still be acted on. */
 export const LAYOUT_TOLERANCE_PX = 12;
-/** How far from where it was asked to be the page may land (a page may snap or clamp). */
-export const SCROLL_TOLERANCE_PX = 3;
-
-type Layout = {
-  cssVisualViewport: { pageY: number };
-  cssContentSize: { height: number };
-};
-
-/** What the page is doing now: where it is scrolled, and how tall it is (CSS pixels). */
-async function pageState(cdp: Cdp): Promise<{ y: number; height: number }> {
-  const metrics = await cdp.send<Layout>("Page.getLayoutMetrics");
-  return { y: metrics.cssVisualViewport.pageY, height: metrics.cssContentSize.height };
-}
-
-/** Scrolls the page to a place at once (no smooth scrolling) and says where it landed. */
-export async function scrollPageTo(cdp: Cdp, y: number): Promise<{ y: number; height: number }> {
-  await cdp.send("Runtime.evaluate", {
-    expression: `(() => { window.scrollTo({ top: ${Number(y)}, left: window.scrollX, behavior: "instant" }); })()`,
-  });
-  return pageState(cdp);
-}
 
 /**
  * The positions (CSS pixels) a survey of a page scrolls to: the top, then one screen less an
@@ -64,15 +49,55 @@ export interface SurveyDeps {
   checkStopped: () => void;
 }
 
+/** What the last survey saw: its screens and how tall the page was (screenshot pixels). */
+export interface SurveyMemory {
+  screens: AgentSurveyScreen[];
+  pageHeight: number;
+}
+
 /**
- * Scrolls through the page taking a screenshot at each position, then puts the page back where it
- * was. `first` is the look just taken: the screen at its own position is reused, not shot again.
- * Returns null when the page is about one screen tall. The caller hides the overlay around it.
+ * What a new survey may take from what the run already has instead of scrolling for it: the screens
+ * of the last survey, and the photos taken when the zones of the plan just carried out were done.
+ */
+export interface SurveyReuse {
+  previous: SurveyMemory | null;
+  zones: AgentZoneShot[];
+}
+
+/** What a survey is: its screens, and how many of them were taken from what the run already had. */
+export interface SurveyResult {
+  screens: AgentSurveyScreen[];
+  reused: number;
+}
+
+/**
+ * Whether the batch just carried out leaves the last survey good for the parts it did not touch: every
+ * action ran, every action belongs to a zone of a fast-fill plan (so each zone was photographed when it
+ * was done), and none was an upload, which fills fields all over the page (a résumé read).
+ */
+export function isReusableBatch(actions: AgentAction[], results: AgentActionResult[]): boolean {
+  return (
+    actions.length > 0 &&
+    results.every((result) => result.ok) &&
+    actions.every((action) => action.zone != null && action.kind !== "upload")
+  );
+}
+
+/**
+ * Takes the screens of a page. A screen is reused, not scrolled for and shot again, when a photo of
+ * its zone was taken when the zone was done (the freshest look at it), or the last survey has it and
+ * nothing in the batch just done touched it; both only while the page is as tall as the last survey saw
+ * it, since a page that grew may have moved what is below the growth. The rest are taken by scrolling
+ * to them with the wheel, slowly, and waiting for the page to rest before the shot, and the page is
+ * then put back where it was. When every screen is reused the page does not move at all.
+ * `first` is the look just taken: the screen at its own position is never shot again. Returns null
+ * when the page is about one screen tall. The caller hides the overlay around it.
  */
 export async function captureSurvey(
   deps: SurveyDeps,
   first: Shot,
-): Promise<AgentSurveyScreen[] | null> {
+  reuse?: SurveyReuse,
+): Promise<SurveyResult | null> {
   const scale = first.scale;
   const positions = surveyPositions(
     first.viewport.pageHeight / scale,
@@ -80,21 +105,38 @@ export async function captureSurvey(
   );
   if (positions.length < 2) return null;
   const original = first.viewport.scrollY / scale;
+  const sameHeight =
+    reuse?.previous != null &&
+    Math.abs(reuse.previous.pageHeight - first.viewport.pageHeight) <= LAYOUT_TOLERANCE_PX * scale;
+  const near = (a: number, b: number) => Math.abs(a - b) <= SCROLL_TOLERANCE_PX * scale;
   const screens: AgentSurveyScreen[] = [];
+  let reused = 0;
+  let scrolled = false;
   try {
     for (const y of positions) {
       deps.checkStopped();
+      const at = y * scale;
       if (Math.abs(y - original) < 1) {
         screens.push({ screenshot: first.dataUrl, scrollY: first.viewport.scrollY });
         continue;
       }
-      await scrollPageTo(deps.cdp, y);
+      const have = sameHeight
+        ? (reuse?.zones.find((zone) => near(zone.scrollY, at)) ??
+          reuse?.previous?.screens.find((screen) => near(screen.scrollY, at)))
+        : undefined;
+      if (have) {
+        screens.push({ screenshot: have.screenshot, scrollY: have.scrollY });
+        reused += 1;
+        continue;
+      }
+      scrolled = true;
+      await scrollPageSlowly(deps.cdp, y, deps.sleep);
       await deps.sleep(SURVEY_SETTLE_MS);
       const shot = await captureShot(deps.cdp);
       screens.push({ screenshot: shot.dataUrl, scrollY: shot.viewport.scrollY });
     }
   } finally {
-    await scrollPageTo(deps.cdp, original).catch(() => undefined);
+    if (scrolled) await scrollPageSlowly(deps.cdp, original, deps.sleep).catch(() => undefined);
   }
   // Two positions that landed on the same place (a short last step) are one screen.
   const seen = new Set<number>();
@@ -104,7 +146,37 @@ export async function captureSurvey(
     seen.add(key);
     return true;
   });
-  return unique.length >= 2 ? unique : null;
+  return unique.length >= 2 ? { screens: unique, reused } : null;
+}
+
+/**
+ * Takes the run's surveys and remembers what the last one saw, so the next takes again only what
+ * changed (see `captureSurvey`). `noteBatch` says what the batch just carried out was, and the next
+ * survey uses it once.
+ */
+export class SurveyKeeper {
+  /** How many screens of the last survey were taken from what the run already had. */
+  reused = 0;
+  private memory: SurveyMemory | null = null;
+  private reusable = false;
+
+  noteBatch(actions: AgentAction[], results: AgentActionResult[]): void {
+    this.reusable = isReusableBatch(actions, results);
+  }
+
+  async take(
+    deps: SurveyDeps,
+    first: Shot,
+    zoneShots: AgentZoneShot[],
+  ): Promise<AgentSurveyScreen[] | null> {
+    const reuse =
+      this.reusable && this.memory ? { previous: this.memory, zones: [...zoneShots] } : undefined;
+    this.reusable = false;
+    const taken = await captureSurvey(deps, first, reuse);
+    this.reused = taken?.reused ?? 0;
+    this.memory = taken ? { screens: taken.screens, pageHeight: first.viewport.pageHeight } : null;
+    return taken?.screens ?? null;
+  }
 }
 
 /**
@@ -128,7 +200,7 @@ export async function scrollForAction(
   ) {
     return;
   }
-  const state = await scrollPageTo(cdp, wanted);
+  const state = await scrollPageSlowly(cdp, wanted, sleep);
   await sleep(SURVEY_SETTLE_MS);
   if (action.pageHeight != null) {
     const saw = action.pageHeight / scale;

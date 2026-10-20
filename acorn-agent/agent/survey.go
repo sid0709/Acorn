@@ -64,15 +64,6 @@ func checkSurvey(obs Observation) ([]float64, error) {
 	return positions, nil
 }
 
-// surveyImages are the survey's screenshots in order.
-func surveyImages(obs Observation) []string {
-	images := make([]string, len(obs.Survey))
-	for i, screen := range obs.Survey {
-		images[i] = screen.Screenshot
-	}
-	return images
-}
-
 // surveyNote tells the model what its screenshots are.
 func surveyNote(obs Observation) string {
 	var out strings.Builder
@@ -85,7 +76,7 @@ func surveyNote(obs Observation) string {
 			best, showing = float64(d), i+1
 		}
 	}
-	fmt.Fprintf(&out, ". The page shows screen %d now. Plan from all of them: give each click its \"screen\" (the screenshot its x and y are measured on) and Acorn scrolls there first. Do not scroll between screens yourself.", showing)
+	fmt.Fprintf(&out, ". The page shows screen %d now. Plan from all of them: give each click its \"screen\" (the screenshot its x and y are measured on) and Acorn scrolls there first. Do not scroll between screens yourself. %s", showing, badgeNote())
 	return out.String()
 }
 
@@ -111,6 +102,9 @@ func scrollOnly(actions []Action, max int) []Action {
 	}
 	return kept
 }
+
+// encodeBase64 is the standard base64 text of bytes.
+func encodeBase64(raw []byte) string { return base64.StdEncoding.EncodeToString(raw) }
 
 // decodeDataURL is the bytes of a base64 data URL.
 func decodeDataURL(dataURL string) ([]byte, bool) {

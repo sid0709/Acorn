@@ -342,7 +342,8 @@ func (a *Agent) uncheckedLimit(s *session) int {
 // the last of the plan (so the whole page is looked at once, to finish and check what is left).
 // sent are the actions going out now; s.plan is what is left of the plan after them.
 func (a *Agent) surveyNext(s *session, sent []Action, asked bool) bool {
-	if asked && s.start.Survey {
+	if (asked || s.surveyAgain) && s.start.Survey {
+		s.surveyAgain = false
 		return true
 	}
 	if !s.start.FastFill {

@@ -71,7 +71,7 @@ import {
 import { waitForScrollRest } from "./scroll-rest";
 import { scrollToTop } from "./scroll-top";
 import { AGENT_FAST_FILL, AGENT_SURVEY } from "./settings";
-import { captureSurvey } from "./survey";
+import { SurveyKeeper } from "./survey";
 import { openAgentTab, type AgentTab } from "./tab-session";
 import { Stopwatch, httpSummary, type HttpTiming } from "./timing";
 import { recordAgentTrace } from "./trace-log";
@@ -643,6 +643,9 @@ export async function runAgent(args: AgentRunArgs): Promise<RunReport> {
     // With surveys on (AGENT_SURVEY), the first look of a page is a survey of the whole of it, so
     // the model can plan the form at once; so is the look after the model asks for one.
     let surveyNext = surveyOn;
+    // What the last survey saw, so the next one takes again only what changed; and whether the batch
+    // just carried out leaves it good for the parts the batch did not touch (survey.ts).
+    const surveys = new SurveyKeeper();
     let lastLook = "";
     for (;;) {
       checkStopped();
@@ -676,7 +679,9 @@ export async function runAgent(args: AgentRunArgs): Promise<RunReport> {
         if (surveying) {
           const first = shot;
           survey = await look
-            .time("survey", () => captureSurvey({ cdp: here.cdp, sleep, checkStopped }, first))
+            .time("survey", () =>
+              surveys.take({ cdp: here.cdp, sleep, checkStopped }, first, zoneShots),
+            )
             .catch((err: unknown) => {
               if (signal.aborted) throw err;
               return null; // a page that cannot be surveyed is looked at one screen at a time
@@ -688,7 +693,7 @@ export async function runAgent(args: AgentRunArgs): Promise<RunReport> {
       const captureMs = Date.now() - captureStartedAt;
       const tabHidden = await look.time("tabHidden", () => isTabHidden(here.cdp));
       checkStopped();
-      if (survey) log.event("agent-survey", { screens: survey.length });
+      if (survey) log.event("agent-survey", { screens: survey.length, reused: surveys.reused });
       const [focus, text] = await look.time("pageRead", () =>
         Promise.all([readFocus(here.cdp), readPageText(here.cdp, here.tabId)]),
       );
@@ -828,6 +833,7 @@ export async function runAgent(args: AgentRunArgs): Promise<RunReport> {
       const actionsBeganAt = Date.now();
       const batch = new Stopwatch();
       results = await runActions(executor, actions, batch);
+      surveys.noteBatch(actions, results);
       lastActionsMs = Date.now() - actionsBeganAt;
       spent.actions += lastActionsMs;
       // What each action took and where, so a slow step is read from the log, not guessed.

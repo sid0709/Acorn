@@ -35,7 +35,8 @@ func TestASurveyIsShownToTheModelAsItsScreensNotTheSingleScreenshot(t *testing.T
 	stepOK(t, a, start(t, a), obs)
 	last := model.requests[0].Messages
 	message := last[len(last)-1]
-	if len(message.Images) != 3 || message.Images[1] != obs.Survey[1].Screenshot {
+	// The model's copies carry their numbers, so they are not the survey's own pictures.
+	if len(message.Images) != 3 || message.Images[1] != badged(obs.Survey[1].Screenshot, 2, 3) {
 		t.Fatalf("the model got %d images", len(message.Images))
 	}
 	for _, want := range []string{"survey of the whole page: 3 screenshots", "screen 2 is scrolled to 680 px", "The page shows screen 1 now", `give each click its "screen"`} {

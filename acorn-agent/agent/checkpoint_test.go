@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"math"
 	"strconv"
 	"strings"
@@ -32,6 +33,10 @@ type fakeScreen struct {
 	sent *float64
 	// nativeChoice is the key the screen gives for a native list's options (e.g. "option_4"); empty answers none.
 	nativeChoice string
+	// wrongPoints are the labels whose points the screen says are not on their controls, and
+	// pointRequests how many times it was asked about points.
+	wrongPoints   []string
+	pointRequests int
 	// closedLooks is how many of the next looks at an open dropdown see no list open (a click that missed the control).
 	closedLooks int
 }
@@ -52,6 +57,21 @@ func (f *fakeScreen) Decide(_ context.Context, req decide.Request) (decide.Respo
 	f.requests = append(f.requests, req)
 	if f.err != nil {
 		return decide.Response{}, f.err
+	}
+	if _, asked := req.Questions[pointQuestionKey(1)]; asked {
+		// The points of one screen: a point is wrong when its question names a label the test said is wrong.
+		f.pointRequests++
+		answers := map[string]decide.Answer{}
+		for key, question := range req.Questions {
+			p := 0.98
+			for _, label := range f.wrongPoints {
+				if strings.Contains(question.Instructions, fmt.Sprintf("%q", label)) {
+					p = 0.04
+				}
+			}
+			answers[key] = decide.Answer{Type: decide.TypeNoul, Noul: &p}
+		}
+		return decide.Response{Model: "fake-screen-1", Answers: answers, Usage: decide.Usage{InputTokens: 700, Cost: 0.0001}}, nil
 	}
 	if _, asked := req.Questions[askSent]; asked {
 		p := 1.0

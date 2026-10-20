@@ -208,6 +208,9 @@ type Action struct {
 	// can take a photo when the last action of a zone is done. Typing, keys and waits belong to the
 	// zone of the action before them. 0 when the run is not fast-fill or the look was one screen.
 	Zone int `json:"zone,omitempty"`
+	// Label is what the model called the control at the point, as the page names it. It stays on
+	// the agent: the point is checked against it before the action is carried out.
+	Label string `json:"-"`
 	// Check is what the screen should show once this action has run, as the model expected.
 	// It stays on the agent: the extension never sees it.
 	Check string `json:"-"`

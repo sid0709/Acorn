@@ -18,8 +18,8 @@ const replySchemaName = "agent_step"
 // scratchpad: the one thing carried from step to step. It is null when the notes did not
 // change, so the model does not write them out again. An action's check is what the screen
 // should show once that action has run, null where the model must look for itself; it exists
-// only when a decision model checks the screen (checks). The "screen" of a point action and
-// the "survey" action exist only when the run may look at a page as a survey (survey).
+// only when a decision model checks the screen (checks). The "screen" and the "label" of a point
+// action and the "survey" action exist only when the run may look at a page as a survey (survey).
 func replySchemaFor(survey, checks bool) json.RawMessage {
 	return replySchemas[schemaIndex(survey, checks)]
 }
@@ -98,9 +98,18 @@ func buildReplySchema(survey, checks bool) json.RawMessage {
 	}
 	var shapes []string
 	add := func(fields []field) { shapes = append(shapes, object(withCheck(fields...)...)) }
-	add(withScreen(kindField(KindClick, KindDoubleClick, KindTripleClick, KindRightClick, KindHover), field{"x", schemaNumber}, field{"y", schemaNumber}))
-	add(withScreen(kindField(KindChoose), field{"x", schemaNumber}, field{"y", schemaNumber}, field{"text", schemaString}))
-	add(withScreen(kindField(KindUpload), field{"x", schemaNumber}, field{"y", schemaNumber}, field{"resume", schemaNullString}))
+	// A point action in a survey also says what the control is called on the page, so the point can
+	// be checked against it before the action is carried out (pointcheck.go).
+	point := func(kind field, extra ...field) []field {
+		fields := []field{kind, {"x", schemaNumber}, {"y", schemaNumber}}
+		if survey {
+			fields = append(fields, field{"label", schemaNullString})
+		}
+		return withScreen(append(fields, extra...)...)
+	}
+	add(point(kindField(KindClick, KindDoubleClick, KindTripleClick, KindRightClick, KindHover)))
+	add(point(kindField(KindChoose), field{"text", schemaString}))
+	add(point(kindField(KindUpload), field{"resume", schemaNullString}))
 	add([]field{kindField(KindType), {"text", schemaString}, {"secret", schemaNullBoolean}})
 	add([]field{kindField(KindKey), {"keys", schemaString}})
 	add([]field{kindField(KindScroll), {"x", schemaNullNumber}, {"y", schemaNullNumber}, {"dx", schemaNumber}, {"dy", schemaNumber}})
