@@ -47,7 +47,12 @@ func TestEveryShapeOfTheSchemaIsStrict(t *testing.T) {
 	for _, survey := range []bool{false, true} {
 		for _, checks := range []bool{false, true} {
 			top := decodeSchema(t, replySchemaFor(survey, checks))
-			if want := []string{"observation", "memo", "job", "status", "message", "stop", "actions"}; !slices.Equal(top.Required, want) {
+			want := []string{"observation", "memo", "job", "status", "message", "stop", "actions"}
+			if survey {
+				// What the model will not come back to is asked after the notes and before the plan.
+				want = []string{"observation", "memo", "job", "status", "message", "stop", "settled", "actions"}
+			}
+			if !slices.Equal(top.Required, want) {
 				t.Fatalf("answer fields = %v, want %v in this order", top.Required, want)
 			}
 			for _, shape := range actionShapes(t, survey, checks) {

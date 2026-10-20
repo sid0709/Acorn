@@ -15,8 +15,9 @@ import (
 // was measured on, and the extension scrolls there first.
 
 const (
-	// maxSurveyScreens bounds the screens one survey may carry.
-	maxSurveyScreens = 12
+	// maxSurveyScreens is the most screens one survey may carry. A page is surveyed to its bottom whatever
+	// its height (a survey is never cut short), so this is a guard against nonsense, not a limit.
+	maxSurveyScreens = 10_000
 	// maxStopScrolls is how many scroll actions a run that ends may still send, to bring what the
 	// person must act on into view.
 	maxStopScrolls = 2
@@ -76,7 +77,7 @@ func surveyNote(obs Observation) string {
 			best, showing = float64(d), i+1
 		}
 	}
-	fmt.Fprintf(&out, ". The page shows screen %d now. Plan from all of them: give each click its \"screen\" (the screenshot its x and y are measured on) and Acorn scrolls there first. Do not scroll between screens yourself. %s", showing, badgeNote())
+	fmt.Fprintf(&out, ". The page shows screen %d now. Plan from all of them: give each click its \"screen\" (the screenshot its x and y are measured on) and Acorn scrolls there first. Do not scroll between screens yourself. %s This look is the survey: plan from it, and do not ask for another survey in this answer.", showing, badgeNote())
 	return out.String()
 }
 

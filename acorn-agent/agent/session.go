@@ -120,6 +120,8 @@ type session struct {
 	// (zones.go).
 	zones   []ZoneShot
 	anchors map[string]anchor
+	// settled is the parts of the page the model will not come back to (settled.go).
+	settled settledState
 	// surveyAgain asks for the next look to be a survey: points of the last plan were not carried
 	// out, and the model must see the whole page again to plan them.
 	surveyAgain bool

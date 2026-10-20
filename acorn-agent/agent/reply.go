@@ -15,6 +15,7 @@ type reply struct {
 	Status      string        `json:"status"`
 	Message     string        `json:"message"`
 	Stop        *StopInfo     `json:"stop"`
+	Settled     []int         `json:"settled"`
 	Actions     []modelAction `json:"actions"`
 }
 

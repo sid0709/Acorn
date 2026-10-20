@@ -106,8 +106,9 @@ func TestASingleScreenshotIsItsOwnScreen(t *testing.T) {
 
 func TestZonePhotosOfTheWrongSizeAreDroppedAndTheNumberIsBounded(t *testing.T) {
 	obs := observation(shot(t, 40))
+	one := shot(t, 90)
 	for i := 0; i < maxZoneShots+4; i++ {
-		obs.ZoneShots = append(obs.ZoneShots, ZoneShot{Zone: i + 1, Screenshot: shot(t, uint8(10*i)), ScrollY: float64(i)})
+		obs.ZoneShots = append(obs.ZoneShots, ZoneShot{Zone: i + 1, Screenshot: one, ScrollY: float64(i)})
 	}
 	obs.ZoneShots[1].Screenshot = "data:image/jpeg;base64,AAAA"
 	kept := acceptZoneShots(obs)

@@ -370,6 +370,8 @@ func (a *Agent) step(ctx context.Context, id string, obs Observation) (Step, err
 		return Step{}, err
 	}
 	s.cover.see(obs.URL, obs.Viewport)
+	s.forgetSettledIfStale(obs)
+	s.seeSurvey(obs)
 	s.zones = nil
 	a.keepZoneShots(s, obs)
 	// What happened to every action sent since the model last looked, which may be several
@@ -433,6 +435,9 @@ func (a *Agent) step(ctx context.Context, id string, obs Observation) (Step, err
 	images := []string{obs.Screenshot}
 	if len(screens) > 0 {
 		notes = append(notes, surveyNote(obs))
+		if note := s.settledNote(); note != "" {
+			notes = append(notes, note)
+		}
 		images = badgedImages(obs)
 	}
 	body := observationText(number, s.stepLimit, obs, results, notes, stale)
@@ -503,9 +508,13 @@ func (a *Agent) step(ctx context.Context, id string, obs Observation) (Step, err
 	}
 	planned, dropped = a.resolveUploads(ctx, s, planned, dropped)
 	var pointCalls []modelCall
+	claimed := touchedScreens(planned, obs)
 	planned, pointCalls = a.checkPlanPoints(ctx, s, planned, obs)
 	calls = append(calls, pointCalls...)
 	entry.Usage = s.usage
+	if settled := s.markSettled(obs, answer.Settled, planned, claimed); settled > 0 {
+		slog.Info(settledLine(s.id, settled, s.settled.Spans))
+	}
 	status := answer.Status
 	// "Done" is the page's confirmation, not the model's word: a done the screen does not show is sent back.
 	if note, held := a.holdDone(ctx, s, obs, &answer); held {
@@ -547,6 +556,7 @@ func (a *Agent) step(ctx context.Context, id string, obs Observation) (Step, err
 	step := Step{
 		Status: status, Message: strings.TrimSpace(answer.Message), Stop: stopFor(status, answer), Actions: actions,
 		Number: number, Usage: s.usage, Dropped: dropped, Survey: status == StatusWorking && a.surveyNext(s, actions, surveyAsked),
+		Settled: s.takeSettledMap(),
 	}
 	entry.Observation, entry.Memo, entry.Job = answer.Observation, s.memo, s.job
 	entry.Status, entry.Message, entry.Actions, entry.Dropped = status, step.Message, actions, dropped

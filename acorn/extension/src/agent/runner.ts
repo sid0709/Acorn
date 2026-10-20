@@ -11,6 +11,7 @@ import {
   type AgentAction,
   type AgentAsk,
   type AgentStarted,
+  type AgentSettledMap,
   type AgentSurveyScreen,
   type AgentZoneShot,
   type AgentActionResult,
@@ -78,6 +79,7 @@ import { recordAgentTrace } from "./trace-log";
 import { toBase64, type ResumeFile } from "./upload";
 
 import type { KeptRun } from "./kept-run";
+import type { Overlay } from "./overlay";
 import type { PipelineProgress } from "@acorn/shared/pipeline-types";
 
 /** The most times one step is sent again when the model is busy or briefly down. */
@@ -211,6 +213,38 @@ function runSwitches(args: AgentRunArgs): { surveyOn: boolean; fastFillOn: boole
     surveyOn: (args.survey ?? AGENT_SURVEY) || fastFillOn,
     fastFillOn,
   };
+}
+
+/**
+ * What the agent says is settled goes to the next survey, which leaves those parts out, and to the
+ * page's minimap, which paints them blue (the overlay's pixels are the page's CSS pixels).
+ */
+function applySettled(
+  step: AgentStep,
+  surveys: SurveyKeeper,
+  overlay: Overlay,
+  scale: number,
+): void {
+  if (!step.settled) return;
+  surveys.setSettled(step.settled);
+  void overlay.setMap(showMapSpans(step.settled, scale));
+}
+
+/** The settled parts of a map in the page's CSS pixels. */
+function showMapSpans(settled: AgentSettledMap, scale: number): { from: number; to: number }[] {
+  return settled.spans.map((span) => ({ from: span.from / scale, to: span.to / scale }));
+}
+
+/** After a survey the minimap is on the page, with what is settled so far painted blue. */
+function showSurveyMap(surveys: SurveyKeeper, overlay: Overlay, scale: number): void {
+  void overlay.setMap(showMapSpans(surveys.settled ?? { pageHeight: 0, spans: [] }, scale));
+}
+
+/** A look at a page the run has not seen: nothing seen or settled on the last one holds, and its minimap goes. */
+function forgetPage(newPage: boolean, surveys: SurveyKeeper, overlay: Overlay): void {
+  if (!newPage) return;
+  surveys.forget();
+  void overlay.setMap(null);
 }
 
 /** A run surveys when it was set to, or the server says it does (fast fill, which the server may turn on for all runs). */
@@ -668,6 +702,7 @@ export async function runAgent(args: AgentRunArgs): Promise<RunReport> {
       lastLook = lookKey;
       // A page is first looked at from its top: a run that starts, or a click that opens another page,
       // must not begin in the middle of a form whose first questions lie above the screen.
+      forgetPage(newPage, surveys, here.overlay);
       if (newPage) await look.time("scrollTop", () => scrollToTop(here.cdp, sleep));
       // A scroll still running (a key, a click, a list scrolling itself into view) is waited out.
       await look.time("scrollRest", () => waitForScrollRest(here.cdp, sleep));
@@ -693,7 +728,14 @@ export async function runAgent(args: AgentRunArgs): Promise<RunReport> {
       const captureMs = Date.now() - captureStartedAt;
       const tabHidden = await look.time("tabHidden", () => isTabHidden(here.cdp));
       checkStopped();
-      if (survey) log.event("agent-survey", { screens: survey.length, reused: surveys.reused });
+      if (survey) {
+        log.event("agent-survey", {
+          screens: survey.length,
+          reused: surveys.reused,
+          settled: surveys.left,
+        });
+        showSurveyMap(surveys, here.overlay, shot.scale);
+      }
       const [focus, text] = await look.time("pageRead", () =>
         Promise.all([readFocus(here.cdp), readPageText(here.cdp, here.tabId)]),
       );
@@ -729,6 +771,7 @@ export async function runAgent(args: AgentRunArgs): Promise<RunReport> {
       spent.ask += askMs;
       stepNumber = step.number;
       lastUsage = step.usage;
+      applySettled(step, surveys, here.overlay, shot.scale);
       const actions = step.actions ?? [];
       if (step.survey) surveyNext = true;
       log.step = step.number;

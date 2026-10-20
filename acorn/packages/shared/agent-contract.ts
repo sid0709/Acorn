@@ -181,6 +181,13 @@ export interface AgentActionResult {
   opened?: ActionOpened;
 }
 
+/** The parts of a page the model will not come back to (painted blue on the minimap), in screenshot pixels from its top. */
+export interface AgentSettledMap {
+  /** How tall the page was when they were settled; the parts are forgotten when it is a different height. */
+  pageHeight: number;
+  spans: { from: number; to: number }[];
+}
+
 /** The screenshot taken when the last action of a zone of a plan was done (fast fill, docs 19.4m). */
 export interface AgentZoneShot {
   /** The survey screen the actions of the zone were measured on, from 1. */
@@ -265,6 +272,8 @@ export interface AgentStep {
   ask?: AgentAsk;
   /** Make the next look a survey of the whole page. */
   survey?: boolean;
+  /** The parts of the page the model will not come back to, sent when they change; an empty list means none. */
+  settled?: AgentSettledMap;
   actions: AgentAction[] | null;
   number: number;
   usage: AgentUsage;

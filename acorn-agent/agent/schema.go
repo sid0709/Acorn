@@ -118,13 +118,18 @@ func buildReplySchema(survey, checks bool) json.RawMessage {
 		shapes = append(shapes, object(kindField(KindSurvey)))
 	}
 	action := `{"anyOf": [` + strings.Join(shapes, ", ") + `]}`
-	return json.RawMessage(object(
-		field{"observation", schemaString},
-		field{"memo", schemaNullString},
-		field{"job", schemaNullString},
-		field{"status", schemaStatus},
-		field{"message", schemaString},
-		field{"stop", schemaStop},
-		field{"actions", `{"type": "array", "items": ` + action + `}`},
-	))
+	fields := []field{
+		{"observation", schemaString},
+		{"memo", schemaNullString},
+		{"job", schemaNullString},
+		{"status", schemaStatus},
+		{"message", schemaString},
+		{"stop", schemaStop},
+	}
+	if survey {
+		// The screens the model will not come back to: asked last of the notes, before the plan.
+		fields = append(fields, field{"settled", `{"type": ["array", "null"], "items": {"type": "integer"}}`})
+	}
+	fields = append(fields, field{"actions", `{"type": "array", "items": ` + action + `}`})
+	return json.RawMessage(object(fields...))
 }

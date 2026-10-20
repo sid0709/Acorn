@@ -170,6 +170,19 @@ type SurveyScreen struct {
 	ScrollY    float64 `json:"scrollY"`
 }
 
+// Span is a stretch of the page, in screenshot pixels from its top.
+type Span struct {
+	From float64 `json:"from"`
+	To   float64 `json:"to"`
+}
+
+// SettledMap is the parts of a page the model will not come back to (painted blue on the page's
+// minimap): the page's height when they were settled, so the extension can tell the page changed.
+type SettledMap struct {
+	PageHeight float64 `json:"pageHeight"`
+	Spans      []Span  `json:"spans"`
+}
+
 // ZoneShot is the screenshot taken when a zone of a plan was done: the zone's number and where the
 // page was scrolled to (in screenshot pixels).
 type ZoneShot struct {
@@ -228,6 +241,9 @@ type Step struct {
 	Ask *Ask `json:"ask,omitempty"`
 	// Survey asks the extension to make its next look a survey of the whole page.
 	Survey bool `json:"survey,omitempty"`
+	// Settled is the parts of the page the model will not come back to, sent when they changed: the
+	// extension does not take them again in a survey, and draws them on the minimap.
+	Settled *SettledMap `json:"settled,omitempty"`
 	// Actions run in order, then the extension sends a new screenshot.
 	Actions []Action `json:"actions"`
 	// Number is this step's place in the run, from 1.
