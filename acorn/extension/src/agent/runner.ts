@@ -21,10 +21,14 @@ import {
 import { VERIFICATION } from "@acorn/shared/run-types";
 import {
   RUN_FAILURE_REASON,
+  RUN_MAP_PHASE,
   RUN_OUTCOME,
+  RUN_POINT_STATE,
   RUN_STAGE,
   type MailSearch,
   type RunFailure,
+  type RunMapPhase,
+  type RunPointState,
   type RunReport,
 } from "@acorn/shared/run-types";
 
@@ -52,7 +56,14 @@ import {
   syncControlLayout,
 } from "./control-sync";
 import { ControlWatch } from "./control-watch";
-import { CHANGES_THE_PAGE, runActions, wasSkipped, type ExecutorContext } from "./executor";
+import {
+  ACTION_PROGRESS,
+  CHANGES_THE_PAGE,
+  runActions,
+  wasSkipped,
+  type ActionProgress,
+  type ExecutorContext,
+} from "./executor";
 import {
   createClickGuard,
   createFrameSweep,
@@ -69,7 +80,7 @@ import {
 } from "./mail-verification";
 import { readFocus, readPageText } from "./page-info";
 import { PageMapKeeper, pageKey } from "./page-map";
-import { type ScrollContext } from "./page-scroll";
+import { pageState, type ScrollContext } from "./page-scroll";
 import {
   agentRunState,
   endProgress,
@@ -89,6 +100,7 @@ import { Stopwatch, httpSummary, type HttpTiming } from "./timing";
 import { recordAgentTrace } from "./trace-log";
 import { toBase64, type ResumeFile } from "./upload";
 
+import type { Cdp } from "./cdp";
 import type { KeptRun } from "./kept-run";
 import type { PipelineProgress } from "@acorn/shared/pipeline-types";
 
@@ -254,6 +266,45 @@ function forgetPage(
   log.event("agent-page", { from: logUrl(from), to: logUrl(to) });
 }
 
+/** What a point of the map becomes as its action goes: one that began is being acted on; the rest are as they say. */
+const POINT_STATE_OF: Record<ActionProgress, RunPointState> = {
+  [ACTION_PROGRESS.started]: RUN_POINT_STATE.current,
+  [ACTION_PROGRESS.aimed]: RUN_POINT_STATE.current,
+  [ACTION_PROGRESS.done]: RUN_POINT_STATE.done,
+  [ACTION_PROGRESS.failed]: RUN_POINT_STATE.failed,
+  [ACTION_PROGRESS.skipped]: RUN_POINT_STATE.skipped,
+};
+
+/**
+ * The executor's word on each action, put on the map of the page and shown. An action aimed at a point has
+ * the window's place read, so a point that followed its control is drawn where it went; nothing here may hold
+ * the action up or fail it.
+ */
+function mapProgress(
+  pageMap: PageMapKeeper,
+  cdp: () => Cdp,
+  show: () => void,
+): NonNullable<ExecutorContext["progress"]> {
+  return (action, state, at) => {
+    if (state === ACTION_PROGRESS.aimed && at) {
+      void pageState(cdp())
+        .then((page) => {
+          pageMap.acted(action.id, RUN_POINT_STATE.current, { x: at.x, y: page.y + at.y });
+          show();
+        })
+        .catch(() => undefined);
+      return;
+    }
+    pageMap.acted(action.id, POINT_STATE_OF[state]);
+    show();
+  };
+}
+
+/** What the run does after the agent's answer: carries out a plan, or waits on the person. */
+function phaseAfter(step: AgentStep): RunMapPhase {
+  return step.status === AGENT_STATUS.working ? RUN_MAP_PHASE.acting : RUN_MAP_PHASE.waiting;
+}
+
 /** A run surveys when it was set to, or the server says it does (fast fill, which the server may turn on for all runs). */
 function followServerSurvey(surveyOn: boolean, started: AgentStarted): boolean {
   return surveyOn || started.survey === true;
@@ -379,7 +430,10 @@ export async function runAgent(args: AgentRunArgs): Promise<RunReport> {
   });
   const scrolls: ScrollContext = {
     blue: (pageHeight) => surveys.blue(pageHeight),
-    note: (move) => log.event("agent-scroll", move),
+    note: (move) => {
+      log.event("agent-scroll", move);
+      if (!move.refused) showMap(move.to);
+    },
   };
   let lastMessage = AGENT_STARTING_MESSAGE;
   const runState = (control?: string, ask?: AgentAsk) =>
@@ -393,10 +447,21 @@ export async function runAgent(args: AgentRunArgs): Promise<RunReport> {
       mail: mailSearch,
       map: pageMap.current,
     });
-  /** Tells the sidebar where the window is on the page, between steps (a survey and the zones move it). */
+  /** Shows the sidebar the run as it is now: the map of the page with it. */
+  const showRun = () => emit(runningProgress(runState(), lastMessage));
+  /** Tells the sidebar where the window is on the page, between steps (a survey, the zones and the actions move it). */
   const showMap = (viewTop: number) => {
     pageMap.moveTo(viewTop);
-    emit(runningProgress(runState(), lastMessage));
+    showRun();
+  };
+  /** Puts the page on the map before the first look, so the card shows it at once. A page that cannot be read waits for the look. */
+  const seedMap = async (tab: AgentTab) => {
+    try {
+      pageMap.start(await pageState(tab.cdp));
+    } catch {
+      return;
+    }
+    showRun();
   };
 
   /**
@@ -538,6 +603,11 @@ export async function runAgent(args: AgentRunArgs): Promise<RunReport> {
     marks: placeMarksFor({ tab: () => must(current), watch: marks, log }),
     // A fast-fill run waits for the page to go quiet after an action, not the fixed time a slow page needs.
     settle: quietSettle(() => must(current), sleep, fastFill),
+    progress: mapProgress(
+      pageMap,
+      () => must(current).cdp,
+      () => showRun(),
+    ),
     snap: async (action) => {
       const here = must(current);
       await here.overlay.hideForCapture(true);
@@ -674,6 +744,7 @@ export async function runAgent(args: AgentRunArgs): Promise<RunReport> {
 
   const finish = (report: RunReport, resumable = false): RunReport => {
     chrome.webNavigation.onCreatedNavigationTarget.removeListener(onCreated);
+    pageMap.phase(RUN_MAP_PHASE.ended);
     keepSession = resumable && Boolean(sessionId) && Boolean(args.keepRun);
     const seconds = Math.round((Date.now() - startedAt) / 1000);
     log.event("run:end", {
@@ -723,6 +794,7 @@ export async function runAgent(args: AgentRunArgs): Promise<RunReport> {
     });
     current = await openAgentTab(workTabId, hooks, OVERLAY_LABEL);
     watchFrames(current);
+    await seedMap(current);
     if (args.resume) {
       // Held from now on, so a Continue that fails for want of the network can be tried again.
       sessionId = args.resume.sessionId;
@@ -821,6 +893,8 @@ export async function runAgent(args: AgentRunArgs): Promise<RunReport> {
       try {
         shot = await look.time("shot", () => captureShot(here.cdp));
         surveys.seen(shot);
+        pageMap.look(shot, surveys.settledOn(shot));
+        showRun();
         if (surveying) {
           const first = shot;
           survey = await look
@@ -849,7 +923,9 @@ export async function runAgent(args: AgentRunArgs): Promise<RunReport> {
           settled: surveys.left,
         });
       }
-      pageMap.look(shot, surveys.settledOn(shot), surveyOn);
+      pageMap.survey(survey, surveys.fresh, shot.viewport.height);
+      pageMap.phase(RUN_MAP_PHASE.thinking);
+      showRun();
       const [focus, text] = await look.time("pageRead", () =>
         Promise.all([readFocus(here.cdp), readPageText(here.cdp, here.tabId)]),
       );
@@ -894,7 +970,10 @@ export async function runAgent(args: AgentRunArgs): Promise<RunReport> {
       applySettled(step, surveys, pageMap);
       marks.commit(sentMarks);
       surveys.noteLayout(marks.moves());
+      pageMap.setMoves(marks.moves());
       const actions = step.actions ?? [];
+      pageMap.plan(actions, shot);
+      pageMap.phase(phaseAfter(step));
       if (step.survey) surveyNext = true;
       log.step = step.number;
       recordAgentTrace(log, step.trace, {

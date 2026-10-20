@@ -1,23 +1,19 @@
-import { ActivityFeed } from "./ActivityFeed";
 import { AutoFocusSwitch } from "./AutoFocusSwitch";
-import { UsageHistoryList } from "./UsageHistoryList";
-import { useAiUsage } from "./use-ai-usage";
+import { RunMapCard } from "./RunMapCard";
 
 import type { AcornMainTab } from "./SidebarNav";
+import type { PipelineProgress } from "@acorn/shared/pipeline-types";
 import type { ReactNode } from "react";
 
 interface Props {
   mainTab: AcornMainTab;
   nowCard: ReactNode;
-  tabId: number | null;
-  signedIn: boolean;
-  /** The service worker's socket: usage is pushed live only while it is connected. */
-  socketConnected: boolean;
+  /** The run on the active tab, as the Now card and the map show it. */
+  progress: PipelineProgress;
 }
 
-/** The Jobs tab: the tab's job, what the run is doing step by step, the run switches, and that tab's AI usage. */
-export function JobsPanel({ mainTab, nowCard, tabId, signedIn, socketConnected }: Props) {
-  const usage = useAiUsage(tabId, mainTab === "fill", signedIn, socketConnected);
+/** The Jobs tab: the Auto-Focus switch, the active tab's run and its actions, and the map of the page the run is on. */
+export function JobsPanel({ mainTab, nowCard, progress }: Props) {
   return (
     <section
       id="acorn-panel-fill"
@@ -25,17 +21,9 @@ export function JobsPanel({ mainTab, nowCard, tabId, signedIn, socketConnected }
       aria-label="Jobs"
       hidden={mainTab !== "fill"}
     >
-      {nowCard}
-      <ActivityFeed tabId={tabId} active={mainTab === "fill"} />
       <AutoFocusSwitch />
-      <UsageHistoryList
-        entries={usage.entries}
-        totalPrice={usage.totalPrice}
-        loading={usage.loading}
-        error={usage.error}
-        tabId={tabId}
-        onRefresh={usage.reload}
-      />
+      {nowCard}
+      <RunMapCard progress={progress} />
     </section>
   );
 }

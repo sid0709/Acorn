@@ -158,17 +158,87 @@ export interface MailSearch {
   detail?: string;
 }
 
+/** What an agent Run is doing, as the sidebar's map of the page says it. */
+export const RUN_MAP_PHASE = {
+  /** The tab is open; the first look has not been taken. */
+  starting: "starting",
+  /** A screenshot, or a survey of the whole page, is being taken. */
+  looking: "looking",
+  /** The look is with the model. */
+  thinking: "thinking",
+  /** The plan is being carried out. */
+  acting: "acting",
+  /** The run waits on the person: a question, a code, a CAPTCHA. */
+  waiting: "waiting",
+  ended: "ended",
+} as const;
+export type RunMapPhase = (typeof RUN_MAP_PHASE)[keyof typeof RUN_MAP_PHASE];
+
+/** What became of one point of the plan being carried out. */
+export const RUN_POINT_STATE = {
+  pending: "pending",
+  /** The one being acted on now. */
+  current: "current",
+  done: "done",
+  failed: "failed",
+  /** Not run: an action before it failed. */
+  skipped: "skipped",
+} as const;
+export type RunPointState = (typeof RUN_POINT_STATE)[keyof typeof RUN_POINT_STATE];
+
+/** A control of the page as the page reports it (an input, a dropdown, a button, a check, a file field, a link), CSS pixels from the page's top left. */
+export interface RunMapControl {
+  kind: string;
+  x: number;
+  y: number;
+  w: number;
+  h: number;
+}
+
+/** A point of the plan: where it aims on the page (CSS pixels) and what became of it. */
+export interface RunMapPoint {
+  id: string;
+  kind: string;
+  x: number;
+  y: number;
+  state: RunPointState;
+  /** The point was acted on somewhere else than it was planned: it followed its control, or was found again by its picture. */
+  moved?: boolean;
+}
+
+/** A screen of the last survey (CSS pixels): photographed for it, or reused from an earlier look. */
+export interface RunMapScreen {
+  top: number;
+  height: number;
+  reused: boolean;
+}
+
+/** A move of the form since the agent last saw the page (CSS pixels): what lay between `from` and `at` appeared or went, and what lies below moved by `dy`. */
+export interface RunMapMove {
+  from: number;
+  at: number;
+  dy: number;
+}
+
 /**
- * The page an agent Run is on, for the sidebar's minimap: how tall it is, where the window is, and which
- * parts the model settled (will not come back to), all in CSS pixels from the top of the page.
+ * The page an agent Run is on, for the sidebar's map of it: how large it is, where the window is, the
+ * parts the model settled (will not come back to), the page's controls, the points of the plan and what
+ * became of each, the screens of the last survey and where the form moved; all in CSS pixels from the top
+ * left of the page. A run has one from the moment it has a page, and keeps it when it ends.
  */
 export interface RunMap {
+  phase: RunMapPhase;
+  pageWidth: number;
   pageHeight: number;
   viewTop: number;
   viewHeight: number;
   settled: { from: number; to: number }[];
-  /** Tops of the page's controls (CSS pixels), the marks the blue stretches follow. */
-  marks?: number[];
+  /** How far down the page the plan being carried out first acts: nothing above it changes. Unset until a plan. */
+  fence?: number;
+  controls: RunMapControl[];
+  points: RunMapPoint[];
+  screens: RunMapScreen[];
+  moves: RunMapMove[];
 }
 
 export interface RunProgress {
@@ -194,7 +264,7 @@ export interface RunProgress {
   costUsd?: number;
   modelCalls?: number;
   screenChecks?: number;
-  /** An agent Run on a long page: the minimap of it, with the settled parts painted. Unset on a page that fits the window. */
+  /** An agent Run: the map of the page it is on. Unset until the run has a page. */
   map?: RunMap;
   /** An agent Run waiting on the person: the question and the answers they may give. */
   ask?: { id: string; question: string; options: { id: string; label: string }[] };

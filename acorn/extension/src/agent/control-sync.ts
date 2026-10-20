@@ -40,8 +40,8 @@ function roundedMove(move: LayoutMove): LayoutMove {
 }
 
 /**
- * Reads the control list while the run goes on: the survey is told where the form moved, the minimap draws
- * the controls, and a move of the form is logged once. Returns the function that stops the poll.
+ * Reads the control list while the run goes on: the survey is told where the form moved, the map of the page
+ * draws the controls and the move, and a move of the form is logged once. Returns the function that stops the poll.
  */
 export function startControlWatch(args: {
   tab: () => { cdp: Cdp } | null;
@@ -60,7 +60,8 @@ export function startControlWatch(args: {
       if (!changed) return;
       const moves = args.watch.moves();
       args.surveys.noteLayout(moves);
-      args.pages.setMarks(args.watch.marks.map((mark) => mark.y));
+      args.pages.setControls(args.watch.marks);
+      args.pages.setMoves(moves);
       const line = JSON.stringify(moves ?? []);
       if (moves && moves.length > 0 && line !== logged) {
         args.log.event("agent-layout", { moves: moves.map(roundedMove) });

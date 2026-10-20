@@ -45,6 +45,16 @@ function settle(ctx: ExecutorContext, ms: number, floorMs?: number): Promise<voi
   return ctx.settle ? ctx.settle(ms, floorMs) : ctx.sleep(ms);
 }
 
+/** What the run is told of an action as it goes: it began, it was aimed at a point of the window (CSS pixels), it was done, it failed, or it was skipped. */
+export const ACTION_PROGRESS = {
+  started: "started",
+  aimed: "aimed",
+  done: "done",
+  failed: "failed",
+  skipped: "skipped",
+} as const;
+export type ActionProgress = (typeof ACTION_PROGRESS)[keyof typeof ACTION_PROGRESS];
+
 /** What the executor needs from the run. */
 export interface ExecutorContext {
   cdp: Cdp;
@@ -82,6 +92,8 @@ export interface ExecutorContext {
    * always did.
    */
   settle?: (ms: number, floorMs?: number) => Promise<void>;
+  /** Told of each action as it goes (for the map of the page); `at` is the point an action was aimed at, in the window's CSS pixels. */
+  progress?: (action: AgentAction, state: ActionProgress, at?: { x: number; y: number }) => void;
 }
 
 /**
@@ -152,6 +164,7 @@ async function perform(ctx: ExecutorContext, action: AgentAction, watch: Stopwat
       const { x, y } = await watch.time("scroll", () =>
         scrollForAction(cdp, action, ctx.scale(), ctx),
       );
+      ctx.progress?.(action, ACTION_PROGRESS.aimed, { x, y });
       const verdict = ctx.guard?.(x, y);
       await watch.time("glide", () => glideTo(ctx, x, y));
       await watch.time("guard", () => refuseIfBlocked(verdict));
@@ -172,6 +185,7 @@ async function perform(ctx: ExecutorContext, action: AgentAction, watch: Stopwat
       const { x, y } = await watch.time("scroll", () =>
         scrollForAction(cdp, action, ctx.scale(), ctx),
       );
+      ctx.progress?.(action, ACTION_PROGRESS.aimed, { x, y });
       await watch.time("glide", () => glideTo(ctx, x, y));
       void ctx.overlay.hover(true);
       await watch.time("move", () => moveMouse(cdp, x, y));
@@ -215,6 +229,7 @@ async function perform(ctx: ExecutorContext, action: AgentAction, watch: Stopwat
       const { x, y } = await watch.time("scroll", () =>
         scrollForAction(cdp, action, ctx.scale(), ctx),
       );
+      ctx.progress?.(action, ACTION_PROGRESS.aimed, { x, y });
       const verdict = ctx.guard?.(x, y);
       await watch.time("glide", () => glideTo(ctx, x, y));
       await watch.time("guard", () => refuseIfBlocked(verdict));
@@ -290,6 +305,7 @@ export async function runActions(
         ok: false,
         error: SKIPPED_ERROR,
       });
+      ctx.progress?.(action, ACTION_PROGRESS.skipped);
       continue;
     }
     ctx.checkStopped();
@@ -298,6 +314,7 @@ export async function runActions(
     // Each action carries when it began and how long it took, and where that time went.
     const watch = new Stopwatch();
     const timing = () => ({ startedAt: watch.startedAt, ms: watch.ms, laps: watch.laps });
+    ctx.progress?.(action, ACTION_PROGRESS.started);
     try {
       const done = await perform(ctx, action, watch);
       results.push({
@@ -307,6 +324,7 @@ export async function runActions(
         ...(done.detail ? { detail: done.detail } : {}),
         ...(done.opened ? { opened: done.opened } : {}),
       });
+      ctx.progress?.(action, ACTION_PROGRESS.done);
     } catch (err) {
       ctx.checkStopped();
       failed = true;
@@ -316,6 +334,7 @@ export async function runActions(
         error: err instanceof Error ? err.message : String(err),
         ...timing(),
       });
+      ctx.progress?.(action, ACTION_PROGRESS.failed);
     }
   }
   if (!failed && lastOwnZone != null) await leaveZone(ctx, zone, undefined);

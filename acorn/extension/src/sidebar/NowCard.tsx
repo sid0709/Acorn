@@ -5,7 +5,6 @@ import { Badge, Button, Card, Glyph, HStack, ProgressBar, Text, VStack } from "s
 import { AgentAsk } from "./AgentAsk";
 import { AgentStopNotice } from "./AgentStopNotice";
 import { MailSearchPanel } from "./MailSearchPanel";
-import { PageMinimap } from "./PageMinimap";
 import { RunCelebration } from "./RunCelebration";
 import { RunCost } from "./RunCost";
 import { RunTimer } from "./RunTimer";
@@ -89,7 +88,8 @@ function RunStatus({
   const ready = run.report?.outcome === RUN_OUTCOME.readyToSubmit;
   const parts = [run.step ? `Step ${run.step}` : `Page ${Math.max(run.page, 1)}`];
   if (run.refills > 0) parts.push(`refill ${run.refills}/${run.maxRefills}`);
-  const status = (
+  // The map of the page the run is on sits in its own card under this one (RunMapCard).
+  return (
     <VStack gap={1}>
       {timer}
       <RunCost run={run} />
@@ -101,14 +101,6 @@ function RunStatus({
       ) : null}
       <Text type="supporting">{parts.join(" · ")}</Text>
     </VStack>
-  );
-  // On a long page the run's map of it sits beside the numbers, while the run goes on.
-  if (!run.map || run.endedAt != null) return status;
-  return (
-    <div className="acorn-run-live">
-      <div className="acorn-run-live-status">{status}</div>
-      <PageMinimap map={run.map} />
-    </div>
   );
 }
 

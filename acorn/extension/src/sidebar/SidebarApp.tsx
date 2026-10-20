@@ -188,13 +188,7 @@ export default function SidebarApp() {
           </div>
 
           <main className="sidebar-scroll">
-            <JobsPanel
-              mainTab={mainTab}
-              nowCard={nowCard}
-              tabId={activeTabId}
-              signedIn={Boolean(session)}
-              socketConnected={connected}
-            />
+            <JobsPanel mainTab={mainTab} nowCard={nowCard} progress={progress} />
 
             <SupportPanel
               mainTab={mainTab}

@@ -27,19 +27,27 @@ export const SCROLL_TOLERANCE_PX = 3;
 const WHEEL_POINT = { x: 4, y: 120 };
 
 type Layout = {
-  cssVisualViewport: { pageY: number; clientHeight?: number };
-  cssContentSize: { height: number };
+  cssVisualViewport: { pageY: number; clientWidth?: number; clientHeight?: number };
+  cssContentSize: { width?: number; height: number };
 };
 
-/** What the page is doing now: where it is scrolled, how tall it is, and how tall the window is (CSS pixels). */
-export type PageState = { y: number; height: number; view: number };
+/** What the page is doing now: where it is scrolled, how large it is, and how large the window is (CSS pixels). */
+export type PageState = {
+  y: number;
+  height: number;
+  width: number;
+  view: number;
+  viewWidth: number;
+};
 
 export async function pageState(cdp: Cdp): Promise<PageState> {
   const metrics = await cdp.send<Layout>("Page.getLayoutMetrics");
   return {
     y: metrics.cssVisualViewport.pageY,
     height: metrics.cssContentSize.height,
+    width: metrics.cssContentSize.width ?? 0,
     view: metrics.cssVisualViewport.clientHeight ?? 0,
+    viewWidth: metrics.cssVisualViewport.clientWidth ?? 0,
   };
 }
 

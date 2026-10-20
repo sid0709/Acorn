@@ -127,6 +127,8 @@ export interface SurveyResult {
   reused: number;
   /** How many screens were left out because they lie in a part the model settled. */
   left: number;
+  /** The scroll positions (screenshot pixels) of the screens photographed for this survey, the look's own among them. */
+  fresh: number[];
 }
 
 /**
@@ -180,6 +182,7 @@ export async function captureSurvey(
   let reused = 0;
   let left = 0;
   const toTake: number[] = [];
+  const fresh: number[] = [];
   for (const y of positions) {
     const at = y * scale;
     if (settledNow && isInSettled(settledNow, at, first.viewport.height)) {
@@ -188,6 +191,7 @@ export async function captureSurvey(
     }
     if (Math.abs(y - original) < 1) {
       taken.set(y, { screenshot: first.dataUrl, scrollY: first.viewport.scrollY });
+      fresh.push(first.viewport.scrollY);
       continue;
     }
     const have = unchanged(at)
@@ -209,6 +213,7 @@ export async function captureSurvey(
     if (landed.moved) await deps.sleep(SURVEY_SETTLE_MS);
     const shot = await captureShot(deps.cdp);
     taken.set(y, { screenshot: shot.dataUrl, scrollY: shot.viewport.scrollY });
+    fresh.push(shot.viewport.scrollY);
   }
   // Top to bottom, and two positions that landed on the same place (a short last step) are one screen.
   const seen = new Set<number>();
@@ -222,7 +227,7 @@ export async function captureSurvey(
     });
   // A survey of one screen is a survey when the rest were left out as settled.
   return screens.length >= 2 || (screens.length === 1 && left > 0)
-    ? { screens, reused, left }
+    ? { screens, reused, left, fresh }
     : null;
 }
 
@@ -265,6 +270,8 @@ export class SurveyKeeper {
   /** How many screens of the last survey were taken from what the run already had, and how many were left out. */
   reused = 0;
   left = 0;
+  /** The scroll positions (screenshot pixels) of the screens the last survey photographed. */
+  fresh: number[] = [];
   private memory: SurveyMemory | null = null;
   private reusable = false;
   private batchFence = 0;
@@ -356,6 +363,7 @@ export class SurveyKeeper {
     const taken = await captureSurvey(deps, first, reuse, this.placed(first.viewport.pageHeight));
     this.reused = taken?.reused ?? 0;
     this.left = taken?.left ?? 0;
+    this.fresh = taken?.fresh ?? [];
     this.memory = taken ? { screens: taken.screens, pageHeight: first.viewport.pageHeight } : null;
     return taken?.screens ?? null;
   }
