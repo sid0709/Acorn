@@ -278,3 +278,96 @@ func TestOnlyFastFillRunsProbeAndItCanBeTurnedOff(t *testing.T) {
 		t.Fatal("ProbeDropdowns off did not turn the probe off")
 	}
 }
+
+// clickYs are the places the clicks of a batch aim at, in order.
+func clickYs(actions []Action) []float64 {
+	var out []float64
+	for _, action := range actions {
+		if action.Kind == KindClick && action.Y != nil {
+			out = append(out, *action.Y)
+		}
+	}
+	return out
+}
+
+func TestTheListsAreOpenedFromTheTopDownAndPickedFromTheBottomUp(t *testing.T) {
+	reply := plan("filling", nil,
+		chooseWithLabel(1, 500, 500, "Gender", "Male"),
+		chooseWithLabel(1, 500, 100, "Country", "No"),
+		chooseWithLabel(1, 500, 300, "Sponsorship", "No"),
+	)
+	screen := &fakeScreen{optionByAnswer: map[string]optionVerdict{"No": {1, 0.95}, "Male": {3, 0.95}}}
+	a, id := newProbeAgent(t, []string{reply}, screen, DefaultConfig())
+	first := stepOK(t, a, id, surveyObservation(t))
+	if got := clickYs(first.Actions); len(got) != 3 || got[0] != 100 || got[1] != 300 || got[2] != 500 {
+		t.Fatalf("the lists were opened at %v, want from the top down: the pass that picks then begins where this one ends", got)
+	}
+	sends(t, a, id, first.Actions, nil)
+	obs := observation(shot(t, 130))
+	obs.Results = carriedOut(first.Actions)
+	second := stepOK(t, a, id, obs)
+	if got := clickYs(second.Actions); len(got) != 3 || got[0] != 500 || got[1] != 300 || got[2] != 100 {
+		t.Fatalf("the picks were made at %v, want from the bottom up: a pick can add a message that moves what is below it", got)
+	}
+}
+
+func TestDropdownsOnDifferentScreensAreHandledInTheOrderTheyAreOnThePage(t *testing.T) {
+	// A point's y is its place on its own screen: 100 on the screen scrolled to 680 is lower on the page than
+	// 700 on the screen scrolled to 0.
+	reply := plan("filling", nil,
+		chooseWithLabel(1, 500, 700, "Gender", "Male"),
+		chooseWithLabel(2, 500, 100, "Race", "Asian"),
+		chooseWithLabel(1, 500, 600, "Country", "No"),
+	)
+	a, id := newProbeAgent(t, []string{reply}, &fakeScreen{}, DefaultConfig())
+	first := stepOK(t, a, id, surveyObservation(t))
+	var order []float64
+	for _, action := range first.Actions {
+		if action.Kind == KindClick && action.ScrollTo != nil {
+			order = append(order, *action.ScrollTo+*action.Y)
+		}
+	}
+	if len(order) != 3 || order[0] != 600 || order[1] != 700 || order[2] != 780 {
+		t.Fatalf("opened at page positions %v, want 600, 700, 780 (top down, across screens)", order)
+	}
+}
+
+func TestNoSurveyIsAskedForWhileARunOfDropdownsIsHalfDone(t *testing.T) {
+	screen := &fakeScreen{optionByAnswer: map[string]optionVerdict{"No": {1, 0.95}, "Male": {3, 0.95}}}
+	a, id := newProbeAgent(t, []string{dropdowns("No", "Male")}, screen, DefaultConfig())
+	first := stepOK(t, a, id, surveyObservation(t))
+	if first.Survey {
+		t.Fatal("the first batch of a run of dropdowns is followed by a survey that nothing reads: the run goes on without the model")
+	}
+	sends(t, a, id, first.Actions, nil)
+	obs := observation(shot(t, 130))
+	obs.Results = carriedOut(first.Actions)
+	second := stepOK(t, a, id, obs)
+	if !second.Survey {
+		t.Fatal("the run's last batch is not followed by a survey")
+	}
+}
+
+func TestARefusedPointStillGetsItsSurveyAfterTheDropdownsAreSet(t *testing.T) {
+	reply := plan("filling", nil,
+		labelled(1, 100, 100, "First Name"),
+		chooseWithLabel(1, 500, 300, "Sponsorship", "No"),
+	)
+	screen := &fakeScreen{wrongPoints: []string{"First Name"}, optionByAnswer: map[string]optionVerdict{"No": {1, 0.95}}}
+	a, id := newProbeAgent(t, []string{reply}, screen, DefaultConfig())
+	first := stepOK(t, a, id, surveyObservation(t))
+	if first.Survey {
+		t.Fatal("a survey was asked for in the middle of the run")
+	}
+	sends(t, a, id, first.Actions, nil)
+	obs := observation(shot(t, 130))
+	obs.Results = carriedOut(first.Actions)
+	second := stepOK(t, a, id, obs)
+	if !second.Survey {
+		t.Fatal("the survey the refused point asked for was lost")
+	}
+	s, _ := a.sessions.get(id)
+	if s.surveyAgain {
+		t.Fatal("the ask for a survey is still pending after the survey was asked for")
+	}
+}

@@ -146,13 +146,14 @@ func buildAnchors(actions []Action, obs Observation) map[string]anchor {
 	return out
 }
 
-// carryAnchor gives an action the agent made the anchor of the model's action it came from.
-// A click that opens a dropdown, or retries that click, is not in the survey, so without this a
+// carryAnchor gives an action the agent made the anchor, and the control, of the model's action it came
+// from. A click that opens a dropdown, or retries that click, is not in the survey, so without this a
 // page that changed height cannot be found again and the rest of the plan stops.
 func (s *session) carryAnchor(fromID, toID string) {
 	if found, ok := s.anchors[fromID]; ok {
 		s.anchors[toID] = found
 	}
+	s.carryMark(fromID, toID)
 }
 
 // cropAround is the crops of img around a point: the one above it and the one below it (anchorWidth wide,

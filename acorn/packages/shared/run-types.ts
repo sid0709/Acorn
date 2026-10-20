@@ -167,6 +167,8 @@ export interface RunMap {
   viewTop: number;
   viewHeight: number;
   settled: { from: number; to: number }[];
+  /** Tops of the page's controls (CSS pixels), the marks the blue stretches follow. */
+  marks?: number[];
 }
 
 export interface RunProgress {

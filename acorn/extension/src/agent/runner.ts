@@ -44,6 +44,14 @@ import {
   startSession,
   vetTarget,
 } from "./client";
+import {
+  marksOfLook,
+  placeMarksFor,
+  quietSettle,
+  startControlWatch,
+  syncControlLayout,
+} from "./control-sync";
+import { ControlWatch } from "./control-watch";
 import { CHANGES_THE_PAGE, runActions, wasSkipped, type ExecutorContext } from "./executor";
 import {
   createClickGuard,
@@ -236,11 +244,13 @@ function forgetPage(
   to: string,
   surveys: SurveyKeeper,
   pages: PageMapKeeper,
+  marks: ControlWatch,
   log: RunLog,
 ): void {
   if (!newPage) return;
   surveys.forget();
   pages.clear();
+  marks.forget();
   log.event("agent-page", { from: logUrl(from), to: logUrl(to) });
 }
 
@@ -252,6 +262,9 @@ function followServerSurvey(surveyOn: boolean, started: AgentStarted): boolean {
 export async function runAgent(args: AgentRunArgs): Promise<RunReport> {
   const { fastFillOn, ...switches } = runSwitches(args);
   let { surveyOn } = switches;
+  // The server may turn fast fill on for every run: the run follows (when it starts a session).
+  let serverFastFill = false;
+  const fastFill = () => fastFillOn || serverFastFill;
   // A continued run writes to the same log and trace folder as the run it takes up.
   const runId = args.resume?.runId ?? crypto.randomUUID().slice(0, 8);
   const workTabId = args.resume?.tabId ?? args.tabId;
@@ -350,6 +363,20 @@ export async function runAgent(args: AgentRunArgs): Promise<RunReport> {
   const pageMap = new PageMapKeeper();
   // What the survey has taken and what the model settled, which the run's scrolling keeps out of.
   const surveys = new SurveyKeeper();
+  // The page's controls and where each sits, kept current in the page: a move of them places the blue stretches
+  // and the points of a plan.
+  const marks = new ControlWatch();
+  const stopControlWatch = startControlWatch({
+    tab: () => current,
+    surveying: () => surveyOn,
+    watch: marks,
+    surveys,
+    pages: pageMap,
+    log,
+    emit: () => {
+      if (pageMap.current) emit(runningProgress(runState(), lastMessage));
+    },
+  });
   const scrolls: ScrollContext = {
     blue: (pageHeight) => surveys.blue(pageHeight),
     note: (move) => log.event("agent-scroll", move),
@@ -508,6 +535,9 @@ export async function runAgent(args: AgentRunArgs): Promise<RunReport> {
     guard: clickGuard,
     afterClick: () => frames.sweep(),
     scroll: scrolls,
+    marks: placeMarksFor({ tab: () => must(current), watch: marks, log }),
+    // A fast-fill run waits for the page to go quiet after an action, not the fixed time a slow page needs.
+    settle: quietSettle(() => must(current), sleep, fastFill),
     snap: async (action) => {
       const here = must(current);
       await here.overlay.hideForCapture(true);
@@ -742,6 +772,7 @@ export async function runAgent(args: AgentRunArgs): Promise<RunReport> {
       sessionId = started.sessionId;
       // The server may turn fast fill on for every run, and a fast-fill run surveys.
       surveyOn = followServerSurvey(surveyOn, started);
+      serverFastFill = started.fastFill === true;
       spent.start = Date.now() - sessionStartedAt;
       log.event("agent-session", { resumes: started.resumes.length, ms: spent.start });
       recordAgentTrace(log, started.trace);
@@ -779,10 +810,11 @@ export async function runAgent(args: AgentRunArgs): Promise<RunReport> {
       lastLook = lookKey;
       // A page is first looked at from its top: a run that starts, or a click that opens another page,
       // must not begin in the middle of a form whose first questions lie above the screen.
-      forgetPage(newPage, cameFrom, lookKey, surveys, pageMap, log);
+      forgetPage(newPage, cameFrom, lookKey, surveys, pageMap, marks, log);
       if (newPage) await look.time("scrollTop", () => scrollToTop(here.cdp, sleep, scrolls));
       // A scroll still running (a key, a click, a list scrolling itself into view) is waited out.
       await look.time("scrollRest", () => waitForScrollRest(here.cdp, sleep));
+      await syncControlLayout(surveyOn, here.cdp, marks, surveys);
       let survey: AgentSurveyScreen[] | null = null;
       const captureStartedAt = Date.now();
       await look.time("hideOverlay", () => here.overlay.hideForCapture(true));
@@ -835,7 +867,12 @@ export async function runAgent(args: AgentRunArgs): Promise<RunReport> {
       const askedAt = Date.now();
       spent.look += askedAt - look.startedAt;
       stepHttp = undefined;
+      // The list this look tells the agent of: the form moves from here on are measured from it. The look's
+      // name goes with it, the same on a retry, so the agent places the move once.
+      const sentMarks = marks.marks;
+      const lookId = crypto.randomUUID().slice(0, 8);
       const step = await askWithRetry({
+        look: lookId,
         screenshot: shot.dataUrl,
         url: info.url ?? "",
         title: info.title ?? "",
@@ -847,6 +884,7 @@ export async function runAgent(args: AgentRunArgs): Promise<RunReport> {
         ...(zoneShots.length > 0 ? { zoneShots: [...zoneShots] } : {}),
         ...(pageText ? { pageText } : {}),
         ...(answered ? { answer: answered } : {}),
+        ...marksOfLook(marks, sentMarks, shot.scale),
       });
       checkStopped();
       const askMs = Date.now() - askedAt;
@@ -854,6 +892,8 @@ export async function runAgent(args: AgentRunArgs): Promise<RunReport> {
       stepNumber = step.number;
       lastUsage = step.usage;
       applySettled(step, surveys, pageMap);
+      marks.commit(sentMarks);
+      surveys.noteLayout(marks.moves());
       const actions = step.actions ?? [];
       if (step.survey) surveyNext = true;
       log.step = step.number;
@@ -1018,6 +1058,7 @@ export async function runAgent(args: AgentRunArgs): Promise<RunReport> {
     });
     return finish(report(RUN_OUTCOME.failed, failureFromError(err)), runSurvives(err));
   } finally {
+    stopControlWatch();
     chrome.webNavigation.onCreatedNavigationTarget.removeListener(onCreated);
     frames.stop?.();
     if (sessionId && keepSession && args.keepRun) {

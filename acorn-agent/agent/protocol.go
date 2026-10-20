@@ -164,6 +164,50 @@ type Observation struct {
 	Answer string `json:"answer,omitempty"`
 	// Results answer the actions of the step before.
 	Results []ActionResult `json:"results,omitempty"`
+	// Marks are the page's controls and where each sits on the page, so a point of a plan is bound to
+	// the control it is on (marks.go). Sent with each look of a run that surveys.
+	Marks []ControlMark `json:"marks,omitempty"`
+	// Layout is where the form moved since the look before: the settled stretches are placed from it
+	// (settled.go). Empty when nothing moved.
+	Layout []LayoutMove `json:"layout,omitempty"`
+	// Look names the look, the same on a step the extension sends again after a failure, so the move
+	// in Layout is placed once. Empty from an extension that does not name its looks.
+	Look string `json:"look,omitempty"`
+}
+
+// Rect is a box on the page, in screenshot pixels from the page's top left.
+type Rect struct {
+	X float64 `json:"x"`
+	Y float64 `json:"y"`
+	W float64 `json:"w"`
+	H float64 `json:"h"`
+}
+
+// ControlMark is one control of the page (an input, a dropdown, a button, a check, a file field, a
+// link): a stable ID, what kind it is, where it sits, and Box, the field it belongs to: the largest
+// box around it that holds no other control, so a point on the control's own label is on its field.
+type ControlMark struct {
+	ID   string `json:"id"`
+	Kind string `json:"kind"`
+	Rect
+	Box *Rect `json:"box,omitempty"`
+}
+
+// MarkRef is the control a point was bound to when it was planned, as it sat then. The extension finds
+// the same control by ID when the point is acted on, and the difference of the two places is how far
+// the point has moved.
+type MarkRef struct {
+	ID string `json:"id"`
+	Rect
+}
+
+// LayoutMove is a move of the form between two looks, in old page positions (screenshot pixels). The
+// controls from At down moved by Dy; what lay between From and At is where it happened (something
+// appeared or went), so nothing there is known to be as it was.
+type LayoutMove struct {
+	From float64 `json:"from"`
+	At   float64 `json:"at"`
+	Dy   float64 `json:"dy"`
 }
 
 // SurveyScreen is one screenshot of a survey: the page scrolled to ScrollY (in screenshot
@@ -182,8 +226,11 @@ type Span struct {
 // SettledMap is the parts of a page the model will not come back to (painted blue on the page's
 // minimap): the page's height when they were settled, so the extension can tell the page changed.
 // Fence is how far down the page (screenshot pixels) the plan being carried out leaves things as they
-// are: it begins at the first point it acts on, and above it nothing the run does can move or change
-// anything. When the page's height changes the settled parts above the fence still hold; the rest do not.
+// are: it begins at the first point it acts on. A height change does not delete what is below it.
+// The extension says where the controls moved (Observation.Layout), and the stretches follow them: a
+// stretch moves with the controls it lies among, and what lies where something appeared is no longer
+// settled. No control moved and the page grew: the new pixels are at the bottom and the coordinates
+// still hold.
 type SettledMap struct {
 	PageHeight float64 `json:"pageHeight"`
 	Fence      float64 `json:"fence"`
@@ -228,9 +275,15 @@ type Action struct {
 	// can take a photo when the last action of a zone is done. Typing, keys and waits belong to the
 	// zone of the action before them. 0 when the run is not fast-fill or the look was one screen.
 	Zone int `json:"zone,omitempty"`
+	// Mark is the control the point was bound to when it was planned (marks.go), set by the agent as
+	// the action goes out. The extension finds that control again to know where the point is now.
+	Mark *MarkRef `json:"mark,omitempty"`
 	// Label is what the model called the control at the point, as the page names it. It stays on
 	// the agent: the point is checked against it before the action is carried out.
 	Label string `json:"-"`
+	// Commit is that the model named this click as the one that sends the page or goes on to the next.
+	// It stays on the agent: the click is held back when part of the plan could not be carried out.
+	Commit bool `json:"-"`
 	// Check is what the screen should show once this action has run, as the model expected.
 	// It stays on the agent: the extension never sees it.
 	Check string `json:"-"`

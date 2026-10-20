@@ -19,7 +19,8 @@ const replySchemaName = "agent_step"
 // change, so the model does not write them out again. An action's check is what the screen
 // should show once that action has run, null where the model must look for itself; it exists
 // only when a decision model checks the screen (checks). The "screen" and the "label" of a point
-// action and the "survey" action exist only when the run may look at a page as a survey (survey).
+// action, the "commit" of a click and the "survey" action exist only when the run may look at a page as
+// a survey (survey).
 func replySchemaFor(survey, checks bool) json.RawMessage {
 	return replySchemas[schemaIndex(survey, checks)]
 }
@@ -107,7 +108,12 @@ func buildReplySchema(survey, checks bool) json.RawMessage {
 		}
 		return withScreen(append(fields, extra...)...)
 	}
-	add(point(kindField(KindClick, KindDoubleClick, KindTripleClick, KindRightClick, KindHover)))
+	// The click that sends the page is named, so it can be held back when the plan lost a part of itself.
+	var commit []field
+	if survey {
+		commit = []field{{"commit", schemaNullBoolean}}
+	}
+	add(point(kindField(KindClick, KindDoubleClick, KindTripleClick, KindRightClick, KindHover), commit...))
 	add(point(kindField(KindChoose), field{"text", schemaString}))
 	add(point(kindField(KindUpload), field{"resume", schemaNullString}))
 	add([]field{kindField(KindType), {"text", schemaString}, {"secret", schemaNullBoolean}})

@@ -9,6 +9,14 @@
 
 import { captureShot, type Shot } from "./capture";
 import {
+  cropSpans,
+  moved,
+  placeSpans,
+  scaleMoves,
+  type LayoutMove,
+  type MarkMove,
+} from "./control-marks";
+import {
   SCROLL_TOLERANCE_PX,
   pageState,
   scrollPageSlowly,
@@ -197,7 +205,8 @@ export async function captureSurvey(
     deps.checkStopped();
     const landed = await scrollPageSlowly(deps.cdp, y, deps.sleep, deps.scroll, "survey");
     deps.onMove?.(landed.y);
-    await deps.sleep(SURVEY_SETTLE_MS);
+    // A page that did not move shows nothing new at its place: only a scroll has something to load.
+    if (landed.moved) await deps.sleep(SURVEY_SETTLE_MS);
     const shot = await captureShot(deps.cdp);
     taken.set(y, { screenshot: shot.dataUrl, scrollY: shot.viewport.scrollY });
   }
@@ -218,18 +227,27 @@ export async function captureSurvey(
 }
 
 /**
- * What of the settled parts is still good on a page that is `pageHeight` tall (screenshot pixels): all of it
- * when the page is as tall as when it was settled, and when it is not, the parts above the fence, which the
- * run has not touched. Null when none is.
+ * What of the settled parts is still good on a page that is `pageHeight` tall (screenshot pixels).
+ * The same height keeps them. A move of the form (`moves`, screenshot pixels) places them with the
+ * controls: each stretch goes where the controls it lies among went, and what lies where something
+ * appeared is not settled. No control moved and the page grew: the new pixels are at the bottom, so the
+ * coordinates still hold. The page shrank and nothing moved: the bottom was cut off. Null when none is.
  */
 export function settledStill(
   settled: SettledMap | null | undefined,
   pageHeight: number,
   scale: number,
+  moves?: LayoutMove[] | null,
 ): SettledMap | null {
   if (!settled || settled.spans.length === 0) return null;
-  if (Math.abs(settled.pageHeight - pageHeight) <= LAYOUT_TOLERANCE_PX * scale) return settled;
-  const spans = settled.spans.filter((span) => span.to <= settled.fence);
+  const sameHeight = Math.abs(settled.pageHeight - pageHeight) <= LAYOUT_TOLERANCE_PX * scale;
+  const moving = moves != null && moves.length > 0;
+  if (sameHeight && !moving) return settled;
+  const spans = moving
+    ? placeSpans(settled.spans, moves)
+    : pageHeight >= settled.pageHeight
+      ? settled.spans
+      : cropSpans(settled.spans, pageHeight);
   return spans.length > 0 ? { ...settled, pageHeight, spans } : null;
 }
 
@@ -256,6 +274,11 @@ export class SurveyKeeper {
   private fence = 0;
   private scale = 1;
   private viewHeight = 0;
+  /**
+   * Where the form moved since the agent was last told of the page (CSS pixels). Null when it did not.
+   * Cleared when the agent sends stretches already placed for that move.
+   */
+  private moves: LayoutMove[] | null = null;
 
   /** A look at the page: how large the window is, so the settled parts can be told in CSS pixels. */
   seen(shot: Shot): void {
@@ -265,10 +288,10 @@ export class SurveyKeeper {
 
   /**
    * The settled parts of a page that is `pageHeight` tall (CSS pixels), for the run's scrolling to keep out
-   * of; undefined when nothing is settled. A page of another height keeps those above the fence.
+   * of; undefined when nothing is settled. A page of another height follows the controls' move.
    */
   blue(pageHeight: number): BlueMap | undefined {
-    const settled = settledStill(this.settled, pageHeight * this.scale, this.scale);
+    const settled = this.placed(pageHeight * this.scale);
     if (!settled || !(this.viewHeight > 0)) return undefined;
     return {
       viewHeight: this.viewHeight,
@@ -289,15 +312,21 @@ export class SurveyKeeper {
     this.batchFence = stoppedHalfWay && !readsAResume ? this.fence : 0;
   }
 
-  /** The agent says what is settled now (an empty map: nothing). */
+  /** The agent says what is settled now (an empty map: nothing). Those stretches match the page now. */
   setSettled(settled: SettledMap): void {
     this.settled = settled.spans.length > 0 ? settled : null;
     this.fence = settled.fence;
+    this.moves = null;
+  }
+
+  /** The form moved. `moves` are in CSS pixels; null or empty when the list says nothing moved. */
+  noteLayout(moves: LayoutMove[] | null): void {
+    this.moves = moves && moves.length > 0 ? moves : null;
   }
 
   /** What is settled on the page as it is in `shot`, for the minimap: what still holds. */
   settledOn(shot: Shot): SettledMap | null {
-    return settledStill(this.settled, shot.viewport.pageHeight, shot.scale);
+    return this.placed(shot.viewport.pageHeight);
   }
 
   /** A new page: nothing that was seen or settled on the last one holds. */
@@ -305,6 +334,7 @@ export class SurveyKeeper {
     this.memory = null;
     this.settled = null;
     this.fence = 0;
+    this.moves = null;
     this.reusable = false;
   }
 
@@ -323,15 +353,21 @@ export class SurveyKeeper {
       : undefined;
     this.reusable = false;
     this.batchFence = 0;
-    const taken = await captureSurvey(deps, first, reuse, this.settled);
+    const taken = await captureSurvey(deps, first, reuse, this.placed(first.viewport.pageHeight));
     this.reused = taken?.reused ?? 0;
     this.left = taken?.left ?? 0;
     this.memory = taken ? { screens: taken.screens, pageHeight: first.viewport.pageHeight } : null;
     return taken?.screens ?? null;
   }
+
+  /** The settled stretches placed for the page as it is now (screenshot pixels). */
+  private placed(pageHeight: number): SettledMap | null {
+    const moves = this.moves ? scaleMoves(this.moves, this.scale) : null;
+    return settledStill(this.settled, pageHeight, this.scale, moves);
+  }
 }
 
-/** What placing an action's point needs: waiting, the run's scrolling, and a way to find a target again. */
+/** What placing an action's point needs: waiting, the run's scrolling, and ways to find its target again. */
 export interface PlaceDeps {
   sleep: (ms: number) => Promise<void>;
   scroll?: ScrollContext;
@@ -340,14 +376,29 @@ export interface PlaceDeps {
    * in screenshot pixels, or null when it cannot be found (or found in two places).
    */
   locate?: (action: AgentAction) => Promise<{ x: number; y: number } | null>;
+  /** Finds it again by the control it was bound to when it was planned (docs 19.4m). */
+  marks?: PlaceMarks;
+}
+
+/** What the page says of the control a point was bound to. */
+export interface PlaceMarks {
+  /**
+   * How far that control has moved since the point was planned (CSS pixels), or null when it cannot be
+   * told: it is gone, another shape, or the page cannot say.
+   */
+  move(action: AgentAction, scale: number): Promise<MarkMove | null>;
+  /** Whether the point (CSS pixels in the window) is on the field of that control. */
+  holds(action: AgentAction, x: number, y: number): Promise<boolean>;
 }
 
 /**
  * Before an action whose point was measured on a screen of a survey: scrolls there and says where the
  * point is now (CSS pixels). When the page is not the shape the survey saw, a question that appeared or an
- * error message may have moved the point, and the target is found again by its anchor (`locate`); one that
- * cannot be found is not guessed at: this throws, so the action is not done at a point that now means
- * something else, and the model looks again.
+ * error message may have moved the point. The point was bound to the control it was on when it was planned,
+ * so the control is asked for where it is now and the point goes with it, once the page agrees that the point
+ * is on that control's field; failing that, the target is found again by its anchor (`locate`), a picture of
+ * what was round it. A target that cannot be found either way is not guessed at: this throws, so the action is
+ * not done at a point that now means something else, and the model looks again.
  */
 export async function scrollForAction(
   cdp: Cdp,
@@ -367,11 +418,27 @@ export async function scrollForAction(
   ) {
     return own;
   }
+  const bound =
+    action.pageHeight != null && action.mark
+      ? ((await deps.marks?.move(action, scale)) ?? null)
+      : null;
+  if (bound && moved(bound)) {
+    const placed = await placeOnControl(cdp, action, deps, { own, wanted, bound });
+    if (placed) return placed;
+  }
   const state = await scrollPageSlowly(cdp, wanted, deps.sleep, deps.scroll, "action");
-  await deps.sleep(SURVEY_SETTLE_MS);
+  if (state.moved) await deps.sleep(SURVEY_SETTLE_MS);
   if (action.pageHeight != null) {
     const saw = action.pageHeight / scale;
     if (Math.abs(state.height - saw) > LAYOUT_TOLERANCE_PX) {
+      // The page is not the height the survey saw, but the control the point was bound to is where it was:
+      // nothing above it moved, so the point is still on it, as far as the page can say.
+      const stayed =
+        bound !== null &&
+        !moved(bound) &&
+        Math.abs(state.y - wanted) <= SCROLL_TOLERANCE_PX &&
+        (await deps.marks?.holds(action, own.x, own.y)) === true;
+      if (stayed) return own;
       const found = await findAgain(cdp, action, scale, deps, { wanted, saw, state });
       if (found) return found;
       throw new Error(
@@ -385,6 +452,33 @@ export async function scrollForAction(
     );
   }
   return own;
+}
+
+/**
+ * Puts the window where the control a point was bound to now is, keeping the point at the same place in
+ * the window, and says where the point is (CSS pixels). Null when the page does not agree that the point
+ * is on that control's field there, or the point would lie outside the window.
+ */
+async function placeOnControl(
+  cdp: Cdp,
+  action: AgentAction,
+  deps: PlaceDeps,
+  at: { own: { x: number; y: number }; wanted: number; bound: MarkMove },
+): Promise<{ x: number; y: number } | null> {
+  const { own, wanted, bound } = at;
+  const state = await scrollPageSlowly(
+    cdp,
+    Math.max(0, wanted + bound.dy),
+    deps.sleep,
+    deps.scroll,
+    "action",
+  );
+  if (state.moved) await deps.sleep(SURVEY_SETTLE_MS);
+  // Where the point lies on the page now: where it lay on the survey's screen, with the control's move.
+  const x = own.x + bound.dx;
+  const y = wanted + own.y + bound.dy - state.y;
+  if (x < 0 || y < 0 || (state.view > 0 && y >= state.view)) return null;
+  return (await deps.marks?.holds(action, x, y)) === true ? { x, y } : null;
 }
 
 /**
@@ -402,10 +496,10 @@ async function findAgain(
   if (!deps.locate) return null;
   const here = await deps.locate(action);
   if (here) return { x: here.x / scale, y: here.y / scale };
-  const moved = Math.max(0, seen.wanted + (seen.state.height - seen.saw));
-  if (Math.abs(moved - seen.state.y) <= SCROLL_TOLERANCE_PX) return null;
-  await scrollPageSlowly(cdp, moved, deps.sleep, deps.scroll, "action");
-  await deps.sleep(SURVEY_SETTLE_MS);
+  const shifted = Math.max(0, seen.wanted + (seen.state.height - seen.saw));
+  if (Math.abs(shifted - seen.state.y) <= SCROLL_TOLERANCE_PX) return null;
+  const landed = await scrollPageSlowly(cdp, shifted, deps.sleep, deps.scroll, "action");
+  if (landed.moved) await deps.sleep(SURVEY_SETTLE_MS);
   const there = await deps.locate(action);
   return there ? { x: there.x / scale, y: there.y / scale } : null;
 }

@@ -225,12 +225,11 @@ export interface AgentLocated {
 
 /** The parts of a page the model will not come back to (painted blue on the minimap), in screenshot pixels from its top. */
 export interface AgentSettledMap {
-  /** How tall the page was when they were settled; when it is a different height only the parts above `fence` hold. */
+  /** How tall the page was when they were settled. A different height places the spans from `layout` on the look, it does not drop them. */
   pageHeight: number;
   /**
-   * How far down the page the plan being carried out leaves things as they are: where it first acts. Above
-   * it nothing the run does can move or change anything, so what is settled there is not forgotten when a
-   * form below it grows or shrinks.
+   * How far down the page the plan being carried out leaves things as they are: where it first acts.
+   * A height change follows the controls (`layout` on the look) instead of forgetting what is below this.
    */
   fence: number;
   spans: { from: number; to: number }[];
@@ -251,6 +250,46 @@ export interface AgentSurveyScreen {
   scrollY: number;
 }
 
+/** A box on the page, in screenshot pixels from the page's top left. */
+export interface AgentRect {
+  x: number;
+  y: number;
+  w: number;
+  h: number;
+}
+
+/**
+ * One control of the page (an input, a dropdown, a button, a check, a file field, a link): a stable id
+ * (equal ids are the same control, even when the page moved), what kind it is, and where it sits. `box`
+ * is the field the control belongs to: the largest box round it that holds no other control, so a point
+ * on the control's own label is on its field. The agent binds each point of a plan to a control with it.
+ */
+export interface AgentControlMark extends AgentRect {
+  id: string;
+  kind: string;
+  box?: AgentRect;
+}
+
+/**
+ * The control a point was bound to when it was planned, as it sat then. The extension finds the same
+ * control by `id` when the point is acted on, and the difference of the two places is how far the point
+ * has moved.
+ */
+export interface AgentMarkRef extends AgentRect {
+  id: string;
+}
+
+/**
+ * A move of the form between two looks, in the old page's pixels (screenshot pixels). The controls from
+ * `at` down moved by `dy`; what lay between `from` and `at` is where it happened (something appeared or
+ * went), so nothing there is known to be as it was.
+ */
+export interface AgentLayoutMove {
+  from: number;
+  at: number;
+  dy: number;
+}
+
 export interface AgentObservation {
   /** A data URL of the visible page. */
   screenshot: string;
@@ -268,6 +307,12 @@ export interface AgentObservation {
   pageText?: string;
   /** The person's answer (an AgentAskOption id) to the question the last step asked. */
   answer?: string;
+  /** The page's controls and where each sits (screenshot pixels), sent with each look of a run that surveys: the agent binds the plan's points to them. */
+  marks?: AgentControlMark[];
+  /** Where the form moved since the look before (screenshot pixels): the settled stretches follow it. Omitted when nothing moved. */
+  layout?: AgentLayoutMove[];
+  /** Names the look: a step sent again after a failure carries the same name, so the move in `layout` is placed once. */
+  look?: string;
 }
 
 export interface AgentAction {
@@ -297,6 +342,11 @@ export interface AgentAction {
    * action of a zone is done and sends it with the next look.
    */
   zone?: number;
+  /**
+   * Fast fill: the control the point was bound to when it was planned. The extension finds that control
+   * again when it acts, so a page that changed shape moves the point with it.
+   */
+  mark?: AgentMarkRef;
 }
 
 export interface AgentUsage {

@@ -339,9 +339,15 @@ func (a *Agent) uncheckedLimit(s *session) int {
 
 // surveyNext is whether the extension's next look is a survey of the whole page: when the model
 // asked for one, and in a fast-fill run when what was just sent moves the page (an upload) or is
-// the last of the plan (so the whole page is looked at once, to finish and check what is left).
-// sent are the actions going out now; s.plan is what is left of the plan after them.
+// the last of the plan (so the whole page is looked at once, to finish and check what is left). Never
+// while a run of dropdowns is half done. sent are the actions going out now; s.plan is what is left of
+// the plan after them.
 func (a *Agent) surveyNext(s *session, sent []Action, asked bool) bool {
+	// Dropdowns being probed or set go on to their next batch without the model, which looks at nothing in
+	// between: the survey is for the end of the run (probeStep asks for it there).
+	if s.probe != nil || s.script != nil {
+		return false
+	}
 	if (asked || s.surveyAgain) && s.start.Survey {
 		s.surveyAgain = false
 		return true

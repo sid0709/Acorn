@@ -123,7 +123,17 @@ func hasChoose(actions []Action) bool {
 	return false
 }
 
-// bottomUp orders each run of consecutive chooses from the bottom of the screen to the top.
+// pageTop is where a point action aims on the page, from its top: the screen of the survey it was
+// measured on, and its place on that screen. Two points on different screens are only ordered by this.
+func pageTop(action Action) float64 {
+	top := 0.0
+	if action.ScrollTo != nil {
+		top = *action.ScrollTo
+	}
+	return top + *action.Y
+}
+
+// bottomUp orders each run of consecutive chooses from the bottom of the page to the top.
 func bottomUp(actions []Action) []Action {
 	out := append([]Action(nil), actions...)
 	for i := 0; i < len(out); {
@@ -136,7 +146,7 @@ func bottomUp(actions []Action) []Action {
 			j++
 		}
 		run := out[i:j]
-		sort.SliceStable(run, func(a, b int) bool { return *run[a].Y > *run[b].Y })
+		sort.SliceStable(run, func(a, b int) bool { return pageTop(run[a]) > pageTop(run[b]) })
 		i = j
 	}
 	return out

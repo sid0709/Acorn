@@ -27,18 +27,24 @@ export const SCROLL_TOLERANCE_PX = 3;
 const WHEEL_POINT = { x: 4, y: 120 };
 
 type Layout = {
-  cssVisualViewport: { pageY: number };
+  cssVisualViewport: { pageY: number; clientHeight?: number };
   cssContentSize: { height: number };
 };
 
-/** What the page is doing now: where it is scrolled, and how tall it is (CSS pixels). */
-export async function pageState(cdp: Cdp): Promise<{ y: number; height: number }> {
+/** What the page is doing now: where it is scrolled, how tall it is, and how tall the window is (CSS pixels). */
+export type PageState = { y: number; height: number; view: number };
+
+export async function pageState(cdp: Cdp): Promise<PageState> {
   const metrics = await cdp.send<Layout>("Page.getLayoutMetrics");
-  return { y: metrics.cssVisualViewport.pageY, height: metrics.cssContentSize.height };
+  return {
+    y: metrics.cssVisualViewport.pageY,
+    height: metrics.cssContentSize.height,
+    view: metrics.cssVisualViewport.clientHeight ?? 0,
+  };
 }
 
 /** Puts the page at a place at once (no smooth scrolling) and says where it landed. */
-export async function scrollPageTo(cdp: Cdp, y: number): Promise<{ y: number; height: number }> {
+export async function scrollPageTo(cdp: Cdp, y: number): Promise<PageState> {
   await cdp.send("Runtime.evaluate", {
     expression: `(() => { window.scrollTo({ top: ${Number(y)}, left: window.scrollX, behavior: "instant" }); })()`,
   });
@@ -118,6 +124,8 @@ async function turnWheel(
  * The run never goes to a settled part: a scroll whose window would lie wholly in one is not made (an
  * action's own target is the exception, since it has to be reached), and one that crosses a settled
  * part crosses it fast. Every scroll is told to `scroll.note`, so the log says where the page went and why.
+ * `moved` says whether the page went anywhere: a caller that waits for what a scroll loads has nothing to
+ * wait for when it did not.
  */
 export async function scrollPageSlowly(
   cdp: Cdp,
@@ -125,13 +133,13 @@ export async function scrollPageSlowly(
   sleep: (ms: number) => Promise<void>,
   scroll?: ScrollContext,
   reason: ScrollReason = "survey",
-): Promise<{ y: number; height: number }> {
+): Promise<PageState & { moved: boolean }> {
   let state = await pageState(cdp);
   const began = state.y;
   const blue = scroll?.blue(state.height);
   if (reason !== "action" && windowInBlue(blue, y)) {
     scroll?.note({ from: began, to: y, reason, refused: true });
-    return state;
+    return { ...state, moved: false };
   }
   for (let round = 0; round < SLOW_SCROLL_ROUNDS; round += 1) {
     const delta = y - state.y;
@@ -141,8 +149,7 @@ export async function scrollPageSlowly(
     state = await pageState(cdp);
   }
   if (Math.abs(y - state.y) > SCROLL_TOLERANCE_PX) state = await scrollPageTo(cdp, y);
-  if (Math.abs(state.y - began) > SCROLL_TOLERANCE_PX) {
-    scroll?.note({ from: began, to: state.y, reason });
-  }
-  return state;
+  const moved = Math.abs(state.y - began) > SCROLL_TOLERANCE_PX;
+  if (moved) scroll?.note({ from: began, to: state.y, reason });
+  return { ...state, moved };
 }

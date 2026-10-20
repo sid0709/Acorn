@@ -19,7 +19,9 @@ import (
 // that has a label is checked against it: the survey screen is drawn with the points numbered on it,
 // and the decision model is asked, for each point, whether it is on the control that belongs to its
 // label. The screens are checked side by side, so it costs about one check. A point that is not
-// on its control is not acted on, and neither is what was typed into it; the rest of the plan runs
+// on its control, but in the field of one, is moved onto it and checked again (reaim.go). A point that
+// is still not on its control is not acted on, and neither is what was typed into it; the rest of
+// the plan runs, except the click that sends the page (the plan lost something, so it is held back),
 // and the model is told which points to plan again.
 
 // askPointPrefix starts the key of the question about a numbered point: "p1", "p2", ...
@@ -114,6 +116,12 @@ func (a *Agent) checkPlanPoints(ctx context.Context, s *session, planned []Actio
 	if len(wrong) == 0 {
 		return planned, calls
 	}
+	// A point on the words of a question is moved onto its box and checked again before it is given up.
+	planned, wrong, moved := a.reaimWrongPoints(ctx, s, planned, wrong, obs)
+	calls = append(calls, moved...)
+	if len(wrong) == 0 {
+		return planned, calls
+	}
 	kept := withoutWrongPoints(planned, wrong)
 	s.notes = append(s.notes, wrongPointsNote(planned, wrong))
 	s.surveyAgain = true
@@ -202,4 +210,58 @@ func wrongPointsNote(planned []Action, wrong map[string]pointVerdict) string {
 		"Look at the screens again, find where each of them really is by its label, and plan them again with the right screen number. "+
 		"A box with no dropdown arrow is a text box: click it and type, do not choose it.",
 		plainlog.Count(len(lines), "action"), strings.Join(lines, "; "))
+}
+
+// withoutCommits is the plan without the clicks the model named as the one that sends the page (and what
+// follows each up to the next point), and those clicks.
+func withoutCommits(planned []Action) (kept, held []Action) {
+	dropping := false
+	for _, action := range planned {
+		if isPointAction(action) {
+			dropping = action.Commit
+			if dropping {
+				held = append(held, action)
+			}
+		}
+		if dropping {
+			continue
+		}
+		kept = append(kept, action)
+	}
+	return kept, held
+}
+
+// holdCommits takes the click that sends the page out of a fast-fill plan that lost part of itself: a
+// recorded run pressed Submit with a required field it had not filled, which turned every unanswered
+// question red and cost the rounds to read them. The model is told, and presses the click on the look
+// after, when the page is complete. It reports the clicks it held.
+func (a *Agent) holdCommits(s *session, planned *[]Action, lost int) []Action {
+	if lost <= 0 || !s.start.FastFill {
+		return nil
+	}
+	kept, held := withoutCommits(*planned)
+	if len(held) == 0 {
+		return nil
+	}
+	*planned = kept
+	s.notes = append(s.notes, commitHeldNote(held, lost))
+	s.surveyAgain = true
+	slog.Warn(fmt.Sprintf("%s: %s of the plan could not be carried out, so the click that sends the page was held back.", runName(s.id), plainlog.Count(lost, "action")))
+	return held
+}
+
+// commitHeldNote tells the model that the click that sends the page was not made, and why.
+func commitHeldNote(held []Action, lost int) string {
+	var names []string
+	for _, action := range held {
+		if label := strings.TrimSpace(action.Label); label != "" {
+			names = append(names, fmt.Sprintf("%q on screen %d", label, action.Zone))
+		}
+	}
+	what := "the click that sends the page"
+	if len(names) > 0 {
+		what = strings.Join(names, "; ")
+	}
+	return fmt.Sprintf("Acorn did not press %s because %s of your plan could not be carried out, and the page is not complete. "+
+		"Plan what is left, and press it when nothing on the page is empty or wrong.", what, plainlog.Count(lost, "action"))
 }

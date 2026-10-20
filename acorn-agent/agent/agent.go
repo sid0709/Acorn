@@ -338,6 +338,13 @@ func (a *Agent) Step(ctx context.Context, id string, obs Observation) (Step, err
 	}
 	if s, ok := a.sessions.get(id); ok {
 		s.mu.Lock()
+		s.attachMarks(step.Actions)
+		// Every answer carries the settled parts when they changed, however it was made (the model, a
+		// check, a probe of dropdowns): the look placed them where the form moved, and the extension's
+		// own copy must say the same.
+		if step.Settled == nil {
+			step.Settled = s.takeSettledMap()
+		}
 		if step.Trace = s.takeTrace(); step.Trace != nil {
 			step.Trace.Seq = s.seq
 		}
@@ -378,6 +385,7 @@ func (a *Agent) step(ctx context.Context, id string, obs Observation) (Step, err
 		return Step{}, err
 	}
 	s.viewport = obs.Viewport
+	obs.Marks = acceptMarks(obs.Marks)
 	s.cover.see(obs.URL, obs.Viewport)
 	s.forgetSettledIfStale(obs)
 	s.seeSurvey(obs)
@@ -492,6 +500,8 @@ func (a *Agent) step(ctx context.Context, id string, obs Observation) (Step, err
 	s.message = strings.TrimSpace(answer.Message)
 
 	planned, dropped := checkActions(number, answer.Actions, obs.Viewport, s.maxActions, screens)
+	// lost counts the actions of the plan that could not be carried out: the click that sends the page waits for them.
+	lost := len(answer.Actions) - len(planned)
 	planned = pinFrame(planned, obs.Viewport, len(screens))
 	planned, cut := cutAfterUpload(planned)
 	if cut > 0 && answer.Status == StatusWorking {
@@ -501,11 +511,12 @@ func (a *Agent) step(ctx context.Context, id string, obs Observation) (Step, err
 	if s.start.FastFill {
 		planned = inheritZones(planned)
 		s.anchors = buildAnchors(planned, obs)
+		s.marks = bindMarks(planned, obs)
 	} else {
 		for i := range planned {
 			planned[i].Zone = 0
 		}
-		s.anchors = nil
+		s.anchors, s.marks = nil, nil
 	}
 	planned, blueScrolls := s.withoutBlueScrolls(planned, obs)
 	if blueScrolls > 0 {
@@ -525,12 +536,19 @@ func (a *Agent) step(ctx context.Context, id string, obs Observation) (Step, err
 	if rejected := a.accountRejected(s, &answer); rejected {
 		planned = nil
 	}
+	uploadable := len(planned)
 	planned, dropped = a.resolveUploads(ctx, s, planned, dropped)
+	lost += uploadable - len(planned)
 	var pointCalls []modelCall
 	claimed := touchedScreens(planned, obs)
+	checkable := len(planned)
 	planned, pointCalls = a.checkPlanPoints(ctx, s, planned, obs)
+	lost += checkable - len(planned)
 	calls = append(calls, pointCalls...)
 	entry.Usage = s.usage
+	if held := a.holdCommits(s, &planned, lost); len(held) > 0 {
+		dropped = append(dropped, fmt.Sprintf("the click that sends the page was held back: the plan lost %s", plainlog.Count(lost, "action")))
+	}
 	if settled := s.markSettled(obs, answer.Settled, planned, claimed); settled > 0 {
 		slog.Info(settledLine(s.id, settled, s.settled.Spans))
 	}

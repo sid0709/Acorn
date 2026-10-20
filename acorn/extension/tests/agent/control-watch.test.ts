@@ -1,0 +1,307 @@
+import assert from "node:assert/strict";
+import { describe, it } from "node:test";
+
+import { ControlWatch, waitForQuiet } from "../../src/agent/control-watch.ts";
+
+import { FakeElement, FakePage } from "./fake-page.ts";
+
+type Form = {
+  page: FakePage;
+  first: FakeElement;
+  country: FakeElement;
+  back: FakeElement;
+  submit: FakeElement;
+  banner: FakeElement;
+};
+
+/** A form: a text box with a label above it, a dropdown whose tiny input sits in its left end, two buttons in a row, and a cookie bar fixed to the window. */
+function form(): Form {
+  const page = new FakePage();
+  const wrapper = page.body.add("div", { x: 380, y: 270, w: 340, h: 90 });
+  const first = wrapper.add(
+    "input",
+    { x: 400, y: 300, w: 300, h: 40 },
+    { type: "text", name: "first_name" },
+  );
+  first.labels = [
+    Object.assign(new FakeElement(page, "label", { x: 0, y: 0, w: 1, h: 1 }), {
+      textContent: "First Name *",
+    }),
+  ];
+
+  const shell = page.body.add("div", { x: 400, y: 470, w: 400, h: 70 });
+  const control = shell.add("div", { x: 400, y: 495, w: 400, h: 45 });
+  const country = control.add(
+    "input",
+    { x: 425, y: 500, w: 2, h: 20 },
+    { role: "combobox", id: "country" },
+  );
+
+  const row = page.body.add("div", { x: 380, y: 800, w: 400, h: 60 });
+  const back = row.add("button", { x: 400, y: 810, w: 80, h: 40 });
+  back.textContent = "Back";
+  const submit = row.add("button", { x: 600, y: 810, w: 180, h: 40 }, { type: "submit" });
+  submit.textContent = "Submit application";
+
+  const bar = page.body.add("div", { x: 0, y: 700, w: 1280, h: 60 });
+  bar.style.position = "fixed";
+  const banner = bar.add("button", { x: 1000, y: 710, w: 100, h: 40 });
+  banner.textContent = "Accept";
+
+  const hidden = page.body.add(
+    "input",
+    { x: 400, y: 900, w: 300, h: 40 },
+    { type: "text", name: "ghost" },
+  );
+  hidden.style.display = "none";
+  page.body.add("input", { x: 400, y: 950, w: 0, h: 40 }, { type: "text", name: "flat" });
+  return { page, first, country, back, submit, banner };
+}
+
+describe("the page's list of controls", () => {
+  it("is every drawn control that is not fixed to the window, with its kind, its place and its field", async () => {
+    const { page } = form();
+    const watch = new ControlWatch();
+    assert.equal(await watch.read(page.cdp()), true);
+    assert.deepEqual(
+      watch.marks.map((mark) => [mark.id, mark.kind]),
+      [
+        ["input:text:first_name:First Name *", "input"],
+        ["input::country:", "select"],
+        ["button:::Back", "button"],
+        ["button:submit::Submit application", "button"],
+      ],
+    );
+    const [first, country, back] = watch.marks;
+    assert.deepEqual([first?.x, first?.y, first?.w, first?.h], [400, 300, 300, 40]);
+    assert.deepEqual(
+      first?.box,
+      { x: 380, y: 270, w: 340, h: 90 },
+      "the wrapper holds this control alone",
+    );
+    assert.deepEqual(
+      country?.box,
+      { x: 400, y: 470, w: 400, h: 70 },
+      "the field round a tiny input is the whole dropdown",
+    );
+    assert.equal(back?.box, undefined, "a row of two buttons is no button's own field");
+  });
+
+  it("counts the page's scroll in a control's place", async () => {
+    const { page } = form();
+    page.scrollY = 120;
+    const watch = new ControlWatch();
+    await watch.read(page.cdp());
+    assert.equal(watch.marks[0]?.y, 300, "a place on the page, not in the window");
+  });
+
+  it("tells controls that look alike apart by their order, and trusts an id only while the count is the same", async () => {
+    const page = new FakePage();
+    for (const y of [100, 200, 300])
+      page.body.add("button", { x: 10, y, w: 50, h: 30 }).textContent = "Add";
+    page.body.add("a", { x: 10, y: 400, w: 50, h: 30 }, { href: "/x" }).textContent = "Terms";
+    const watch = new ControlWatch();
+    await watch.read(page.cdp());
+    assert.deepEqual(
+      watch.marks.map((mark) => mark.id),
+      ["button:::Add#1/3", "button:::Add#2/3", "button:::Add#3/3", "a:::Terms"],
+    );
+  });
+
+  it("leaves the marks out of a read when nothing changed, and keeps the list it has", async () => {
+    const { page } = form();
+    const cdp = page.cdp();
+    const watch = new ControlWatch();
+    await watch.read(cdp);
+    const before = watch.marks;
+    assert.equal(await watch.read(cdp), false);
+    assert.equal(watch.marks, before);
+    assert.equal(
+      await watch.read(cdp, { fresh: true }),
+      false,
+      "collecting again finds the same page",
+    );
+  });
+
+  it("puts the observers in a page that has none and takes an older build's off", async () => {
+    const { page } = form();
+    let stopped = 0;
+    page.window.__acornControlMarks = {
+      installed: true,
+      build: "older",
+      stop: () => (stopped += 1),
+    };
+    const watch = new ControlWatch();
+    assert.equal(await watch.read(page.cdp()), true);
+    assert.equal(stopped, 1);
+    assert.equal(watch.marks.length, 4);
+    assert.equal(page.observers.length, 2, "one for changes, one for size");
+  });
+});
+
+describe("where the form moved", () => {
+  it("is measured from the list the agent was last told of", async () => {
+    const { page, country, back, submit } = form();
+    const cdp = page.cdp();
+    const watch = new ControlWatch();
+    await watch.read(cdp);
+    assert.equal(watch.moves(), null, "the agent has been told nothing yet");
+    watch.commit(watch.marks);
+    assert.deepEqual(watch.moves(), []);
+
+    // A message appeared under the first field: the dropdown and what is below it moved 30 px.
+    for (const el of [country, back, submit]) el.box = { ...el.box, y: el.box.y + 30 };
+    page.mutated();
+    assert.equal(await watch.read(cdp, { fresh: true }), true);
+    assert.deepEqual(watch.moves(), [{ from: 340, at: 500, dy: 30 }]);
+
+    // The agent was told of that list: the next move is measured from it.
+    watch.commit(watch.marks);
+    assert.deepEqual(watch.moves(), []);
+    watch.forget();
+    assert.equal(watch.moves(), null);
+  });
+});
+
+describe("the control a point was bound to", () => {
+  const ref = { id: "input:text:first_name:First Name *", x: 400, y: 300, w: 300, h: 40 };
+
+  it("is found where it is now, and the move is how far the point goes", async () => {
+    const { page, first } = form();
+    const watch = new ControlWatch();
+    assert.deepEqual(await watch.move(page.cdp(), ref, 1), { dx: 0, dy: 0 });
+    first.box = { x: 400, y: 376, w: 300, h: 40 };
+    assert.deepEqual(await watch.move(page.cdp(), ref, 1), { dx: 0, dy: 76 });
+    // The reference is in the screenshot's pixels: half a pixel of screenshot to a pixel of page.
+    assert.deepEqual(await watch.move(page.cdp(), { ...ref, x: 200, y: 150, w: 150, h: 20 }, 0.5), {
+      dx: 0,
+      dy: 76,
+    });
+  });
+
+  it("is not told when it is gone, another shape, or moved only by what the page calls itself", async () => {
+    const { page, first } = form();
+    const watch = new ControlWatch();
+    first.box = { x: 400, y: 300, w: 300, h: 80 };
+    assert.equal(
+      await watch.move(page.cdp(), ref, 1),
+      null,
+      "a taller box than the point was aimed at",
+    );
+    first.box = { x: 400, y: 300, w: 300, h: 40 };
+    first.remove();
+    assert.equal(await watch.move(page.cdp(), ref, 1), null);
+    assert.equal(await watch.move(page.cdp(), { ...ref, id: "input:text:nobody:" }, 1), null);
+  });
+
+  it("holds a point that lies on the control, its label or the gap round it, and no other", async () => {
+    const { page, first, country } = form();
+    const watch = new ControlWatch();
+    const wrapper = first.parentElement;
+    const shell = country.parentElement?.parentElement;
+    const cdp = page.cdp();
+    const holds = (id: string, hit: FakeElement | null) => {
+      page.hitAt = () => hit;
+      return watch.holds(cdp, { id, x: 0, y: 0, w: 1, h: 1 }, 500, 320);
+    };
+    assert.equal(await holds(ref.id, first), true, "the control itself");
+    assert.equal(await holds(ref.id, wrapper), true, "its field, which holds no other control");
+    assert.equal(await holds(ref.id, null), false, "nothing is there");
+    assert.equal(await holds(ref.id, page.body), false, "the page holds every control");
+    assert.equal(await holds(ref.id, country), false, "another control");
+    assert.equal(
+      await holds("input::country:", country.parentElement),
+      true,
+      "the body of a dropdown, not its tiny input",
+    );
+    assert.equal(await holds("input::country:", shell ?? null), true);
+    assert.equal(await holds("input:text:nobody:", first), false, "no such control");
+  });
+
+  it("does not hold a point in a field as tall as a section of the page", async () => {
+    const { page, first } = form();
+    const watch = new ControlWatch();
+    const wrapper = first.parentElement;
+    if (wrapper) wrapper.box = { x: 0, y: 0, w: 1280, h: 600 };
+    page.hitAt = () => wrapper;
+    assert.equal(
+      await watch.holds(
+        page.cdp(),
+        { id: "input:text:first_name:First Name *", x: 0, y: 0, w: 1, h: 1 },
+        5,
+        5,
+      ),
+      false,
+    );
+  });
+});
+
+describe("waiting for the page to go quiet", () => {
+  it("returns once the page has been still for a moment, well before the longest wait", async () => {
+    const { page } = form();
+    const began = Date.now();
+    assert.equal(await waitForQuiet(page.cdp(), 1000, 0), true);
+    const waited = Date.now() - began;
+    assert.ok(waited >= 80 && waited < 600, `waited ${waited} ms`);
+  });
+
+  it("waits for a page that is still changing, and gives up at the longest wait", async () => {
+    const { page } = form();
+    const cdp = page.cdp();
+    await new ControlWatch().read(cdp);
+    const busy = setInterval(() => page.mutated(), 20);
+    const began = Date.now();
+    const done = await waitForQuiet(cdp, 250, 0);
+    clearInterval(busy);
+    const waited = Date.now() - began;
+    assert.equal(done, true);
+    assert.ok(waited >= 230 && waited < 600, `waited ${waited} ms`);
+  });
+
+  it("waits for an animation of the page to end, but not for the cursor's own or one that never ends", async () => {
+    const { page } = form();
+    const cdp = page.cdp();
+    await new ControlWatch().read(cdp);
+    const inPage = { getRootNode: () => page.document };
+    const inOverlay = { getRootNode: () => ({}) };
+    const animation = (target: { getRootNode: () => unknown }, endTime: number) => ({
+      playState: "running",
+      effect: { target, getComputedTiming: () => ({ endTime }) },
+    });
+    page.animations = [animation(inOverlay, 5000), animation(inPage, Number.POSITIVE_INFINITY)];
+    const began = Date.now();
+    assert.equal(await waitForQuiet(cdp, 1000, 0), true);
+    assert.ok(
+      Date.now() - began < 600,
+      "an overlay's animation and an endless one are not waited for",
+    );
+
+    page.animations = [animation(inPage, 400)];
+    const again = Date.now();
+    await waitForQuiet(cdp, 300, 0);
+    assert.ok(
+      Date.now() - again >= 280,
+      "a finite animation of the page is waited for, up to the longest wait",
+    );
+  });
+
+  it("does not know what a hidden tab does, and says so", async () => {
+    const { page } = form();
+    page.visibilityState = "hidden";
+    assert.equal(await waitForQuiet(page.cdp(), 300), false);
+  });
+
+  it("does not know when the page cannot be asked", async () => {
+    const { page } = form();
+    const cdp = page.cdp();
+    const broken = {
+      ...cdp,
+      send: () => Promise.reject(new Error("Execution context was destroyed")),
+    };
+    assert.equal(await waitForQuiet(broken, 300), false);
+    const watch = new ControlWatch();
+    assert.equal(await watch.read(broken), false);
+    assert.equal(await watch.move(broken, { id: "x", x: 0, y: 0, w: 1, h: 1 }, 1), null);
+    assert.equal(await watch.holds(broken, { id: "x", x: 0, y: 0, w: 1, h: 1 }, 1, 1), false);
+  });
+});

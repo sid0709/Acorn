@@ -37,6 +37,10 @@ type fakeScreen struct {
 	// pointRequests how many times it was asked about points.
 	wrongPoints   []string
 	pointRequests int
+	// wrongFirst are the labels whose points the screen refuses the first time it is asked about them
+	// and accepts after (a point that was moved onto its control); askedFirst are those it was asked about.
+	wrongFirst []string
+	askedFirst map[string]bool
 	// wrongFields are the values the screen says a field does not show, and reviewRequests how many
 	// times it was asked about the fields of a zone.
 	wrongFields    []string
@@ -76,6 +80,18 @@ func (f *fakeScreen) Decide(_ context.Context, req decide.Request) (decide.Respo
 				if strings.Contains(question.Instructions, fmt.Sprintf("%q", label)) {
 					p = 0.04
 				}
+			}
+			for _, label := range f.wrongFirst {
+				if !strings.Contains(question.Instructions, fmt.Sprintf("%q", label)) {
+					continue
+				}
+				if !f.askedFirst[label] {
+					p = 0.04
+				}
+				if f.askedFirst == nil {
+					f.askedFirst = map[string]bool{}
+				}
+				f.askedFirst[label] = true
 			}
 			answers[key] = decide.Answer{Type: decide.TypeNoul, Noul: &p}
 		}

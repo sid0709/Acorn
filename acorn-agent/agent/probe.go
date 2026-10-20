@@ -107,8 +107,10 @@ func (a *Agent) probeNext(s *session, prefix []Action) []Action {
 			items = append(items, &probeItem{choose: pr.queue[0]})
 			pr.queue = pr.queue[1:]
 		}
-		for _, item := range items {
-			batch = append(batch, a.probeOpen(s, item)...)
+		// The lists are opened and photographed from the top down: that changes nothing on the page, and it
+		// ends at the bottom, where the pass that picks in them (from the bottom up) begins.
+		for i := len(items) - 1; i >= 0; i-- {
+			batch = append(batch, a.probeOpen(s, items[i])...)
 		}
 		pr.items, pr.stage = items, probeStageOpen
 		return batch
@@ -293,8 +295,9 @@ func (a *Agent) continueProbe(ctx context.Context, s *session, obs Observation, 
 		}
 	}
 	if len(typing) > 0 {
-		for _, item := range typing {
-			batch = append(batch, a.probeTyped(s, item)...)
+		// After the picks (which end at the top of the run) from the top down.
+		for i := len(typing) - 1; i >= 0; i-- {
+			batch = append(batch, a.probeTyped(s, typing[i])...)
 		}
 		pr.items, pr.stage = typing, probeStageTyped
 		return a.probeStep(s, entry, obs, batch, calls), true
@@ -326,6 +329,9 @@ func (a *Agent) probeStep(s *session, entry stepTrace, obs Observation, batch []
 	step := Step{Status: StatusWorking, Message: s.message, Actions: batch, Number: s.step, Usage: s.usage}
 	// The run's last batch is followed by a survey of the whole page, to finish and to check what is left.
 	step.Survey = s.probe == nil && s.script == nil && len(batch) > 0
+	if step.Survey {
+		s.surveyAgain = false
+	}
 	entry.Usage = s.usage
 	entry.Status, entry.Message, entry.Actions = step.Status, step.Message, step.Actions
 	a.record(s, entry, obs.Screenshot, calls)

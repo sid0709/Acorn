@@ -2,6 +2,7 @@ package agent
 
 import (
 	"encoding/json"
+	"math"
 	"strings"
 	"testing"
 )
@@ -58,11 +59,11 @@ func TestWhatWasSettledIsForgottenOnAnotherPageOrAtAnotherHeight(t *testing.T) {
 	taller := obs
 	taller.Viewport.PageHeight = 2400 + settledHeightTolerance + 1
 	s.forgetSettledIfStale(taller)
-	if len(s.settled.Spans) != 0 {
-		t.Fatal("a page that grew kept what was settled")
+	if len(s.settled.Spans) != 1 || s.settled.PageHeight != taller.Viewport.PageHeight {
+		t.Fatal("a page that grew at the bottom lost a settled stretch whose coordinates still hold")
 	}
-	if cleared := s.takeSettledMap(); cleared == nil || len(cleared.Spans) != 0 {
-		t.Fatalf("the extension is not told that nothing is settled any more: %+v", cleared)
+	if told := s.takeSettledMap(); told == nil || told.PageHeight != taller.Viewport.PageHeight || len(told.Spans) != 1 {
+		t.Fatalf("the extension is not told the page's new height: %+v", told)
 	}
 
 	s.markSettled(obs, []int{1}, nil, nil)
@@ -240,14 +241,102 @@ func TestWhatLiesAboveWhereThePlanFirstActedStaysSettledWhenThePageChangesHeight
 	if told := s.takeSettledMap(); told == nil || told.PageHeight != 2288 {
 		t.Fatalf("the extension is not told the page's new height: %+v", told)
 	}
-	// A part below the fence does not hold.
+	// A stretch below the fence holds when the extra pixels are at the bottom and nothing moved.
 	s.settled.Spans = append(s.settled.Spans, Span{From: 1600, To: 2000})
 	s.settled.Fence = 1500
 	taller := obs
 	taller.Viewport.PageHeight = 2600
 	s.forgetSettledIfStale(taller)
-	if len(s.settled.Spans) != 1 || s.settled.Spans[0].To != 1480 {
+	if len(s.settled.Spans) != 2 || s.settled.Spans[1] != (Span{From: 1600, To: 2000}) {
 		t.Fatalf("spans = %+v", s.settled.Spans)
+	}
+}
+
+func TestAShiftFromTheControlsMovesTheSettledPartBelowItAndCutsOneThatItCrosses(t *testing.T) {
+	obs := surveyObservation(t)
+	obs.Viewport.PageHeight = 2400
+	var s session
+	s.markSettled(obs, []int{1}, nil, nil) // 0 to 800
+	s.settled.Spans = append(s.settled.Spans, Span{From: 1400, To: 2000})
+	s.takeSettledMap()
+	moved := obs
+	moved.Viewport.PageHeight = 2480
+	// Something appeared between 1500 and 1600 px: the controls from 1600 down moved 80 px.
+	moved.Layout = []LayoutMove{{From: 1500, At: 1600, Dy: 80}}
+	s.forgetSettledIfStale(moved)
+	want := []Span{{From: 0, To: 800}, {From: 1400, To: 1500}, {From: 1680, To: 2080}}
+	if len(s.settled.Spans) != len(want) {
+		t.Fatalf("spans = %+v, want %+v", s.settled.Spans, want)
+	}
+	for i := range want {
+		if s.settled.Spans[i] != want[i] {
+			t.Fatalf("spans = %+v, want %+v (what appeared in the gap is not settled)", s.settled.Spans, want)
+		}
+	}
+	// A stretch wholly below the insertion shifts by the same amount.
+	s.settled.Spans = []Span{{From: 0, To: 800}, {From: 1800, To: 2200}}
+	s.settled.PageHeight = 2400
+	s.forgetSettledIfStale(moved)
+	if len(s.settled.Spans) != 2 || s.settled.Spans[1] != (Span{From: 1880, To: 2280}) {
+		t.Fatalf("spans = %+v", s.settled.Spans)
+	}
+}
+
+func TestSeveralMovesOfTheFormEachPlaceTheStretchesAmongTheirOwnControls(t *testing.T) {
+	moves := []LayoutMove{{From: 1000, At: 1050, Dy: 30}, {From: 1500, At: 1560, Dy: 100}}
+	got := placeSettled([]Span{{From: 900, To: 2000}}, moves)
+	want := []Span{{From: 900, To: 1000}, {From: 1080, To: 1530}, {From: 1660, To: 2100}}
+	if len(got) != len(want) {
+		t.Fatalf("got %+v, want %+v", got, want)
+	}
+	for i := range want {
+		if got[i] != want[i] {
+			t.Fatalf("got %+v, want %+v", got, want)
+		}
+	}
+}
+
+func TestWhereTheFormShrankOverAStretchTheContradictoryPlaceIsNotSettled(t *testing.T) {
+	// 150 px went from between 1000 and 1100: what was at 1100 is now at 950, on top of what was at 950.
+	got := placeSettled([]Span{{From: 0, To: 2000}}, []LayoutMove{{From: 1000, At: 1100, Dy: -150}})
+	want := []Span{{From: 0, To: 950}, {From: 1000, To: 1850}}
+	if len(got) != len(want) || got[0] != want[0] || got[1] != want[1] {
+		t.Fatalf("got %+v, want %+v", got, want)
+	}
+}
+
+func TestNoMoveLeavesTheStretchesAsTheyAreAndAMoveAtTheTopLeavesNoGapAbove(t *testing.T) {
+	spans := []Span{{From: 0, To: 800}, {From: 1400, To: 2000}}
+	if got := placeSettled(spans, nil); len(got) != 2 || got[0] != spans[0] || got[1] != spans[1] {
+		t.Fatalf("no move changed the stretches: %+v", got)
+	}
+	// Every control moved (the first one too): nothing above the first control moved, and nothing is lost there.
+	got := placeSettled(spans, []LayoutMove{{From: 900, At: 900, Dy: 40}})
+	if len(got) != 2 || got[0] != (Span{From: 0, To: 800}) || got[1] != (Span{From: 1440, To: 2040}) {
+		t.Fatalf("got %+v", got)
+	}
+	// A stretch pushed off the top is clamped to it, and one wholly off it is gone.
+	got = placeSettled([]Span{{From: 100, To: 200}, {From: 300, To: 900}}, []LayoutMove{{From: 50, At: 50, Dy: -400}})
+	if len(got) != 1 || got[0] != (Span{From: 0, To: 500}) {
+		t.Fatalf("got %+v", got)
+	}
+}
+
+func TestMovesThatAreNotNumbersOrOutOfOrderAreCleaned(t *testing.T) {
+	nan := math.NaN()
+	got := placeSettled([]Span{{From: 0, To: 3000}}, []LayoutMove{
+		{From: 2000, At: 2100, Dy: 50},
+		{From: nan, At: 500, Dy: 10},
+		{From: 1000, At: 1100, Dy: 20},
+	})
+	want := []Span{{From: 0, To: 1000}, {From: 1120, To: 2020}, {From: 2150, To: 3050}}
+	if len(got) != len(want) {
+		t.Fatalf("got %+v, want %+v", got, want)
+	}
+	for i := range want {
+		if got[i] != want[i] {
+			t.Fatalf("got %+v, want %+v", got, want)
+		}
 	}
 }
 
@@ -256,5 +345,64 @@ func TestAPlanThatActsOnNoPointLeavesTheWholePageAsItIs(t *testing.T) {
 	obs.Viewport.PageHeight = 2400
 	if got := fenceOf([]Action{{Kind: KindWait, Ms: 100}}, obs); got != 2400 {
 		t.Fatalf("fence = %.0f", got)
+	}
+}
+
+func TestAStepSentAgainPlacesTheMoveOfItsLookOnce(t *testing.T) {
+	obs := surveyObservation(t)
+	obs.Viewport.PageHeight = 2400
+	var s session
+	s.markSettled(obs, []int{1}, nil, nil) // 0 to 800
+	s.settled.Spans = append(s.settled.Spans, Span{From: 1400, To: 2000})
+	s.takeSettledMap()
+	moved := obs
+	moved.Viewport.PageHeight = 2480
+	moved.Layout = []LayoutMove{{From: 1000, At: 1100, Dy: 80}}
+	moved.Look = "look-7"
+	s.forgetSettledIfStale(moved)
+	s.forgetSettledIfStale(moved) // the model failed and the extension sent the same look again
+	if len(s.settled.Spans) != 2 || s.settled.Spans[1] != (Span{From: 1480, To: 2080}) {
+		t.Fatalf("spans = %+v, want the move placed once", s.settled.Spans)
+	}
+	next := moved
+	next.Look = "look-8"
+	s.forgetSettledIfStale(next)
+	if s.settled.Spans[1] != (Span{From: 1560, To: 2160}) {
+		t.Fatalf("spans = %+v, want the next look's move placed", s.settled.Spans)
+	}
+	// An extension that does not name its looks has every move placed, as before.
+	unnamed := moved
+	unnamed.Look = ""
+	s.forgetSettledIfStale(unnamed)
+	s.forgetSettledIfStale(unnamed)
+	if s.settled.Spans[1] != (Span{From: 1720, To: 2320}) {
+		t.Fatalf("spans = %+v", s.settled.Spans)
+	}
+}
+
+func TestEveryAnswerCarriesTheSettledPartsWhenTheFormMovedEvenAProbeOfDropdowns(t *testing.T) {
+	screen := &fakeScreen{optionByAnswer: map[string]optionVerdict{"No": {1, 0.95}, "Male": {3, 0.95}}}
+	a, id := newProbeAgent(t, []string{planSettled([]int{3},
+		labelled(1, 100, 100, "First Name"), typeAction("Ada", nil),
+		chooseWithLabel(1, 500, 300, "Sponsorship", "No"),
+		chooseWithLabel(1, 500, 500, "Gender", "Male"),
+	)}, screen, DefaultConfig())
+	first := stepOK(t, a, id, surveyObservation(t))
+	if first.Settled == nil || len(first.Settled.Spans) != 1 || first.Settled.Spans[0].From != 1360 {
+		t.Fatalf("settled = %+v", first.Settled)
+	}
+	sends(t, a, id, first.Actions, nil)
+	obs := observation(shot(t, 130))
+	obs.Viewport.PageHeight = 2440
+	obs.Results = carriedOut(first.Actions)
+	obs.Layout = []LayoutMove{{From: 700, At: 760, Dy: 40}}
+	obs.Look = "look-2"
+	second := stepOK(t, a, id, obs)
+	if second.Settled == nil || len(second.Settled.Spans) != 1 || second.Settled.Spans[0] != (Span{From: 1400, To: 2200}) {
+		t.Fatalf("the probe's answer does not carry the stretch where the form moved it: %+v", second.Settled)
+	}
+	s, _ := a.sessions.get(id)
+	if s.settled.changed {
+		t.Fatal("the answer carried the settled parts, but the session still holds them as not yet told")
 	}
 }

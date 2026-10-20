@@ -1,6 +1,6 @@
 {
   "name": "acorn-extension",
-  "version": "1.92.1",
+  "version": "1.93.0",
   "private": true,
   "type": "module",
   "scripts": {
@@ -8,7 +8,7 @@
     "build": "tsc && vite build",
     "lint": "eslint . --max-warnings=0",
     "lint:fix": "eslint . --fix --max-warnings=0",
-    "typecheck": "tsc --noEmit",
+    "typecheck": "tsc --noEmit && tsc --noEmit -p tests/tsconfig.json",
     "format:check": "prettier --check src",
     "test": "bun run format:check && bun run lint && bun run typecheck"
   },

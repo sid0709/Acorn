@@ -120,6 +120,9 @@ type session struct {
 	// (zones.go).
 	zones   []ZoneShot
 	anchors map[string]anchor
+	// marks binds each point of the plan being carried out to the control it is on, by action id
+	// (marks.go).
+	marks map[string]MarkRef
 	// settled is the parts of the page the model will not come back to (settled.go).
 	settled settledState
 	// viewport is the window as the last look saw it, to check the pictures sent mid-batch against.

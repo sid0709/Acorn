@@ -33,6 +33,7 @@ type modelAction struct {
 	Resume *string  `json:"resume"`
 	Check  *string  `json:"check"`
 	Label  *string  `json:"label"`
+	Commit *bool    `json:"commit"`
 }
 
 // parseReply reads the model's JSON answer. It reads the first JSON object and ignores what
@@ -94,9 +95,19 @@ func checkActions(step int, raw []modelAction, vp Viewport, maxActions int, scre
 		if in.Label != nil {
 			action.Label = clipText(strings.TrimSpace(*in.Label), maxLabelChars)
 		}
+		action.Commit = in.Commit != nil && *in.Commit && isClick(in.Kind)
 		valid = append(valid, action)
 	}
 	return valid, dropped
+}
+
+// isClick is whether a kind of action is a press of the mouse button.
+func isClick(kind string) bool {
+	switch kind {
+	case KindClick, KindDoubleClick, KindTripleClick, KindRightClick:
+		return true
+	}
+	return false
 }
 
 // placeOnScreen sets where the page must be scrolled for an action whose point the model

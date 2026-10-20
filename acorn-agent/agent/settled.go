@@ -3,6 +3,7 @@ package agent
 import (
 	"fmt"
 	"log/slog"
+	"math"
 	"sort"
 	"strings"
 
@@ -29,6 +30,9 @@ type settledState struct {
 	Fence float64
 	// changed is set when the spans changed since they were last sent to the extension.
 	changed bool
+	// look is the look whose move of the form was last placed (Observation.Look): a step sent again
+	// carries the same look, and its move is not placed twice.
+	look string
 }
 
 // mergeSettled is the spans in order, with those that overlap or touch made one.
@@ -51,9 +55,9 @@ func mergeSettled(spans []Span) []Span {
 }
 
 // forgetSettledIfStale drops what was settled when the look is of another page. When the page is at
-// another height, what lies above the fence (where the plan carried out since first acted on the page)
-// is kept: the page above the first thing the run touched cannot have moved or changed, so a part of the
-// page the model has settled is not forgotten, and not looked at again, because a form below it grew.
+// another height, the stretches follow the controls: Observation.Layout is where they moved, and each
+// stretch moves with the controls it lies among. No control moved and the page grew: what was added is
+// at the bottom, so the coordinates still hold. The page shrank and nothing moved: the bottom was cut.
 func (s *session) forgetSettledIfStale(obs Observation) {
 	if len(s.settled.Spans) == 0 {
 		return
@@ -63,24 +67,146 @@ func (s *session) forgetSettledIfStale(obs Observation) {
 		slog.Info(runName(s.id) + ": what was settled on the page is forgotten: the page is another page.")
 		return
 	}
-	if abs(int(obs.Viewport.PageHeight)-int(s.settled.PageHeight)) <= settledHeightTolerance {
+	layout := obs.Layout
+	if obs.Look != "" && obs.Look == s.settled.look {
+		layout = nil // this look's move was placed when the step first came; the step was sent again
+	}
+	sameHeight := abs(int(obs.Viewport.PageHeight)-int(s.settled.PageHeight)) <= settledHeightTolerance
+	if sameHeight && len(layout) == 0 {
 		return
 	}
-	kept := keepAbove(s.settled.Spans, s.settled.Fence)
-	slog.Info(fmt.Sprintf("%s: the page is %.0f px tall now and was %.0f px when its parts were settled; the %s above %.0f px stay settled, %s did not and are forgotten.",
-		runName(s.id), obs.Viewport.PageHeight, s.settled.PageHeight, plainlog.Count(len(kept), "stretch"), s.settled.Fence, plainlog.Count(len(s.settled.Spans)-len(kept), "stretch")))
-	s.settled.Spans, s.settled.PageHeight, s.settled.changed = kept, obs.Viewport.PageHeight, true
+	spans := s.settled.Spans
+	switch {
+	case len(layout) > 0:
+		spans = placeSettled(spans, layout)
+		s.settled.look = obs.Look
+		slog.Info(fmt.Sprintf("%s: the form moved (%s); %s stay settled.",
+			runName(s.id), layoutLine(layout), plainlog.Count(len(spans), "stretch")))
+	case obs.Viewport.PageHeight+float64(settledHeightTolerance) < s.settled.PageHeight:
+		spans = cropSettled(spans, obs.Viewport.PageHeight)
+		slog.Info(fmt.Sprintf("%s: the page is %.0f px tall now and was %.0f px; the bottom was cut, %s stay settled.",
+			runName(s.id), obs.Viewport.PageHeight, s.settled.PageHeight, plainlog.Count(len(spans), "stretch")))
+	default:
+		slog.Info(fmt.Sprintf("%s: the page is %.0f px tall now and was %.0f px; nothing on it moved, so what was settled stays where it was.",
+			runName(s.id), obs.Viewport.PageHeight, s.settled.PageHeight))
+	}
+	s.settled.Spans, s.settled.PageHeight, s.settled.changed = spans, obs.Viewport.PageHeight, true
 }
 
-// keepAbove is the spans that end at or above y.
-func keepAbove(spans []Span, y float64) []Span {
-	var kept []Span
+// layoutLine says where the form moved, for the run's story: "at 3558 px by +14 px".
+func layoutLine(moves []LayoutMove) string {
+	parts := make([]string, 0, len(moves))
+	for _, move := range moves {
+		parts = append(parts, fmt.Sprintf("at %.0f px by %+.0f px", move.At, move.Dy))
+	}
+	return strings.Join(parts, ", ")
+}
+
+// settledRun is a stretch of the old page whose controls moved together, by Dy.
+type settledRun struct{ from, to, dy float64 }
+
+// cleanMoves is the moves in order down the page, each beginning no earlier than the one before ended,
+// without any that is not a number.
+func cleanMoves(moves []LayoutMove) []LayoutMove {
+	var out []LayoutMove
+	for _, move := range moves {
+		if math.IsNaN(move.From+move.At+move.Dy) || math.IsInf(move.From+move.At+move.Dy, 0) {
+			continue
+		}
+		out = append(out, move)
+	}
+	sort.SliceStable(out, func(i, j int) bool { return out[i].At < out[j].At })
+	floor := 0.0
+	for i := range out {
+		out[i].From = math.Min(math.Max(out[i].From, floor), out[i].At)
+		floor = out[i].At
+	}
+	return out
+}
+
+// runsOf cuts the old page where the form moved. Above the first move nothing moved; each move starts
+// a run at its At by its Dy, and ends the run before it at its From. What lies between From and At is in
+// no run: something appeared there, or went, so nothing there is known to be as it was.
+func runsOf(moves []LayoutMove) []settledRun {
+	var runs []settledRun
+	start, dy := 0.0, 0.0
+	for _, move := range moves {
+		if move.From > start {
+			runs = append(runs, settledRun{from: start, to: move.From, dy: dy})
+		}
+		start, dy = move.At, move.Dy
+	}
+	return append(runs, settledRun{from: start, to: math.Inf(1), dy: dy})
+}
+
+// placeSettled moves stretches with the form: each piece of a stretch that lies in a run of the old page
+// goes where the run went. A stretch the gap of a move cuts is cut there, so what appeared in the gap is
+// not settled, and a place that two pieces both land on (the form shrank over it) is not settled either.
+func placeSettled(spans []Span, moves []LayoutMove) []Span {
+	runs := runsOf(cleanMoves(moves))
+	var pieces []Span
 	for _, span := range spans {
-		if span.To <= y {
-			kept = append(kept, span)
+		for _, run := range runs {
+			from, to := math.Max(span.From, run.from), math.Min(span.To, run.to)
+			if to-from <= 1 {
+				continue
+			}
+			from, to = math.Max(from+run.dy, 0), math.Max(to+run.dy, 0)
+			if to-from > 1 {
+				pieces = append(pieces, Span{From: from, To: to})
+			}
 		}
 	}
-	return kept
+	return singlyCovered(pieces)
+}
+
+// singlyCovered is the parts of the line that exactly one of the pieces covers, in order, with those that
+// touch made one.
+func singlyCovered(pieces []Span) []Span {
+	var edges []float64
+	for _, piece := range pieces {
+		edges = append(edges, piece.From, piece.To)
+	}
+	sort.Float64s(edges)
+	var kept []Span
+	for i := 0; i+1 < len(edges); i++ {
+		lo, hi := edges[i], edges[i+1]
+		if hi-lo <= 0 {
+			continue
+		}
+		covering := 0
+		for _, piece := range pieces {
+			if piece.From <= lo && piece.To >= hi {
+				covering++
+			}
+		}
+		if covering == 1 {
+			kept = append(kept, Span{From: lo, To: hi})
+		}
+	}
+	out := mergeSettled(kept)
+	filtered := out[:0]
+	for _, span := range out {
+		if span.To-span.From > 1 {
+			filtered = append(filtered, span)
+		}
+	}
+	return filtered
+}
+
+// cropSettled drops the part of each stretch past height, and stretches that start there.
+func cropSettled(spans []Span, height float64) []Span {
+	var out []Span
+	for _, span := range spans {
+		if span.From >= height-1 {
+			continue
+		}
+		to := min(span.To, height)
+		if to-span.From > 1 {
+			out = append(out, Span{From: span.From, To: to})
+		}
+	}
+	return out
 }
 
 // fenceOf is how far down the page a plan leaves things as they are: the page position (screenshot

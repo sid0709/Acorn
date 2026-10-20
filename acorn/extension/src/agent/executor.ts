@@ -18,7 +18,7 @@ import { blockedMessage, type GuardVerdict } from "./guard";
 import { clickAt, moveMouse, pressKeys, typeText, wheelAt } from "./input";
 import { watchInputEffects } from "./input-settle";
 import { type ScrollContext } from "./page-scroll";
-import { scrollForAction } from "./survey";
+import { scrollForAction, type PlaceMarks } from "./survey";
 import { Stopwatch } from "./timing";
 import { uploadAt, type ResumeFile } from "./upload";
 import { waitForUploadProcessing } from "./upload-settle";
@@ -30,6 +30,20 @@ import type { Overlay } from "./overlay";
 export const SETTLE_MS = 350;
 /** The pause after a scroll, which a page may answer by loading more. */
 export const SCROLL_SETTLE_MS = 500;
+
+/**
+ * The least a click pauses where the page is waited on only until it goes quiet: a click may open a file
+ * chooser, which the browser announces a moment after it, and the announcement is what says the click did.
+ */
+export const CLICK_SETTLE_FLOOR_MS = 150;
+
+/**
+ * Pauses after an action that changes the page: at most `ms`, and less where the run can tell the page has
+ * settled, but not less than `floorMs` there.
+ */
+function settle(ctx: ExecutorContext, ms: number, floorMs?: number): Promise<void> {
+  return ctx.settle ? ctx.settle(ms, floorMs) : ctx.sleep(ms);
+}
 
 /** What the executor needs from the run. */
 export interface ExecutorContext {
@@ -60,6 +74,14 @@ export interface ExecutorContext {
   snap?: (action: AgentAction) => Promise<void>;
   /** Finds an action's target again on a page that changed shape: its point in screenshot pixels, or null. */
   locate?: (action: AgentAction) => Promise<{ x: number; y: number } | null>;
+  /** Finds it again by the control the point was bound to when it was planned, which the page can say the place of. */
+  marks?: PlaceMarks;
+  /**
+   * Pauses after an action that changes the page, for at most `ms` and not less than `floorMs` where it
+   * pauses less: a run that can tell the page has gone quiet does, and one that cannot pauses `ms`, as it
+   * always did.
+   */
+  settle?: (ms: number, floorMs?: number) => Promise<void>;
 }
 
 /**
@@ -112,7 +134,7 @@ async function clickWatchingForPicker(
   });
   try {
     await watch.time("click", () => clickAt(ctx.cdp, x, y, options));
-    await watch.time("settle", () => ctx.sleep(SETTLE_MS));
+    await watch.time("settle", () => settle(ctx, SETTLE_MS, CLICK_SETTLE_FLOOR_MS));
     await watch.time("afterClick", async () => ctx.afterClick?.());
   } finally {
     stop();
@@ -153,7 +175,7 @@ async function perform(ctx: ExecutorContext, action: AgentAction, watch: Stopwat
       await watch.time("glide", () => glideTo(ctx, x, y));
       void ctx.overlay.hover(true);
       await watch.time("move", () => moveMouse(cdp, x, y));
-      await watch.time("settle", () => ctx.sleep(SETTLE_MS));
+      await watch.time("settle", () => settle(ctx, SETTLE_MS));
       return {};
     }
     case "type": {
@@ -162,7 +184,7 @@ async function perform(ctx: ExecutorContext, action: AgentAction, watch: Stopwat
         throw new Error(NO_FOCUS_MESSAGE);
       const text = action.text;
       await watch.time("type", () => typeText(cdp, text));
-      await watch.time("settle", () => ctx.sleep(SETTLE_MS / 2));
+      await watch.time("settle", () => settle(ctx, SETTLE_MS / 2));
       return { detail: `${[...action.text].length} characters` };
     }
     case "key": {
@@ -171,7 +193,7 @@ async function perform(ctx: ExecutorContext, action: AgentAction, watch: Stopwat
       if (scrollsAPage(keys) && (await watch.time("focusCheck", () => nothingHasFocus(cdp))))
         throw new Error(NO_FOCUS_MESSAGE);
       await watch.time("keys", () => pressKeys(cdp, keys));
-      await watch.time("settle", () => ctx.sleep(SETTLE_MS));
+      await watch.time("settle", () => settle(ctx, SETTLE_MS));
       return {};
     }
     case "scroll": {
@@ -201,7 +223,7 @@ async function perform(ctx: ExecutorContext, action: AgentAction, watch: Stopwat
         uploadAt(cdp, x, y, file, ctx.fileChooserWaitMs),
       );
       await watch.time("uploadProcessing", () => waitForUploadProcessing(cdp, ctx.sleep));
-      await watch.time("settle", () => ctx.sleep(SETTLE_MS));
+      await watch.time("settle", () => settle(ctx, SETTLE_MS));
       return { detail: `${done.fileName}, ${done.bytes} bytes, through the ${done.via}` };
     }
     case "snap": {

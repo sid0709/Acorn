@@ -26,6 +26,8 @@ export function pageKey(url: string | undefined): string {
 export class PageMapKeeper {
   private map: RunMap | undefined;
   private scale = 1;
+  /** Control tops (CSS pixels) last read from the page. */
+  private marks: number[] = [];
 
   /** The map for the sidebar, or undefined when the run does not survey or the page fits its window. */
   get current(): RunMap | undefined {
@@ -53,7 +55,14 @@ export class PageMapKeeper {
       viewHeight,
       viewTop: shot.viewport.scrollY / shot.scale,
       settled: this.spans(settled),
+      marks: this.marks,
     };
+  }
+
+  /** The controls' tops (CSS pixels). Drawn as ticks on the minimap. */
+  setMarks(marks: number[]): void {
+    this.marks = marks;
+    if (this.map) this.map = { ...this.map, marks };
   }
 
   /** The agent says what is settled now (an empty map: nothing). */
@@ -69,6 +78,7 @@ export class PageMapKeeper {
   /** A new page: the map of the last one is gone. */
   clear(): void {
     this.map = undefined;
+    this.marks = [];
   }
 
   private spans(settled: SettledMap | null): { from: number; to: number }[] {

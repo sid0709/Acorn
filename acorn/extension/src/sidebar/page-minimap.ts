@@ -70,6 +70,11 @@ export function drawPageMinimap(canvas: HTMLCanvasElement, map: RunMap): void {
     );
   }
 
+  context.fillStyle = color(style, TOKEN.box);
+  for (const y of map.marks ?? []) {
+    context.fillRect(0, y * scale, MINIMAP_WIDTH_PX, 1);
+  }
+
   const top = Math.max(0, map.viewTop * scale);
   const height = Math.max(3, map.viewHeight * scale);
   context.globalAlpha = GLASS_ALPHA;
