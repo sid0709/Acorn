@@ -299,12 +299,27 @@ func (s *Service) LibraryFile(accountID, id string) (FilePayload, error) {
 
 // LibraryFileVersioned is LibraryFile and the tag of the versions it holds.
 func (s *Service) LibraryFileVersioned(accountID, id string) (FilePayload, string, error) {
-	row, _, ok := s.store.libraryFileRow(accountID, id)
-	if !ok || len(row.Bytes) == 0 {
+	// The stack is found from the account's rows (no bytes), so every format of it loads side by
+	// side. Reading the requested file first and its siblings after would be two reads in a row
+	// when none is in memory yet.
+	row, ok := s.store.libraryMeta(accountID, id)
+	if !ok {
 		return FilePayload{}, "", ErrNotFound
 	}
+	if !isUploaded(row) {
+		full, _, found := s.store.libraryFileRow(accountID, id)
+		if !found || len(full.Bytes) == 0 {
+			return FilePayload{}, "", ErrNotFound
+		}
+		row = full
+	}
 	rows, tag := s.stackWithVersion(accountID, row)
-	return stackPayload(fileKeyFor(rowKind(row)), rows), tag, nil
+	for _, held := range rows {
+		if held.ID == id && len(held.Bytes) > 0 {
+			return stackPayload(fileKeyFor(rowKind(row)), rows), tag, nil
+		}
+	}
+	return FilePayload{}, "", ErrNotFound
 }
 
 // File keys the extension's plan steps name; each kind attaches through its own.

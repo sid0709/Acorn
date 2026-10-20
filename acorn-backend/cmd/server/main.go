@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"log/slog"
 	"os"
+	"time"
 
 	"github.com/sid0709/acorn/acorn-backend/account"
 	"github.com/sid0709/acorn/acorn-backend/acorn"
@@ -35,6 +36,11 @@ const (
 	// defaultWebURL is acorn-frontend in production, where support sign-in links land.
 	// ACORN_WEB_URL overrides it (local development sets http://localhost:6005).
 	defaultWebURL = "https://acornapply.com"
+	// defaultLibraryCacheMB is the most of the Library kept in memory (résumé files, with the
+	// ones used longest ago dropped past it). ACORN_LIBRARY_CACHE_MB overrides it.
+	defaultLibraryCacheMB = resume.DefaultCacheMaxBytes >> 20
+	// recentAccountsFirst is how many recently signed-in accounts load into memory before the rest.
+	recentAccountsFirst = 500
 )
 
 // acorn-frontend, plus the older UI board. The extension is not a browser origin.
@@ -97,8 +103,15 @@ func main() {
 		slog.Error("acorn accounts", "error", err)
 		os.Exit(1)
 	}
-	resumes := resume.New(resume.NewStore(p.Mongo(), db.DestDB), nil)
+	// This server is the only process that writes the Library and profiles, so what it holds in
+	// memory is kept until a write through it changes it. ACORN_CACHE_TRUST_SECONDS sets a window
+	// after which a copy is read again, for a deployment where another process can write them.
+	cacheTrust := time.Duration(config.EnvInt("ACORN_CACHE_TRUST_SECONDS", 0)) * time.Second
+	resumeStore := resume.NewStore(p.Mongo(), db.DestDB)
+	resumeStore.SetCache(config.EnvInt("ACORN_LIBRARY_CACHE_MB", defaultLibraryCacheMB)<<20, cacheTrust)
+	resumes := resume.New(resumeStore, nil)
 	profiles := profile.NewStore(p.Mongo(), db.DestDB, nil)
+	profiles.SetTrust(cacheTrust)
 	usage := aiusage.NewStore(p.Mongo(), db.DestDB)
 	claims := support.NewStore(p.Mongo(), db.DestDB)
 	supportAccess := supportaccess.NewStore(p.Mongo(), db.DestDB)
@@ -181,6 +194,22 @@ func main() {
 
 	// The SelectorGateway's first Jev decision would otherwise open the TLS connection.
 	go jev.Warm(context.Background())
+
+	// Every account's Library files load into memory in the background, the recently signed-in
+	// first, so a run's file reads are served from memory. The server answers meanwhile: an
+	// account not loaded yet reads its own files as before. ACORN_LIBRARY_PRELOAD=off skips it
+	// (a development server on a distant database would pull every account's files at each start).
+	preloadCtx, stopPreload := context.WithCancel(context.Background())
+	defer stopPreload()
+	if config.Env("ACORN_LIBRARY_PRELOAD", "on") != "off" {
+		go func() {
+			recent, err := accounts.RecentUserIDs(preloadCtx, time.Now(), recentAccountsFirst)
+			if err != nil {
+				slog.Warn("library preload: recent sign-ins were not read", "error", err)
+			}
+			resumes.Preload(preloadCtx, recent)
+		}()
+	}
 
 	handler := routes(server.Origins, httpkit.Health(p.Jobs), acornHandler, slog.Default(), reporter)
 	if err := httpkit.Serve("acorn api", server.Addr, handler); err != nil {

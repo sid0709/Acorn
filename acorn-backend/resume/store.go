@@ -26,6 +26,37 @@ type Store struct {
 	files fileCache
 	// reads keeps recent per-account list and config reads from Mongo.
 	reads accountReads
+	// libraryGen counts the changes made to each account's Library through this process, so a
+	// read that began before a change is not kept after it (see Preload).
+	libraryGen map[string]uint64
+}
+
+// SetCache sets how much of the Library the server keeps in memory and for how long it trusts
+// it. maxBytes is the cap (the copies used longest ago go first past it); trust is how long a
+// copy is served without asking Mongo, and zero keeps it until a write through this process
+// changes it, which is right when this is the only process that writes the Library.
+func (s *Store) SetCache(maxBytes int, trust time.Duration) {
+	s.files.mu.Lock()
+	s.files.maxLen, s.files.trust = maxBytes, trust
+	s.files.mu.Unlock()
+	s.reads.keepFor(libraryCollection, trust)
+}
+
+// bumpLibrary records a change to an account's Library.
+func (s *Store) bumpLibrary(accountID string) {
+	s.mu.Lock()
+	if s.libraryGen == nil {
+		s.libraryGen = map[string]uint64{}
+	}
+	s.libraryGen[accountID]++
+	s.mu.Unlock()
+}
+
+// libraryGeneration is how many changes the account's Library has had.
+func (s *Store) libraryGeneration(accountID string) uint64 {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.libraryGen[accountID]
 }
 
 func NewMemory() *Store {
@@ -44,6 +75,7 @@ func NewStore(client *mongo.Client, database string) *Store {
 	if client != nil && database != "" {
 		store.db = client.Database(database)
 	}
+	store.SetCache(DefaultCacheMaxBytes, 0)
 	return store
 }
 
@@ -296,6 +328,7 @@ func (s *Store) putLibrary(row LibraryRow) error {
 	s.mu.Lock()
 	s.library[row.ID] = row
 	s.mu.Unlock()
+	s.bumpLibrary(row.AccountID)
 	s.files.forget(row.AccountID, row.ID)
 	s.forgetCandidates(row.AccountID)
 	if s.db == nil {
@@ -305,6 +338,10 @@ func (s *Store) putLibrary(row LibraryRow) error {
 	s.reads.forget(libraryCollection, row.AccountID)
 	if err != nil {
 		return fmt.Errorf("save library file: %w", err)
+	}
+	// What was just saved is what Mongo holds, so the next read of it is from memory.
+	if len(row.Bytes) > 0 {
+		s.files.put(fileKey(row.AccountID, row.ID), row)
 	}
 	return nil
 }
@@ -321,6 +358,16 @@ func (s *Store) libraryItem(accountID, id string) (LibraryRow, bool) {
 	}
 	row, _, ok := s.libraryFileRow(accountID, id)
 	return row, ok
+}
+
+// libraryMeta is one Library row without its bytes, from the account's list.
+func (s *Store) libraryMeta(accountID, id string) (LibraryRow, bool) {
+	for _, row := range s.listLibrary(accountID) {
+		if row.ID == id {
+			return row, true
+		}
+	}
+	return LibraryRow{}, false
 }
 
 func (s *Store) hasLibrary(accountID string) bool {
@@ -388,6 +435,7 @@ func loadAccount[T any](s *Store, collection, accountID, omit string) ([]T, bool
 }
 
 func (s *Store) deleteLibrary(accountID, id string) bool {
+	s.bumpLibrary(accountID)
 	s.forgetCandidates(accountID)
 	s.files.forget(accountID, id)
 	s.mu.Lock()
@@ -444,6 +492,7 @@ func (s *Store) jobFile(accountID, jobID string) string {
 
 // DeleteAccount removes every résumé record this account owns.
 func (s *Store) DeleteAccount(ctx context.Context, accountID string) error {
+	s.bumpLibrary(accountID)
 	s.forgetCandidates(accountID)
 	s.files.forgetAccount(accountID)
 	defer s.reads.forgetAccount(accountID)

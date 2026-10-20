@@ -14,16 +14,15 @@ import (
 )
 
 // A Library file is hundreds of KB and Mongo hands it over slowly (seconds per
-// file), so a file read once stays in memory. A copy is trusted for fileTrustTTL;
-// after that one cheap query without the bytes says whether it is still current,
-// and only a changed file is read again. A write through this process drops the
-// copy at once.
+// file), so a file read once stays in memory, and Preload reads every account's
+// files when the server starts. By default a copy is trusted until a write
+// through this process drops it: the server is one process, so no one else
+// changes the Library. With a trust window (SetCache) a copy older than the
+// window is checked by one cheap query without the bytes, and only a changed
+// file is read again; use it when other processes can write.
 const (
-	// fileTrustTTL is how long a copy is served without asking Mongo anything. A
-	// change made by another server process is seen within it.
-	fileTrustTTL = 30 * time.Second
-	// fileCacheMaxBytes caps the bytes kept; the copies used longest ago go first.
-	fileCacheMaxBytes = 256 << 20
+	// DefaultCacheMaxBytes caps the bytes kept; the copies used longest ago go first.
+	DefaultCacheMaxBytes = 8 << 30
 	// versionTagBytes is how much of the version hash names a file in an ETag.
 	versionTagBytes = 16
 )
@@ -68,12 +67,16 @@ type cachedFile struct {
 
 // fileCache keeps whole Library rows (with their bytes) by account and id.
 type fileCache struct {
-	mu     sync.Mutex
-	files  map[string]*cachedFile
-	total  int
-	loads  singleflight.Group
-	nowFn  func() time.Time
+	mu    sync.Mutex
+	files map[string]*cachedFile
+	total int
+	loads singleflight.Group
+	nowFn func() time.Time
+	// maxLen is the cap on bytes kept; zero means DefaultCacheMaxBytes.
 	maxLen int
+	// trust is how long a copy is served without asking Mongo anything; zero or less means
+	// until a write drops it.
+	trust time.Duration
 }
 
 func fileKey(accountID, id string) string { return accountID + "\x00" + id }
@@ -89,7 +92,22 @@ func (c *fileCache) limit() int {
 	if c.maxLen > 0 {
 		return c.maxLen
 	}
-	return fileCacheMaxBytes
+	return DefaultCacheMaxBytes
+}
+
+// usage is how many files and bytes the cache holds.
+func (c *fileCache) usage() (files, bytes int) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	return len(c.files), c.total
+}
+
+// has says whether a copy of key is held, fresh or not.
+func (c *fileCache) has(key string) bool {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	_, ok := c.files[key]
+	return ok
 }
 
 // get is the copy for key and whether it is still inside its trust window.
@@ -101,7 +119,7 @@ func (c *fileCache) get(key string) (*cachedFile, bool) {
 		return nil, false
 	}
 	file.usedAt = c.now()
-	return file, c.now().Sub(file.checkedAt) < fileTrustTTL
+	return file, c.trust <= 0 || c.now().Sub(file.checkedAt) < c.trust
 }
 
 // confirm renews a copy that Mongo said is still current.
