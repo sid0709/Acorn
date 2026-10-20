@@ -158,6 +158,17 @@ export interface MailSearch {
   detail?: string;
 }
 
+/**
+ * The page an agent Run is on, for the sidebar's minimap: how tall it is, where the window is, and which
+ * parts the model settled (will not come back to), all in CSS pixels from the top of the page.
+ */
+export interface RunMap {
+  pageHeight: number;
+  viewTop: number;
+  viewHeight: number;
+  settled: { from: number; to: number }[];
+}
+
 export interface RunProgress {
   runId: string;
   stage: RunStage;
@@ -181,6 +192,8 @@ export interface RunProgress {
   costUsd?: number;
   modelCalls?: number;
   screenChecks?: number;
+  /** An agent Run on a long page: the minimap of it, with the settled parts painted. Unset on a page that fits the window. */
+  map?: RunMap;
   /** An agent Run waiting on the person: the question and the answers they may give. */
   ask?: { id: string; question: string; options: { id: string; label: string }[] };
   /** An agent Run reading Gmail for a code or link: the emails read, and which one was used. */

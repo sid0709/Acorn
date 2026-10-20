@@ -75,6 +75,8 @@ export interface SurveyDeps {
   cdp: Cdp;
   sleep: (ms: number) => Promise<void>;
   checkStopped: () => void;
+  /** Told where the window is (CSS pixels) each time the survey has scrolled, so the minimap can follow it. */
+  onMove?: (viewTop: number) => void;
 }
 
 /** What the last survey saw: its screens and how tall the page was (screenshot pixels). */
@@ -170,7 +172,8 @@ export async function captureSurvey(
   }
   for (const y of visitOrder(toTake, original)) {
     deps.checkStopped();
-    await scrollPageSlowly(deps.cdp, y, deps.sleep);
+    const landed = await scrollPageSlowly(deps.cdp, y, deps.sleep);
+    deps.onMove?.(landed.y);
     await deps.sleep(SURVEY_SETTLE_MS);
     const shot = await captureShot(deps.cdp);
     taken.set(y, { screenshot: shot.dataUrl, scrollY: shot.viewport.scrollY });

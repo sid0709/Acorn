@@ -36,23 +36,6 @@ const CLICK_PRESS_MS = 140;
 /** How long the overlay takes to fade back in after a screenshot. */
 const CAPTURE_FADE_IN_MS = 180;
 
-/**
- * The minimap of a long page, down its right edge like an editor's: the whole page as a narrow column,
- * the parts the model settled (will not come back to) painted blue, the window as an outlined box. Like the
- * cursor it is drawn on a foreign page, so its colors are written out here: a dark translucent track, a
- * saturated blue that shows on it, and a white box with a dark edge so one of them contrasts with any page.
- */
-const MAP_WIDTH_PX = 18;
-const MAP_RIGHT_PX = 6;
-/** The share of the window's height the minimap takes. */
-const MAP_HEIGHT_RATIO = 0.6;
-const MAP_TRACK_COLOR = "rgba(24, 24, 28, 0.55)";
-const MAP_SETTLED_COLOR = "#2f7df6";
-const MAP_WINDOW_LINE_COLOR = "#ffffff";
-const MAP_WINDOW_EDGE_COLOR = "#14141a";
-/** A page this much taller than the window (CSS px) has a minimap; a page that fits has nothing to map. */
-const MAP_MIN_EXTRA_PX = 8;
-
 /** The cursor's drawn size (CSS px), and the square its artwork is drawn in (viewBox units). */
 const CURSOR_SIZE_PX = 44;
 const CURSOR_VIEWBOX = 100;
@@ -89,9 +72,6 @@ const OVERLAY_CSS = `
     animation: breathe 2.4s ease-in-out infinite;
   }
   @keyframes breathe { 0%, 100% { opacity: 0.55; } 50% { opacity: 1; } }
-
-  .map { position: fixed; right: ${MAP_RIGHT_PX}px; top: 50%; transform: translateY(-50%); width: ${MAP_WIDTH_PX}px; pointer-events: none; display: none; border-radius: 4px; }
-  .map.shown { display: block; }
 
   /* From demo/demo.html: the canvas for the sparks and warm glows. The demo blends them with
      "screen", which only brightens and so shows nothing on a light page; these blend normally. */
@@ -302,43 +282,7 @@ export const OVERLAY_SCRIPT = `(() => {
     if (typeof call === "function") call("stop");
   });
   bar.append(label, stop);
-  // The minimap of the page: where the window is, and which parts the model settled.
-  const map = make("canvas", "map");
-  map.width = ${MAP_WIDTH_PX};
-  let mapSpans = null;
-  const drawMap = () => {
-    if (!mapSpans) { map.classList.remove("shown"); return; }
-    const page = Math.max(document.documentElement.scrollHeight, window.innerHeight);
-    if (page <= window.innerHeight + ${MAP_MIN_EXTRA_PX}) { map.classList.remove("shown"); return; }
-    const mapHeight = Math.round(window.innerHeight * ${MAP_HEIGHT_RATIO});
-    map.width = ${MAP_WIDTH_PX};
-    map.height = mapHeight;
-    map.style.height = mapHeight + "px";
-    map.classList.add("shown");
-    const c = map.getContext("2d");
-    if (!c) return;
-    const k = mapHeight / page;
-    c.clearRect(0, 0, ${MAP_WIDTH_PX}, mapHeight);
-    c.fillStyle = ${JSON.stringify(MAP_TRACK_COLOR)};
-    c.fillRect(0, 0, ${MAP_WIDTH_PX}, mapHeight);
-    c.fillStyle = ${JSON.stringify(MAP_SETTLED_COLOR)};
-    for (const span of mapSpans) {
-      c.fillRect(0, span.from * k, ${MAP_WIDTH_PX}, Math.max(1, (span.to - span.from) * k));
-    }
-    const top = window.scrollY * k;
-    const box = Math.max(3, window.innerHeight * k);
-    c.lineWidth = 3;
-    c.strokeStyle = ${JSON.stringify(MAP_WINDOW_EDGE_COLOR)};
-    c.strokeRect(1.5, top + 1.5, ${MAP_WIDTH_PX} - 3, Math.max(1, box - 3));
-    c.lineWidth = 1.5;
-    c.strokeStyle = ${JSON.stringify(MAP_WINDOW_LINE_COLOR)};
-    c.strokeRect(1.5, top + 1.5, ${MAP_WIDTH_PX} - 3, Math.max(1, box - 3));
-  };
-  if (window.addEventListener) {
-    window.addEventListener("scroll", drawMap, { passive: true });
-    window.addEventListener("resize", drawMap);
-  }
-  root.append(glow, canvas, cursor, bar, map);
+  root.append(glow, canvas, cursor, bar);
   shadow.appendChild(root);
 
   // From demo/demo.html: the canvas, sized to the window.
@@ -557,13 +501,7 @@ export const OVERLAY_SCRIPT = `(() => {
     },
     hover(on) { cursor.classList.toggle("hovering", on); },
     capture(on) { root.classList.toggle("hidden", on); },
-    // The parts of the page the model settled (CSS px from its top); null takes the minimap away.
-    map(spans) { mapSpans = spans; drawMap(); },
     remove() {
-      if (window.removeEventListener) {
-        window.removeEventListener("scroll", drawMap);
-        window.removeEventListener("resize", drawMap);
-      }
       if (frame && typeof cancelAnimationFrame === "function") cancelAnimationFrame(frame);
       if (window.removeEventListener) window.removeEventListener("resize", onResize);
       settle(true);
@@ -582,8 +520,6 @@ export class Overlay {
   private scriptId: string | null = null;
   /** Where the cursor last went, so a new page shows it there instead of in the middle. */
   private last: { x: number; y: number } | null = null;
-  /** The parts of the page the model settled (CSS px), drawn on the minimap; null when there is no minimap. */
-  private mapSpans: { from: number; to: number }[] | null = null;
 
   constructor(private readonly cdp: Cdp) {}
 
@@ -609,7 +545,6 @@ export class Overlay {
     const calls = [
       label ? `window.${OVERLAY_GLOBAL}.setLabel(${JSON.stringify(label)})` : "",
       this.last ? `window.${OVERLAY_GLOBAL}.place(${this.last.x}, ${this.last.y})` : "",
-      this.mapSpans ? `window.${OVERLAY_GLOBAL}.map(${JSON.stringify(this.mapSpans)})` : "",
     ].filter(Boolean);
     await this.run([OVERLAY_SCRIPT, ...calls].join("; "));
   }
@@ -635,17 +570,6 @@ export class Overlay {
   /** Grows the cursor while it rests on a point it hovers. */
   async hover(on: boolean): Promise<void> {
     await this.run(`window.${OVERLAY_GLOBAL} && window.${OVERLAY_GLOBAL}.hover(${on})`);
-  }
-
-  /**
-   * Draws the minimap of the page with the settled parts (CSS pixels from its top) painted blue; null
-   * takes it away. It is kept, so a page that replaces this one has it drawn again.
-   */
-  async setMap(spans: { from: number; to: number }[] | null): Promise<void> {
-    this.mapSpans = spans;
-    await this.run(
-      `window.${OVERLAY_GLOBAL} && window.${OVERLAY_GLOBAL}.map(${JSON.stringify(spans)})`,
-    );
   }
 
   /** Hides the overlay while a screenshot is taken, and shows it again after. */

@@ -131,3 +131,21 @@ func TestTheSchemaAsksForSettledScreensOnlyInASurveyAndNeverLimitsTheScreens(t *
 		t.Fatalf("a survey of 40 screens was refused: %v", err)
 	}
 }
+
+func TestAFragmentOfTheAddressIsTheSamePage(t *testing.T) {
+	obs := surveyObservation(t)
+	var s session
+	s.markSettled(obs, []int{1}, nil, nil)
+	jumped := obs
+	jumped.URL = obs.URL + "#application"
+	s.forgetSettledIfStale(jumped)
+	if len(s.settled.Spans) != 1 {
+		t.Fatal("an Apply button that jumps to a place on the page made the page another page, and what was settled was forgotten")
+	}
+	var c coverage
+	c.see(obs.URL, obs.Viewport)
+	c.see(jumped.URL, jumped.Viewport)
+	if len(c.spans) == 0 || c.url != obs.URL {
+		t.Fatalf("the reach of the looks started again at a fragment: %+v", c)
+	}
+}

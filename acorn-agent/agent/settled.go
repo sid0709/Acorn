@@ -2,6 +2,7 @@ package agent
 
 import (
 	"fmt"
+	"log/slog"
 	"sort"
 	"strings"
 
@@ -53,9 +54,18 @@ func (s *session) forgetSettledIfStale(obs Observation) {
 	if len(s.settled.Spans) == 0 {
 		return
 	}
-	if s.settled.URL != obs.URL || abs(int(obs.Viewport.PageHeight)-int(s.settled.PageHeight)) > settledHeightTolerance {
-		s.settled = settledState{changed: true}
+	reason := ""
+	switch {
+	case s.settled.URL != withoutFragment(obs.URL):
+		reason = "the page is another page"
+	case abs(int(obs.Viewport.PageHeight)-int(s.settled.PageHeight)) > settledHeightTolerance:
+		reason = fmt.Sprintf("the page is %.0f px tall now and was %.0f px when they were settled", obs.Viewport.PageHeight, s.settled.PageHeight)
 	}
+	if reason == "" {
+		return
+	}
+	s.settled = settledState{changed: true}
+	slog.Info(runName(s.id) + ": what was settled on the page is forgotten: " + reason + ".")
 }
 
 // touchedScreens are the screens of a survey the plan acts on: an action is on the screen it is
@@ -94,7 +104,7 @@ func (s *session) markSettled(obs Observation, screens []int, planned []Action, 
 	if len(added) == 0 {
 		return 0
 	}
-	s.settled.URL, s.settled.PageHeight = obs.URL, obs.Viewport.PageHeight
+	s.settled.URL, s.settled.PageHeight = withoutFragment(obs.URL), obs.Viewport.PageHeight
 	s.settled.Spans = mergeSettled(append(s.settled.Spans, added...))
 	s.settled.changed = true
 	return len(added)

@@ -11,7 +11,6 @@ import {
   type AgentAction,
   type AgentAsk,
   type AgentStarted,
-  type AgentSettledMap,
   type AgentSurveyScreen,
   type AgentZoneShot,
   type AgentActionResult,
@@ -59,6 +58,7 @@ import {
   waitForMailVerification,
 } from "./mail-verification";
 import { readFocus, readPageText } from "./page-info";
+import { PageMapKeeper, pageKey } from "./page-map";
 import {
   agentRunState,
   endProgress,
@@ -79,7 +79,6 @@ import { recordAgentTrace } from "./trace-log";
 import { toBase64, type ResumeFile } from "./upload";
 
 import type { KeptRun } from "./kept-run";
-import type { Overlay } from "./overlay";
 import type { PipelineProgress } from "@acorn/shared/pipeline-types";
 
 /** The most times one step is sent again when the model is busy or briefly down. */
@@ -217,34 +216,26 @@ function runSwitches(args: AgentRunArgs): { surveyOn: boolean; fastFillOn: boole
 
 /**
  * What the agent says is settled goes to the next survey, which leaves those parts out, and to the
- * page's minimap, which paints them blue (the overlay's pixels are the page's CSS pixels).
+ * minimap in the sidebar, which paints them.
  */
-function applySettled(
-  step: AgentStep,
-  surveys: SurveyKeeper,
-  overlay: Overlay,
-  scale: number,
-): void {
+function applySettled(step: AgentStep, surveys: SurveyKeeper, pages: PageMapKeeper): void {
   if (!step.settled) return;
   surveys.setSettled(step.settled);
-  void overlay.setMap(showMapSpans(step.settled, scale));
-}
-
-/** The settled parts of a map in the page's CSS pixels. */
-function showMapSpans(settled: AgentSettledMap, scale: number): { from: number; to: number }[] {
-  return settled.spans.map((span) => ({ from: span.from / scale, to: span.to / scale }));
-}
-
-/** After a survey the minimap is on the page, with what is settled so far painted blue. */
-function showSurveyMap(surveys: SurveyKeeper, overlay: Overlay, scale: number): void {
-  void overlay.setMap(showMapSpans(surveys.settled ?? { pageHeight: 0, spans: [] }, scale));
+  pages.settle(step.settled);
 }
 
 /** A look at a page the run has not seen: nothing seen or settled on the last one holds, and its minimap goes. */
-function forgetPage(newPage: boolean, surveys: SurveyKeeper, overlay: Overlay): void {
+function forgetPage(
+  newPage: boolean,
+  key: string,
+  surveys: SurveyKeeper,
+  pages: PageMapKeeper,
+  log: RunLog,
+): void {
   if (!newPage) return;
   surveys.forget();
-  void overlay.setMap(null);
+  pages.clear();
+  log.event("agent-page", { page: key.split("\n")[0] });
 }
 
 /** A run surveys when it was set to, or the server says it does (fast fill, which the server may turn on for all runs). */
@@ -349,6 +340,9 @@ export async function runAgent(args: AgentRunArgs): Promise<RunReport> {
   };
 
   const emit = (progress: PipelineProgress) => args.emit(tabs, progress);
+  // The page the run is on, for the sidebar's minimap, and the line the card shows beside it.
+  const pageMap = new PageMapKeeper();
+  let lastMessage = AGENT_STARTING_MESSAGE;
   const runState = (control?: string, ask?: AgentAsk) =>
     agentRunState({
       runId,
@@ -358,7 +352,13 @@ export async function runAgent(args: AgentRunArgs): Promise<RunReport> {
       usage: lastUsage,
       ask,
       mail: mailSearch,
+      map: pageMap.current,
     });
+  /** Tells the sidebar where the window is on the page, between steps (a survey and the zones move it). */
+  const showMap = (viewTop: number) => {
+    pageMap.moveTo(viewTop);
+    emit(runningProgress(runState(), lastMessage));
+  };
 
   /**
    * Reads the applicant's Gmail for the code or link the site said it sent, showing what is read.
@@ -501,6 +501,7 @@ export async function runAgent(args: AgentRunArgs): Promise<RunReport> {
       try {
         const photo = await captureShot(here.cdp);
         zoneShots.push({ zone, screenshot: photo.dataUrl, scrollY: photo.viewport.scrollY });
+        showMap(photo.viewport.scrollY / photo.scale);
       } finally {
         await here.overlay.hideForCapture(false);
       }
@@ -695,14 +696,14 @@ export async function runAgent(args: AgentRunArgs): Promise<RunReport> {
       await look.time("sweep", () => frames.sweep());
       await look.time("overlay", () => here.overlay.ensure());
       const info = await look.time("tabInfo", () => chrome.tabs.get(here.tabId));
-      const lookKey = `${info.url ?? ""}\n${info.title ?? ""}`;
+      const lookKey = pageKey(info.url, info.title);
       const newPage = lookKey !== lastLook;
       const surveying = surveyOn && (surveyNext || newPage);
       surveyNext = false;
       lastLook = lookKey;
       // A page is first looked at from its top: a run that starts, or a click that opens another page,
       // must not begin in the middle of a form whose first questions lie above the screen.
-      forgetPage(newPage, surveys, here.overlay);
+      forgetPage(newPage, lookKey, surveys, pageMap, log);
       if (newPage) await look.time("scrollTop", () => scrollToTop(here.cdp, sleep));
       // A scroll still running (a key, a click, a list scrolling itself into view) is waited out.
       await look.time("scrollRest", () => waitForScrollRest(here.cdp, sleep));
@@ -715,7 +716,11 @@ export async function runAgent(args: AgentRunArgs): Promise<RunReport> {
           const first = shot;
           survey = await look
             .time("survey", () =>
-              surveys.take({ cdp: here.cdp, sleep, checkStopped }, first, zoneShots),
+              surveys.take(
+                { cdp: here.cdp, sleep, checkStopped, onMove: showMap },
+                first,
+                zoneShots,
+              ),
             )
             .catch((err: unknown) => {
               if (signal.aborted) throw err;
@@ -734,8 +739,8 @@ export async function runAgent(args: AgentRunArgs): Promise<RunReport> {
           reused: surveys.reused,
           settled: surveys.left,
         });
-        showSurveyMap(surveys, here.overlay, shot.scale);
       }
+      pageMap.look(shot, surveys.settled, surveyOn);
       const [focus, text] = await look.time("pageRead", () =>
         Promise.all([readFocus(here.cdp), readPageText(here.cdp, here.tabId)]),
       );
@@ -771,7 +776,7 @@ export async function runAgent(args: AgentRunArgs): Promise<RunReport> {
       spent.ask += askMs;
       stepNumber = step.number;
       lastUsage = step.usage;
-      applySettled(step, surveys, here.overlay, shot.scale);
+      applySettled(step, surveys, pageMap);
       const actions = step.actions ?? [];
       if (step.survey) surveyNext = true;
       log.step = step.number;
@@ -805,11 +810,9 @@ export async function runAgent(args: AgentRunArgs): Promise<RunReport> {
         costUsd: step.usage.cost,
         url: logUrl(info.url ?? ""),
       });
+      lastMessage = step.message || "Working…";
       emit(
-        runningProgress(
-          runState(actions[0] ? describeAction(actions[0]) : undefined),
-          step.message || "Working…",
-        ),
+        runningProgress(runState(actions[0] ? describeAction(actions[0]) : undefined), lastMessage),
       );
       void here.overlay.setLabel(step.message || OVERLAY_LABEL);
 

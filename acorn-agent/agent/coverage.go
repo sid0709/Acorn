@@ -13,6 +13,13 @@ import (
 // nobody looked at is how an application is sent half empty. Pixels, not a share of the page:
 // the page grows as it is filled in (messages appear), and a percentage would shift under the run.
 
+// withoutFragment is an address without its #fragment. A fragment names a place on the same page
+// (an Apply button that jumps to the form below), so a look at it is a look at the same page.
+func withoutFragment(url string) string {
+	page, _, _ := strings.Cut(url, "#")
+	return page
+}
+
 // span is a part of the page, from and to in screenshot pixels from the top.
 type span struct{ from, to float64 }
 
@@ -40,6 +47,7 @@ func (c *coverage) see(url string, vp Viewport) {
 	if vp.PageHeight <= 0 {
 		return
 	}
+	url = withoutFragment(url)
 	if url != c.url || math.Abs(vp.PageHeight-c.height) > layoutTolerance {
 		c.spans, c.floor = nil, 0
 	}

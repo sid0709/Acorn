@@ -122,3 +122,21 @@
   flex: 1;
   min-width: 0;
 }
+
+/* Jobs tab, Now card: the run's numbers beside the minimap of the page it is on. */
+.acorn-run-live {
+  display: flex;
+  align-items: flex-start;
+  gap: var(--spacing-3);
+}
+
+.acorn-run-live-status {
+  flex: 1;
+  min-width: 0;
+}
+
+.acorn-minimap {
+  flex: none;
+  border: var(--border-width) solid var(--color-border);
+  border-radius: var(--radius-inner);
+}
