@@ -287,7 +287,7 @@ Everything that belongs to a tab is keyed by its tab id. Writes to a shared map 
 Rules ([`policy-acorn.md`](../../policy-acorn.md) §1):
 
 - One tab runs one Run at a time (a second start is refused). Different tabs run in parallel.
-- When a Run starts, its tab is put in a Chrome tab group with a random color, titled `Acorn <first 6 hex characters of the tab's usage key>` ([`run-group.ts`](../../extension/src/background/run-group.ts), `tabGroups` permission). A tab opened from a tab in such a group (`onCreated` with `openerTabId`) joins that group, whether or not the run follows it. Tabs that cannot be grouped (pinned) are left alone.
+- When a Run starts, its tab is put in a Chrome tab group with a random color, titled `Acorn <first 6 hex characters of the tab's usage key>` ([`run-group.ts`](../../extension/src/background/run-group.ts), `tabGroups` permission). A tab opened from a tab in such a group (`webNavigation.onCreatedNavigationTarget`, which a tab the person opens with Cmd+T or + never raises) joins that group, whether or not the run follows it; a new tab with no such event is taken out of any Run group within 3 s. Tabs that cannot be grouped (pinned) are left alone.
 - A Run can move to a tab it opened (an Apply that opens a new tab). The run "claims" that tab: progress is emitted to every claimed tab, Stop works from any of them, and the job binding is re-keyed to it.
 - The agent follows a tab the page opens (§19.2), and `tabs.onReplaced` (Chrome swapping a tab) re-keys the run, the tab's job binding, usage key, progress and log to the new id; the log of a tab the run left moves with it ([`moveTabLog`](../../extension/src/tab-log-session.ts)).
 - The extension never opens tabs of its own.

@@ -43,19 +43,57 @@ export async function groupRunTab(tabId: number): Promise<void> {
   }
 }
 
-/** A tab opened from a tab in a Run group joins that group, whether or not the run follows it. */
+/** How long a new tab waits for Chrome to say a page opened it before it counts as the person's own. */
+const DERIVED_GRACE_MS = 1000;
+/** How long the person's own new tab is watched for Chrome adding it to a Run group. */
+const OWN_TAB_WATCH_MS = 3000;
+
+/** Tabs a page opened (a link, window.open), by the signal only such tabs raise. */
+const derivedTabs = new Set<number>();
+/** The person's own new tabs (Cmd+T, +), kept out of Run groups while they are watched. */
+const ownTabs = new Set<number>();
+
+async function leaveRunGroup(tabId: number): Promise<void> {
+  const tab = await chrome.tabs.get(tabId).catch(() => null);
+  if (tab && (await isRunGroup(tab.groupId)))
+    await chrome.tabs.ungroup(tabId).catch(() => undefined);
+}
+
+/**
+ * Only a tab a page of a Run group opened joins that group. A new tab the person opens raises no
+ * navigation-target event, and Chrome still puts it beside the tab it was opened from, so it is
+ * taken out of the group again.
+ */
 export function bindRunTabGrouping(): void {
-  chrome.tabs.onCreated.addListener((tab) => {
-    const { id, openerTabId } = tab;
-    if (id == null || openerTabId == null) return;
+  chrome.webNavigation.onCreatedNavigationTarget.addListener((details) => {
+    derivedTabs.add(details.tabId);
     void (async () => {
       try {
-        const opener = await chrome.tabs.get(openerTabId);
-        if (!(await isRunGroup(opener.groupId))) return;
-        await chrome.tabs.group({ tabIds: [id], groupId: opener.groupId });
+        const source = await chrome.tabs.get(details.sourceTabId);
+        if (!(await isRunGroup(source.groupId))) return;
+        await chrome.tabs.group({ tabIds: [details.tabId], groupId: source.groupId });
       } catch {
         // Not groupable.
       }
     })();
+  });
+
+  chrome.tabs.onCreated.addListener((tab) => {
+    const { id } = tab;
+    if (id == null) return;
+    setTimeout(() => {
+      if (derivedTabs.has(id)) return;
+      ownTabs.add(id);
+      void leaveRunGroup(id);
+      setTimeout(() => ownTabs.delete(id), OWN_TAB_WATCH_MS);
+    }, DERIVED_GRACE_MS);
+  });
+
+  chrome.tabs.onUpdated.addListener((tabId, changeInfo) => {
+    if (changeInfo.groupId != null && ownTabs.has(tabId)) void leaveRunGroup(tabId);
+  });
+  chrome.tabs.onRemoved.addListener((tabId) => {
+    derivedTabs.delete(tabId);
+    ownTabs.delete(tabId);
   });
 }
