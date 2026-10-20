@@ -192,6 +192,9 @@ func startStory(id string, start Start, stacks int, tracing bool) string {
 	if start.StopBeforeSubmit {
 		line += ", and it will stop before the application is sent"
 	}
+	if start.FastFill {
+		line += ", using fast fill"
+	}
 	if !tracing {
 		line += " (no trace is being saved)"
 	}

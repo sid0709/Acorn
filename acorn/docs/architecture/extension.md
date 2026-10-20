@@ -676,6 +676,24 @@ A postal-code or address field shows its matches only after the page has asked a
 
 Each tab's Run is its own session on the agent server and its own debugger session in the browser; nothing is shared but the person's model key. Running many tabs is slower for these reasons, none of which is the agent's code: a tab that is not shown **draws no frames**, so (1) its screenshots can wait up to `SHOT_TIMEOUT_MS` (8 s) before the retry that brings it to the front, (2) the page's own timers are throttled, and (3) before this change each point of a plan waited up to 900 ms for the cursor to glide in a tab where it never moves. With Auto-Focus on the tabs take turns at the front every few seconds, so with N tabs a tab is shown about one turn in N, and everything in a background tab that needs a frame waits for its turn. Also, all runs share one OpenRouter key's rate limits, so many runs can see retries (`httpAttempts` in the trace). Changed: in a hidden tab the overlay places the cursor and does not wait for it (the pages's `document.visibilityState`). Each step's log now has `captureMs`, `actionsMs` (the step before's actions) and `hidden`, so a slow concurrent run shows whether the time went to capturing, acting, or the model.
 
+### 19.4m Fast fill (in progress)
+
+The aim is a whole application in about a minute, or less on a short form: one plan for the whole page from one look (a survey), carried out zone by zone, with the check of each zone done on the side while the next one runs, and the dropdowns probed one after another with their option lists read together. Accuracy comes first: nothing here may skip what a page needs to be right.
+
+**The switch.** `AGENT_FAST_FILL` in [`agent/settings.ts`](../../extension/src/agent/settings.ts) (off), or `fastFill` in `AgentRunArgs`, is sent in the start request as `fastFill`; the agent keeps it in `Start.FastFill`, says so in the first line of the run's story, and records it in the trace's `session.json`. With it off a run goes step by step, as before. Phase 0 only carries the switch: a run asks the model the same things the same way with it on (a test holds that).
+
+**The baseline** every later phase is measured against, one Greenhouse application (6,246 px tall, about 8 dropdowns, 10 typed fields) up to the submit step, from the run logs:
+
+| Run                        | Total | Driving calls | Decision calls | Session start | First résumé     |
+| -------------------------- | ----- | ------------- | -------------- | ------------- | ---------------- |
+| Before the history change  | 333 s | 9 · 190 s     | 12 · 49 s      | 16 s          | 20 s (timed out) |
+| After history and schema   | 278 s | 12 · 120 s    | 16 · 76 s      | 14.7 s        | 20 s             |
+| With the library preloaded | 224 s | 15 · 122 s    | 37 · 38 s      | 0.2 s         | 0.2 s            |
+
+Where the 224 s went: driving calls 122 s (8.1 s each; three of the 15 only scrolled, two used the page's own "Autofill my application" before the prompt forbade it), browser actions 46 s (most of it the dropdown script of open, type, wait, check, clear and arrow keys, one round trip each), decision calls 38 s, looking 7 s. A driving call's time is the provider's wait (about 6.5 s) and the read of about 130 output tokens (about 3 s); sending a request is no longer a cost (about 0.35 s for 100 KB).
+
+**The phases.** (0) the switch and this baseline; (1) the résumé upload first, then a survey of the settled page and one plan for all of it; (2) the plan run zone by zone, each action's target kept as a small crop of the survey screenshot; (3) when the page's height changes, each target is found again by matching its crop vertically (and a little sideways), and a target that cannot be found stops the plan so the model looks; (4) each zone's closing screenshot is checked on the side, field by field, while the next zone runs, and what is wrong is fixed once at the end; (5) the dropdowns probed together; (6) measured against this baseline before the switch is turned on by default.
+
 ### 19.4e Survey: the whole page in one look, and fewer model calls
 
 **Off by default.** A survey scrolls the page in front of the person (the screen seems to blink, and a long page takes up to eight screenshots and their delay) and was never shown to save calls, time, or money: every recorded run that finished used the current screen only (17 to 37 model calls, about $0.01 to $0.03), and the two recorded surveys ended in seconds. `AGENT_SURVEY` in [`agent/settings.ts`](../../extension/src/agent/settings.ts) is `false`: the extension sends `survey: false` in the start request and every look is the current screen. The agent then leaves "Seeing the whole page" out of the model's prompt (a `{{if .Survey}}` section of `system.md`) and ignores a `survey` action the model gives anyway. The rest of this section describes what happens when it is turned on (`AGENT_SURVEY`, or `survey` in `AgentRunArgs`).

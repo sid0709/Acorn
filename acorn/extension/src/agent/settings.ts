@@ -20,6 +20,14 @@ export const DEFAULT_AGENT_URL = (
  */
 export const AGENT_SURVEY = false;
 
+/**
+ * Whether a run uses fast fill: it plans a whole page from one look and carries the plan out zone by
+ * zone, with the checks of each zone done while the next one runs (docs 19.4m). Off, a run goes step by
+ * step, as it always has. The switch is here so a build can turn the new way on and the old way back
+ * on without touching anything else.
+ */
+export const AGENT_FAST_FILL = false;
+
 export function getAgentUrl(): string {
   return DEFAULT_AGENT_URL;
 }

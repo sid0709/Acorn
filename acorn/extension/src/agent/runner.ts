@@ -68,7 +68,7 @@ import {
 } from "./progress";
 import { waitForScrollRest } from "./scroll-rest";
 import { scrollToTop } from "./scroll-top";
-import { AGENT_SURVEY } from "./settings";
+import { AGENT_FAST_FILL, AGENT_SURVEY } from "./settings";
 import { captureSurvey } from "./survey";
 import { openAgentTab, type AgentTab } from "./tab-session";
 import { Stopwatch, httpSummary, type HttpTiming } from "./timing";
@@ -113,6 +113,8 @@ export interface AgentRunArgs {
   stopBeforeSubmit: boolean;
   /** Survey long pages for this run; the default is AGENT_SURVEY (off). */
   survey?: boolean;
+  /** Use fast fill for this run; the default is AGENT_FAST_FILL (off). */
+  fastFill?: boolean;
   /** The person's own OpenRouter key, when the extension holds one; the server has its own otherwise. */
   key?: string;
   /** The person's Acorn session: the agent reads their profile and résumés from acorn-backend with it. */
@@ -199,8 +201,16 @@ function sleeper(signal: AbortSignal) {
     });
 }
 
+/** Which optional ways of working a run uses: what the caller asked for, else the build's default. */
+function runSwitches(args: AgentRunArgs): { surveyOn: boolean; fastFillOn: boolean } {
+  return {
+    surveyOn: args.survey ?? AGENT_SURVEY,
+    fastFillOn: args.fastFill ?? AGENT_FAST_FILL,
+  };
+}
+
 export async function runAgent(args: AgentRunArgs): Promise<RunReport> {
-  const surveyOn = args.survey ?? AGENT_SURVEY;
+  const { surveyOn, fastFillOn } = runSwitches(args);
   // A continued run writes to the same log and trace folder as the run it takes up.
   const runId = args.resume?.runId ?? crypto.randomUUID().slice(0, 8);
   const workTabId = args.resume?.tabId ?? args.tabId;
@@ -589,6 +599,7 @@ export async function runAgent(args: AgentRunArgs): Promise<RunReport> {
           stopBeforeSubmit,
           trace: true,
           survey: surveyOn,
+          fastFill: fastFillOn,
           ...(restoredMemory ? { memory: restoredMemory } : {}),
         },
         args.key,

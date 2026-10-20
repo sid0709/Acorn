@@ -284,6 +284,11 @@ export interface AgentStart {
   trace?: boolean;
   /** Let the run survey a long page (several screenshots from top to bottom). Off: it sees the current screen only. */
   survey?: boolean;
+  /**
+   * Fast fill: plan a whole page at once and carry it out zone by zone, with the checks done on the side
+   * (docs 19.4m). Off, the run goes step by step as before. Phase 0 only carries the switch.
+   */
+  fastFill?: boolean;
   /** What a stopped run knew, to start a run that goes on from it when the server forgot the session. */
   memory?: AgentMemory;
 }

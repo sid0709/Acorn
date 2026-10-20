@@ -248,6 +248,10 @@ type Start struct {
 	// (the extension scrolls the page to take them). Off by default: the model then sees only the
 	// current screen, as a person does, and is not told surveys exist.
 	Survey bool `json:"survey,omitempty"`
+	// FastFill asks for the fast way of filling a page: one plan for the whole page, carried out
+	// zone by zone with the checks done on the side. Off by default, the run goes step by step. The
+	// agent only records the switch for now (docs 19.4m); nothing behaves differently with it on.
+	FastFill bool `json:"fastFill,omitempty"`
 	// Memory is what a stopped run knew, kept by the extension, to start a run that goes on from it
 	// when the server forgot the session (it restarted, or the session expired).
 	Memory *Memory `json:"memory,omitempty"`
