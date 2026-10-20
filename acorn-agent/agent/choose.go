@@ -158,6 +158,9 @@ func (a *Agent) startScript(s *session, actions []Action) []Action {
 	if !hasChoose(actions) {
 		return actions
 	}
+	if a.probing(s) {
+		return a.startProbe(s, actions)
+	}
 	if !a.checksOn(s) {
 		var out []Action
 		for _, action := range actions {
@@ -208,6 +211,12 @@ func optionCriteria() map[string]string {
 // options answers the choose action: the position counted from the list's first option, and whether
 // the model was sure enough.
 func (a *Agent) pickOption(ctx context.Context, s *session, obs Observation, answer string) (position int, listOpen bool, check verdict, err error) {
+	return a.pickOptionFrom(ctx, s, obs.Screenshot, answer)
+}
+
+// pickOptionFrom is pickOption on a screenshot: the probe of a dropdown is a photo taken while the batch
+// was still being carried out, not the look that followed it.
+func (a *Agent) pickOptionFrom(ctx context.Context, s *session, screenshot, answer string) (position int, listOpen bool, check verdict, err error) {
 	questions := map[string]decide.Question{
 		askListOpen: decide.YesNo("Is a dropdown list of choices open on this page right now: a list of options shown below or above a control, so that one can be picked?"),
 		askOption: {
@@ -219,7 +228,7 @@ func (a *Agent) pickOption(ctx context.Context, s *session, obs Observation, ans
 			Criteria: optionCriteria(),
 		},
 	}
-	response, err := a.newScreen(s.key).Decide(ctx, decide.Request{State: checkState(obs.Screenshot), Questions: questions})
+	response, err := a.newScreen(s.key).Decide(ctx, decide.Request{State: checkState(screenshot), Questions: questions})
 	check = verdict{response: response, prompt: "which option of the open list answers " + strconv.Quote(answer)}
 	if err != nil {
 		return 0, false, check, err
@@ -357,11 +366,33 @@ func nativeList(focus *Focus) []string {
 func (a *Agent) chooseNative(ctx context.Context, s *session, obs Observation, entry stepTrace, results []ActionResult, sig []uint8, options []string) (Step, bool) {
 	sc := s.script
 	open := sc.open
-	// An option that says exactly the answer needs no judgment, and the model's own reading cannot be
-	// trusted with it: when one option is the answer and another only begins with it, a recorded run
-	// had the model split its weight between the two, and the choose never completed.
-	if index, ok := exactOption(open.choose.Text, options); ok {
+	index, check, asked, err := a.decideNative(ctx, s, open.choose.Text, options, obs.Focus)
+	if !asked {
 		return a.commitNative(s, obs, entry, results, sig, options[index], nil)
+	}
+	s.usage.Checks++
+	s.usage.CheckCost += check.response.Usage.Cost
+	s.usage.Cost += check.response.Usage.Cost
+	entry.Usage = s.usage
+	s.carried = withoutChoose(results)
+	s.stale, s.lastSig = 0, sig
+	if err != nil {
+		slog.Warn(runName(s.id)+": could not tell which option of the browser's own list to pick.", plainlog.ErrorKey, err)
+	}
+	if index < 0 {
+		return a.giveUp(s, obs, entry, open, []modelCall{check.call(err)})
+	}
+	return a.commitNative(s, obs, entry, results, sig, options[index], []modelCall{check.call(nil)})
+}
+
+// decideNative is which option of a native list answers a choose action, as an index (-1: none does).
+// asked says whether the decision model was asked: an option that says exactly the answer needs no
+// judgment, and the model's own reading cannot be trusted with it (when one option is the answer and
+// another only begins with it, a recorded run had the model split its weight between the two, and the
+// choose never completed).
+func (a *Agent) decideNative(ctx context.Context, s *session, answer string, options []string, focus *Focus) (index int, check verdict, asked bool, err error) {
+	if exact, ok := exactOption(answer, options); ok {
+		return exact, verdict{}, false, nil
 	}
 	criteria := map[string]string{optionNone: "no option answers it"}
 	for i, option := range options {
@@ -369,35 +400,25 @@ func (a *Agent) chooseNative(ctx context.Context, s *session, obs Observation, e
 	}
 	questions := map[string]decide.Question{askNativeOption: {
 		Type: decide.TypeChoice,
-		Instructions: "A form has a dropdown list. Someone wants to choose the option that answers: " + strconv.Quote(open.choose.Text) + ". " +
+		Instructions: "A form has a dropdown list. Someone wants to choose the option that answers: " + strconv.Quote(answer) + ". " +
 			"Which option is it? Choose the option whose meaning matches: for a yes or no answer, the option that says yes or no, even when it goes on to explain. " +
 			"An option that is exactly the answer beats one that only begins with it or contains it. " +
 			"Answer none if no option answers it.",
 		Criteria: criteria,
 	}}
-	response, err := a.newScreen(s.key).Decide(ctx, decide.Request{State: []decide.Part{decide.Text("The label of the list: " + focusLabel(obs.Focus))}, Questions: questions})
-	check := verdict{response: response, prompt: "which option of the native list answers " + strconv.Quote(open.choose.Text)}
-	s.usage.Checks++
-	s.usage.CheckCost += response.Usage.Cost
-	s.usage.Cost += response.Usage.Cost
-	entry.Usage = s.usage
-	s.carried = withoutChoose(results)
-	s.stale, s.lastSig = 0, sig
-	index := -1
-	if err == nil {
-		found := response.Answers[askNativeOption]
-		if i, ok := strings.CutPrefix(found.Choice, nativeOptionPrefix); ok && found.Probabilities[found.Choice] >= a.cfg.OptionMatch {
-			if n, convErr := strconv.Atoi(i); convErr == nil && n >= 0 && n < len(options) {
-				index = n
-			}
+	response, err := a.newScreen(s.key).Decide(ctx, decide.Request{State: []decide.Part{decide.Text("The label of the list: " + focusLabel(focus))}, Questions: questions})
+	check = verdict{response: response, prompt: "which option of the native list answers " + strconv.Quote(answer)}
+	index = -1
+	if err != nil {
+		return index, check, true, err
+	}
+	found := response.Answers[askNativeOption]
+	if i, ok := strings.CutPrefix(found.Choice, nativeOptionPrefix); ok && found.Probabilities[found.Choice] >= a.cfg.OptionMatch {
+		if n, convErr := strconv.Atoi(i); convErr == nil && n >= 0 && n < len(options) {
+			index = n
 		}
-	} else {
-		slog.Warn(runName(s.id)+": could not tell which option of the browser's own list to pick.", plainlog.ErrorKey, err)
 	}
-	if index < 0 {
-		return a.giveUp(s, obs, entry, open, []modelCall{check.call(err)})
-	}
-	return a.commitNative(s, obs, entry, results, sig, options[index], []modelCall{check.call(nil)})
+	return index, check, true, nil
 }
 
 // commitNative types a native list's option whole and presses Enter, then goes on to the next dropdown.

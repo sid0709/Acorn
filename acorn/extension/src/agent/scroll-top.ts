@@ -1,4 +1,4 @@
-import { scrollPageSlowly } from "./page-scroll";
+import { scrollPageSlowly, type ScrollContext } from "./page-scroll";
 
 import type { Cdp } from "./cdp";
 
@@ -10,9 +10,13 @@ export const TOP_SETTLE_MS = 150;
  * flash). A page that is mid-navigation has nothing to scroll yet, which is not an error: the look
  * that follows takes the page as it is.
  */
-export async function scrollToTop(cdp: Cdp, sleep: (ms: number) => Promise<void>): Promise<void> {
+export async function scrollToTop(
+  cdp: Cdp,
+  sleep: (ms: number) => Promise<void>,
+  scroll?: ScrollContext,
+): Promise<void> {
   try {
-    await scrollPageSlowly(cdp, 0, sleep);
+    await scrollPageSlowly(cdp, 0, sleep, scroll, "new page");
   } catch {
     return;
   }

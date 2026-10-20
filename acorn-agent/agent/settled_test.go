@@ -149,3 +149,65 @@ func TestAFragmentOfTheAddressIsTheSamePage(t *testing.T) {
 		t.Fatalf("the reach of the looks started again at a fragment: %+v", c)
 	}
 }
+
+func TestAScrollIntoASettledPartIsNotMade(t *testing.T) {
+	var s session
+	s.settled = settledState{Spans: []Span{{From: 0, To: 2000}}}
+	obs := observation(shot(t, 40))
+	obs.Viewport.PageHeight = 6000
+	obs.Viewport.ScrollY = 3000
+	up := Action{Kind: KindScroll, DY: -1500} // the window would then be at 1500 to 2300: not wholly settled
+	deep := Action{Kind: KindScroll, DY: -2500}
+	down := Action{Kind: KindScroll, DY: 400}
+	kept, dropped := s.withoutBlueScrolls([]Action{up, down, deep}, obs)
+	// up: 3000 - 1500 = 1500, the window is 1500 to 2300: partly outside the stretch, so it is made.
+	// down: 1500 + 400 = 1900 (window 1900 to 2700): partly outside, made.
+	// deep: 1900 - 2500 clamps to 0 (window 0 to 800): wholly settled, dropped.
+	if dropped != 1 || len(kept) != 2 || kept[0].DY != -1500 || kept[1].DY != 400 {
+		t.Fatalf("kept %+v, dropped %d", kept, dropped)
+	}
+	// A pinned point puts the window where its survey screen was: the next scroll goes on from there.
+	to := 1000.0
+	pinned := Action{Kind: KindClick, ScrollTo: &to}
+	kept, dropped = s.withoutBlueScrolls([]Action{pinned, {Kind: KindScroll, DY: -100}}, obs)
+	if dropped != 1 || len(kept) != 1 || kept[0].Kind != KindClick {
+		t.Fatalf("a scroll from a settled place into it was made: %+v, %d", kept, dropped)
+	}
+	// With nothing settled nothing is dropped.
+	var none session
+	kept, dropped = none.withoutBlueScrolls([]Action{deep}, obs)
+	if dropped != 0 || len(kept) != 1 {
+		t.Fatal("a scroll was dropped on a page with nothing settled")
+	}
+}
+
+func TestThePlanSaysWhyAScrollIntoASettledPartWasDropped(t *testing.T) {
+	model := &scriptedModel{replies: []string{
+		planSettled([]int{1, 2}, onScreen(3, 100, 100, nil)),
+		plan("going back", nil, map[string]any{"kind": "scroll", "x": 640.0, "y": 400.0, "dx": 0.0, "dy": -1400.0}, click(5, 5, nil)),
+		plan("next", nil, click(6, 6, nil)),
+	}}
+	a := newAgentWithScreen(t, model, &fixedDecider{}, &fakeScreen{}, DefaultConfig())
+	id := startFast(t, a, true)
+	first := surveyObservation(t)
+	first.Viewport.PageHeight = 2160
+	stepOK(t, a, id, first)
+	// The page is as tall as it was, so screens 1 and 2 (0 to 1480 px) are still settled; the window is at 1360.
+	look := observation(shot(t, 90))
+	look.Viewport.PageHeight, look.Viewport.ScrollY = 2160, 1360
+	step := stepOK(t, a, id, look)
+	for _, action := range step.Actions {
+		if action.Kind == KindScroll {
+			t.Fatalf("a scroll into the settled part was sent: %+v", step.Actions)
+		}
+	}
+	if len(step.Dropped) == 0 || !strings.Contains(strings.Join(step.Dropped, " "), "scroll to a settled part") {
+		t.Fatalf("dropped = %v", step.Dropped)
+	}
+	again := observation(shot(t, 140))
+	again.Viewport.PageHeight, again.Viewport.ScrollY = 2160, 1360
+	stepOK(t, a, id, again)
+	if !strings.Contains(lastText(model), "a part of the page you settled") {
+		t.Fatalf("the model was not told why:\n%s", lastText(model))
+	}
+}

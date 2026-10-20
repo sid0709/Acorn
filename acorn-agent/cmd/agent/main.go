@@ -60,6 +60,8 @@ const (
 	envFastFillMax   = "ACORN_AGENT_FAST_FILL_ACTIONS"
 	envFastFill      = "ACORN_AGENT_FAST_FILL"
 	envPointMatch    = "ACORN_AGENT_POINT_MATCH_PERCENT"
+	envReviewMatch   = "ACORN_AGENT_REVIEW_MATCH_PERCENT"
+	envProbe         = "ACORN_AGENT_PROBE_DROPDOWNS"
 	envChecks        = "ACORN_AGENT_CHECKS"
 	envScreenModel   = "ACORN_AGENT_SCREEN_MODEL"
 	envDecisionsURL  = "ACORN_AGENT_DECISIONS_URL"
@@ -137,6 +139,8 @@ func run() error {
 	cfg.FastFillActions = config.EnvInt(envFastFillMax, cfg.FastFillActions)
 	cfg.FastFill = isOn(config.Env(envFastFill, ""))
 	cfg.PointMatch = percent(envPointMatch, cfg.PointMatch)
+	cfg.ReviewMatch = percent(envReviewMatch, cfg.ReviewMatch)
+	cfg.ProbeDropdowns = !isOff(config.Env(envProbe, ""))
 	cfg.CheckMatch = percent(envCheckMatch, cfg.CheckMatch)
 	cfg.CheckBlocked = percent(envCheckBlocked, cfg.CheckBlocked)
 	cfg.CheckLoading = percent(envCheckLoading, cfg.CheckLoading)

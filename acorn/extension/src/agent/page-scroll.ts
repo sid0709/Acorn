@@ -45,23 +45,67 @@ export async function scrollPageTo(cdp: Cdp, y: number): Promise<{ y: number; he
   return pageState(cdp);
 }
 
-/** Turns the wheel by `delta` CSS pixels (positive goes down) in small steps. */
+/** A stretch of the page (CSS pixels from its top). */
+export type Stretch = { from: number; to: number };
+
+/** The parts of the page the model settled and how tall the window is, while they hold. */
+export interface BlueMap {
+  spans: Stretch[];
+  viewHeight: number;
+}
+
+/** Why the run scrolls by itself. */
+export type ScrollReason = "survey" | "action" | "new page";
+
+/** What a scroll the run makes by itself knows of the page, and where it tells what it did. */
+export interface ScrollContext {
+  /** The settled (blue) parts of a page that is `pageHeight` tall (CSS pixels), or undefined when none holds. */
+  blue(pageHeight: number): BlueMap | undefined;
+  /** Told each scroll the run made by itself: where from, where to, why, and whether it was refused. */
+  note(move: { from: number; to: number; reason: ScrollReason; refused?: boolean }): void;
+}
+
+/** The window crosses a settled part quickly: large steps with almost no pause between them. */
+export const FAST_SCROLL_STEP_PX = 600;
+export const FAST_SCROLL_STEP_MS = 6;
+
+/** Whether the window, with its top at `y`, lies wholly in a settled part. */
+export function windowInBlue(blue: BlueMap | undefined, y: number): boolean {
+  return (
+    blue != null &&
+    blue.spans.some((span) => span.from <= y + 1 && span.to >= y + blue.viewHeight - 1)
+  );
+}
+
+/**
+ * Turns the wheel by `delta` CSS pixels (positive goes down) from a window whose top is at `from`. In small
+ * steps, except where the window lies in a settled part: that is crossed fast, since there is nothing to
+ * look at in it.
+ */
 async function turnWheel(
   cdp: Cdp,
+  from: number,
   delta: number,
   sleep: (ms: number) => Promise<void>,
+  blue: BlueMap | undefined,
 ): Promise<void> {
-  const step = Math.max(SLOW_SCROLL_STEP_PX, Math.abs(delta) / SLOW_SCROLL_MAX_EVENTS);
-  const events = Math.max(1, Math.ceil(Math.abs(delta) / step));
-  for (let i = 0; i < events; i += 1) {
+  const direction = Math.sign(delta);
+  const slow = Math.max(SLOW_SCROLL_STEP_PX, Math.abs(delta) / SLOW_SCROLL_MAX_EVENTS);
+  let at = from;
+  let left = Math.abs(delta);
+  while (left > 0.5) {
+    const crossing = windowInBlue(blue, at);
+    const step = Math.min(left, crossing ? FAST_SCROLL_STEP_PX : slow);
     await cdp.send("Input.dispatchMouseEvent", {
       type: "mouseWheel",
       x: WHEEL_POINT.x,
       y: WHEEL_POINT.y,
       deltaX: 0,
-      deltaY: delta / events,
+      deltaY: direction * step,
     });
-    await sleep(SLOW_SCROLL_STEP_MS);
+    await sleep(crossing ? FAST_SCROLL_STEP_MS : SLOW_SCROLL_STEP_MS);
+    at += direction * step;
+    left -= step;
   }
 }
 
@@ -70,20 +114,35 @@ async function turnWheel(
  * The wheel is turned for the distance, the page's place is read, and what is left is turned again, a
  * few times; a page that still is not there (it clamps, or something else took the wheel) is put there
  * at once, so the place is always right. Says where the page landed.
+ *
+ * The run never goes to a settled part: a scroll whose window would lie wholly in one is not made (an
+ * action's own target is the exception, since it has to be reached), and one that crosses a settled
+ * part crosses it fast. Every scroll is told to `scroll.note`, so the log says where the page went and why.
  */
 export async function scrollPageSlowly(
   cdp: Cdp,
   y: number,
   sleep: (ms: number) => Promise<void>,
+  scroll?: ScrollContext,
+  reason: ScrollReason = "survey",
 ): Promise<{ y: number; height: number }> {
-  for (let round = 0; round < SLOW_SCROLL_ROUNDS; round += 1) {
-    const state = await pageState(cdp);
-    const delta = y - state.y;
-    if (Math.abs(delta) <= SCROLL_TOLERANCE_PX) return state;
-    await turnWheel(cdp, delta, sleep);
-    await waitForScrollRest(cdp, sleep);
+  let state = await pageState(cdp);
+  const began = state.y;
+  const blue = scroll?.blue(state.height);
+  if (reason !== "action" && windowInBlue(blue, y)) {
+    scroll?.note({ from: began, to: y, reason, refused: true });
+    return state;
   }
-  const state = await pageState(cdp);
-  if (Math.abs(y - state.y) <= SCROLL_TOLERANCE_PX) return state;
-  return scrollPageTo(cdp, y);
+  for (let round = 0; round < SLOW_SCROLL_ROUNDS; round += 1) {
+    const delta = y - state.y;
+    if (Math.abs(delta) <= SCROLL_TOLERANCE_PX) break;
+    await turnWheel(cdp, state.y, delta, sleep, blue);
+    await waitForScrollRest(cdp, sleep);
+    state = await pageState(cdp);
+  }
+  if (Math.abs(y - state.y) > SCROLL_TOLERANCE_PX) state = await scrollPageTo(cdp, y);
+  if (Math.abs(state.y - began) > SCROLL_TOLERANCE_PX) {
+    scroll?.note({ from: began, to: state.y, reason });
+  }
+  return state;
 }

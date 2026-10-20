@@ -17,6 +17,7 @@ import { NO_FOCUS_MESSAGE, nothingHasFocus, scrollsAPage } from "./focus-guard";
 import { blockedMessage, type GuardVerdict } from "./guard";
 import { clickAt, moveMouse, pressKeys, typeText, wheelAt } from "./input";
 import { watchInputEffects } from "./input-settle";
+import { type ScrollContext } from "./page-scroll";
 import { scrollForAction } from "./survey";
 import { Stopwatch } from "./timing";
 import { uploadAt, type ResumeFile } from "./upload";
@@ -53,6 +54,12 @@ export interface ExecutorContext {
   fileChooserWaitMs?: number;
   /** Called when the last action of a zone of a fast-fill plan is done: the run takes a photo of the page. */
   zoneDone?: (zone: number) => Promise<void>;
+  /** The run's scrolling: the settled parts it keeps out of, and where it tells what it did. */
+  scroll?: ScrollContext;
+  /** Takes a picture of the page now and sends it to the agent for a `snap` action, which waits for it to arrive. */
+  snap?: (action: AgentAction) => Promise<void>;
+  /** Finds an action's target again on a page that changed shape: its point in screenshot pixels, or null. */
+  locate?: (action: AgentAction) => Promise<{ x: number; y: number } | null>;
 }
 
 /**
@@ -120,8 +127,9 @@ async function perform(ctx: ExecutorContext, action: AgentAction, watch: Stopwat
     case "double_click":
     case "triple_click":
     case "right_click": {
-      const { x, y } = point(action, ctx.scale());
-      await watch.time("scroll", () => scrollForAction(cdp, action, ctx.scale(), ctx.sleep));
+      const { x, y } = await watch.time("scroll", () =>
+        scrollForAction(cdp, action, ctx.scale(), ctx),
+      );
       const verdict = ctx.guard?.(x, y);
       await watch.time("glide", () => glideTo(ctx, x, y));
       await watch.time("guard", () => refuseIfBlocked(verdict));
@@ -139,8 +147,9 @@ async function perform(ctx: ExecutorContext, action: AgentAction, watch: Stopwat
       );
     }
     case "hover": {
-      const { x, y } = point(action, ctx.scale());
-      await watch.time("scroll", () => scrollForAction(cdp, action, ctx.scale(), ctx.sleep));
+      const { x, y } = await watch.time("scroll", () =>
+        scrollForAction(cdp, action, ctx.scale(), ctx),
+      );
       await watch.time("glide", () => glideTo(ctx, x, y));
       void ctx.overlay.hover(true);
       await watch.time("move", () => moveMouse(cdp, x, y));
@@ -176,13 +185,14 @@ async function perform(ctx: ExecutorContext, action: AgentAction, watch: Stopwat
       return {};
     }
     case "upload": {
-      const { x, y } = point(action, ctx.scale());
       if (!action.resume) throw new Error("the server named no résumé to upload");
       const resume = action.resume;
       const file = await watch.time("resumeFetch", () =>
         ctx.resume(resume, action.fileName ?? resume),
       );
-      await watch.time("scroll", () => scrollForAction(cdp, action, ctx.scale(), ctx.sleep));
+      const { x, y } = await watch.time("scroll", () =>
+        scrollForAction(cdp, action, ctx.scale(), ctx),
+      );
       const verdict = ctx.guard?.(x, y);
       await watch.time("glide", () => glideTo(ctx, x, y));
       await watch.time("guard", () => refuseIfBlocked(verdict));
@@ -193,6 +203,12 @@ async function perform(ctx: ExecutorContext, action: AgentAction, watch: Stopwat
       await watch.time("uploadProcessing", () => waitForUploadProcessing(cdp, ctx.sleep));
       await watch.time("settle", () => ctx.sleep(SETTLE_MS));
       return { detail: `${done.fileName}, ${done.bytes} bytes, through the ${done.via}` };
+    }
+    case "snap": {
+      if (!ctx.snap) throw new Error("the extension cannot take a picture here");
+      const snap = ctx.snap;
+      await watch.time("snap", () => snap(action));
+      return {};
     }
     case "wait": {
       const ms = action.ms ?? 1000;
@@ -234,6 +250,9 @@ export async function runActions(
   const typing = actions.some((action) => action.kind === "type" || action.kind === "key");
   const effects = typing ? await batch.time("watchInput", () => watchInputEffects(ctx.cdp)) : null;
   let zone: number | undefined;
+  // The zone of the last action, as that action itself has it: an action the agent made (a dropdown being
+  // opened) has none, and a batch that ends with one ends with a list open, which is not a zone's photo.
+  let lastOwnZone: number | undefined;
   for (const action of actions) {
     if (failed) {
       results.push({
@@ -245,6 +264,7 @@ export async function runActions(
     }
     ctx.checkStopped();
     zone = await leaveZone(ctx, zone, action.zone ?? zone);
+    lastOwnZone = action.zone;
     // Each action carries when it began and how long it took, and where that time went.
     const watch = new Stopwatch();
     const timing = () => ({ startedAt: watch.startedAt, ms: watch.ms, laps: watch.laps });
@@ -268,7 +288,7 @@ export async function runActions(
       });
     }
   }
-  if (!failed) await leaveZone(ctx, zone, undefined);
+  if (!failed && lastOwnZone != null) await leaveZone(ctx, zone, undefined);
   if (effects) await batch.time("inputSettle", () => effects.settle(ctx.sleep));
   return results;
 }

@@ -8,7 +8,13 @@
  */
 
 import { captureShot, type Shot } from "./capture";
-import { SCROLL_TOLERANCE_PX, pageState, scrollPageSlowly } from "./page-scroll";
+import {
+  SCROLL_TOLERANCE_PX,
+  pageState,
+  scrollPageSlowly,
+  type BlueMap,
+  type ScrollContext,
+} from "./page-scroll";
 
 import type { Cdp } from "./cdp";
 import type {
@@ -77,6 +83,8 @@ export interface SurveyDeps {
   checkStopped: () => void;
   /** Told where the window is (CSS pixels) each time the survey has scrolled, so the minimap can follow it. */
   onMove?: (viewTop: number) => void;
+  /** The run's scrolling: the settled parts it keeps out of, and where it tells what it did. */
+  scroll?: ScrollContext;
 }
 
 /** What the last survey saw: its screens and how tall the page was (screenshot pixels). */
@@ -172,7 +180,7 @@ export async function captureSurvey(
   }
   for (const y of visitOrder(toTake, original)) {
     deps.checkStopped();
-    const landed = await scrollPageSlowly(deps.cdp, y, deps.sleep);
+    const landed = await scrollPageSlowly(deps.cdp, y, deps.sleep, deps.scroll, "survey");
     deps.onMove?.(landed.y);
     await deps.sleep(SURVEY_SETTLE_MS);
     const shot = await captureShot(deps.cdp);
@@ -225,6 +233,33 @@ export class SurveyKeeper {
   private reusable = false;
   /** The parts of the page the model will not come back to (screenshot pixels), as the agent last said. */
   settled: SettledMap | null = null;
+  private scale = 1;
+  private viewHeight = 0;
+
+  /** A look at the page: how large the window is, so the settled parts can be told in CSS pixels. */
+  seen(shot: Shot): void {
+    this.scale = shot.scale;
+    this.viewHeight = shot.viewport.height / shot.scale;
+  }
+
+  /**
+   * The settled parts of a page that is `pageHeight` tall (CSS pixels), for the run's scrolling to keep out
+   * of; undefined when nothing is settled or the page is not the height it was when they were settled.
+   */
+  blue(pageHeight: number): BlueMap | undefined {
+    const settled = this.settled;
+    if (!settled || !(this.viewHeight > 0)) return undefined;
+    if (Math.abs(settled.pageHeight / this.scale - pageHeight) > LAYOUT_TOLERANCE_PX) {
+      return undefined;
+    }
+    return {
+      viewHeight: this.viewHeight,
+      spans: settled.spans.map((span) => ({
+        from: span.from / this.scale,
+        to: span.to / this.scale,
+      })),
+    };
+  }
 
   noteBatch(actions: AgentAction[], results: AgentActionResult[]): void {
     this.reusable = isReusableBatch(actions, results);
@@ -258,18 +293,33 @@ export class SurveyKeeper {
   }
 }
 
+/** What placing an action's point needs: waiting, the run's scrolling, and a way to find a target again. */
+export interface PlaceDeps {
+  sleep: (ms: number) => Promise<void>;
+  scroll?: ScrollContext;
+  /**
+   * Finds an action's target again on a screenshot taken now, at the window's present place: where it is,
+   * in screenshot pixels, or null when it cannot be found (or found in two places).
+   */
+  locate?: (action: AgentAction) => Promise<{ x: number; y: number } | null>;
+}
+
 /**
- * Before an action whose point was measured on a screen of a survey: scrolls there and checks
- * the page is where it was asked to be and the shape the survey saw. It throws otherwise, so the
- * action is not done at a point that now means something else; the model looks again.
+ * Before an action whose point was measured on a screen of a survey: scrolls there and says where the
+ * point is now (CSS pixels). When the page is not the shape the survey saw, a question that appeared or an
+ * error message may have moved the point, and the target is found again by its anchor (`locate`); one that
+ * cannot be found is not guessed at: this throws, so the action is not done at a point that now means
+ * something else, and the model looks again.
  */
 export async function scrollForAction(
   cdp: Cdp,
   action: AgentAction,
   scale: number,
-  sleep: (ms: number) => Promise<void>,
-): Promise<void> {
-  if (action.scrollTo == null) return;
+  deps: PlaceDeps,
+): Promise<{ x: number; y: number }> {
+  if (action.x == null || action.y == null) throw new Error("the action has no point");
+  const own = { x: action.x / scale, y: action.y / scale };
+  if (action.scrollTo == null) return own;
   const wanted = action.scrollTo / scale;
   // A point pinned to the screenshot it was measured on (no page height) is only put back when the
   // page has moved: most actions find it where they left it, and cost no scroll and no wait.
@@ -277,15 +327,17 @@ export async function scrollForAction(
     action.pageHeight == null &&
     Math.abs((await pageState(cdp)).y - wanted) <= SCROLL_TOLERANCE_PX
   ) {
-    return;
+    return own;
   }
-  const state = await scrollPageSlowly(cdp, wanted, sleep);
-  await sleep(SURVEY_SETTLE_MS);
+  const state = await scrollPageSlowly(cdp, wanted, deps.sleep, deps.scroll, "action");
+  await deps.sleep(SURVEY_SETTLE_MS);
   if (action.pageHeight != null) {
     const saw = action.pageHeight / scale;
     if (Math.abs(state.height - saw) > LAYOUT_TOLERANCE_PX) {
+      const found = await findAgain(cdp, action, scale, deps, { wanted, saw, state });
+      if (found) return found;
       throw new Error(
-        `the page changed shape since the survey (it was ${Math.round(saw)} px tall and is ${Math.round(state.height)} px): look again before acting`,
+        `the page changed shape since the survey (it was ${Math.round(saw)} px tall and is ${Math.round(state.height)} px) and the target could not be found again: look again before acting`,
       );
     }
   }
@@ -294,4 +346,28 @@ export async function scrollForAction(
       `the page would not scroll to where the survey saw this (wanted ${Math.round(wanted)} px, got ${Math.round(state.y)} px): look again before acting`,
     );
   }
+  return own;
+}
+
+/**
+ * Finds the target of an action again on a page that changed shape: where the survey saw it, and, if it
+ * is not there, where the page's growth would have moved it (what appeared above it pushes it down by the
+ * growth). Returns the point in CSS pixels, or null.
+ */
+async function findAgain(
+  cdp: Cdp,
+  action: AgentAction,
+  scale: number,
+  deps: PlaceDeps,
+  seen: { wanted: number; saw: number; state: { y: number; height: number } },
+): Promise<{ x: number; y: number } | null> {
+  if (!deps.locate) return null;
+  const here = await deps.locate(action);
+  if (here) return { x: here.x / scale, y: here.y / scale };
+  const moved = Math.max(0, seen.wanted + (seen.state.height - seen.saw));
+  if (Math.abs(moved - seen.state.y) <= SCROLL_TOLERANCE_PX) return null;
+  await scrollPageSlowly(cdp, moved, deps.sleep, deps.scroll, "action");
+  await deps.sleep(SURVEY_SETTLE_MS);
+  const there = await deps.locate(action);
+  return there ? { x: there.x / scale, y: there.y / scale } : null;
 }

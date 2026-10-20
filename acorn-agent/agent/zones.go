@@ -17,15 +17,16 @@ import (
 // the last action of a zone is done, and the agent keeps a small crop of the survey around every
 // target (its anchor), so that when the page moves a target can be found again (docs 19.4m).
 
-// Shape of an anchor: a crop of the survey screen around the target. It reaches well above the
-// point because a field's label sits there and stays as it is when the field is filled, where the
-// field itself changes.
+// Shape of an anchor: a crop of the survey screen around the target. It reaches well above the point
+// because a field's label sits there and does not change when the field is filled, and it stops short of
+// the point's own row, where the field's value is written (typed text, a chosen option), which does.
 const (
 	// anchorWidth is the crop's width in screenshot pixels, centred on the point and clipped.
 	anchorWidth = 360
-	// anchorAbove and anchorBelow are how far the crop reaches above and below the point.
-	anchorAbove = 100
-	anchorBelow = 24
+	// anchorAbove is how far the crop reaches above the point, and anchorBottom where it ends relative to
+	// the point (negative: above it, clear of the text a filled field shows at its middle).
+	anchorAbove  = 100
+	anchorBottom = -10
 	// anchorQuality is the JPEG quality of a crop.
 	anchorQuality = 70
 	// maxZoneShots bounds the photos one batch of actions may send back.
@@ -134,11 +135,11 @@ func buildAnchors(actions []Action, obs Observation) map[string]anchor {
 	return out
 }
 
-// cropAround is the crop of img around a point (anchorWidth wide, anchorAbove above the point and
-// anchorBelow below, clipped to the image) and its JPEG.
+// cropAround is the crop of img around a point (anchorWidth wide, from anchorAbove above the point to
+// anchorBottom from it, clipped to the image) and its JPEG.
 func cropAround(img image.Image, point image.Point) (image.Rectangle, []byte, bool) {
 	bounds := img.Bounds()
-	rect := image.Rect(point.X-anchorWidth/2, point.Y-anchorAbove, point.X+anchorWidth/2, point.Y+anchorBelow).Intersect(bounds)
+	rect := image.Rect(point.X-anchorWidth/2, point.Y-anchorAbove, point.X+anchorWidth/2, point.Y+anchorBottom).Intersect(bounds)
 	if rect.Empty() {
 		return image.Rectangle{}, nil, false
 	}

@@ -37,6 +37,14 @@ type fakeScreen struct {
 	// pointRequests how many times it was asked about points.
 	wrongPoints   []string
 	pointRequests int
+	// wrongFields are the values the screen says a field does not show, and reviewRequests how many
+	// times it was asked about the fields of a zone.
+	wrongFields    []string
+	reviewRequests int
+	// optionByAnswer is the verdict for the dropdown whose answer is the key, when the lists are read
+	// side by side; noListFor is an answer whose list is not open.
+	optionByAnswer map[string]optionVerdict
+	noListFor      string
 	// closedLooks is how many of the next looks at an open dropdown see no list open (a click that missed the control).
 	closedLooks int
 }
@@ -73,6 +81,21 @@ func (f *fakeScreen) Decide(_ context.Context, req decide.Request) (decide.Respo
 		}
 		return decide.Response{Model: "fake-screen-1", Answers: answers, Usage: decide.Usage{InputTokens: 700, Cost: 0.0001}}, nil
 	}
+	if _, asked := req.Questions[expectKey(1)]; asked {
+		// The fields of one zone: a field is wrong when its question names a value the test said is wrong.
+		f.reviewRequests++
+		answers := map[string]decide.Answer{}
+		for key, question := range req.Questions {
+			p := 0.97
+			for _, value := range f.wrongFields {
+				if strings.Contains(question.Instructions, fmt.Sprintf("%q", value)) {
+					p = 0.03
+				}
+			}
+			answers[key] = decide.Answer{Type: decide.TypeNoul, Noul: &p}
+		}
+		return decide.Response{Model: "fake-screen-1", Answers: answers, Usage: decide.Usage{InputTokens: 600, Cost: 0.0001}}, nil
+	}
 	if _, asked := req.Questions[askSent]; asked {
 		p := 1.0
 		if f.sent != nil {
@@ -98,7 +121,17 @@ func (f *fakeScreen) Decide(_ context.Context, req decide.Request) (decide.Respo
 	if _, asked := req.Questions[askOption]; asked {
 		choice, sure := optionNone, 1.0
 		open := 1.0
-		if f.closedLooks > 0 {
+		if byAnswer := f.optionByAnswer; byAnswer != nil {
+			// The lists are read side by side, in no set order: each answer has its own verdict.
+			for answer, v := range byAnswer {
+				if strings.Contains(req.Questions[askOption].Instructions, strconv.Quote(answer)) && v.position > 0 {
+					choice, sure = strconv.Itoa(v.position), v.sure
+				}
+			}
+			if f.noListFor != "" && strings.Contains(req.Questions[askOption].Instructions, strconv.Quote(f.noListFor)) {
+				open = 0
+			}
+		} else if f.closedLooks > 0 {
 			f.closedLooks--
 			open = 0
 		} else if len(f.options) > 0 {

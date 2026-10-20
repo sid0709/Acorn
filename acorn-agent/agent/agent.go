@@ -48,6 +48,12 @@ type Config struct {
 	// whole page at once. The plan also runs as one piece, with no cut every ChunkActions, and
 	// without the UncheckedActions limit when no decision model checks the screen.
 	FastFillActions int
+	// ProbeDropdowns makes a fast-fill run open all the dropdowns of a run of them and read their lists side by
+	// side, instead of setting them one at a time (probe.go).
+	ProbeDropdowns bool
+	// ReviewMatch is how sure the decision model must be that a field the plan filled in shows what was
+	// typed into it, or the field is told to the model as wrong (a probability, 0 to 1; 0 turns the review off).
+	ReviewMatch float64
 	// PointMatch is how sure the decision model must be that a labelled point of a fast-fill plan
 	// is on the control its label names for the point to be acted on (a probability, 0 to 1; 0
 	// turns the check off).
@@ -122,6 +128,8 @@ func DefaultConfig() Config {
 		ChunkActions:      6,
 		FastFillActions:   60,
 		PointMatch:        0.7,
+		ReviewMatch:       0.8,
+		ProbeDropdowns:    true,
 		CheckMatch:        0.9,
 		CheckBlocked:      0.2,
 		CheckLoading:      0.3,
@@ -369,11 +377,14 @@ func (a *Agent) step(ctx context.Context, id string, obs Observation) (Step, err
 		a.record(s, stepTrace{Seq: s.seq, Step: s.step + 1, At: a.now(), URL: obs.URL, Title: obs.Title, Viewport: obs.Viewport, Error: err.Error(), Usage: s.usage}, obs.Screenshot, nil)
 		return Step{}, err
 	}
+	s.viewport = obs.Viewport
 	s.cover.see(obs.URL, obs.Viewport)
 	s.forgetSettledIfStale(obs)
 	s.seeSurvey(obs)
 	s.zones = nil
 	a.keepZoneShots(s, obs)
+	a.reviewShots(s)
+	a.collectReviews(s)
 	// What happened to every action sent since the model last looked, which may be several
 	// runs of one plan.
 	results := withoutChoose(append(append([]ActionResult(nil), s.carried...), obs.Results...))
@@ -409,6 +420,9 @@ func (a *Agent) step(ctx context.Context, id string, obs Observation) (Step, err
 	}
 
 	if step, ok := a.handlePicker(ctx, s, obs, results, sig); ok {
+		return step, nil
+	}
+	if step, ok := a.continueProbe(ctx, s, obs, results, sig); ok {
 		return step, nil
 	}
 	if step, ok := a.continueScript(ctx, s, obs, results, sig); ok {
@@ -493,6 +507,11 @@ func (a *Agent) step(ctx context.Context, id string, obs Observation) (Step, err
 		}
 		s.anchors = nil
 	}
+	planned, blueScrolls := s.withoutBlueScrolls(planned, obs)
+	if blueScrolls > 0 {
+		dropped = append(dropped, fmt.Sprintf("%s to a settled part of the page not made", plainlog.Count(blueScrolls, "scroll")))
+		s.notes = append(s.notes, blueScrollNote)
+	}
 	planned, surveyAsked := withoutSurvey(planned)
 	// A run that did not turn surveys on is not told they exist, and one the model asks for anyway is ignored.
 	surveyAsked = surveyAsked && s.start.Survey
@@ -515,6 +534,9 @@ func (a *Agent) step(ctx context.Context, id string, obs Observation) (Step, err
 	if settled := s.markSettled(obs, answer.Settled, planned, claimed); settled > 0 {
 		slog.Info(settledLine(s.id, settled, s.settled.Spans))
 	}
+	// What this plan fills in, by zone, for the reviews of its zones.
+	s.planGen++
+	s.expect = expectationsOf(planned)
 	status := answer.Status
 	// "Done" is the page's confirmation, not the model's word: a done the screen does not show is sent back.
 	if note, held := a.holdDone(ctx, s, obs, &answer); held {
@@ -574,6 +596,7 @@ func (a *Agent) step(ctx context.Context, id string, obs Observation) (Step, err
 
 // record writes one entry of the run to the trace and one line to the server's log.
 func (a *Agent) record(s *session, entry stepTrace, screenshot string, calls []modelCall) {
+	calls = append(s.takeReviewCalls(), calls...)
 	entry.StartedAt, entry.EndedAt = s.stepStarted, a.now()
 	entry.DurationMs = entry.EndedAt.Sub(entry.StartedAt).Milliseconds()
 	level, line := storyOf(s.id, s.created, entry, calls)

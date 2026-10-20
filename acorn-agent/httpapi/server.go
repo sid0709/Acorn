@@ -41,6 +41,8 @@ const (
 	stepTimeout = 5 * time.Minute
 	// vetTimeout bounds one check of a control or window: a click waits for it.
 	vetTimeout = 20 * time.Second
+	// locateTimeout bounds finding a target again on a screenshot: an action waits for it.
+	locateTimeout = 10 * time.Second
 )
 
 // Options configure the server.
@@ -82,6 +84,8 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("POST "+BasePath+"/sessions/{id}/continue", s.continueRun)
 	mux.HandleFunc("GET "+BasePath+"/sessions/{id}/memory", s.memory)
 	mux.HandleFunc("POST "+BasePath+"/sessions/{id}/vet", s.vet)
+	mux.HandleFunc("POST "+BasePath+"/sessions/{id}/locate", s.locate)
+	mux.HandleFunc("POST "+BasePath+"/sessions/{id}/shots", s.shots)
 	mux.HandleFunc("GET "+BasePath+"/sessions/{id}/resume", s.resume)
 	mux.HandleFunc("DELETE "+BasePath+"/sessions/{id}", s.end)
 	return s.cors(logged(mux))
@@ -166,6 +170,33 @@ func (s *Server) vet(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(w, http.StatusOK, verdict)
+}
+
+func (s *Server) locate(w http.ResponseWriter, r *http.Request) {
+	var request agent.LocateRequest
+	if !decode(w, r, &request) {
+		return
+	}
+	ctx, cancel := context.WithTimeout(r.Context(), locateTimeout)
+	defer cancel()
+	found, err := s.agent.Locate(ctx, r.PathValue("id"), request)
+	if err != nil {
+		writeError(w, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, found)
+}
+
+func (s *Server) shots(w http.ResponseWriter, r *http.Request) {
+	var upload agent.ShotUpload
+	if !decode(w, r, &upload) {
+		return
+	}
+	if err := s.agent.ReceiveShot(r.Context(), r.PathValue("id"), upload); err != nil {
+		writeError(w, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]bool{"ok": true})
 }
 
 func (s *Server) resume(w http.ResponseWriter, r *http.Request) {

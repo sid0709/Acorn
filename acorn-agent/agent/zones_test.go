@@ -48,7 +48,7 @@ func decodeCrop(t *testing.T, raw []byte) image.Image {
 
 func TestEveryPointGetsACropOfItsOwnSurveyScreenAroundIt(t *testing.T) {
 	obs := surveyObservation(t)
-	plan := []Action{pointAt(KindClick, 1, 640, 400), {ID: "typed", Kind: KindType, Zone: 1}, pointAt(KindChoose, 3, 5, 790), pointAt(KindUpload, 2, 1275, 3)}
+	plan := []Action{pointAt(KindClick, 1, 640, 400), {ID: "typed", Kind: KindType, Zone: 1}, pointAt(KindChoose, 3, 5, 790), pointAt(KindUpload, 2, 1275, 40)}
 	plan[2].ID, plan[3].ID = "edge", "corner"
 	got := buildAnchors(plan, obs)
 	if len(got) != 3 {
@@ -61,7 +61,7 @@ func TestEveryPointGetsACropOfItsOwnSurveyScreenAroundIt(t *testing.T) {
 	if middle.Zone != 1 || middle.ScrollY != 0 || middle.Point != image.Pt(640, 400) {
 		t.Fatalf("anchor = %+v", middle)
 	}
-	if want := image.Rect(640-anchorWidth/2, 400-anchorAbove, 640+anchorWidth/2, 400+anchorBelow); middle.Rect != want {
+	if want := image.Rect(640-anchorWidth/2, 400-anchorAbove, 640+anchorWidth/2, 400+anchorBottom); middle.Rect != want {
 		t.Fatalf("crop %v, want %v", middle.Rect, want)
 	}
 	if size := decodeCrop(t, middle.JPEG).Bounds().Size(); size != middle.Rect.Size() {
@@ -69,7 +69,7 @@ func TestEveryPointGetsACropOfItsOwnSurveyScreenAroundIt(t *testing.T) {
 	}
 	// A point near the edge of the screen is cropped to what the screen has.
 	edge := got["edge"]
-	if edge.Zone != 3 || edge.ScrollY != 1360 || edge.Rect.Min.X != 0 || edge.Rect.Max.Y != 800 {
+	if edge.Zone != 3 || edge.ScrollY != 1360 || edge.Rect.Min.X != 0 || edge.Rect.Max.Y != 790+anchorBottom {
 		t.Fatalf("edge anchor = %+v", edge)
 	}
 	corner := got["corner"]
@@ -84,13 +84,13 @@ func TestACropIsTakenFromTheScreenTheModelMeasuredItOn(t *testing.T) {
 	patch := image.Rect(600, 380, 700, 420)
 	obs.Survey[1].Screenshot = shot(t, 200, patch)
 	middle := buildAnchors([]Action{pointAt(KindClick, 2, 650, 400)}, obs)["click"]
-	img := decodeCrop(t, middle.JPEG)
-	inside := color.GrayModel.Convert(img.At(650-middle.Rect.Min.X, 400-middle.Rect.Min.Y)).(color.Gray).Y
-	if inside > 60 {
+	// Row 385 is inside the crop (it ends 10 px above the point) and inside the patch.
+	row := 385 - middle.Rect.Min.Y
+	if inside := color.GrayModel.Convert(decodeCrop(t, middle.JPEG).At(650-middle.Rect.Min.X, row)).(color.Gray).Y; inside > 60 {
 		t.Fatalf("the crop does not show screen 2's patch: %d", inside)
 	}
 	other := buildAnchors([]Action{pointAt(KindClick, 3, 650, 400)}, obs)["click"]
-	if got := color.GrayModel.Convert(decodeCrop(t, other.JPEG).At(650-other.Rect.Min.X, 400-other.Rect.Min.Y)).(color.Gray).Y; got < 150 {
+	if got := color.GrayModel.Convert(decodeCrop(t, other.JPEG).At(650-other.Rect.Min.X, 385-other.Rect.Min.Y)).(color.Gray).Y; got < 150 {
 		t.Fatalf("screen 3's crop shows the patch: %d", got)
 	}
 }

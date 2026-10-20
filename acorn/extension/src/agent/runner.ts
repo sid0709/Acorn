@@ -38,6 +38,8 @@ import {
   endSession,
   fetchResumeFile,
   isRetryable,
+  locateTarget,
+  sendShot,
   sendStep,
   startSession,
   vetTarget,
@@ -59,6 +61,7 @@ import {
 } from "./mail-verification";
 import { readFocus, readPageText } from "./page-info";
 import { PageMapKeeper, pageKey } from "./page-map";
+import { type ScrollContext } from "./page-scroll";
 import {
   agentRunState,
   endProgress,
@@ -180,6 +183,8 @@ export function describeAction(action: AgentAction): string {
       return `scroll ${Math.round(action.dx ?? 0)},${Math.round(action.dy ?? 0)}`;
     case "wait":
       return `wait ${action.ms ?? 0}ms`;
+    case "snap":
+      return "take a picture of the page";
     case "upload":
       return `upload ${action.fileName ?? action.resume ?? ""} at ${Math.round(action.x ?? 0)},${Math.round(action.y ?? 0)}`;
     default:
@@ -227,7 +232,8 @@ function applySettled(step: AgentStep, surveys: SurveyKeeper, pages: PageMapKeep
 /** A look at a page the run has not seen: nothing seen or settled on the last one holds, and its minimap goes. */
 function forgetPage(
   newPage: boolean,
-  key: string,
+  from: string,
+  to: string,
   surveys: SurveyKeeper,
   pages: PageMapKeeper,
   log: RunLog,
@@ -235,7 +241,7 @@ function forgetPage(
   if (!newPage) return;
   surveys.forget();
   pages.clear();
-  log.event("agent-page", { page: key.split("\n")[0] });
+  log.event("agent-page", { from: logUrl(from), to: logUrl(to) });
 }
 
 /** A run surveys when it was set to, or the server says it does (fast fill, which the server may turn on for all runs). */
@@ -342,6 +348,12 @@ export async function runAgent(args: AgentRunArgs): Promise<RunReport> {
   const emit = (progress: PipelineProgress) => args.emit(tabs, progress);
   // The page the run is on, for the sidebar's minimap, and the line the card shows beside it.
   const pageMap = new PageMapKeeper();
+  // What the survey has taken and what the model settled, which the run's scrolling keeps out of.
+  const surveys = new SurveyKeeper();
+  const scrolls: ScrollContext = {
+    blue: (pageHeight) => surveys.blue(pageHeight),
+    note: (move) => log.event("agent-scroll", move),
+  };
   let lastMessage = AGENT_STARTING_MESSAGE;
   const runState = (control?: string, ask?: AgentAsk) =>
     agentRunState({
@@ -495,12 +507,76 @@ export async function runAgent(args: AgentRunArgs): Promise<RunReport> {
     checkStopped,
     guard: clickGuard,
     afterClick: () => frames.sweep(),
+    scroll: scrolls,
+    snap: async (action) => {
+      const here = must(current);
+      await here.overlay.hideForCapture(true);
+      try {
+        const photo = await captureShot(here.cdp);
+        const focus = await readFocus(here.cdp);
+        // A picture that did not get through is not an error: the dropdown goes back to being set one at a time.
+        await sendShot(
+          args.agentUrl,
+          must(sessionId),
+          {
+            kind: "snap",
+            id: action.id,
+            screenshot: photo.dataUrl,
+            scrollY: photo.viewport.scrollY,
+            focus,
+          },
+          signal,
+          onHttp,
+        ).catch((err: unknown) => {
+          if (signal.aborted) throw err;
+        });
+      } finally {
+        await here.overlay.hideForCapture(false);
+      }
+    },
+    locate: async (action) => {
+      const here = must(current);
+      await here.overlay.hideForCapture(true);
+      try {
+        const photo = await captureShot(here.cdp);
+        const found = await locateTarget(
+          args.agentUrl,
+          must(sessionId),
+          { actionId: action.id, screenshot: photo.dataUrl, scrollY: photo.viewport.scrollY },
+          signal,
+          onHttp,
+        );
+        log.event("agent-locate", {
+          id: action.id,
+          found: found.found,
+          score: found.score,
+          reason: found.reason,
+        });
+        return found.found && found.x != null && found.y != null
+          ? { x: found.x, y: found.y }
+          : null;
+      } catch (err) {
+        if (signal.aborted) throw err;
+        return null;
+      } finally {
+        await here.overlay.hideForCapture(false);
+      }
+    },
     zoneDone: async (zone) => {
       const here = must(current);
       await here.overlay.hideForCapture(true);
       try {
         const photo = await captureShot(here.cdp);
         zoneShots.push({ zone, screenshot: photo.dataUrl, scrollY: photo.viewport.scrollY });
+        // The agent reviews the zone while the next one is carried out; the look after the plan carries the
+        // same photo as well, for a photo that did not get through.
+        void sendShot(
+          args.agentUrl,
+          must(sessionId),
+          { kind: "zone", zone, screenshot: photo.dataUrl, scrollY: photo.viewport.scrollY },
+          signal,
+          onHttp,
+        ).catch(() => undefined);
         showMap(photo.viewport.scrollY / photo.scale);
       } finally {
         await here.overlay.hideForCapture(false);
@@ -680,7 +756,6 @@ export async function runAgent(args: AgentRunArgs): Promise<RunReport> {
     let surveyNext = surveyOn;
     // What the last survey saw, so the next one takes again only what changed; and whether the batch
     // just carried out leaves it good for the parts the batch did not touch (survey.ts).
-    const surveys = new SurveyKeeper();
     let lastLook = "";
     for (;;) {
       checkStopped();
@@ -696,15 +771,16 @@ export async function runAgent(args: AgentRunArgs): Promise<RunReport> {
       await look.time("sweep", () => frames.sweep());
       await look.time("overlay", () => here.overlay.ensure());
       const info = await look.time("tabInfo", () => chrome.tabs.get(here.tabId));
-      const lookKey = pageKey(info.url, info.title);
+      const lookKey = pageKey(info.url);
+      const cameFrom = lastLook;
       const newPage = lookKey !== lastLook;
       const surveying = surveyOn && (surveyNext || newPage);
       surveyNext = false;
       lastLook = lookKey;
       // A page is first looked at from its top: a run that starts, or a click that opens another page,
       // must not begin in the middle of a form whose first questions lie above the screen.
-      forgetPage(newPage, lookKey, surveys, pageMap, log);
-      if (newPage) await look.time("scrollTop", () => scrollToTop(here.cdp, sleep));
+      forgetPage(newPage, cameFrom, lookKey, surveys, pageMap, log);
+      if (newPage) await look.time("scrollTop", () => scrollToTop(here.cdp, sleep, scrolls));
       // A scroll still running (a key, a click, a list scrolling itself into view) is waited out.
       await look.time("scrollRest", () => waitForScrollRest(here.cdp, sleep));
       let survey: AgentSurveyScreen[] | null = null;
@@ -712,12 +788,13 @@ export async function runAgent(args: AgentRunArgs): Promise<RunReport> {
       await look.time("hideOverlay", () => here.overlay.hideForCapture(true));
       try {
         shot = await look.time("shot", () => captureShot(here.cdp));
+        surveys.seen(shot);
         if (surveying) {
           const first = shot;
           survey = await look
             .time("survey", () =>
               surveys.take(
-                { cdp: here.cdp, sleep, checkStopped, onMove: showMap },
+                { cdp: here.cdp, sleep, checkStopped, onMove: showMap, scroll: scrolls },
                 first,
                 zoneShots,
               ),

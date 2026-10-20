@@ -153,3 +153,46 @@ func (s *session) seeSurvey(obs Observation) {
 		s.cover.see(obs.URL, view)
 	}
 }
+
+// blueScrollNote tells the model why a scroll it planned was not made.
+const blueScrollNote = "You planned a scroll to a part of the page you settled (blue on the page's map): you will not need to come back to it, so Acorn did not go there."
+
+// withoutBlueScrolls is the plan without the scrolls that would end with the window wholly inside a
+// part of the page the model settled: it never goes back into one. A scroll is judged from where the
+// window is when it is made, which is where the plan's earlier scrolls and its pinned points put it.
+// It says how many it dropped.
+func (s *session) withoutBlueScrolls(planned []Action, obs Observation) ([]Action, int) {
+	if len(s.settled.Spans) == 0 {
+		return planned, 0
+	}
+	height := float64(obs.Viewport.Height)
+	last := max(0, obs.Viewport.PageHeight-height)
+	at := obs.Viewport.ScrollY
+	var kept []Action
+	dropped := 0
+	for _, action := range planned {
+		if action.ScrollTo != nil {
+			at = *action.ScrollTo
+		}
+		if action.Kind == KindScroll {
+			target := min(max(at+action.DY, 0), last)
+			if s.inSettled(target, height) {
+				dropped++
+				continue
+			}
+			at = target
+		}
+		kept = append(kept, action)
+	}
+	return kept, dropped
+}
+
+// inSettled is whether the window of the given height, with its top at y, lies wholly in a settled stretch.
+func (s *session) inSettled(y, height float64) bool {
+	for _, span := range s.settled.Spans {
+		if span.From <= y+1 && span.To >= y+height-1 {
+			return true
+		}
+	}
+	return false
+}

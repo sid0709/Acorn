@@ -122,9 +122,21 @@ type session struct {
 	anchors map[string]anchor
 	// settled is the parts of the page the model will not come back to (settled.go).
 	settled settledState
+	// viewport is the window as the last look saw it, to check the pictures sent mid-batch against.
+	viewport Viewport
+	// planGen counts the plans the model has made, and expect is what the current plan fills in, by
+	// zone; reviews are the reviews of its zones running beside it (review.go).
+	planGen int
+	expect  map[int][]expectation
+	reviews reviewState
+	// snaps are the photos of open dropdowns sent mid-batch, by action id (probe.go).
+	snaps map[string]ShotUpload
 	// surveyAgain asks for the next look to be a survey: points of the last plan were not carried
 	// out, and the model must see the whole page again to plan them.
 	surveyAgain bool
+	// probe is a run of the model's actions with dropdowns in it, being carried out by probing them
+	// together (probe.go); script the same run being carried out one dropdown at a time (choose.go).
+	probe *probeRun
 	// script is a run of the model's actions with a dropdown to set in it, being carried out.
 	script *script
 	// cover is what the run has looked at on the page it is on, in pixels from the top.

@@ -388,3 +388,38 @@ func TestAStoppedRunContinuesOverHTTP(t *testing.T) {
 		t.Fatalf("continue after end = %d %s", response.StatusCode, body)
 	}
 }
+
+func TestLocateAndShotsAnswerForARunAndRefuseAnUnknownOne(t *testing.T) {
+	_, ts := newServer(t, fakeModel{content: workingReply}, "server-key")
+	_, body := send(t, http.MethodPost, ts.URL+BasePath+"/sessions", agent.Start{URL: "https://jobs.example"}, nil)
+	var started agent.Started
+	if err := json.Unmarshal(body, &started); err != nil {
+		t.Fatal(err)
+	}
+	base := ts.URL + BasePath + "/sessions/"
+
+	// A target the agent has no picture of is not found, which is an answer and not an error.
+	response, body := send(t, http.MethodPost, base+started.SessionID+"/locate", agent.LocateRequest{ActionID: "s1a1", Screenshot: screenshot(t)}, nil)
+	var located agent.LocateResult
+	_ = json.Unmarshal(body, &located)
+	if response.StatusCode != 200 || located.Found || located.Reason == "" {
+		t.Fatalf("locate = %d %+v", response.StatusCode, located)
+	}
+	if response, _ := send(t, http.MethodPost, base+"nope/locate", agent.LocateRequest{ActionID: "s1a1", Screenshot: screenshot(t)}, nil); response.StatusCode != http.StatusNotFound {
+		t.Fatalf("locate on an unknown run = %d", response.StatusCode)
+	}
+	if response, _ := send(t, http.MethodPost, base+started.SessionID+"/locate", "not an object", nil); response.StatusCode != http.StatusBadRequest {
+		t.Fatalf("a body that is not a request = %d", response.StatusCode)
+	}
+
+	// A snap is kept; a kind nobody sends is refused; an unknown run is unknown.
+	if response, _ := send(t, http.MethodPost, base+started.SessionID+"/shots", agent.ShotUpload{Kind: agent.ShotSnap, ID: "s1ch1", Screenshot: screenshot(t)}, nil); response.StatusCode != 200 {
+		t.Fatalf("a snap = %d", response.StatusCode)
+	}
+	if response, _ := send(t, http.MethodPost, base+started.SessionID+"/shots", agent.ShotUpload{Kind: "mystery", Screenshot: screenshot(t)}, nil); response.StatusCode < 400 {
+		t.Fatalf("a shot of an unknown kind = %d", response.StatusCode)
+	}
+	if response, _ := send(t, http.MethodPost, base+"nope/shots", agent.ShotUpload{Kind: agent.ShotZone, Screenshot: screenshot(t)}, nil); response.StatusCode != http.StatusNotFound {
+		t.Fatalf("a shot for an unknown run = %d", response.StatusCode)
+	}
+}

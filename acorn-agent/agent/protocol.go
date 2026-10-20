@@ -25,6 +25,9 @@ const (
 	// KindSurvey is not sent to the extension: it asks for the next look to be a survey of
 	// the whole page (Step.Survey).
 	KindSurvey = "survey"
+	// KindSnap is an action of the agent's own, never the model's: the extension takes a picture of the
+	// page and sends it to the agent at once, so a dropdown that was opened can be looked at (probe.go).
+	KindSnap = "snap"
 )
 
 // Run statuses the agent reports with each step.

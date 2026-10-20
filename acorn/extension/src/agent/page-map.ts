@@ -12,13 +12,14 @@ import type { RunMap } from "@acorn/shared/run-types";
 export const MAP_MIN_PAGE_RATIO = 1.1;
 
 /**
- * The page a look is of, without the place on it the address names: an Apply button that jumps to the
- * form below changes the fragment (`#application`) and not the page, so it is not a new page that is
- * looked at from its top, and what was settled on it holds.
+ * Which page a look is of: its address without the place on it the address names. An Apply button that
+ * jumps to the form below changes the fragment (`#application`) and not the page; a title that changes
+ * (an unread count, a step's name) is not another page either. Only another address is a new page,
+ * which is looked at from its top and forgets what was settled on the last.
  */
-export function pageKey(url: string | undefined, title: string | undefined): string {
+export function pageKey(url: string | undefined): string {
   const [page] = (url ?? "").split("#");
-  return `${page ?? ""}\n${title ?? ""}`;
+  return page ?? "";
 }
 
 /** Keeps the map of the page the run is on and says it when asked. */

@@ -16,6 +16,8 @@ export const AGENT_ROUTES = {
   vet: (sessionId: string) => `/agent/v1/sessions/${encodeURIComponent(sessionId)}/vet`,
   continue: (sessionId: string) => `/agent/v1/sessions/${encodeURIComponent(sessionId)}/continue`,
   memory: (sessionId: string) => `/agent/v1/sessions/${encodeURIComponent(sessionId)}/memory`,
+  locate: (sessionId: string) => `/agent/v1/sessions/${encodeURIComponent(sessionId)}/locate`,
+  shots: (sessionId: string) => `/agent/v1/sessions/${encodeURIComponent(sessionId)}/shots`,
 } as const;
 
 /** Header that carries the person's OpenRouter key when the extension has one. */
@@ -39,6 +41,8 @@ export const ACTION_KIND = {
   scroll: "scroll",
   upload: "upload",
   wait: "wait",
+  /** The agent's own, never the model's: take a picture of the page now and send it at once (a dropdown's list). */
+  snap: "snap",
 } as const;
 
 export type ActionKind = (typeof ACTION_KIND)[keyof typeof ACTION_KIND];
@@ -179,6 +183,44 @@ export interface AgentActionResult {
   error?: string;
   detail?: string;
   opened?: ActionOpened;
+}
+
+/**
+ * A picture the extension sends while a batch of actions is still being carried out, so the agent can work
+ * on it meanwhile: a zone's photo when its last action is done (reviewed on the side), or the photo of a
+ * dropdown a `snap` action opened (probed).
+ */
+export interface AgentShotUpload {
+  kind: "zone" | "snap";
+  /** The survey screen of a zone photo. */
+  zone?: number;
+  /** The `snap` action a dropdown photo is of. */
+  id?: string;
+  screenshot: string;
+  /** Where the page was scrolled to (screenshot pixels). */
+  scrollY: number;
+  /** What the page said had focus: a native list reports its options as text. */
+  focus?: AgentFocus | null;
+}
+
+/**
+ * Where is the target of this action now? The page changed shape since the survey, so the extension
+ * sends a screenshot taken at the window's place and the agent finds the target by its anchor.
+ */
+export interface AgentLocate {
+  actionId: string;
+  screenshot: string;
+  /** Where the page was scrolled to when the screenshot was taken (screenshot pixels). */
+  scrollY: number;
+}
+
+/** The answer: the target's point in the screenshot's pixels, or why it was not found. */
+export interface AgentLocated {
+  found: boolean;
+  x?: number;
+  y?: number;
+  score?: number;
+  reason?: string;
 }
 
 /** The parts of a page the model will not come back to (painted blue on the minimap), in screenshot pixels from its top. */

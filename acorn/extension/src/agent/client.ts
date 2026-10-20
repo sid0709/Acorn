@@ -18,6 +18,9 @@ import {
   type AgentStarted,
   type AgentStep,
   type AgentVetTarget,
+  type AgentLocate,
+  type AgentLocated,
+  type AgentShotUpload,
   type AgentVetVerdict,
 } from "@acorn/shared/agent-contract";
 
@@ -272,6 +275,41 @@ export async function vetTarget(
     onTiming,
   });
   return parseJson<AgentVetVerdict>(response);
+}
+
+/** Asks the agent where the target of an action is on a screenshot taken now (the page changed shape). */
+export async function locateTarget(
+  base: string,
+  sessionId: string,
+  request: AgentLocate,
+  signal: AbortSignal,
+  onTiming?: CallOptions["onTiming"],
+): Promise<AgentLocated> {
+  const response = await call(base, AGENT_ROUTES.locate(sessionId), {
+    method: "POST",
+    body: request,
+    signal,
+    timeoutMs: QUICK_TIMEOUT_MS,
+    onTiming,
+  });
+  return parseJson<AgentLocated>(response);
+}
+
+/** Sends a picture while a batch is still being carried out; the agent works on it meanwhile. */
+export async function sendShot(
+  base: string,
+  sessionId: string,
+  upload: AgentShotUpload,
+  signal: AbortSignal,
+  onTiming?: CallOptions["onTiming"],
+): Promise<void> {
+  await call(base, AGENT_ROUTES.shots(sessionId), {
+    method: "POST",
+    body: upload,
+    signal,
+    timeoutMs: QUICK_TIMEOUT_MS,
+    onTiming,
+  });
 }
 
 /** Ends a run's session. A failure here changes nothing for the person, so it is not raised. */
