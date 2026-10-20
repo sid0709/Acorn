@@ -155,6 +155,7 @@ func (c *OpenRouter) Complete(ctx context.Context, req Request) (Response, error
 	var requests []Attempt
 	var backoff time.Duration
 	started := time.Now()
+	stats := MeasureMessages(req.Messages)
 	finish := func(response Response, attempts int) Response {
 		response.Latency, response.Attempts = time.Since(started), attempts
 		response.StartedAt, response.Requests = started, requests
@@ -165,6 +166,7 @@ func (c *OpenRouter) Complete(ctx context.Context, req Request) (Response, error
 		usage.Add(response.Usage)
 		for _, request := range response.Requests {
 			request.BackoffMs = backoff.Milliseconds()
+			request.Body = &stats
 			requests = append(requests, request)
 		}
 		if err == nil {

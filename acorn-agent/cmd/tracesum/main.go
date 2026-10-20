@@ -46,15 +46,85 @@ type call struct {
 	Provider     string `json:"provider"`
 	GenerationID string `json:"generationId"`
 	// Requests times each HTTP request of the call (traces from v1.88 on).
-	Requests []struct {
-		BackoffMs int64 `json:"backoffMs"`
-		ConnectMs int64 `json:"connectMs"`
-		SendMs    int64 `json:"sendMs"`
-		WaitMs    int64 `json:"waitMs"`
-		ReadMs    int64 `json:"readMs"`
-		Status    int   `json:"status"`
-	} `json:"requests"`
+	Requests []request `json:"requests"`
 }
+
+// request is one HTTP request of a call. The size and protocol fields come from traces that
+// record the traffic (v1.89.4 on).
+type request struct {
+	BackoffMs       int64  `json:"backoffMs"`
+	ConnectMs       int64  `json:"connectMs"`
+	SendMs          int64  `json:"sendMs"`
+	WaitMs          int64  `json:"waitMs"`
+	ReadMs          int64  `json:"readMs"`
+	Status          int    `json:"status"`
+	Proto           string `json:"proto"`
+	SendBytesPerSec int64  `json:"sendBytesPerSec"`
+	RequestBytes    int64  `json:"requestBytes"`
+	ResponseBytes   int64  `json:"responseBytes"`
+	Body            *struct {
+		SystemBytes       int64 `json:"systemBytes"`
+		HistoryTextBytes  int64 `json:"historyTextBytes"`
+		CurrentTextBytes  int64 `json:"currentTextBytes"`
+		HistoryImages     int64 `json:"historyImages"`
+		HistoryImageBytes int64 `json:"historyImageBytes"`
+		CurrentImages     int64 `json:"currentImages"`
+		CurrentImageBytes int64 `json:"currentImageBytes"`
+	} `json:"body"`
+}
+
+// traffic sums what one model's requests sent and how fast, and keeps the largest.
+type traffic struct {
+	requests       int
+	sent, received int64
+	sendMs         int64
+	protos         map[string]bool
+	largest        request
+}
+
+func (t *traffic) add(r request) {
+	if r.RequestBytes == 0 {
+		return
+	}
+	t.requests++
+	t.sent += r.RequestBytes
+	t.received += r.ResponseBytes
+	t.sendMs += r.SendMs
+	if r.Proto != "" {
+		if t.protos == nil {
+			t.protos = map[string]bool{}
+		}
+		t.protos[r.Proto] = true
+	}
+	if r.RequestBytes > t.largest.RequestBytes {
+		t.largest = r
+	}
+}
+
+func (t *traffic) print(label string) {
+	if t.requests == 0 {
+		return
+	}
+	protos := make([]string, 0, len(t.protos))
+	for proto := range t.protos {
+		protos = append(protos, proto)
+	}
+	sort.Strings(protos)
+	rate := int64(0)
+	if t.sendMs > 0 {
+		rate = t.sent * 1000 / t.sendMs
+	}
+	fmt.Printf("  %s: %d requests, %s sent, %s received, sending took %s (%s/s on average), protocol %s\n",
+		label, t.requests, kb(t.sent), kb(t.received), (time.Duration(t.sendMs) * time.Millisecond).Round(time.Millisecond), kb(rate), orNone(strings.Join(protos, ",")))
+	if body := t.largest.Body; body != nil {
+		fmt.Printf("    largest request %s = system %s + text %s + %d images %s (%d of them history, %s)\n",
+			kb(t.largest.RequestBytes), kb(body.SystemBytes), kb(body.HistoryTextBytes+body.CurrentTextBytes),
+			body.HistoryImages+body.CurrentImages, kb(body.HistoryImageBytes+body.CurrentImageBytes),
+			body.HistoryImages, kb(body.HistoryImageBytes))
+	}
+}
+
+func kb(bytes int64) string { return fmt.Sprintf("%.0f KB", float64(bytes)/1024) }
 
 // phases sums where the model calls' time went, request by request.
 type phases struct {
@@ -112,6 +182,7 @@ func summarize(dir string) error {
 	sort.Strings(steps)
 	var model, screen tally
 	var net phases
+	var driving, deciding traffic
 	var server time.Duration
 	outcomes := map[string]int{}
 	actions, failures := 0, 0
@@ -141,7 +212,13 @@ func summarize(dir string) error {
 		for _, c := range calls {
 			if c.Kind == "decision" {
 				screen.add(c)
+				for _, r := range c.Requests {
+					deciding.add(r)
+				}
 				continue
+			}
+			for _, r := range c.Requests {
+				driving.add(r)
 			}
 			model.add(c)
 			net.add(c)
@@ -173,6 +250,8 @@ func summarize(dir string) error {
 				c.LatencyMs, orNone(c.Provider), orNone(c.GenerationID), len(c.Requests), c.Usage.InputTokens, c.Usage.CachedTokens, c.Usage.OutputTokens)
 		}
 	}
+	driving.print("driving model traffic")
+	deciding.print("decision model traffic")
 	fmt.Println()
 	return nil
 }

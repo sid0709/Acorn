@@ -1,4 +1,5 @@
 import { AGENT_ZIP_FOLDER, TIMELINE_FILE, isImageName } from "../agent/trace-names";
+import { trafficLines } from "../agent-traffic";
 import { LOG_KIND, type TabLogEntry } from "../tab-log-session";
 
 /** An Agent Run's files in the log, laid out for the zip: `agent/<run>/001.json`, `001.jpg`, … */
@@ -60,7 +61,11 @@ function seconds(ms: number): string {
  * One run's numbers from its model files, so a slow run can be read at a glance: how many calls the
  * model made, how long they took, what they sent and cost. The same figures as the agent's tracesum.
  */
-export function summarizeAgentRun(modelFiles: readonly string[], entries: number): string {
+export function summarizeAgentRun(
+  modelFiles: readonly string[],
+  entries: number,
+  logEntries: readonly TabLogEntry[] = [],
+): string {
   let driving = 0;
   let drivingMs = 0;
   let checks = 0;
@@ -98,6 +103,7 @@ export function summarizeAgentRun(modelFiles: readonly string[], entries: number
     `        ${input} tokens in (${cached} cached), ${output} out, ${driving ? Math.round(input / driving) : 0} in a call`,
     `checks: ${checks} calls, ${seconds(checkMs)} in all, ${per(checkMs, checks)} a call`,
     `cost: $${cost.toFixed(4)}`,
+    ...trafficLines(modelFiles, logEntries).map((line) => `traffic ${line}`),
     "",
   ].join("\n");
 }
@@ -109,8 +115,16 @@ export function agentZipFiles(entries: readonly TabLogEntry[]): AgentZipFile[] {
     string,
     { files: Map<string, AgentZipFile>; models: string[]; last: number }
   >();
+  const requests = new Map<string, TabLogEntry[]>();
   for (const entry of entries) {
-    if (!isAgentFile(entry)) continue;
+    if (!isAgentFile(entry)) {
+      // The run's own requests to the agent and its résumé reads, for the traffic summary.
+      if (entry.runId && /agent-(http|resume)/.test(entry.title)) {
+        const folder = folderOf(entry.runId);
+        requests.set(folder, [...(requests.get(folder) ?? []), entry]);
+      }
+      continue;
+    }
     const folder = folderOf(entry.runId);
     let run = runs.get(folder);
     if (!run) {
@@ -138,7 +152,7 @@ export function agentZipFiles(entries: readonly TabLogEntry[]): AgentZipFile[] {
     const entryCount = [...run.files.keys()].filter((path) => /\/\d{3}\.json$/.test(path)).length;
     out.push({
       name: `${folder}/${SUMMARY_FILE}`,
-      data: encoder.encode(summarizeAgentRun(run.models, entryCount)),
+      data: encoder.encode(summarizeAgentRun(run.models, entryCount, requests.get(folder) ?? [])),
       modified: new Date(run.last),
     });
     out.push(...run.files.values());

@@ -156,3 +156,33 @@ func TestAnIdIsEscapedSoItCannotReachAnotherRoute(t *testing.T) {
 		t.Fatalf("path = %q", path)
 	}
 }
+
+func TestAFileReadReportsTheBackendHopAndPassesItsTimingOn(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Server-Timing", `auth;dur=2.0, library;dur=800.0;desc="variants=2"`)
+		w.Header().Set("X-File-Name", "go.pdf")
+		_, _ = w.Write([]byte("%PDF-1.4 go"))
+	}))
+	defer server.Close()
+	ctx, timing := WithTiming(context.Background())
+	if _, _, err := NewBackend(server.URL).ResumeFor(ctx, Auth{Token: "good-token"}, "a1"); err != nil {
+		t.Fatal(err)
+	}
+	got := timing.ServerTiming()
+	for _, want := range []string{`backend-wait;dur=`, `desc="bytes=11"`, `backend-in-auth;dur=2.0`, `backend-in-library;dur=800.0;desc="variants=2"`} {
+		if !strings.Contains(got, want) {
+			t.Fatalf("%q is missing %q", got, want)
+		}
+	}
+}
+
+func TestTheStartOfARunReportsTheProfileReadToo(t *testing.T) {
+	server, _ := fakeBackend(t)
+	ctx, timing := WithTiming(context.Background())
+	if _, err := NewBackend(server.URL).SnapshotFor(ctx, Auth{Token: "good-token"}); err != nil {
+		t.Fatal(err)
+	}
+	if got := timing.ServerTiming(); !strings.Contains(got, `backend-read;dur=`) {
+		t.Fatalf("timing = %q", got)
+	}
+}

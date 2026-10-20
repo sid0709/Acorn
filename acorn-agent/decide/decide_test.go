@@ -92,3 +92,19 @@ func TestDecideDoesNotRetryAnOutOfCreditsAnswer(t *testing.T) {
 		t.Fatalf("code = %q", llm.Code(err))
 	}
 }
+
+func TestMeasureCountsTheStateAndTheQuestions(t *testing.T) {
+	stats := measure(Request{
+		State:     []Part{Text("a page"), Image("data:image/jpeg;base64,AAAA")},
+		Questions: map[string]Question{"q": YesNo("is it?")},
+	})
+	if stats.CurrentImages != 1 || stats.CurrentImageBytes != len("data:image/jpeg;base64,AAAA") {
+		t.Fatalf("images = %+v", stats)
+	}
+	if stats.CurrentTextBytes <= len("a page") {
+		t.Fatalf("the questions must count as text: %+v", stats)
+	}
+	if stats.HistoryImages != 0 || stats.SystemBytes != 0 {
+		t.Fatalf("a decision has no history or system part: %+v", stats)
+	}
+}

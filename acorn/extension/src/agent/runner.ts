@@ -84,6 +84,9 @@ export const STEP_RETRY_LIMIT = 3;
 export const STEP_RETRY_BACKOFF_MS = [2_000, 6_000, 15_000] as const;
 /** How long a tab the page opened gets to show an address before the run goes on in it. */
 export const NEW_TAB_WAIT_MS = 8_000;
+/** Told to the model when the tab a page opened was closed before the run could go into it. */
+const NEW_TAB_GONE_NOTE =
+  "The page opened a new tab, but it was closed. You are still in the same tab.";
 /** What the overlay's bar says while the agent waits for the person's answer. */
 export const ASK_LABEL = "Acorn has a question for you in the sidebar";
 /** What the overlay's bar says while the agent works. */
@@ -384,10 +387,12 @@ export async function runAgent(args: AgentRunArgs): Promise<RunReport> {
     return outcome.reason === "no_mailbox" ? GMAIL_READ.noMailbox : GMAIL_READ.missed;
   };
 
-  const onCreated = (tab: chrome.tabs.Tab) => {
-    if (tab.openerTabId === current?.tabId && tab.id != null) pendingTab = tab.id;
+  // A tab a page of the run opened (a link, window.open) raises this; a tab the person opens
+  // themselves (Cmd+T, +) does not, though Chrome gives it the same opener.
+  const onCreated = (details: chrome.webNavigation.WebNavigationSourceCallbackDetails) => {
+    if (details.sourceTabId === current?.tabId) pendingTab = details.tabId;
   };
-  chrome.tabs.onCreated.addListener(onCreated);
+  chrome.webNavigation.onCreatedNavigationTarget.addListener(onCreated);
 
   const hooks = {
     onStop: () => local.abort(),
@@ -418,7 +423,15 @@ export async function runAgent(args: AgentRunArgs): Promise<RunReport> {
           onHttp,
         );
         files.set(id, file);
-        file.catch(() => files.delete(id));
+        file.then(
+          (done) =>
+            log.event("agent-resume", {
+              resumeId: id,
+              base64Chars: done.base64.length,
+              encodeMs: done.encodeMs,
+            }),
+          () => files.delete(id),
+        );
       }
       return file;
     },
@@ -431,10 +444,16 @@ export async function runAgent(args: AgentRunArgs): Promise<RunReport> {
   /** Moves the run into the tab the page opened, so the application goes on where it went. */
   const followNewTab = async (id: number): Promise<string> => {
     const deadline = Date.now() + NEW_TAB_WAIT_MS;
-    let tab = await chrome.tabs.get(id);
-    while (!tab.url && Date.now() < deadline) {
-      await sleep(200);
-      tab = await chrome.tabs.get(id);
+    try {
+      let tab = await chrome.tabs.get(id);
+      while (!tab.url && Date.now() < deadline) {
+        await sleep(200);
+        tab = await chrome.tabs.get(id);
+      }
+    } catch {
+      // Closed before the run got there: the run stays where it was.
+      log.event("agent-new-tab:gone", { tabId: id });
+      return NEW_TAB_GONE_NOTE;
     }
     // A window a click opened is judged before the run goes into it: an online file source or a
     // sign-in to one is closed, and the run stays where it was.
@@ -481,7 +500,7 @@ export async function runAgent(args: AgentRunArgs): Promise<RunReport> {
   };
 
   const finish = (report: RunReport, resumable = false): RunReport => {
-    chrome.tabs.onCreated.removeListener(onCreated);
+    chrome.webNavigation.onCreatedNavigationTarget.removeListener(onCreated);
     keepSession = resumable && Boolean(sessionId) && Boolean(args.keepRun);
     const seconds = Math.round((Date.now() - startedAt) / 1000);
     log.event("run:end", {
@@ -823,7 +842,7 @@ export async function runAgent(args: AgentRunArgs): Promise<RunReport> {
     });
     return finish(report(RUN_OUTCOME.failed, failureFromError(err)), runSurvives(err));
   } finally {
-    chrome.tabs.onCreated.removeListener(onCreated);
+    chrome.webNavigation.onCreatedNavigationTarget.removeListener(onCreated);
     frames.stop?.();
     if (sessionId && keepSession && args.keepRun) {
       // The agent keeps this run's memory; Continue takes it back up on the tab it stopped in.

@@ -121,11 +121,13 @@ func (b *Backend) SnapshotFor(ctx context.Context, auth Auth) (Snapshot, error) 
 // ResumeFor fetches one file's bytes. Its description comes from the answer's headers; the
 // stack it belongs to is not needed to send it.
 func (b *Backend) ResumeFor(ctx context.Context, auth Auth, id string) (Resume, []byte, error) {
+	asked := time.Now()
 	response, err := b.do(ctx, auth, resumeRoute+url.PathEscape(id))
 	if err != nil {
 		return Resume{}, nil, err
 	}
 	defer response.Body.Close()
+	wait := time.Since(asked)
 	if response.StatusCode == http.StatusNotFound {
 		return Resume{}, nil, fmt.Errorf("%w: %s", ErrNoResume, id)
 	}
@@ -135,10 +137,12 @@ func (b *Backend) ResumeFor(ctx context.Context, auth Auth, id string) (Resume, 
 	if size := declaredSize(response); size > MaxResumeBytes {
 		return Resume{}, nil, fmt.Errorf("%s is larger than %d MB", id, MaxResumeBytes>>20)
 	}
+	reading := time.Now()
 	data, err := io.ReadAll(io.LimitReader(response.Body, MaxResumeBytes+1))
 	if err != nil {
 		return Resume{}, nil, fmt.Errorf("%w: read the file: %v", ErrBackend, err)
 	}
+	record(ctx, wait, time.Since(reading), len(data), response.Header.Get(ServerTimingHeader))
 	if len(data) > MaxResumeBytes {
 		return Resume{}, nil, fmt.Errorf("%s is larger than %d MB", id, MaxResumeBytes>>20)
 	}
@@ -163,18 +167,22 @@ func declaredSize(response *http.Response) int64 {
 
 // get reads a JSON answer, bounded.
 func (b *Backend) get(ctx context.Context, auth Auth, route string, limit int64) ([]byte, error) {
+	asked := time.Now()
 	response, err := b.do(ctx, auth, route)
 	if err != nil {
 		return nil, err
 	}
 	defer response.Body.Close()
+	wait := time.Since(asked)
 	if err := statusError(response); err != nil {
 		return nil, err
 	}
+	reading := time.Now()
 	raw, err := io.ReadAll(io.LimitReader(response.Body, limit+1))
 	if err != nil {
 		return nil, fmt.Errorf("%w: read the answer: %v", ErrBackend, err)
 	}
+	record(ctx, wait, time.Since(reading), len(raw), response.Header.Get(ServerTimingHeader))
 	if int64(len(raw)) > limit {
 		return nil, fmt.Errorf("%w: the answer is larger than %d MB", ErrBackend, limit>>20)
 	}

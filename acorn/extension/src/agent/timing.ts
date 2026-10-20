@@ -52,6 +52,8 @@ export interface HttpTiming {
   networkMs?: number;
   /** The server's clock minus ours, to within the network's delay: a large figure explains odd order. */
   clockSkewMs?: number;
+  /** The server's own account of where its time went (`Server-Timing`), as it sent it. */
+  serverTiming?: string;
   /** A failure's code (`timeout`, `unreachable`, or the server's own). */
   error?: string;
 }

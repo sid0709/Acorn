@@ -9,6 +9,7 @@ import {
   AGENT_KEY_HEADER,
   AGENT_ROUTES,
   AGENT_SERVER_TIME_HEADER,
+  AGENT_SERVER_TIMING_HEADER,
   type AgentContinued,
   type AgentMemory,
   type AgentErrorBody,
@@ -156,6 +157,8 @@ async function call(base: string, path: string, options: CallOptions): Promise<A
     timing.serverMs = serverMs;
     timing.networkMs = Date.now() - timing.startedAt - serverMs;
   }
+  const serverTiming = response.headers.get(AGENT_SERVER_TIMING_HEADER);
+  if (serverTiming) timing.serverTiming = serverTiming;
   if (serverTime != null) timing.clockSkewMs = serverTime - (timing.startedAt + timing.headersMs);
   if (response.ok) {
     report();
@@ -298,9 +301,12 @@ export async function fetchResumeFile(
     timeoutMs: QUICK_TIMEOUT_MS,
     onTiming,
   });
+  const encoding = Date.now();
+  const base64 = toBase64(body);
   return {
     fileName: response.headers.get("X-File-Name") || fileName,
     contentType: response.headers.get("Content-Type") || "application/octet-stream",
-    base64: toBase64(body),
+    base64,
+    encodeMs: Date.now() - encoding,
   };
 }

@@ -102,6 +102,10 @@ type modelCall struct {
 	Model        string          `json:"model,omitempty"`
 	Usage        llm.Usage       `json:"usage"`
 	LatencyMs    int64           `json:"latencyMs"`
+	// HistoryTokens is the history's estimated size when the request was built, against
+	// HistoryBudget, the size past which the history is compacted (screenshots are dropped).
+	HistoryTokens int `json:"historyTokens,omitempty"`
+	HistoryBudget int `json:"historyBudget,omitempty"`
 	// HTTPAttempts is how many requests the call sent (a rate limit is retried).
 	HTTPAttempts int    `json:"httpAttempts"`
 	Error        string `json:"error,omitempty"`

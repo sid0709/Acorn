@@ -1,6 +1,6 @@
 {
   "name": "acorn-extension",
-  "version": "1.89.2",
+  "version": "1.89.4",
   "private": true,
   "type": "module",
   "scripts": {

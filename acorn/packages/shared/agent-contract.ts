@@ -24,6 +24,8 @@ export const AGENT_KEY_HEADER = "X-OpenRouter-Key";
 /** Response headers: how long the server spent on a request (ms), and its clock then (unix ms). */
 export const AGENT_HANDLER_MS_HEADER = "X-Agent-Handler-Ms";
 export const AGENT_SERVER_TIME_HEADER = "X-Agent-Server-Time";
+/** Where a response says its time went (the agent's wait on acorn-backend, and the backend's own steps). */
+export const AGENT_SERVER_TIMING_HEADER = "Server-Timing";
 
 /** Every action is something a person does with a mouse and keyboard. */
 export const ACTION_KIND = {

@@ -159,6 +159,7 @@ func (c *Client) Decide(ctx context.Context, req Request) (Response, error) {
 		return Response{}, fmt.Errorf("encode decision request: %w", err)
 	}
 	started := time.Now()
+	stats := measure(req)
 	var lastErr error
 	var requests []llm.Attempt
 	var backoff time.Duration
@@ -170,6 +171,7 @@ func (c *Client) Decide(ctx context.Context, req Request) (Response, error) {
 		response, retryAfter, err := c.once(ctx, body)
 		for _, request := range response.Requests {
 			request.BackoffMs = backoff.Milliseconds()
+			request.Body = &stats
 			requests = append(requests, request)
 		}
 		if err == nil {
@@ -187,6 +189,23 @@ func (c *Client) Decide(ctx context.Context, req Request) (Response, error) {
 		}
 	}
 	return finish(Response{}), lastErr
+}
+
+// measure counts what a decision request carries: the state's text and images, and the
+// questions, which all belong to the one current message.
+func measure(req Request) llm.BodyStats {
+	var stats llm.BodyStats
+	for _, part := range req.State {
+		stats.CurrentTextBytes += len(part.Text)
+		if part.ImageURL != nil {
+			stats.CurrentImages++
+			stats.CurrentImageBytes += len(part.ImageURL.URL)
+		}
+	}
+	if questions, err := json.Marshal(req.Questions); err == nil {
+		stats.CurrentTextBytes += len(questions)
+	}
+	return stats
 }
 
 func retryable(err error) bool {

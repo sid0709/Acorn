@@ -103,7 +103,9 @@ func (s *Server) start(w http.ResponseWriter, r *http.Request) {
 	if !decode(w, r, &start) {
 		return
 	}
-	started, err := s.agent.Start(r.Context(), s.key(r), applicant.Auth{Token: bearerToken(r)}, start)
+	ctx, timing := applicant.WithTiming(r.Context())
+	started, err := s.agent.Start(ctx, s.key(r), applicant.Auth{Token: bearerToken(r)}, start)
+	setServerTiming(w, timing)
 	if err != nil {
 		writeError(w, err)
 		return
@@ -165,7 +167,9 @@ func (s *Server) vet(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) resume(w http.ResponseWriter, r *http.Request) {
-	info, data, err := s.agent.ResumeFile(r.Context(), r.PathValue("id"), r.URL.Query().Get("id"))
+	ctx, timing := applicant.WithTiming(r.Context())
+	info, data, err := s.agent.ResumeFile(ctx, r.PathValue("id"), r.URL.Query().Get("id"))
+	setServerTiming(w, timing)
 	if err != nil {
 		writeError(w, err)
 		return
@@ -173,6 +177,13 @@ func (s *Server) resume(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", info.ContentType)
 	w.Header().Set("X-File-Name", info.FileName)
 	_, _ = w.Write(data)
+}
+
+// setServerTiming tells the caller what the backend calls under this request cost.
+func setServerTiming(w http.ResponseWriter, timing *applicant.Timing) {
+	if value := timing.ServerTiming(); value != "" {
+		w.Header().Set(applicant.ServerTimingHeader, value)
+	}
 }
 
 func (s *Server) end(w http.ResponseWriter, r *http.Request) {
@@ -280,7 +291,7 @@ func (s *Server) cors(next http.Handler) http.Handler {
 			w.Header().Set("Vary", "Origin")
 			w.Header().Set("Access-Control-Allow-Headers", "Content-Type, Authorization, "+KeyHeader)
 			w.Header().Set("Access-Control-Allow-Methods", "GET, POST, DELETE, OPTIONS")
-			w.Header().Set("Access-Control-Expose-Headers", strings.Join([]string{"X-File-Name", HandlerMsHeader, ServerTimeHeader}, ", "))
+			w.Header().Set("Access-Control-Expose-Headers", strings.Join([]string{"X-File-Name", HandlerMsHeader, ServerTimeHeader, applicant.ServerTimingHeader}, ", "))
 		}
 		if r.Method == http.MethodOptions {
 			w.WriteHeader(http.StatusNoContent)

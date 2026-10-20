@@ -595,12 +595,14 @@ func (a *Agent) ask(ctx context.Context, s *session, messages []llm.Message) (re
 	var calls []modelCall
 	var lastErr error
 	sent := messages
+	historyTokens := budgetUsed(s)
 	for attempt := 0; attempt < 2; attempt++ {
 		resp, err := model.Complete(ctx, llm.Request{Messages: messages, SchemaName: replySchemaName, Schema: replySchema})
 		total.Add(resp.Usage)
 		call := modelCall{
 			Repair: attempt > 0, Messages: traceMessages(sent), Content: resp.Content, FinishReason: resp.FinishReason,
 			Model: resp.Model, Usage: resp.Usage, LatencyMs: resp.Latency.Milliseconds(), HTTPAttempts: resp.Attempts,
+			HistoryTokens: historyTokens, HistoryBudget: a.cfg.HistoryTokens,
 		}.timed(resp.StartedAt, resp.Requests)
 		if err != nil {
 			call.Error = err.Error()

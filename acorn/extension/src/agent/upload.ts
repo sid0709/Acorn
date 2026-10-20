@@ -18,6 +18,8 @@ export interface ResumeFile {
   contentType: string;
   /** The file's bytes, base64. */
   base64: string;
+  /** How long turning the bytes into base64 took, for the log. */
+  encodeMs?: number;
 }
 
 /** What setting the file did, for the log and for the model. */
