@@ -7,6 +7,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"io"
 	"log/slog"
 	"net/http"
@@ -17,6 +18,7 @@ import (
 	"github.com/sid0709/acorn/acorn-agent/agent"
 	"github.com/sid0709/acorn/acorn-agent/applicant"
 	"github.com/sid0709/acorn/acorn-agent/llm"
+	"github.com/sid0709/acorn/acorn-backend/plainlog"
 )
 
 const (
@@ -241,7 +243,7 @@ func writeJSON(w http.ResponseWriter, status int, body any) {
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(status)
 	if err := json.NewEncoder(w).Encode(body); err != nil {
-		slog.Warn("write response", "error", err)
+		slog.Warn("Could not finish writing an answer to the extension.", plainlog.ErrorKey, err)
 	}
 }
 
@@ -278,7 +280,7 @@ func writeError(w http.ResponseWriter, err error) {
 		code = "error"
 	}
 	if status >= http.StatusInternalServerError {
-		slog.Error("request failed", "code", code, "error", err)
+		slog.Error("A request to the agent failed ("+code+").", plainlog.ErrorKey, err)
 	}
 	writeJSON(w, status, errorBody{Error: err.Error(), Code: code})
 }
@@ -325,7 +327,7 @@ func logged(next http.Handler) http.Handler {
 		started := time.Now()
 		recorder := &statusRecorder{ResponseWriter: w, status: http.StatusOK, started: started}
 		next.ServeHTTP(recorder, r)
-		slog.Debug("request", "method", r.Method, "path", r.URL.Path, "status", recorder.status, "ms", time.Since(started).Milliseconds())
+		slog.Debug(fmt.Sprintf("%s %s answered %d in %s.", r.Method, r.URL.Path, recorder.status, plainlog.Seconds(time.Since(started))))
 	})
 }
 

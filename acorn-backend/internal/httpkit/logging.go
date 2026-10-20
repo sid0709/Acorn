@@ -8,12 +8,14 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"log/slog"
 	"net"
 	"net/http"
 	"strings"
 	"time"
 
+	"github.com/sid0709/acorn/acorn-backend/plainlog"
 	"github.com/sid0709/acorn/acorn-backend/requestid"
 )
 
@@ -54,13 +56,13 @@ func generateRequestID() string {
 }
 
 // Wrap orders Recovery inside Logging so a panic still has a request id and
-// produces one structured log line. All service mains should call this.
+// produces one log line. All service mains should call this.
 func Wrap(logger *slog.Logger, reporter ErrorReporter, next http.Handler) http.Handler {
 	return Logging(logger, Recovery(reporter, next))
 }
 
 // Logging assigns a request id, captures status and latency, and writes one
-// structured JSON line. Recovery must sit inside it so panics still log.
+// sentence. Recovery must sit inside it so panics still log.
 func Logging(logger *slog.Logger, next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		start := time.Now()
@@ -80,30 +82,47 @@ func Logging(logger *slog.Logger, next http.Handler) http.Handler {
 		if rec.panicErr != "" {
 			status = http.StatusInternalServerError
 		}
-		attrs := []any{
-			"request_id", requestID,
-			"method", r.Method,
-			"path", r.URL.RequestURI(),
-			"status", status,
-			"latency_ms", time.Since(start).Milliseconds(),
-		}
+		took := time.Since(start)
+		who := ""
 		if rec.userID != "" {
-			attrs = append(attrs, "user_id", rec.userID)
+			who = " for " + plainlog.Short(rec.userID)
 		}
-		if detail := errorDetail(wrapped.errBody.String()); status >= 400 && detail != "" {
-			attrs = append(attrs, "error", detail)
+		path := r.URL.Path
+		detail := errorDetail(wrapped.errBody.String())
+		switch {
+		case rec.panicErr != "":
+			logger.Error(fmt.Sprintf("%s %s crashed after %s%s: %s", r.Method, path, plainlog.Seconds(took), who, rec.panicErr),
+				"request_id", requestID, plainlog.StackKey, rec.stack)
+		case status >= http.StatusInternalServerError:
+			logger.Error(fmt.Sprintf("%s %s failed with %d after %s%s", r.Method, path, status, plainlog.Seconds(took), who),
+				"request_id", requestID, plainlog.ErrorKey, detail)
+		case status >= http.StatusBadRequest:
+			logger.Warn(fmt.Sprintf("%s %s was turned away with %d after %s%s", r.Method, path, status, plainlog.Seconds(took), who),
+				"request_id", requestID, plainlog.ErrorKey, detail)
+		case isQuiet(path):
+			logger.Debug(fmt.Sprintf("%s %s answered %d in %s%s", r.Method, path, status, plainlog.Seconds(took), who))
+		case took >= slowRequest:
+			logger.Info(fmt.Sprintf("%s %s answered %d in %s%s, which is slow", r.Method, path, status, plainlog.Seconds(took), who))
+		default:
+			logger.Info(fmt.Sprintf("%s %s answered %d in %s%s", r.Method, path, status, plainlog.Seconds(took), who))
 		}
-		if rec.panicErr != "" {
-			attrs = append(attrs, "error", rec.panicErr, "stack", rec.stack)
-			logger.Error("request", attrs...)
-			return
-		}
-		if status >= 400 {
-			logger.Warn("request", attrs...)
-			return
-		}
-		logger.Info("request", attrs...)
 	})
+}
+
+// slowRequest is how long a request may take before its line says it was slow.
+const slowRequest = 2 * time.Second
+
+// quietPaths are requests that happen all the time and say nothing new (the extension's socket
+// reconnecting, the deploy's health check): their lines are kept for debugging only.
+var quietPaths = []string{"/health", "/acorn/socket.io/"}
+
+func isQuiet(path string) bool {
+	for _, quiet := range quietPaths {
+		if strings.HasPrefix(path, quiet) {
+			return true
+		}
+	}
+	return false
 }
 
 func errorDetail(raw string) string {

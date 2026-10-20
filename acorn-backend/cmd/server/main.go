@@ -22,6 +22,7 @@ import (
 	"github.com/sid0709/acorn/acorn-backend/internal/platform"
 	"github.com/sid0709/acorn/acorn-backend/jev"
 	"github.com/sid0709/acorn/acorn-backend/mailbox"
+	"github.com/sid0709/acorn/acorn-backend/plainlog"
 	"github.com/sid0709/acorn/acorn-backend/profile"
 	"github.com/sid0709/acorn/acorn-backend/resume"
 	"github.com/sid0709/acorn/acorn-backend/support"
@@ -57,28 +58,29 @@ var defaultOrigins = []string{
 }
 
 func main() {
+	slog.SetDefault(slog.New(plainlog.New(os.Stderr, logLevel())))
 	if _, exists := os.LookupEnv("MONGO_URI"); exists {
-		slog.Warn("MONGO_URI is already set in the process environment, so acorn-backend/.env will not replace it")
+		slog.Warn("MONGO_URI is already set in the environment, so acorn-backend/.env will not replace it.")
 	}
 	envFile, err := loadAcornEnv()
 	if err != nil {
-		slog.Error("config", "error", err)
+		slog.Error("Could not read the server settings", plainlog.ErrorKey, err)
 		os.Exit(1)
 	}
 	if envFile == "" {
-		slog.Info("acorn-backend/.env not present; using the process environment")
+		slog.Info("There is no acorn-backend/.env file, so the settings come from the environment.")
 	}
 	db, err := config.LoadDatabase()
 	if err != nil {
-		slog.Error("config", "error", err)
+		slog.Error("Could not read the server settings", plainlog.ErrorKey, err)
 		os.Exit(1)
 	}
 	// Acorn reads ACORN_DB so a shared environment cannot point this process at another database.
 	db.DestDB = config.Env("ACORN_DB", defaultDatabase)
-	slog.Info("mongo", "envFile", envFile, "host", mongoHost(db.MongoURI), "database", db.DestDB)
+	slog.Info(fmt.Sprintf("Using the database %s on %s%s.", db.DestDB, mongoHost(db.MongoURI), settingsFrom(envFile)))
 	server, err := config.LoadHTTP(defaultHTTPAddr, defaultOrigins)
 	if err != nil {
-		slog.Error("config", "error", err)
+		slog.Error("Could not read the server settings", plainlog.ErrorKey, err)
 		os.Exit(1)
 	}
 	googleConfig := config.LoadGoogle()
@@ -92,7 +94,7 @@ func main() {
 
 	p, err := platform.Open(context.Background(), db)
 	if err != nil {
-		slog.Error("platform", "error", config.Redact(err, db.MongoURI))
+		slog.Error("Could not open the database", plainlog.ErrorKey, config.Redact(err, db.MongoURI))
 		os.Exit(1)
 	}
 	defer p.Close()
@@ -100,7 +102,7 @@ func main() {
 	reporter := httpkit.NewReporter(config.LoadErrorReporting().SentryDSN)
 	accounts := account.NewStore(p.Mongo(), db.DestDB)
 	if err := accounts.EnsureIndexes(context.Background()); err != nil {
-		slog.Error("acorn accounts", "error", err)
+		slog.Error("Could not prepare the account indexes", plainlog.ErrorKey, err)
 		os.Exit(1)
 	}
 	// This server is the only process that writes the Library and profiles, so what it holds in
@@ -121,7 +123,7 @@ func main() {
 	}
 	adminDemo := admin.DemoMode()
 	if adminDemo {
-		slog.Warn("Acorn admin demo mode is on: using default session secret; set ACORN_ADMIN_DEMO=off and ACORN_ADMIN_SESSION_SECRET in production")
+		slog.Warn("Admin demo mode is on, so the admin session uses a default secret. In production, set ACORN_ADMIN_DEMO=off and ACORN_ADMIN_SESSION_SECRET.")
 	}
 	adminStore := admin.NewStore(p.Mongo(), db.DestDB, admin.Config{
 		SessionSecret:     config.Env("ACORN_ADMIN_SESSION_SECRET", ""),
@@ -160,7 +162,7 @@ func main() {
 		})
 	}
 	if err := indexGroup.Wait(); err != nil {
-		slog.Error("acorn indexes", "error", err)
+		slog.Error("Could not prepare the database indexes", plainlog.ErrorKey, err)
 		os.Exit(1)
 	}
 	// Capture goes to MongoDB for support reports; ACORN_DEBUG_DIR also writes it to
@@ -171,7 +173,7 @@ func main() {
 	}
 	debug := debugtrace.New(config.Env("ACORN_DEBUG_DIR", ""), traceStore)
 	if debug != nil && debug.Dir() != "" {
-		slog.Warn("Acorn debug capture also writes page HTML, applicant profiles, and AI prompts to disk", "dir", debug.Dir())
+		slog.Warn("Debug capture also saves page HTML, applicant profiles and AI prompts to " + debug.Dir() + ". Use it on a developer machine only.")
 	}
 	acornHandler, gateway := acornapi.New(accounts, p.Jobs, acorn.New(nil), acornapi.Options{
 		Resumes:            resumes,
@@ -205,7 +207,7 @@ func main() {
 		go func() {
 			recent, err := accounts.RecentUserIDs(preloadCtx, time.Now(), recentAccountsFirst)
 			if err != nil {
-				slog.Warn("library preload: recent sign-ins were not read", "error", err)
+				slog.Warn("Could not read who signed in lately, so libraries load in upload order instead.", plainlog.ErrorKey, err)
 			}
 			resumes.Preload(preloadCtx, recent)
 		}()
@@ -213,7 +215,7 @@ func main() {
 
 	handler := routes(server.Origins, httpkit.Health(p.Jobs), acornHandler, slog.Default(), reporter)
 	if err := httpkit.Serve("acorn api", server.Addr, handler); err != nil {
-		slog.Error("server", "error", err)
+		slog.Error("The server stopped", plainlog.ErrorKey, err)
 		os.Exit(1)
 	}
 }

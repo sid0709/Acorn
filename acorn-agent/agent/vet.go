@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/sid0709/acorn/acorn-backend/jev"
+	"github.com/sid0709/acorn/acorn-backend/plainlog"
 )
 
 // The applicant has not allowed online file sources (a cloud drive, a file-sharing service, a
@@ -220,7 +221,7 @@ func (a *Agent) Vet(ctx context.Context, id string, target VetTarget) (VetVerdic
 			verdict.Cause = CauseOnlineSource
 		}
 		verdict.Reason = "could not be checked"
-		slog.Warn("vet failed", "session", s.id, "kind", target.Kind, "blocked", verdict.Blocked, "error", failed)
+		slog.Warn(runName(s.id)+": could not check a "+target.Kind+" for online file sources"+vetOutcome(verdict.Blocked)+".", plainlog.ErrorKey, failed)
 	}
 	if verdict.Blocked && verdict.Reason == "" {
 		verdict.Reason = "it looks like an online file source or a place to paste text"
@@ -257,7 +258,7 @@ func (a *Agent) recordVet(sessionID string, line vetLine) {
 	}
 	dir, err := a.trace.folder(sessionID)
 	if err != nil {
-		slog.Warn("vet not written", "session", sessionID, "error", err)
+		slog.Warn(runName(sessionID)+": the record of a file-source check could not be saved.", plainlog.ErrorKey, err)
 		return
 	}
 	raw, err := json.Marshal(line)
@@ -265,6 +266,6 @@ func (a *Agent) recordVet(sessionID string, line vetLine) {
 		err = appendLine(filepath.Join(dir, "vets.jsonl"), string(raw))
 	}
 	if err != nil {
-		slog.Warn("vet not written", "session", sessionID, "error", err)
+		slog.Warn(runName(sessionID)+": the record of a file-source check could not be saved.", plainlog.ErrorKey, err)
 	}
 }

@@ -5,6 +5,7 @@ package main
 import (
 	"context"
 	"errors"
+	"fmt"
 	"log/slog"
 	"net/http"
 	"os"
@@ -20,6 +21,7 @@ import (
 	"github.com/sid0709/acorn/acorn-agent/llm"
 	"github.com/sid0709/acorn/acorn-backend/config"
 	"github.com/sid0709/acorn/acorn-backend/jev"
+	"github.com/sid0709/acorn/acorn-backend/plainlog"
 )
 
 const (
@@ -84,9 +86,9 @@ const (
 var defaultOrigins = []string{"http://localhost:3000"}
 
 func main() {
-	slog.SetDefault(slog.New(slog.NewTextHandler(os.Stderr, &slog.HandlerOptions{Level: slog.LevelInfo})))
+	slog.SetDefault(slog.New(plainlog.New(os.Stderr, logLevel())))
 	if err := run(); err != nil {
-		slog.Error("agent stopped", "error", err)
+		slog.Error("The agent stopped", plainlog.ErrorKey, err)
 		os.Exit(1)
 	}
 }
@@ -192,9 +194,7 @@ func run() error {
 	}
 	failed := make(chan error, 1)
 	go func() {
-		slog.Info("agent listening", "addr", httpConfig.Addr, "model", model,
-			"checks", newScreen != nil, "screenModel", screenModel,
-			"applicant", source.Kind(), "from", location, "key", defaultKey != "", "trace", cfg.TraceDir != "")
+		slog.Info(listeningStory(httpConfig.Addr, model, screenModel, newScreen != nil, source.Kind(), location, defaultKey != "", cfg.TraceDir))
 		failed <- server.ListenAndServe()
 	}()
 	select {
@@ -208,4 +208,34 @@ func run() error {
 		return server.Shutdown(shutdown)
 	}
 	return nil
+}
+
+// envLogLevel is the setting that shows the quiet lines too (every request the extension makes):
+// "debug" turns them on.
+const envLogLevel = "ACORN_AGENT_LOG_LEVEL"
+
+// logLevel is how much the terminal shows: the run's story, or everything with debug.
+func logLevel() slog.Level {
+	if strings.EqualFold(config.Env(envLogLevel, ""), "debug") {
+		return slog.LevelDebug
+	}
+	return slog.LevelInfo
+}
+
+// listeningStory is the sentence that says the agent is ready and how it is set up.
+func listeningStory(addr, model, screenModel string, checks bool, applicantKind, from string, hasKey bool, traceDir string) string {
+	line := fmt.Sprintf("The agent is ready on %s. It drives the browser with %s", addr, model)
+	if checks {
+		line += " and checks the screen with " + screenModel
+	} else {
+		line += ", with screen checks turned off"
+	}
+	line += fmt.Sprintf(", and reads the applicant from %s (%s).", from, applicantKind)
+	if !hasKey {
+		line += " No server key is set, so each run brings its own."
+	}
+	if traceDir != "" {
+		line += " Traces are saved in " + traceDir + "."
+	}
+	return line
 }

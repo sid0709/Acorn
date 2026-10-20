@@ -2,6 +2,7 @@ package main
 
 import (
 	"fmt"
+	"log/slog"
 	"net/url"
 	"os"
 	"path/filepath"
@@ -66,4 +67,24 @@ func mongoHost(uri string) string {
 		return ""
 	}
 	return parsed.Host
+}
+
+// envLogLevel names the setting that turns on the quiet lines (the extension's socket
+// reconnecting, health checks, calls nobody records): "debug" shows them.
+const envLogLevel = "ACORN_LOG_LEVEL"
+
+// logLevel is how much the terminal shows: ordinary news, or everything with ACORN_LOG_LEVEL=debug.
+func logLevel() slog.Level {
+	if strings.EqualFold(config.Env(envLogLevel, ""), "debug") {
+		return slog.LevelDebug
+	}
+	return slog.LevelInfo
+}
+
+// settingsFrom is the end of the sentence that says where the settings were read from.
+func settingsFrom(envFile string) string {
+	if envFile == "" {
+		return ", with settings from the environment"
+	}
+	return ", with settings from " + envFile
 }

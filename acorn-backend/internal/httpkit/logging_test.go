@@ -48,23 +48,8 @@ func TestWrapLogging(t *testing.T) {
 	}
 
 	entry := parseLogLine(t, buf.String())
-	if entry["msg"] != "request" {
-		t.Errorf("got msg %v, want request", entry["msg"])
-	}
-	if entry["request_id"] == nil || entry["request_id"] == "" {
-		t.Error("request_id not in log")
-	}
-	if entry["method"] != http.MethodGet {
-		t.Errorf("got method %v, want GET", entry["method"])
-	}
-	if entry["path"] != "/test" {
-		t.Errorf("got path %v, want /test", entry["path"])
-	}
-	if entry["status"] != float64(http.StatusOK) {
-		t.Errorf("got status %v, want 200", entry["status"])
-	}
-	if entry["latency_ms"] == nil {
-		t.Error("latency_ms not in log")
+	if msg, _ := entry["msg"].(string); !strings.HasPrefix(msg, "GET /test answered 200 in ") {
+		t.Errorf("got line %q, want a sentence about GET /test answering 200", msg)
 	}
 }
 
@@ -74,7 +59,7 @@ func TestWrapReuseRequestID(t *testing.T) {
 	existingID := "test-request-id-123"
 
 	handler := Wrap(logger, nil, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		w.WriteHeader(http.StatusOK)
+		w.WriteHeader(http.StatusBadRequest)
 	}))
 
 	req := httptest.NewRequest(http.MethodGet, "/test", nil)
@@ -106,8 +91,8 @@ func TestSetUserID(t *testing.T) {
 	handler.ServeHTTP(rec, req)
 
 	entry := parseLogLine(t, buf.String())
-	if entry["user_id"] != userID {
-		t.Errorf("got user_id %v, want %q", entry["user_id"], userID)
+	if msg, _ := entry["msg"].(string); !strings.Contains(msg, " for user-1") {
+		t.Errorf("got line %q, want it to say whom the request was for", msg)
 	}
 }
 
@@ -124,8 +109,8 @@ func TestWrapHandlerNeverWritesIsLogged200(t *testing.T) {
 		t.Errorf("got status %d, want %d", rec.Code, http.StatusOK)
 	}
 	entry := parseLogLine(t, buf.String())
-	if entry["status"] != float64(http.StatusOK) {
-		t.Errorf("got status %v, want 200", entry["status"])
+	if msg, _ := entry["msg"].(string); !strings.Contains(msg, "answered 200") {
+		t.Errorf("got line %q, want a 200", msg)
 	}
 }
 
@@ -141,5 +126,32 @@ func TestGenerateRequestID(t *testing.T) {
 	}
 	if id == generateRequestID() {
 		t.Error("two generated request IDs are the same")
+	}
+}
+
+func TestTurnedAwayAndFailedRequestsSayWhyAndAreNotInfo(t *testing.T) {
+	for status, level := range map[int]string{http.StatusUnauthorized: "WARN", http.StatusBadGateway: "ERROR"} {
+		var buf bytes.Buffer
+		logger := slog.New(slog.NewJSONHandler(&buf, nil))
+		handler := Wrap(logger, nil, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			WriteError(w, status, "no way in")
+		}))
+		handler.ServeHTTP(httptest.NewRecorder(), httptest.NewRequest(http.MethodGet, "/acorn/auth/me", nil))
+		entry := parseLogLine(t, buf.String())
+		if entry["level"] != level || entry["error"] != "no way in" || entry["request_id"] == nil {
+			t.Errorf("status %d: got %v", status, entry)
+		}
+	}
+}
+
+func TestQuietRequestsAreOnlyLoggedForDebugging(t *testing.T) {
+	var buf bytes.Buffer
+	logger := slog.New(slog.NewJSONHandler(&buf, &slog.HandlerOptions{Level: slog.LevelInfo}))
+	handler := Wrap(logger, nil, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {}))
+	for _, path := range []string{"/health", "/acorn/socket.io/?EIO=4"} {
+		handler.ServeHTTP(httptest.NewRecorder(), httptest.NewRequest(http.MethodGet, path, nil))
+	}
+	if buf.Len() != 0 {
+		t.Fatalf("quiet requests were logged: %s", buf.String())
 	}
 }

@@ -56,27 +56,11 @@ func TestWrapPanicWithoutRequestID(t *testing.T) {
 	if entry["level"] != "ERROR" {
 		t.Errorf("got level %v, want ERROR", entry["level"])
 	}
-	if entry["msg"] != "request" {
-		t.Errorf("got msg %v, want request", entry["msg"])
+	if msg, _ := entry["msg"].(string); !strings.HasPrefix(msg, "GET /test crashed after ") || !strings.HasSuffix(msg, ": test panic") {
+		t.Errorf("got line %q, want a sentence about GET /test crashing with the panic message", msg)
 	}
 	if entry["request_id"] != requestID {
 		t.Errorf("log request_id %v does not match response header %q", entry["request_id"], requestID)
-	}
-	if entry["method"] != http.MethodGet {
-		t.Errorf("got method %v, want GET", entry["method"])
-	}
-	if entry["path"] != "/test" {
-		t.Errorf("got path %v, want /test", entry["path"])
-	}
-	if entry["status"] != float64(http.StatusInternalServerError) {
-		t.Errorf("got status %v, want 500", entry["status"])
-	}
-	if entry["latency_ms"] == nil {
-		t.Error("latency_ms not in log")
-	}
-	errMsg, _ := entry["error"].(string)
-	if !strings.Contains(errMsg, "test panic") {
-		t.Errorf("error does not contain panic message: %v", entry["error"])
 	}
 	if entry["stack"] == nil || entry["stack"] == "" {
 		t.Error("stack not in log")
@@ -129,8 +113,8 @@ func TestWrapPanicWithUserID(t *testing.T) {
 	handler.ServeHTTP(rec, req)
 
 	entry := parseLogLine(t, buf.String())
-	if entry["user_id"] != "user-456" {
-		t.Errorf("got user_id %v, want user-456", entry["user_id"])
+	if msg, _ := entry["msg"].(string); !strings.Contains(msg, " for user-4") {
+		t.Errorf("got line %q, want it to say whom the request was for", msg)
 	}
 	if entry["level"] != "ERROR" {
 		t.Errorf("got level %v, want ERROR", entry["level"])
@@ -175,8 +159,8 @@ func TestWrapDoesNotWrite500AfterHeaders(t *testing.T) {
 		t.Errorf("got body %q, want %q", rec.Body.String(), "partial")
 	}
 	entry := parseLogLine(t, buf.String())
-	if entry["status"] != float64(http.StatusInternalServerError) {
-		t.Errorf("got logged status %v, want 500", entry["status"])
+	if msg, _ := entry["msg"].(string); !strings.Contains(msg, "crashed after") {
+		t.Errorf("got line %q, want the late panic reported as a crash", msg)
 	}
 }
 

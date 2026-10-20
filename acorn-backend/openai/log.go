@@ -2,11 +2,13 @@ package openai
 
 import (
 	"context"
+	"fmt"
 	"log/slog"
 	"strings"
 	"time"
 	"unicode/utf8"
 
+	"github.com/sid0709/acorn/acorn-backend/plainlog"
 	"github.com/sid0709/acorn/acorn-backend/requestid"
 )
 
@@ -38,50 +40,67 @@ func callName(ctx context.Context) string {
 	return name
 }
 
-// LogProvider writes one line for a provider attempt. The prompt stays out of the log.
+// LogProvider writes one line for a provider attempt, as a sentence: who was asked, for what, how
+// long it took and what it cost, or why it did not answer. The prompt stays out of the log.
 func LogProvider(ctx context.Context, kind, model string, status, attempt, requestBytes int, started time.Time, usage Usage, err error, retryAfter string, willRetry bool) {
 	if ctx == nil {
 		ctx = context.Background()
-	}
-	level := slog.LevelInfo
-	if err != nil || status >= 400 || status == 0 {
-		level = slog.LevelWarn
 	}
 	name := callName(ctx)
 	if name == "" {
 		name = kind
 	}
-	attrs := []any{
-		"request_id", requestid.From(ctx),
-		"kind", kind,
-		"name", name,
-		"model", model,
-		"status", status,
-		"attempt", attempt,
-		"duration_ms", time.Since(started).Milliseconds(),
-		"request_bytes", requestBytes,
+	took := plainlog.Seconds(time.Since(started))
+	try := ""
+	if attempt > 1 {
+		try = fmt.Sprintf(" on try %d", attempt)
 	}
+	if err != nil || status >= 400 || status == 0 {
+		line := fmt.Sprintf("Could not get an answer from %s for %s%s after %s", model, askedFor(name), try, took)
+		if status > 0 {
+			line += fmt.Sprintf(" (it replied %d)", status)
+		}
+		if willRetry {
+			line += ", so Acorn will ask again"
+			if retryAfter != "" {
+				line += " after the pause it asked for (" + retryAfter + ")"
+			}
+		}
+		slog.Warn(line+".", "request_id", requestid.From(ctx), plainlog.ErrorKey, errorText(err))
+		return
+	}
+	line := fmt.Sprintf("Asked %s for %s%s and it answered in %s", model, askedFor(name), try, took)
 	if usage.TotalTokens > 0 || usage.Priced {
-		attrs = append(attrs,
-			"prompt_tokens", usage.PromptTokens,
-			"completion_tokens", usage.CompletionTokens,
-			"cached_tokens", usage.CachedTokens,
-			"cache_write_tokens", usage.CacheWriteTokens,
-			"total_tokens", usage.TotalTokens,
-			"cost", FormatUSD(usage.CostNanos),
-			"priced", usage.Priced,
-		)
-	}
-	if err != nil {
-		attrs = append(attrs, "error", clipLog(err.Error()))
-	}
-	if willRetry {
-		attrs = append(attrs, "retry", true)
-		if retryAfter != "" {
-			attrs = append(attrs, "retry_after", retryAfter)
+		line += fmt.Sprintf(": %d tokens in (%d from cache), %d out", usage.PromptTokens, usage.CachedTokens, usage.CompletionTokens)
+		if usage.Priced {
+			line += ", $" + shortUSD(usage.CostNanos)
 		}
 	}
-	slog.Log(ctx, level, "acorn model", attrs...)
+	slog.Info(line + ".")
+}
+
+// askedFor is what a model call was for, in words: the step that made it, or the kind of call.
+func askedFor(name string) string {
+	switch name {
+	case "decision":
+		return "a quick decision"
+	case "chat":
+		return "a reply"
+	}
+	return "the " + name + " step"
+}
+
+// errorText is why a call failed, clipped, or "" when nothing is known.
+func errorText(err error) string {
+	if err == nil {
+		return ""
+	}
+	return clipLog(err.Error())
+}
+
+// shortUSD is nanodollars as dollars to six decimals, which is where a model call's cost shows.
+func shortUSD(nanos int64) string {
+	return fmt.Sprintf("%.6f", float64(max(nanos, 0))/1e9)
 }
 
 func clipLog(text string) string {

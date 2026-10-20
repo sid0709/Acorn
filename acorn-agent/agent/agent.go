@@ -10,6 +10,7 @@ import (
 
 	"github.com/sid0709/acorn/acorn-agent/applicant"
 	"github.com/sid0709/acorn/acorn-agent/llm"
+	"github.com/sid0709/acorn/acorn-backend/plainlog"
 )
 
 // sizeTolerance is how many pixels a screenshot may differ from the viewport it is sent with
@@ -206,10 +207,9 @@ func (a *Agent) Start(ctx context.Context, key string, auth applicant.Auth, star
 		Started: now, Start: start, Model: a.modelName(key), ScreenModel: a.screenName(key), Config: a.cfg, Resumes: stacks, Documents: documents,
 	}, start.Trace)
 	if err != nil {
-		slog.Warn("trace not written", "session", id, "error", err)
+		slog.Warn("The trace of this run could not be saved, so its folder will be missing: "+runName(id)+".", plainlog.ErrorKey, err)
 	}
-	slog.Info("run started", "session", id, "url", start.URL, "stopBeforeSubmit", start.StopBeforeSubmit,
-		"stacks", len(stacks), "trace", a.trace.enabled())
+	slog.Info(startStory(id, start, len(stacks), a.trace.enabled()))
 	infos := make([]ResumeInfo, len(snap.Resumes))
 	for i, resume := range snap.Resumes {
 		infos[i] = ResumeInfo{ID: resume.ID, FileName: resume.FileName, Size: resume.Size}
@@ -276,7 +276,7 @@ func (a *Agent) Continue(id string) (Continued, error) {
 	s.stale, s.lastSig, s.loadWaits = 0, nil, 0
 	s.script = nil
 	s.notes = append(s.notes, note)
-	slog.Info("run continued", "session", s.id, "step", s.step, "limit", s.stepLimit)
+	slog.Info(fmt.Sprintf("%s continues after step %d, with room for %d steps in all.", runName(s.id), s.step, s.stepLimit))
 	return Continued{Number: s.step, Usage: s.usage}, nil
 }
 
@@ -531,25 +531,11 @@ func (a *Agent) step(ctx context.Context, id string, obs Observation) (Step, err
 func (a *Agent) record(s *session, entry stepTrace, screenshot string, calls []modelCall) {
 	entry.StartedAt, entry.EndedAt = s.stepStarted, a.now()
 	entry.DurationMs = entry.EndedAt.Sub(entry.StartedAt).Milliseconds()
-	var latency int64
-	for _, call := range calls {
-		latency += call.LatencyMs
-	}
-	level := slog.LevelInfo
-	if entry.Error != "" {
-		level = slog.LevelWarn
-	}
-	status := entry.Status
-	if entry.Check != nil {
-		status = "check:" + entry.Check.Outcome
-	}
-	slog.Log(context.Background(), level, "step", "session", s.id, "seq", entry.Seq, "number", entry.Step,
-		"status", status, "actions", len(entry.Actions), "dropped", len(entry.Dropped),
-		"stale", entry.Stale, "ms", latency, "calls", entry.Usage.Calls, "checks", entry.Usage.Checks, "cost", entry.Usage.Cost,
-		"message", clipText(entry.Message, 140), "error", entry.Error)
+	level, line := storyOf(s.id, s.created, entry, calls)
+	slog.Log(context.Background(), level, line)
 	trace, err := a.trace.record(s.id, entry, screenshot, calls, s.wantTrace)
 	if err != nil {
-		slog.Warn("trace not written", "session", s.id, "error", err)
+		slog.Warn("The trace of this step could not be saved: "+runName(s.id)+", step "+fmt.Sprint(entry.Step)+".", plainlog.ErrorKey, err)
 	}
 	s.addTrace(trace)
 }

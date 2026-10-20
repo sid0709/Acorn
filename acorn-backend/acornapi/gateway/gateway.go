@@ -5,6 +5,7 @@ package gateway
 import (
 	"context"
 	"errors"
+	"fmt"
 	"log/slog"
 	"net/http"
 	"strings"
@@ -142,7 +143,7 @@ func (g *Gateway) onConnection(sock *socket.Socket) {
 
 	sock.Join(r)
 	client := g.registry.Add(sock, Client{AccountID: account.ID, Type: kind, Name: name, ProfileID: account.ID, ApplierName: account.Name})
-	slog.Info("acorn socket connected", "type", kind, "name", name, "id", client.ID)
+	slog.Info(fmt.Sprintf("The %s %q joined the live channel.", kind, name))
 
 	_ = sock.Emit("connected", map[string]any{"id": client.ID, "type": kind, "clients": g.registry.SummaryFor(account.ID)})
 	_ = g.io.To(r).Emit("clients:update", g.registry.SummaryFor(account.ID))
@@ -153,7 +154,7 @@ func (g *Gateway) onConnection(sock *socket.Socket) {
 
 	sock.On("disconnect", func(...any) {
 		g.registry.Remove(client.ID)
-		slog.Info("acorn socket disconnected", "type", kind, "name", name, "id", client.ID)
+		slog.Info(fmt.Sprintf("The %s %q left the live channel.", kind, name))
 		_ = g.io.To(r).Emit("clients:update", g.registry.SummaryFor(account.ID))
 	})
 }

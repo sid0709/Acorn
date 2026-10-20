@@ -10,6 +10,7 @@ import (
 	"strings"
 
 	"github.com/sid0709/acorn/acorn-agent/decide"
+	"github.com/sid0709/acorn/acorn-backend/plainlog"
 )
 
 // A dropdown the page draws itself hides its options until it is opened, and the driving model
@@ -273,7 +274,7 @@ func (a *Agent) continueScript(ctx context.Context, s *session, obs Observation,
 	s.usage.Cost += check.response.Usage.Cost
 	entry.Usage = s.usage
 	if err != nil {
-		slog.Warn("option check failed", "session", s.id, "error", err)
+		slog.Warn(runName(s.id)+": could not tell which option of the open list to pick.", plainlog.ErrorKey, err)
 	}
 	s.carried = withoutChoose(results)
 	s.stale, s.lastSig = 0, sig
@@ -391,7 +392,7 @@ func (a *Agent) chooseNative(ctx context.Context, s *session, obs Observation, e
 			}
 		}
 	} else {
-		slog.Warn("native option check failed", "session", s.id, "error", err)
+		slog.Warn(runName(s.id)+": could not tell which option of the browser's own list to pick.", plainlog.ErrorKey, err)
 	}
 	if index < 0 {
 		return a.giveUp(s, obs, entry, open, []modelCall{check.call(err)})

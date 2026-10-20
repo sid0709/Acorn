@@ -10,6 +10,7 @@ import (
 
 	"github.com/sid0709/acorn/acorn-agent/decide"
 	"github.com/sid0709/acorn/acorn-agent/llm"
+	"github.com/sid0709/acorn/acorn-backend/plainlog"
 )
 
 // The driving model plans a whole screen at once and says, at the end of each run of actions it
@@ -238,7 +239,7 @@ func (a *Agent) continuePlan(ctx context.Context, s *session, obs Observation, r
 		entry.Check, entry.Usage = &check, s.usage
 		a.record(s, entry, obs.Screenshot, []modelCall{verdict.call(err)})
 		a.abandon(s, "The screen could not be checked, so the rest of your plan did not run.")
-		slog.Warn("screen check failed; the run goes on without checks", "session", s.id, "error", err)
+		slog.Warn(runName(s.id)+": the screen check failed, so the rest of this run goes without checks.", plainlog.ErrorKey, err)
 		return Step{}, false
 	}
 	outcome, reason := a.judge(verdict, s.loadWaits)

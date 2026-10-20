@@ -8,6 +8,7 @@ import (
 
 	"github.com/sid0709/acorn/acorn-agent/decide"
 	"github.com/sid0709/acorn/acorn-agent/llm"
+	"github.com/sid0709/acorn/acorn-backend/plainlog"
 )
 
 const (
@@ -86,7 +87,7 @@ func (a *Agent) tryNavigate(ctx context.Context, s *session, obs Observation, su
 	s.usage.CheckCost += response.Usage.Cost
 	s.usage.Cost += response.Usage.Cost
 	if err != nil {
-		slog.Warn("form-ready check failed; the driving model will look", "session", s.id, "error", err)
+		slog.Warn(runName(s.id)+": could not tell whether the application form is open, so the model will look.", plainlog.ErrorKey, err)
 		s.formReady = true
 		return Step{}, false
 	}

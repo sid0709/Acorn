@@ -2,21 +2,23 @@ package resume
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"log/slog"
+	"strings"
 	"sync"
 	"sync/atomic"
 	"time"
 
 	"go.mongodb.org/mongo-driver/v2/bson"
+
+	"github.com/sid0709/acorn/acorn-backend/plainlog"
 )
 
 const (
 	// preloadWorkers is how many accounts load at once. Each read is a few round trips to Mongo,
 	// so loading side by side hides the distance to it.
 	preloadWorkers = 4
-	// preloadLogEvery is how many loaded accounts pass between progress lines.
-	preloadLogEvery = 25
 	// accountReadTimeout bounds one account's read from Mongo.
 	accountReadTimeout = 2 * time.Minute
 )
@@ -26,9 +28,10 @@ type PreloadReport struct {
 	// Accounts and Files are what was read into memory, Bytes their size.
 	Accounts, Files int
 	Bytes           int64
-	// Skipped is accounts left for their first request because the cap would be passed.
-	Skipped int
-	Elapsed time.Duration
+	// Skipped is accounts left for their first request because the cap would be passed; Failed is
+	// accounts whose read did not finish, which also wait for their first request.
+	Skipped, Failed int
+	Elapsed         time.Duration
 }
 
 // accountSize is how much Library an account holds.
@@ -150,7 +153,7 @@ func (s *Store) Preload(ctx context.Context, first []string) PreloadReport {
 	started := time.Now()
 	all, err := s.accountSizes(ctx)
 	if err != nil {
-		slog.Error("library preload", "error", err)
+		slog.Error("Could not list the accounts to preload, so no library was loaded ahead of time", plainlog.ErrorKey, readFailure(err))
 		return PreloadReport{}
 	}
 	_, held := s.files.usage()
@@ -160,9 +163,13 @@ func (s *Store) Preload(ctx context.Context, first []string) PreloadReport {
 	for _, account := range plan {
 		total += account.Bytes
 	}
-	slog.Info("library preload starts", "accounts", len(plan), "bytes", total, "skippedForTheCap", skipped)
+	slog.Info(fmt.Sprintf("Loading the résumé libraries of %s (%s) into memory in the background. The server answers meanwhile, and an account that is not loaded yet reads its own files when it is first used.",
+		plainlog.Count(len(plan), "account"), plainlog.Bytes(total)))
+	if skipped > 0 {
+		slog.Warn(fmt.Sprintf("%s will not be preloaded because the memory cap for résumé files would be passed; they load when first used.", plainlog.Count(skipped, "account")))
+	}
 
-	var accounts, files, done atomic.Int64
+	var accounts, files, failed atomic.Int64
 	var bytes atomic.Int64
 	work := make(chan accountSize)
 	var wg sync.WaitGroup
@@ -171,9 +178,8 @@ func (s *Store) Preload(ctx context.Context, first []string) PreloadReport {
 		go func() {
 			defer wg.Done()
 			for account := range work {
-				s.preloadAccount(ctx, account, &accounts, &files, &bytes)
-				if n := done.Add(1); n%preloadLogEvery == 0 {
-					slog.Info("library preload", "accounts", n, "of", len(plan), "bytes", bytes.Load(), "elapsed", time.Since(started).Round(time.Second))
+				if !s.preloadAccount(ctx, account, &accounts, &files, &bytes) {
+					failed.Add(1)
 				}
 			}
 		}()
@@ -190,29 +196,55 @@ loading:
 	wg.Wait()
 	report := PreloadReport{
 		Accounts: int(accounts.Load()), Files: int(files.Load()), Bytes: bytes.Load(),
-		Skipped: skipped, Elapsed: time.Since(started),
+		Skipped: skipped, Failed: int(failed.Load()), Elapsed: time.Since(started),
 	}
-	slog.Info("library preload done", "accounts", report.Accounts, "files", report.Files, "bytes", report.Bytes,
-		"skippedForTheCap", report.Skipped, "elapsed", report.Elapsed.Round(time.Second))
+	line := fmt.Sprintf("Finished loading libraries: %d of %d accounts, %s, %s, in %s.",
+		report.Accounts, len(plan), plainlog.Count(report.Files, "file"), plainlog.Bytes(report.Bytes), plainlog.Seconds(report.Elapsed))
+	if report.Failed > 0 {
+		line += fmt.Sprintf(" %s could not be read and will load when first used.", plainlog.Count(report.Failed, "account"))
+	}
+	slog.Info(line)
 	return report
 }
 
 // preloadAccount reads one account and keeps it, unless its Library changed meanwhile: what was
-// read is then older than what a request has put in memory, and is dropped.
-func (s *Store) preloadAccount(ctx context.Context, account accountSize, accounts, files, bytes *atomic.Int64) {
+// read is then older than what a request has put in memory, and is dropped. It says whether the
+// account is now in memory or was dropped for a newer copy (false means the read failed).
+func (s *Store) preloadAccount(ctx context.Context, account accountSize, accounts, files, bytes *atomic.Int64) bool {
+	started := time.Now()
+	who := "account " + plainlog.Short(account.ID)
 	generation := s.libraryGeneration(account.ID)
 	rows, err := s.loadAccountLibrary(ctx, account.ID)
 	if err != nil {
-		slog.Warn("library preload: an account was not read", "error", err)
-		return
+		slog.Warn(fmt.Sprintf("Could not read the library of %s (%s) after %s, so it will load when that person first needs it.",
+			who, plainlog.Count(account.Files, "file"), plainlog.Seconds(time.Since(started))), plainlog.ErrorKey, readFailure(err))
+		return false
 	}
 	if s.libraryGeneration(account.ID) != generation {
-		return
+		slog.Info(fmt.Sprintf("The library of %s changed while it was being read, so the newer copy in memory was kept.", who))
+		return true
 	}
 	loaded, size := s.ingestAccount(account.ID, rows)
 	accounts.Add(1)
 	files.Add(int64(loaded))
 	bytes.Add(size)
+	slog.Info(fmt.Sprintf("Loaded the library of %s: %s, %s, in %s.",
+		who, plainlog.Count(loaded, "file"), plainlog.Bytes(size), plainlog.Seconds(time.Since(started))))
+	return true
+}
+
+// readFailure is why a read from the database failed, in words: a database that did not answer in
+// time is said so, not as the driver's chain of repeated socket errors.
+func readFailure(err error) string {
+	text := err.Error()
+	if errors.Is(err, context.DeadlineExceeded) || strings.Contains(text, "timeout") || strings.Contains(text, "deadline exceeded") {
+		return "the database did not answer in time"
+	}
+	const most = 200
+	if len(text) > most {
+		text = text[:most] + "…"
+	}
+	return text
 }
 
 // Preload reads every account's Library files into memory; see Store.Preload.
