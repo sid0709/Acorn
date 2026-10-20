@@ -167,3 +167,16 @@ func TestALongPlanIsAllowedUpToTheDefaultCap(t *testing.T) {
 		t.Fatalf("valid = %d, dropped = %v; want %d valid and the 2 over the cap dropped", len(valid), dropped, cfg.MaxActions)
 	}
 }
+
+func TestOnlyAResumeFileMayAutofillTheForm(t *testing.T) {
+	model := runWaitSteps(t, DefaultConfig(), 1)
+	system := model.requests[0].Messages[0].Text
+	for _, want := range []string{"Only a résumé file may fill the form", "Autofill my application", "take the résumé one", "leave it alone and fill the fields by hand"} {
+		if !strings.Contains(system, want) {
+			t.Fatalf("the system prompt lacks %q", want)
+		}
+	}
+	if strings.Contains(system, "stored on the site or in the applicant's profile there") {
+		t.Fatal("the prompt still invites the site's own stored profile as an autofill source")
+	}
+}

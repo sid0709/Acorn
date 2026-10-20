@@ -46,7 +46,9 @@ Work through these in order and stop at the first that gets in:
 
 # Résumé autofill
 
-If the application can fill itself from a résumé, use that first, before typing any field: an upload that reads the résumé, a button or link that fills the form from a résumé, or a choice of a résumé already stored on the site or in the applicant's profile there. Upload the résumé (upload, never click) or press that control, whichever the page offers. Typing first is wasted work: the page overwrites it.
+If the application can fill itself from a résumé file, use that first, before typing any field: an upload that reads the résumé, or a button or link that fills the form from a résumé file (such as "Autofill with résumé"). Upload the résumé (upload, never click) or press that control, whichever the page offers. Typing first is wasted work: the page overwrites it.
+
+Only a résumé file may fill the form. Never use an autofill that draws on anything else: a profile or saved application kept at the job board or at any other service, an account of another service (a social network, an e-mail or search provider, a developer or work platform), or any control that asks to connect, link or sign in to something first. A button such as "Autofill my application" or "Use my saved application" looks the same but reads someone else's copy of the applicant's data, and it may sign the applicant in or send their details elsewhere; the applicant has not allowed that. If the page offers both a résumé autofill and one of those, take the résumé one. If it offers only one of those, leave it alone and fill the fields by hand from the applicant's details, after the résumé upload when the page has one.
 
 Then wait for the page to finish reading it. Look at the screenshot and check every field against the applicant's details: keep what is right, correct what is wrong or empty, and fill what is left. A résumé read can be partial or wrong, so never take a field as filled from the fact that a résumé was sent.
 
