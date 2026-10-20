@@ -21,6 +21,10 @@ export const AGENT_ROUTES = {
 /** Header that carries the person's OpenRouter key when the extension has one. */
 export const AGENT_KEY_HEADER = "X-OpenRouter-Key";
 
+/** Response headers: how long the server spent on a request (ms), and its clock then (unix ms). */
+export const AGENT_HANDLER_MS_HEADER = "X-Agent-Handler-Ms";
+export const AGENT_SERVER_TIME_HEADER = "X-Agent-Server-Time";
+
 /** Every action is something a person does with a mouse and keyboard. */
 export const ACTION_KIND = {
   click: "click",
@@ -165,6 +169,11 @@ export type ActionOpened = (typeof ACTION_OPENED)[keyof typeof ACTION_OPENED];
 export interface AgentActionResult {
   id: string;
   ok: boolean;
+  /** When the action began (unix ms) and how long it took, for the log; the server ignores both. */
+  startedAt?: number;
+  ms?: number;
+  /** Where the action's time went, by name (glide, click, settle, …), in ms. */
+  laps?: Record<string, number>;
   error?: string;
   detail?: string;
   opened?: ActionOpened;

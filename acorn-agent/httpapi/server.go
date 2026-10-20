@@ -10,6 +10,7 @@ import (
 	"io"
 	"log/slog"
 	"net/http"
+	"strconv"
 	"strings"
 	"time"
 
@@ -22,6 +23,12 @@ const (
 	// KeyHeader carries the person's OpenRouter key when the extension has one; without it
 	// the server's own key is used.
 	KeyHeader = "X-OpenRouter-Key"
+	// HandlerMsHeader is how long the server spent on a request (milliseconds, from the request's
+	// headers arriving to the answer's first byte), and ServerTimeHeader the server's clock then
+	// (unix milliseconds). The extension reads both to split a call's time into the server's and
+	// the network's.
+	HandlerMsHeader  = "X-Agent-Handler-Ms"
+	ServerTimeHeader = "X-Agent-Server-Time"
 	// BasePath prefixes every route.
 	BasePath = "/agent/v1"
 	// maxBodyBytes bounds one request: a screenshot as base64 plus a little JSON.
@@ -165,7 +172,6 @@ func (s *Server) resume(w http.ResponseWriter, r *http.Request) {
 	}
 	w.Header().Set("Content-Type", info.ContentType)
 	w.Header().Set("X-File-Name", info.FileName)
-	w.Header().Set("Access-Control-Expose-Headers", "X-File-Name")
 	_, _ = w.Write(data)
 }
 
@@ -274,6 +280,7 @@ func (s *Server) cors(next http.Handler) http.Handler {
 			w.Header().Set("Vary", "Origin")
 			w.Header().Set("Access-Control-Allow-Headers", "Content-Type, Authorization, "+KeyHeader)
 			w.Header().Set("Access-Control-Allow-Methods", "GET, POST, DELETE, OPTIONS")
+			w.Header().Set("Access-Control-Expose-Headers", strings.Join([]string{"X-File-Name", HandlerMsHeader, ServerTimeHeader}, ", "))
 		}
 		if r.Method == http.MethodOptions {
 			w.WriteHeader(http.StatusNoContent)
@@ -298,11 +305,14 @@ func (s *Server) allowed(origin string) bool {
 	return false
 }
 
-// logged records each request's method, path, status and time, and nothing of its body.
+// logged records each request's method, path, status and time, and nothing of its body. It also
+// tells the caller how long the server spent (HandlerMsHeader) and what its clock read
+// (ServerTimeHeader, unix milliseconds), so a slow call can be split into the server's time and the
+// network's, and a skew between the two clocks can be seen.
 func logged(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		started := time.Now()
-		recorder := &statusRecorder{ResponseWriter: w, status: http.StatusOK}
+		recorder := &statusRecorder{ResponseWriter: w, status: http.StatusOK, started: started}
 		next.ServeHTTP(recorder, r)
 		slog.Debug("request", "method", r.Method, "path", r.URL.Path, "status", recorder.status, "ms", time.Since(started).Milliseconds())
 	})
@@ -310,10 +320,29 @@ func logged(next http.Handler) http.Handler {
 
 type statusRecorder struct {
 	http.ResponseWriter
-	status int
+	status  int
+	started time.Time
+	sent    bool
+}
+
+// stamp writes the timing headers once, before the first byte of the answer.
+func (r *statusRecorder) stamp() {
+	if r.sent {
+		return
+	}
+	r.sent = true
+	now := time.Now()
+	r.Header().Set(HandlerMsHeader, strconv.FormatInt(now.Sub(r.started).Milliseconds(), 10))
+	r.Header().Set(ServerTimeHeader, strconv.FormatInt(now.UnixMilli(), 10))
 }
 
 func (r *statusRecorder) WriteHeader(status int) {
 	r.status = status
+	r.stamp()
 	r.ResponseWriter.WriteHeader(status)
+}
+
+func (r *statusRecorder) Write(data []byte) (int, error) {
+	r.stamp()
+	return r.ResponseWriter.Write(data)
 }

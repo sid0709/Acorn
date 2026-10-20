@@ -130,7 +130,7 @@ func navDecisionCall(response decide.Response, err error) modelCall {
 		Model:     response.Model,
 		Usage:     llm.Usage{InputTokens: response.Usage.InputTokens, OutputTokens: response.Usage.OutputTokens, Cost: response.Usage.Cost},
 		LatencyMs: response.Latency.Milliseconds(),
-	}
+	}.timed(response.StartedAt, response.Requests)
 	if err != nil {
 		call.Error = err.Error()
 	}

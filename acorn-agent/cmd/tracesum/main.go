@@ -20,11 +20,12 @@ import (
 const defaultTraces = "traces"
 
 type entry struct {
-	At      time.Time `json:"at"`
-	Source  string    `json:"source"`
-	Status  string    `json:"status"`
-	Error   string    `json:"error"`
-	Actions []struct {
+	At         time.Time `json:"at"`
+	DurationMs int64     `json:"durationMs"`
+	Source     string    `json:"source"`
+	Status     string    `json:"status"`
+	Error      string    `json:"error"`
+	Actions    []struct {
 		Kind string `json:"kind"`
 	} `json:"actions"`
 	Check *struct {
@@ -41,7 +42,40 @@ type call struct {
 		CachedTokens int     `json:"cachedTokens"`
 		Cost         float64 `json:"cost"`
 	} `json:"usage"`
-	LatencyMs int64 `json:"latencyMs"`
+	LatencyMs    int64  `json:"latencyMs"`
+	Provider     string `json:"provider"`
+	GenerationID string `json:"generationId"`
+	// Requests times each HTTP request of the call (traces from v1.88 on).
+	Requests []struct {
+		BackoffMs int64 `json:"backoffMs"`
+		ConnectMs int64 `json:"connectMs"`
+		SendMs    int64 `json:"sendMs"`
+		WaitMs    int64 `json:"waitMs"`
+		ReadMs    int64 `json:"readMs"`
+		Status    int   `json:"status"`
+	} `json:"requests"`
+}
+
+// phases sums where the model calls' time went, request by request.
+type phases struct {
+	timed                              int
+	backoff, connect, send, wait, read int64
+	slowest                            []call
+}
+
+func (p *phases) add(c call) {
+	if len(c.Requests) == 0 {
+		return
+	}
+	p.timed++
+	for _, r := range c.Requests {
+		p.backoff += r.BackoffMs
+		p.connect += r.ConnectMs
+		p.send += r.SendMs
+		p.wait += r.WaitMs
+		p.read += r.ReadMs
+	}
+	p.slowest = append(p.slowest, c)
 }
 
 type tally struct {
@@ -77,6 +111,8 @@ func summarize(dir string) error {
 	}
 	sort.Strings(steps)
 	var model, screen tally
+	var net phases
+	var server time.Duration
 	outcomes := map[string]int{}
 	actions, failures := 0, 0
 	var first, last time.Time
@@ -90,6 +126,7 @@ func summarize(dir string) error {
 			first = e.At
 		}
 		last, lastLatency = e.At, 0
+		server += time.Duration(e.DurationMs) * time.Millisecond
 		actions += len(e.Actions)
 		if e.Error != "" {
 			failures++
@@ -107,6 +144,7 @@ func summarize(dir string) error {
 				continue
 			}
 			model.add(c)
+			net.add(c)
 			lastLatency += time.Duration(c.LatencyMs) * time.Millisecond
 		}
 	}
@@ -121,8 +159,29 @@ func summarize(dir string) error {
 		fmt.Printf("  checks: %3d calls  in %d  $%.4f  %s  (%.2fs/call)  outcomes %v\n",
 			screen.calls, screen.in, screen.cost, screen.latency.Round(time.Millisecond), per(screen.latency.Seconds(), screen.calls), outcomes)
 	}
-	fmt.Printf("  extension and waiting: %s   total cost $%.4f\n\n", rest.Round(time.Second), model.cost+screen.cost)
+	fmt.Printf("  extension and waiting: %s   total cost $%.4f\n", rest.Round(time.Second), model.cost+screen.cost)
+	if net.timed > 0 {
+		ms := func(v int64) time.Duration { return time.Duration(v) * time.Millisecond }
+		fmt.Printf("  model requests (%d timed): connect %s  send %s  provider wait %s  read %s  retry delays %s   server time %s\n",
+			net.timed, ms(net.connect), ms(net.send), ms(net.wait), ms(net.read), ms(net.backoff), server.Round(time.Millisecond))
+		sort.Slice(net.slowest, func(i, j int) bool { return net.slowest[i].LatencyMs > net.slowest[j].LatencyMs })
+		for i, c := range net.slowest {
+			if i == 3 {
+				break
+			}
+			fmt.Printf("    slow call %dms  provider %s  generation %s  attempts %d  in %d (cached %d) out %d\n",
+				c.LatencyMs, orNone(c.Provider), orNone(c.GenerationID), len(c.Requests), c.Usage.InputTokens, c.Usage.CachedTokens, c.Usage.OutputTokens)
+		}
+	}
+	fmt.Println()
 	return nil
+}
+
+func orNone(text string) string {
+	if text == "" {
+		return "-"
+	}
+	return text
 }
 
 func per(total float64, n int) float64 {

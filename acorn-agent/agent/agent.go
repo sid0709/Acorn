@@ -318,12 +318,14 @@ func (a *Agent) Step(ctx context.Context, id string, obs Observation) (Step, err
 }
 
 func (a *Agent) step(ctx context.Context, id string, obs Observation) (Step, error) {
+	received := a.now()
 	s, ok := a.sessions.get(id)
 	if !ok {
 		return Step{}, ErrNoSession
 	}
 	s.mu.Lock()
 	defer s.mu.Unlock()
+	s.stepStarted = received
 	s.touched = a.now()
 	if s.finished {
 		return Step{}, ErrSessionOver
@@ -525,6 +527,8 @@ func (a *Agent) step(ctx context.Context, id string, obs Observation) (Step, err
 
 // record writes one entry of the run to the trace and one line to the server's log.
 func (a *Agent) record(s *session, entry stepTrace, screenshot string, calls []modelCall) {
+	entry.StartedAt, entry.EndedAt = s.stepStarted, a.now()
+	entry.DurationMs = entry.EndedAt.Sub(entry.StartedAt).Milliseconds()
 	var latency int64
 	for _, call := range calls {
 		latency += call.LatencyMs
@@ -597,7 +601,7 @@ func (a *Agent) ask(ctx context.Context, s *session, messages []llm.Message) (re
 		call := modelCall{
 			Repair: attempt > 0, Messages: traceMessages(sent), Content: resp.Content, FinishReason: resp.FinishReason,
 			Model: resp.Model, Usage: resp.Usage, LatencyMs: resp.Latency.Milliseconds(), HTTPAttempts: resp.Attempts,
-		}
+		}.timed(resp.StartedAt, resp.Requests)
 		if err != nil {
 			call.Error = err.Error()
 			return reply{}, "", total, append(calls, call), err

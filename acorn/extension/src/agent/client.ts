@@ -5,8 +5,10 @@
 
 import {
   AGENT_ERROR_CODE,
+  AGENT_HANDLER_MS_HEADER,
   AGENT_KEY_HEADER,
   AGENT_ROUTES,
+  AGENT_SERVER_TIME_HEADER,
   type AgentContinued,
   type AgentMemory,
   type AgentErrorBody,
@@ -18,6 +20,7 @@ import {
   type AgentVetVerdict,
 } from "@acorn/shared/agent-contract";
 
+import type { HttpTiming } from "./timing";
 import type { ResumeFile } from "./upload";
 
 /** A step waits this long for the server: its model call retries, and may be asked to repair its answer. */
@@ -60,42 +63,114 @@ type CallOptions = {
   token?: string;
   signal?: AbortSignal;
   timeoutMs: number;
+  /** Told how long the request took and where, whether or not it succeeded. */
+  onTiming?: (timing: HttpTiming) => void;
 };
 
-async function call(base: string, path: string, options: CallOptions): Promise<Response> {
+/** A request's answer, its body already read (so the time to read it is part of the timing). */
+type Answer = { response: Response; body: ArrayBuffer };
+
+const SESSION_ID_IN_PATH = /\/sessions\/[^/?]+/;
+const encoder = new TextEncoder();
+
+function parseJson<T>(answer: Answer): T {
+  return JSON.parse(new TextDecoder().decode(answer.body)) as T;
+}
+
+function headerNumber(response: Response, name: string): number | undefined {
+  const value = Number(response.headers.get(name));
+  return response.headers.get(name) != null && Number.isFinite(value) ? value : undefined;
+}
+
+async function call(base: string, path: string, options: CallOptions): Promise<Answer> {
   const headers: Record<string, string> = {};
-  if (options.body !== undefined) headers["Content-Type"] = "application/json";
+  const payload =
+    options.body === undefined ? undefined : encoder.encode(JSON.stringify(options.body));
+  if (payload) headers["Content-Type"] = "application/json";
   if (options.key) headers[AGENT_KEY_HEADER] = options.key;
   if (options.token) headers.Authorization = `Bearer ${options.token}`;
   const timeout = AbortSignal.timeout(options.timeoutMs);
   const signal = options.signal ? AbortSignal.any([options.signal, timeout]) : timeout;
+  const timing: HttpTiming = {
+    method: options.method ?? "GET",
+    route: path.replace(SESSION_ID_IN_PATH, "/sessions/:id"),
+    status: 0,
+    startedAt: Date.now(),
+    ms: 0,
+    headersMs: 0,
+    bodyMs: 0,
+    requestBytes: payload?.byteLength ?? 0,
+    responseBytes: 0,
+  };
+  const report = (error?: string) => {
+    timing.ms = Date.now() - timing.startedAt;
+    if (error) timing.error = error;
+    options.onTiming?.(timing);
+  };
   let response: Response;
   try {
     response = await fetch(`${base}${path}`, {
-      method: options.method ?? "GET",
+      method: timing.method,
       headers,
-      body: options.body === undefined ? undefined : JSON.stringify(options.body),
+      body: payload,
       signal,
     });
   } catch (err) {
-    if (options.signal?.aborted) throw err;
-    if (timeout.aborted)
+    timing.headersMs = Date.now() - timing.startedAt;
+    if (options.signal?.aborted) {
+      report("aborted");
+      throw err;
+    }
+    if (timeout.aborted) {
+      report("timeout");
       throw new AgentApiError("The agent server took too long to answer.", "timeout");
+    }
+    report("unreachable");
     throw new AgentApiError(
       `Can't reach the Acorn agent at ${base}. Start it on this computer, then run again.`,
       "unreachable",
     );
   }
-  if (response.ok) return response;
-  let body: Partial<AgentErrorBody> = {};
+  const headersAt = Date.now();
+  timing.status = response.status;
+  timing.headersMs = headersAt - timing.startedAt;
+  let body: ArrayBuffer;
   try {
-    body = (await response.json()) as Partial<AgentErrorBody>;
+    body = await response.arrayBuffer();
+  } catch (err) {
+    timing.bodyMs = Date.now() - headersAt;
+    report(timeout.aborted ? "timeout" : "body");
+    if (options.signal?.aborted) throw err;
+    throw new AgentApiError(
+      timeout.aborted
+        ? "The agent server took too long to answer."
+        : "The agent server's answer was cut off.",
+      timeout.aborted ? "timeout" : "unreachable",
+    );
+  }
+  timing.bodyMs = Date.now() - headersAt;
+  timing.responseBytes = body.byteLength;
+  const serverMs = headerNumber(response, AGENT_HANDLER_MS_HEADER);
+  const serverTime = headerNumber(response, AGENT_SERVER_TIME_HEADER);
+  if (serverMs != null) {
+    timing.serverMs = serverMs;
+    timing.networkMs = Date.now() - timing.startedAt - serverMs;
+  }
+  if (serverTime != null) timing.clockSkewMs = serverTime - (timing.startedAt + timing.headersMs);
+  if (response.ok) {
+    report();
+    return { response, body };
+  }
+  let errorBody: Partial<AgentErrorBody> = {};
+  try {
+    errorBody = parseJson<Partial<AgentErrorBody>>({ response, body });
   } catch {
     // The server sent no JSON: the status says what it can.
   }
+  report(errorBody.code || "error");
   throw new AgentApiError(
-    body.error || `The agent server answered ${response.status}.`,
-    body.code || "error",
+    errorBody.error || `The agent server answered ${response.status}.`,
+    errorBody.code || "error",
     response.status,
   );
 }
@@ -110,6 +185,7 @@ export async function startSession(
   start: AgentStart,
   key?: string,
   token?: string,
+  onTiming?: CallOptions["onTiming"],
 ): Promise<AgentStarted> {
   const response = await call(base, AGENT_ROUTES.sessions, {
     method: "POST",
@@ -117,20 +193,26 @@ export async function startSession(
     key,
     token,
     timeoutMs: QUICK_TIMEOUT_MS,
+    onTiming,
   });
-  return (await response.json()) as AgentStarted;
+  return parseJson<AgentStarted>(response);
 }
 
 /**
  * Takes a stopped run back up: the server keeps its memory, history and cost, and tells the
  * model the person pressed Continue. A session the server no longer holds answers `no_session`.
  */
-export async function continueSession(base: string, sessionId: string): Promise<AgentContinued> {
+export async function continueSession(
+  base: string,
+  sessionId: string,
+  onTiming?: CallOptions["onTiming"],
+): Promise<AgentContinued> {
   const response = await call(base, AGENT_ROUTES.continue(sessionId), {
     method: "POST",
     timeoutMs: QUICK_TIMEOUT_MS,
+    onTiming,
   });
-  return (await response.json()) as AgentContinued;
+  return parseJson<AgentContinued>(response);
 }
 
 /**
@@ -141,12 +223,14 @@ export async function continueSession(base: string, sessionId: string): Promise<
 export async function fetchMemory(
   base: string,
   sessionId: string,
+  onTiming?: CallOptions["onTiming"],
 ): Promise<AgentMemory | undefined> {
   try {
     const response = await call(base, AGENT_ROUTES.memory(sessionId), {
       timeoutMs: QUICK_TIMEOUT_MS,
+      onTiming,
     });
-    return (await response.json()) as AgentMemory;
+    return parseJson<AgentMemory>(response);
   } catch {
     return undefined;
   }
@@ -157,14 +241,16 @@ export async function sendStep(
   sessionId: string,
   observation: AgentObservation,
   signal: AbortSignal,
+  onTiming?: CallOptions["onTiming"],
 ): Promise<AgentStep> {
   const response = await call(base, AGENT_ROUTES.step(sessionId), {
     method: "POST",
     body: observation,
     signal,
     timeoutMs: STEP_TIMEOUT_MS,
+    onTiming,
   });
-  return (await response.json()) as AgentStep;
+  return parseJson<AgentStep>(response);
 }
 
 /** Asks whether a control about to be clicked, or a window a click opened, is an online file source. */
@@ -173,21 +259,28 @@ export async function vetTarget(
   sessionId: string,
   target: AgentVetTarget,
   signal: AbortSignal,
+  onTiming?: CallOptions["onTiming"],
 ): Promise<AgentVetVerdict> {
   const response = await call(base, AGENT_ROUTES.vet(sessionId), {
     method: "POST",
     body: target,
     signal,
     timeoutMs: QUICK_TIMEOUT_MS,
+    onTiming,
   });
-  return (await response.json()) as AgentVetVerdict;
+  return parseJson<AgentVetVerdict>(response);
 }
 
 /** Ends a run's session. A failure here changes nothing for the person, so it is not raised. */
-export async function endSession(base: string, sessionId: string): Promise<void> {
+export async function endSession(
+  base: string,
+  sessionId: string,
+  onTiming?: CallOptions["onTiming"],
+): Promise<void> {
   await call(base, AGENT_ROUTES.session(sessionId), {
     method: "DELETE",
     timeoutMs: QUICK_TIMEOUT_MS,
+    onTiming,
   }).catch(() => undefined);
 }
 
@@ -198,14 +291,16 @@ export async function fetchResumeFile(
   fileName: string,
   signal: AbortSignal,
   toBase64: (bytes: ArrayBuffer) => string,
+  onTiming?: CallOptions["onTiming"],
 ): Promise<ResumeFile> {
-  const response = await call(base, AGENT_ROUTES.resume(sessionId, resumeId), {
+  const { response, body } = await call(base, AGENT_ROUTES.resume(sessionId, resumeId), {
     signal,
     timeoutMs: QUICK_TIMEOUT_MS,
+    onTiming,
   });
   return {
     fileName: response.headers.get("X-File-Name") || fileName,
     contentType: response.headers.get("Content-Type") || "application/octet-stream",
-    base64: toBase64(await response.arrayBuffer()),
+    base64: toBase64(body),
   };
 }

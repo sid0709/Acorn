@@ -5,6 +5,7 @@ import {
 } from "./acorn-socket";
 import { rekeyKeptRun } from "./agent/kept-run";
 import { bindAutoFocusSetting } from "./background/auto-focus";
+import { bindRunTabGrouping } from "./background/run-group";
 import { routeMessage } from "./background/message-router";
 import { endKeptRunOfTab } from "./background/messages/run";
 import { connectSocket, sidebarPorts, socketHandlers } from "./background/socket-connection";
@@ -92,6 +93,7 @@ self.addEventListener("online", () => reconnectAcornSocketNow(socketHandlers));
 enableSidePanelOnActionClick();
 bindContentScriptInjection();
 bindAutoFocusSetting();
+bindRunTabGrouping();
 void injectIntoOpenTabs();
 // Logs of tabs a past browser session closed with, and the log's old session-storage copy.
 void chrome.tabs

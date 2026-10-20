@@ -129,7 +129,7 @@ func (v verdict) call(err error) modelCall {
 		Model:     v.response.Model,
 		Usage:     llm.Usage{InputTokens: v.response.Usage.InputTokens, OutputTokens: v.response.Usage.OutputTokens, Cost: v.response.Usage.Cost},
 		LatencyMs: v.response.Latency.Milliseconds(),
-	}
+	}.timed(v.response.StartedAt, v.response.Requests)
 	if err != nil {
 		call.Error = err.Error()
 	}

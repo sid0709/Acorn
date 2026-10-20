@@ -38,6 +38,8 @@ type session struct {
 
 	mu      sync.Mutex
 	touched time.Time
+	// stepStarted is when the server got the look being answered, for the trace's timing.
+	stepStarted time.Time
 	// seq counts every step asked, including the ones that failed, and names the trace files.
 	seq   int
 	step  int

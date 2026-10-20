@@ -92,8 +92,10 @@ type jsonSchema struct {
 }
 
 type chatResponse struct {
-	Model   string `json:"model"`
-	Choices []struct {
+	ID       string `json:"id"`
+	Provider string `json:"provider"`
+	Model    string `json:"model"`
+	Choices  []struct {
 		Message struct {
 			Content string `json:"content"`
 		} `json:"message"`
@@ -150,26 +152,37 @@ func (c *OpenRouter) Complete(ctx context.Context, req Request) (Response, error
 	}
 	var lastErr error
 	var usage Usage
+	var requests []Attempt
+	var backoff time.Duration
 	started := time.Now()
+	finish := func(response Response, attempts int) Response {
+		response.Latency, response.Attempts = time.Since(started), attempts
+		response.StartedAt, response.Requests = started, requests
+		return response
+	}
 	for attempt := 0; attempt < maxAttempts; attempt++ {
 		response, retryAfter, err := c.once(ctx, body)
 		usage.Add(response.Usage)
+		for _, request := range response.Requests {
+			request.BackoffMs = backoff.Milliseconds()
+			requests = append(requests, request)
+		}
 		if err == nil {
 			response.Usage = usage
-			response.Latency, response.Attempts = time.Since(started), attempt+1
-			return response, nil
+			return finish(response, attempt+1), nil
 		}
 		lastErr = err
 		if ctx.Err() != nil || !retryable(err) || attempt == maxAttempts-1 {
 			break
 		}
+		backoff = llmhttp.RetryDelay(attempt, retryAfter)
 		select {
 		case <-ctx.Done():
-			return Response{Usage: usage, Latency: time.Since(started), Attempts: attempt + 1}, ctx.Err()
-		case <-time.After(llmhttp.RetryDelay(attempt, retryAfter)):
+			return finish(Response{Usage: usage}, attempt+1), ctx.Err()
+		case <-time.After(backoff):
 		}
 	}
-	return Response{Usage: usage, Latency: time.Since(started), Attempts: maxAttempts}, lastErr
+	return finish(Response{Usage: usage}, maxAttempts), lastErr
 }
 
 // retryable is true for a rate limit, a provider failure, or a dropped connection.
@@ -181,7 +194,15 @@ func retryable(err error) bool {
 	return true
 }
 
-func (c *OpenRouter) once(ctx context.Context, body []byte) (Response, string, error) {
+func (c *OpenRouter) once(ctx context.Context, body []byte) (got Response, retryAfter string, err error) {
+	ctx, probe := Begin(ctx)
+	var status, size int
+	var provider, generation string
+	defer func() {
+		attempt := probe.Finish(status, len(body), size, err)
+		attempt.Provider, attempt.GenerationID = provider, generation
+		got.Requests = []Attempt{attempt}
+	}()
 	request, err := http.NewRequestWithContext(ctx, http.MethodPost, c.baseURL+"/chat/completions", bytes.NewReader(body))
 	if err != nil {
 		return Response{}, "", fmt.Errorf("build model request: %w", err)
@@ -193,13 +214,16 @@ func (c *OpenRouter) once(ctx context.Context, body []byte) (Response, string, e
 		return Response{}, "", fmt.Errorf("call model: %w", err)
 	}
 	defer response.Body.Close()
+	status = response.StatusCode
 	payload, err := io.ReadAll(io.LimitReader(response.Body, maxResponse))
+	size = len(payload)
 	if err != nil {
 		return Response{}, "", fmt.Errorf("read model response: %w", err)
 	}
 	var decoded chatResponse
 	jsonErr := json.Unmarshal(payload, &decoded)
-	got := Response{
+	provider, generation = decoded.Provider, decoded.ID
+	got = Response{
 		Model: decoded.Model,
 		Usage: Usage{
 			InputTokens:      decoded.Usage.PromptTokens,

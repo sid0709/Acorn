@@ -9,6 +9,7 @@ import (
 	"strings"
 	"sync/atomic"
 	"testing"
+	"time"
 )
 
 const okBody = `{"model":"openai/gpt-6-luna","choices":[{"message":{"content":"{\"a\":1}"},"finish_reason":"stop"}],"usage":{"prompt_tokens":120,"completion_tokens":8,"cost":0.0004}}`
@@ -161,5 +162,51 @@ func TestCompleteReadsCachedTokens(t *testing.T) {
 	}
 	if resp.Usage.CachedTokens != 640 || resp.Usage.CacheWriteTokens != 128 {
 		t.Fatalf("usage = %+v", resp.Usage)
+	}
+}
+
+func TestCompleteTimesEachRequest(t *testing.T) {
+	const providerWait = 60 * time.Millisecond
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		time.Sleep(providerWait)
+		_, _ = w.Write([]byte(`{"id":"gen-1","provider":"Acme","model":"m","choices":[{"message":{"content":"{}"},"finish_reason":"stop"}],"usage":{}}`))
+	}))
+	defer server.Close()
+
+	client := NewOpenRouter("sk-test", "m", server.URL, "")
+	resp, err := client.Complete(context.Background(), Request{Messages: []Message{{Role: RoleUser, Text: "look"}}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if resp.StartedAt.IsZero() || len(resp.Requests) != 1 {
+		t.Fatalf("a call must say when it began and time its request: %+v", resp)
+	}
+	request := resp.Requests[0]
+	if request.WaitMs < providerWait.Milliseconds()-5 || request.TotalMs < request.WaitMs {
+		t.Fatalf("the provider's wait must be its own figure: %+v", request)
+	}
+	if request.Provider != "Acme" || request.GenerationID != "gen-1" || request.Status != 200 || request.RequestBytes == 0 || request.ResponseBytes == 0 {
+		t.Fatalf("request = %+v", request)
+	}
+}
+
+func TestCompleteTimesTheRetryDelay(t *testing.T) {
+	var calls atomic.Int32
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if calls.Add(1) == 1 {
+			w.WriteHeader(http.StatusServiceUnavailable)
+			return
+		}
+		_, _ = w.Write([]byte(okBody))
+	}))
+	defer server.Close()
+
+	client := NewOpenRouter("sk-test", "m", server.URL, "")
+	resp, err := client.Complete(context.Background(), Request{Messages: []Message{{Role: RoleUser, Text: "look"}}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(resp.Requests) != 2 || resp.Requests[0].Status != 503 || resp.Requests[1].Status != 200 || resp.Requests[1].BackoffMs <= 0 {
+		t.Fatalf("the second request must carry the wait before it: %+v", resp.Requests)
 	}
 }

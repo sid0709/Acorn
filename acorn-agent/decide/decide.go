@@ -98,6 +98,9 @@ type Response struct {
 	Usage   Usage             `json:"usage"`
 	// Latency is how long the call took, retries included.
 	Latency time.Duration `json:"-"`
+	// StartedAt is when the call began; Requests is the timing of each HTTP request it sent.
+	StartedAt time.Time     `json:"-"`
+	Requests  []llm.Attempt `json:"-"`
 }
 
 // Client calls one decision model on a person's OpenRouter key.
@@ -157,23 +160,33 @@ func (c *Client) Decide(ctx context.Context, req Request) (Response, error) {
 	}
 	started := time.Now()
 	var lastErr error
+	var requests []llm.Attempt
+	var backoff time.Duration
+	finish := func(response Response) Response {
+		response.Latency, response.StartedAt, response.Requests = time.Since(started), started, requests
+		return response
+	}
 	for attempt := 0; attempt < maxAttempts; attempt++ {
 		response, retryAfter, err := c.once(ctx, body)
+		for _, request := range response.Requests {
+			request.BackoffMs = backoff.Milliseconds()
+			requests = append(requests, request)
+		}
 		if err == nil {
-			response.Latency = time.Since(started)
-			return response, nil
+			return finish(response), nil
 		}
 		lastErr = err
 		if ctx.Err() != nil || !retryable(err) || attempt == maxAttempts-1 {
 			break
 		}
+		backoff = llmhttp.RetryDelay(attempt, retryAfter)
 		select {
 		case <-ctx.Done():
-			return Response{}, ctx.Err()
-		case <-time.After(llmhttp.RetryDelay(attempt, retryAfter)):
+			return finish(Response{}), ctx.Err()
+		case <-time.After(backoff):
 		}
 	}
-	return Response{Latency: time.Since(started)}, lastErr
+	return finish(Response{}), lastErr
 }
 
 func retryable(err error) bool {
@@ -184,7 +197,10 @@ func retryable(err error) bool {
 	return true
 }
 
-func (c *Client) once(ctx context.Context, body []byte) (Response, string, error) {
+func (c *Client) once(ctx context.Context, body []byte) (got Response, retryAfter string, err error) {
+	ctx, probe := llm.Begin(ctx)
+	var status, size int
+	defer func() { got.Requests = []llm.Attempt{probe.Finish(status, len(body), size, err)} }()
 	request, err := http.NewRequestWithContext(ctx, http.MethodPost, c.url, bytes.NewReader(body))
 	if err != nil {
 		return Response{}, "", fmt.Errorf("build decision request: %w", err)
@@ -196,7 +212,9 @@ func (c *Client) once(ctx context.Context, body []byte) (Response, string, error
 		return Response{}, "", fmt.Errorf("decision request: %w", err)
 	}
 	defer response.Body.Close()
+	status = response.StatusCode
 	payload, err := io.ReadAll(io.LimitReader(response.Body, maxResponse))
+	size = len(payload)
 	if err != nil {
 		return Response{}, "", fmt.Errorf("read decision response: %w", err)
 	}

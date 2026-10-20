@@ -9,6 +9,26 @@ import type { TabLogEntry } from "./tab-log-session";
 /** The log entry a run's closing event is written as (`from · run:` + event name `run:end`). */
 const RUN_END_TITLE = /run:run:end$/;
 const RUN_START_TITLE = /run:run:start$/;
+const AGENT_STEP_TITLE = /run:agent-step$/;
+/** How many of a run's slowest steps the summary lists. */
+const SLOWEST_STEPS = 5;
+
+/** Where one agent step's time went: the look, the request (server against network) and the actions before it. */
+export type StepTiming = {
+  step: number;
+  /** When the step's look began (unix ms). */
+  at?: number;
+  /** Look + request, in ms: the step's own time, not counting the actions that follow it. */
+  totalMs: number;
+  lookMs?: number;
+  askMs?: number;
+  serverMs?: number;
+  networkMs?: number;
+  actionsMs?: number;
+  /** The look's parts, by name, in ms. */
+  lookLaps?: Record<string, number>;
+  hidden?: boolean;
+};
 
 export type LogRunSummary = {
   runId: string;
@@ -25,6 +45,8 @@ export type LogRunSummary = {
   costUsd?: number;
   /** Milliseconds per phase of the run, as the run reported them. */
   phases?: Record<string, number>;
+  /** The run's slowest agent steps, slowest first, each with where its time went. */
+  slowestSteps?: StepTiming[];
   entries: number;
   warnings: number;
   errors: number;
@@ -64,6 +86,7 @@ export function summarizeLog(
   generatedAt = Date.now(),
 ): LogSummary {
   const byRun = new Map<string, LogRunSummary>();
+  const steps = new Map<string, StepTiming[]>();
   let warnings = 0;
   let errors = 0;
   for (const entry of entries) {
@@ -92,6 +115,27 @@ export function summarizeLog(
       run.lastProblem = entry.title;
     }
     if (RUN_START_TITLE.test(entry.title)) run.startedAt = entry.t;
+    if (AGENT_STEP_TITLE.test(entry.title)) {
+      const data = dataOf(entry);
+      const lookMs = count(data.lookMs);
+      const askMs = count(data.ms);
+      const step = count(data.step) ?? entry.step ?? 0;
+      (steps.get(entry.runId) ?? steps.set(entry.runId, []).get(entry.runId))?.push({
+        step,
+        at: count(data.lookStartedAt),
+        totalMs: (lookMs ?? 0) + (askMs ?? 0),
+        lookMs,
+        askMs,
+        serverMs: count(data.serverMs),
+        networkMs: count(data.networkMs),
+        actionsMs: count(data.actionsMs),
+        lookLaps:
+          data.lookLaps && typeof data.lookLaps === "object"
+            ? (data.lookLaps as Record<string, number>)
+            : undefined,
+        hidden: typeof data.hidden === "boolean" ? data.hidden : undefined,
+      });
+    }
     if (RUN_END_TITLE.test(entry.title)) {
       const data = dataOf(entry);
       run.outcome = text(data.outcome) ?? "ended";
@@ -106,6 +150,11 @@ export function summarizeLog(
         run.phases = data.phases as Record<string, number>;
       }
     }
+  }
+  for (const [runId, timings] of steps) {
+    const run = byRun.get(runId);
+    if (run)
+      run.slowestSteps = timings.sort((a, b) => b.totalMs - a.totalMs).slice(0, SLOWEST_STEPS);
   }
   return {
     extensionVersion,

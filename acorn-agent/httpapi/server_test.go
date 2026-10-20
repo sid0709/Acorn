@@ -115,6 +115,9 @@ func TestARunFromStartToEnd(t *testing.T) {
 	if response.StatusCode != 200 {
 		t.Fatalf("step = %d %s", response.StatusCode, body)
 	}
+	if response.Header.Get(HandlerMsHeader) == "" || response.Header.Get(ServerTimeHeader) == "" {
+		t.Fatalf("a step must say how long the server took: %v", response.Header)
+	}
 	var step agent.Step
 	if err := json.Unmarshal(body, &step); err != nil || step.Status != agent.StatusWorking || len(step.Actions) != 1 || step.Actions[0].Kind != agent.KindClick {
 		t.Fatalf("step = %+v %v", step, err)

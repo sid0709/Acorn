@@ -4,6 +4,7 @@ import { runAgent } from "../../agent/runner";
 import { getAgentUrl } from "../../agent/settings";
 import { getAccessToken } from "../../auth/acorn-auth";
 import { syncAutoFocus } from "../auto-focus";
+import { groupRunTab } from "../run-group";
 import { answerRunOnTab, awaitRunAnswer } from "../run-answer";
 import { beginRunStop, claimRunStopTab, endRunStop, stopRunOnTab } from "../run-stop";
 import { broadcastPipelineProgress } from "../socket-connection";
@@ -35,6 +36,7 @@ export function handleStartRun(
     const stop = beginRunStop(tabId);
     pipelineRunningTabIds.add(tabId);
     runTabIds.add(tabId);
+    void groupRunTab(tabId);
     syncWorkKeepAlive();
     void syncAutoFocus();
     sendResponse({ ok: true });
@@ -61,6 +63,7 @@ export function handleStartRun(
           claimRunStopTab(stop, id);
           pipelineRunningTabIds.add(id);
           runTabIds.add(id);
+          void groupRunTab(id);
           void syncAutoFocus();
         },
       });

@@ -71,6 +71,7 @@ import { scrollToTop } from "./scroll-top";
 import { AGENT_SURVEY } from "./settings";
 import { captureSurvey } from "./survey";
 import { openAgentTab, type AgentTab } from "./tab-session";
+import { Stopwatch, httpSummary, type HttpTiming } from "./timing";
 import { recordAgentTrace } from "./trace-log";
 import { toBase64, type ResumeFile } from "./upload";
 
@@ -223,6 +224,28 @@ export async function runAgent(args: AgentRunArgs): Promise<RunReport> {
   let stepNumber = 0;
   /** How long the last step's actions took to run, for the log. */
   let lastActionsMs = 0;
+  /** Where the run's time went, summed over its steps, for the `run:end` entry's `phases` (ms). */
+  const spent = {
+    look: 0,
+    ask: 0,
+    retryWait: 0,
+    actions: 0,
+    server: 0,
+    network: 0,
+    gmail: 0,
+    start: 0,
+    /** Waiting on the person to answer a question; not the run's own time. */
+    person: 0,
+  };
+  /** The step request's timing, taken by the `agent-step` entry that follows it. */
+  let stepHttp: HttpTiming | undefined;
+  /** Every request to the agent server goes to the log with its timing, then adds to the totals. */
+  const onHttp = (timing: HttpTiming) => {
+    log.event("agent-http", { ...timing });
+    spent.server += timing.serverMs ?? 0;
+    spent.network += timing.networkMs ?? 0;
+    if (timing.route.endsWith("/step")) stepHttp = timing;
+  };
   /**
    * When the last actions that change a page began (a click, typing, a key, an upload): a site
    * sends its code or link in answer to one of these, so only mail from after it can be the site's.
@@ -246,7 +269,7 @@ export async function runAgent(args: AgentRunArgs): Promise<RunReport> {
   };
   const files = new Map<string, Promise<ResumeFile>>();
   const vet = (target: Parameters<typeof vetTarget>[2]) =>
-    vetTarget(args.agentUrl, must(sessionId), target, signal);
+    vetTarget(args.agentUrl, must(sessionId), target, signal, onHttp);
   const clickGuard = createClickGuard({
     cdp: () => must(current).cdp,
     vet,
@@ -292,8 +315,14 @@ export async function runAgent(args: AgentRunArgs): Promise<RunReport> {
   ): Promise<GmailRead> => {
     const kind = verificationKindFor(step.stop);
     const since = mailSince ?? lastChangeAt;
+    const readStartedAt = Date.now();
     mailSearch = startMailSearch(kind, since);
-    log.event("mail-verification:start", { kind, since, excluded: usedMailIds.length });
+    log.event("mail-verification:start", {
+      kind,
+      since,
+      excluded: usedMailIds.length,
+      startedAt: readStartedAt,
+    });
     const showSearch = () =>
       emit(
         runningProgress(
@@ -324,13 +353,19 @@ export async function runAgent(args: AgentRunArgs): Promise<RunReport> {
         showSearch();
       },
     });
+    const readMs = Date.now() - readStartedAt;
+    spent.gmail += readMs;
     if (outcome.ok) {
       mailSearch = foundIn(mailSearch, outcome.messageId, outcome.value);
       mailSince = since;
       if (outcome.messageId) usedMailIds.push(outcome.messageId);
-      log.event("mail-verification:found", { kind: outcome.kind, messageId: outcome.messageId });
+      log.event("mail-verification:found", {
+        kind: outcome.kind,
+        messageId: outcome.messageId,
+        ms: readMs,
+      });
       showSearch();
-      await continueSession(args.agentUrl, must(sessionId));
+      await continueSession(args.agentUrl, must(sessionId), onHttp);
       keepSession = false;
       if (outcome.kind === VERIFICATION.emailLink) {
         await chrome.tabs.update(here.tabId, { url: outcome.value });
@@ -341,7 +376,11 @@ export async function runAgent(args: AgentRunArgs): Promise<RunReport> {
       return GMAIL_READ.found;
     }
     mailSearch = missed(mailSearch, outcome.reason === "error" ? outcome.detail : outcome.reason);
-    log.event("mail-verification:miss", { reason: outcome.reason, detail: outcome.detail });
+    log.event("mail-verification:miss", {
+      reason: outcome.reason,
+      detail: outcome.detail,
+      ms: readMs,
+    });
     return outcome.reason === "no_mailbox" ? GMAIL_READ.noMailbox : GMAIL_READ.missed;
   };
 
@@ -369,7 +408,15 @@ export async function runAgent(args: AgentRunArgs): Promise<RunReport> {
     resume: (id, fileName) => {
       let file = files.get(id);
       if (!file) {
-        file = fetchResumeFile(args.agentUrl, must(sessionId), id, fileName, signal, toBase64);
+        file = fetchResumeFile(
+          args.agentUrl,
+          must(sessionId),
+          id,
+          fileName,
+          signal,
+          toBase64,
+          onHttp,
+        );
         files.set(id, file);
         file.catch(() => files.delete(id));
       }
@@ -415,16 +462,20 @@ export async function runAgent(args: AgentRunArgs): Promise<RunReport> {
   const askWithRetry = async (observation: Parameters<typeof sendStep>[2]): Promise<AgentStep> => {
     for (let attempt = 0; ; attempt += 1) {
       try {
-        return await sendStep(args.agentUrl, must(sessionId), observation, signal);
+        return await sendStep(args.agentUrl, must(sessionId), observation, signal, onHttp);
       } catch (err) {
         checkStopped();
         if (!isRetryable(err) || attempt >= STEP_RETRY_LIMIT) throw err;
+        const backoff = args.retryBackoffMs ?? STEP_RETRY_BACKOFF_MS;
+        const waitMs = backoff[Math.min(attempt, backoff.length - 1)];
         log.event("agent-step:retry", {
           attempt: attempt + 1,
           code: err instanceof AgentApiError ? err.code : "",
+          startedAt: Date.now(),
+          waitMs,
         });
-        const backoff = args.retryBackoffMs ?? STEP_RETRY_BACKOFF_MS;
-        await sleep(backoff[Math.min(attempt, backoff.length - 1)]);
+        await sleep(waitMs);
+        spent.retryWait += waitMs;
       }
     }
   };
@@ -441,6 +492,7 @@ export async function runAgent(args: AgentRunArgs): Promise<RunReport> {
       detail: report.failure?.detail,
       calls: lastUsage?.calls,
       costUsd: lastUsage?.cost,
+      phases: { ...spent, total: Date.now() - startedAt },
     });
     emit(
       endProgress({
@@ -483,7 +535,7 @@ export async function runAgent(args: AgentRunArgs): Promise<RunReport> {
       // Held from now on, so a Continue that fails for want of the network can be tried again.
       sessionId = args.resume.sessionId;
       try {
-        const continued = await continueSession(args.agentUrl, sessionId);
+        const continued = await continueSession(args.agentUrl, sessionId, onHttp);
         stepNumber = continued.number;
         lastUsage = continued.usage;
         log.step = continued.number;
@@ -509,6 +561,7 @@ export async function runAgent(args: AgentRunArgs): Promise<RunReport> {
       }
     }
     if (!sessionId) {
+      const sessionStartedAt = Date.now();
       const started = await startSession(
         args.agentUrl,
         {
@@ -521,9 +574,11 @@ export async function runAgent(args: AgentRunArgs): Promise<RunReport> {
         },
         args.key,
         args.accessToken,
+        onHttp,
       );
       sessionId = started.sessionId;
-      log.event("agent-session", { resumes: started.resumes.length });
+      spent.start = Date.now() - sessionStartedAt;
+      log.event("agent-session", { resumes: started.resumes.length, ms: spent.start });
       recordAgentTrace(log, started.trace);
     }
 
@@ -537,16 +592,18 @@ export async function runAgent(args: AgentRunArgs): Promise<RunReport> {
     let lastLook = "";
     for (;;) {
       checkStopped();
+      // The look: everything from here to the request, timed by part.
+      const look = new Stopwatch();
       if (pendingTab != null) {
         const id = pendingTab;
         pendingTab = null;
-        carriedNotes.push(await followNewTab(id));
+        carriedNotes.push(await look.time("newTab", () => followNewTab(id)));
       }
       const here = must(current);
       // A frame an online file source drew over the page is gone before the screenshot is taken.
-      await frames.sweep();
-      await here.overlay.ensure();
-      const info = await chrome.tabs.get(here.tabId);
+      await look.time("sweep", () => frames.sweep());
+      await look.time("overlay", () => here.overlay.ensure());
+      const info = await look.time("tabInfo", () => chrome.tabs.get(here.tabId));
       const lookKey = `${info.url ?? ""}\n${info.title ?? ""}`;
       const newPage = lookKey !== lastLook;
       const surveying = surveyOn && (surveyNext || newPage);
@@ -554,33 +611,33 @@ export async function runAgent(args: AgentRunArgs): Promise<RunReport> {
       lastLook = lookKey;
       // A page is first looked at from its top: a run that starts, or a click that opens another page,
       // must not begin in the middle of a form whose first questions lie above the screen.
-      if (newPage) await scrollToTop(here.cdp, sleep);
+      if (newPage) await look.time("scrollTop", () => scrollToTop(here.cdp, sleep));
       // A scroll still running (a key, a click, a list scrolling itself into view) is waited out.
-      await waitForScrollRest(here.cdp, sleep);
+      await look.time("scrollRest", () => waitForScrollRest(here.cdp, sleep));
       let survey: AgentSurveyScreen[] | null = null;
       const captureStartedAt = Date.now();
-      await here.overlay.hideForCapture(true);
+      await look.time("hideOverlay", () => here.overlay.hideForCapture(true));
       try {
-        shot = await captureShot(here.cdp);
+        shot = await look.time("shot", () => captureShot(here.cdp));
         if (surveying) {
-          survey = await captureSurvey({ cdp: here.cdp, sleep, checkStopped }, shot).catch(
-            (err: unknown) => {
+          const first = shot;
+          survey = await look
+            .time("survey", () => captureSurvey({ cdp: here.cdp, sleep, checkStopped }, first))
+            .catch((err: unknown) => {
               if (signal.aborted) throw err;
               return null; // a page that cannot be surveyed is looked at one screen at a time
-            },
-          );
+            });
         }
       } finally {
-        await here.overlay.hideForCapture(false);
+        await look.time("showOverlay", () => here.overlay.hideForCapture(false));
       }
       const captureMs = Date.now() - captureStartedAt;
-      const tabHidden = await isTabHidden(here.cdp);
+      const tabHidden = await look.time("tabHidden", () => isTabHidden(here.cdp));
       checkStopped();
       if (survey) log.event("agent-survey", { screens: survey.length });
-      const [focus, text] = await Promise.all([
-        readFocus(here.cdp),
-        readPageText(here.cdp, here.tabId),
-      ]);
+      const [focus, text] = await look.time("pageRead", () =>
+        Promise.all([readFocus(here.cdp), readPageText(here.cdp, here.tabId)]),
+      );
       // The page's text goes once per change: the job description may sit above the form,
       // where a click on Apply has already scrolled past it.
       const fingerprint = text ? textFingerprint(text) : "";
@@ -593,6 +650,8 @@ export async function runAgent(args: AgentRunArgs): Promise<RunReport> {
       carriedNotes = [];
 
       const askedAt = Date.now();
+      spent.look += askedAt - look.startedAt;
+      stepHttp = undefined;
       const step = await askWithRetry({
         screenshot: shot.dataUrl,
         url: info.url ?? "",
@@ -606,6 +665,8 @@ export async function runAgent(args: AgentRunArgs): Promise<RunReport> {
         ...(answered ? { answer: answered } : {}),
       });
       checkStopped();
+      const askMs = Date.now() - askedAt;
+      spent.ask += askMs;
       stepNumber = step.number;
       lastUsage = step.usage;
       const actions = step.actions ?? [];
@@ -622,7 +683,16 @@ export async function runAgent(args: AgentRunArgs): Promise<RunReport> {
         message: step.message,
         actions: actions.map(describeAction),
         dropped: step.dropped,
-        ms: Date.now() - askedAt,
+        ms: askMs,
+        // When each part of the step began (unix ms), so a gap between them shows as a gap.
+        lookStartedAt: look.startedAt,
+        askStartedAt: askedAt,
+        askEndedAt: askedAt + askMs,
+        lookMs: askedAt - look.startedAt,
+        // The look's parts (capture, page reads, scroll waits), and the request's: the server's
+        // own time against the network's (send, wire, read), with the bytes each way.
+        lookLaps: look.laps,
+        ...httpSummary(stepHttp),
         captureMs,
         // Where a slow run lost its time: capturing, the actions of the step before, and whether the tab was not shown.
         actionsMs: lastActionsMs,
@@ -664,9 +734,16 @@ export async function runAgent(args: AgentRunArgs): Promise<RunReport> {
         if (!args.waitForAnswer) throw new Error("the run cannot ask a question here");
         emit(runningProgress(runState(undefined, ask), ask.question));
         void here.overlay.setLabel(ASK_LABEL);
+        const askedPersonAt = Date.now();
         answer = await args.waitForAnswer(signal);
         checkStopped();
-        log.event("agent-answer", { id: ask.id, answer });
+        spent.person += Date.now() - askedPersonAt;
+        log.event("agent-answer", {
+          id: ask.id,
+          answer,
+          startedAt: askedPersonAt,
+          ms: Date.now() - askedPersonAt,
+        });
         results = [];
         void here.overlay.setLabel(OVERLAY_LABEL);
         continue;
@@ -693,8 +770,24 @@ export async function runAgent(args: AgentRunArgs): Promise<RunReport> {
       }
 
       const actionsBeganAt = Date.now();
-      results = await runActions(executor, actions);
+      const batch = new Stopwatch();
+      results = await runActions(executor, actions, batch);
       lastActionsMs = Date.now() - actionsBeganAt;
+      spent.actions += lastActionsMs;
+      // What each action took and where, so a slow step is read from the log, not guessed.
+      log.event("agent-actions", {
+        step: step.number,
+        startedAt: actionsBeganAt,
+        ms: lastActionsMs,
+        batchLaps: batch.laps,
+        actions: results.map((result) => ({
+          id: result.id,
+          ok: result.ok,
+          startedAt: result.startedAt,
+          ms: result.ms,
+          laps: result.laps,
+        })),
+      });
       for (const result of results) {
         if (!result.ok) log.event("agent-action:failed", { id: result.id, error: result.error });
       }
@@ -741,7 +834,7 @@ export async function runAgent(args: AgentRunArgs): Promise<RunReport> {
         stopBeforeSubmit,
       });
     } else if (sessionId) {
-      await endSession(args.agentUrl, sessionId);
+      await endSession(args.agentUrl, sessionId, onHttp);
     }
     await current?.close().catch(() => undefined);
   }

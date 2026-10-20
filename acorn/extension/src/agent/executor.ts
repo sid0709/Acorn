@@ -18,6 +18,7 @@ import { blockedMessage, type GuardVerdict } from "./guard";
 import { clickAt, moveMouse, pressKeys, typeText, wheelAt } from "./input";
 import { watchInputEffects } from "./input-settle";
 import { scrollForAction } from "./survey";
+import { Stopwatch } from "./timing";
 import { uploadAt, type ResumeFile } from "./upload";
 import { waitForUploadProcessing } from "./upload-settle";
 
@@ -94,22 +95,23 @@ async function clickWatchingForPicker(
   x: number,
   y: number,
   options: Parameters<typeof clickAt>[3],
+  watch: Stopwatch,
 ): Promise<Done> {
   let opened = false;
   const stop = ctx.cdp.onEvent((method) => {
     if (method === "Page.fileChooserOpened") opened = true;
   });
   try {
-    await clickAt(ctx.cdp, x, y, options);
-    await ctx.sleep(SETTLE_MS);
-    await ctx.afterClick?.();
+    await watch.time("click", () => clickAt(ctx.cdp, x, y, options));
+    await watch.time("settle", () => ctx.sleep(SETTLE_MS));
+    await watch.time("afterClick", async () => ctx.afterClick?.());
   } finally {
     stop();
   }
   return opened ? { opened: ACTION_OPENED.filePicker } : {};
 }
 
-async function perform(ctx: ExecutorContext, action: AgentAction): Promise<Done> {
+async function perform(ctx: ExecutorContext, action: AgentAction, watch: Stopwatch): Promise<Done> {
   const { cdp } = ctx;
   switch (action.kind) {
     case "click":
@@ -117,65 +119,82 @@ async function perform(ctx: ExecutorContext, action: AgentAction): Promise<Done>
     case "triple_click":
     case "right_click": {
       const { x, y } = point(action, ctx.scale());
-      await scrollForAction(cdp, action, ctx.scale(), ctx.sleep);
+      await watch.time("scroll", () => scrollForAction(cdp, action, ctx.scale(), ctx.sleep));
       const verdict = ctx.guard?.(x, y);
-      await glideTo(ctx, x, y);
-      await refuseIfBlocked(verdict);
+      await watch.time("glide", () => glideTo(ctx, x, y));
+      await watch.time("guard", () => refuseIfBlocked(verdict));
       void ctx.overlay.click();
       const count = action.kind === "double_click" ? 2 : action.kind === "triple_click" ? 3 : 1;
-      return clickWatchingForPicker(ctx, x, y, {
-        button: action.kind === "right_click" ? "right" : "left",
-        count,
-      });
+      return clickWatchingForPicker(
+        ctx,
+        x,
+        y,
+        {
+          button: action.kind === "right_click" ? "right" : "left",
+          count,
+        },
+        watch,
+      );
     }
     case "hover": {
       const { x, y } = point(action, ctx.scale());
-      await scrollForAction(cdp, action, ctx.scale(), ctx.sleep);
-      await glideTo(ctx, x, y);
+      await watch.time("scroll", () => scrollForAction(cdp, action, ctx.scale(), ctx.sleep));
+      await watch.time("glide", () => glideTo(ctx, x, y));
       void ctx.overlay.hover(true);
-      await moveMouse(cdp, x, y);
-      await ctx.sleep(SETTLE_MS);
+      await watch.time("move", () => moveMouse(cdp, x, y));
+      await watch.time("settle", () => ctx.sleep(SETTLE_MS));
       return {};
     }
     case "type": {
       if (!action.text) throw new Error("there is no text to type");
-      if (await nothingHasFocus(cdp)) throw new Error(NO_FOCUS_MESSAGE);
-      await typeText(cdp, action.text);
-      await ctx.sleep(SETTLE_MS / 2);
+      if (await watch.time("focusCheck", () => nothingHasFocus(cdp)))
+        throw new Error(NO_FOCUS_MESSAGE);
+      const text = action.text;
+      await watch.time("type", () => typeText(cdp, text));
+      await watch.time("settle", () => ctx.sleep(SETTLE_MS / 2));
       return { detail: `${[...action.text].length} characters` };
     }
     case "key": {
       if (!action.keys) throw new Error("there is no key to press");
-      if (scrollsAPage(action.keys) && (await nothingHasFocus(cdp)))
+      const keys = action.keys;
+      if (scrollsAPage(keys) && (await watch.time("focusCheck", () => nothingHasFocus(cdp))))
         throw new Error(NO_FOCUS_MESSAGE);
-      await pressKeys(cdp, action.keys);
-      await ctx.sleep(SETTLE_MS);
+      await watch.time("keys", () => pressKeys(cdp, keys));
+      await watch.time("settle", () => ctx.sleep(SETTLE_MS));
       return {};
     }
     case "scroll": {
       const { x, y } = point(action, ctx.scale());
       const scale = ctx.scale();
-      await glideTo(ctx, x, y);
-      await wheelAt(cdp, x, y, (action.dx ?? 0) / scale, (action.dy ?? 0) / scale);
-      await ctx.sleep(SCROLL_SETTLE_MS);
+      await watch.time("glide", () => glideTo(ctx, x, y));
+      await watch.time("wheel", () =>
+        wheelAt(cdp, x, y, (action.dx ?? 0) / scale, (action.dy ?? 0) / scale),
+      );
+      await watch.time("settle", () => ctx.sleep(SCROLL_SETTLE_MS));
       return {};
     }
     case "upload": {
       const { x, y } = point(action, ctx.scale());
       if (!action.resume) throw new Error("the server named no résumé to upload");
-      const file = await ctx.resume(action.resume, action.fileName ?? action.resume);
-      await scrollForAction(cdp, action, ctx.scale(), ctx.sleep);
+      const resume = action.resume;
+      const file = await watch.time("resumeFetch", () =>
+        ctx.resume(resume, action.fileName ?? resume),
+      );
+      await watch.time("scroll", () => scrollForAction(cdp, action, ctx.scale(), ctx.sleep));
       const verdict = ctx.guard?.(x, y);
-      await glideTo(ctx, x, y);
-      await refuseIfBlocked(verdict);
+      await watch.time("glide", () => glideTo(ctx, x, y));
+      await watch.time("guard", () => refuseIfBlocked(verdict));
       void ctx.overlay.click();
-      const done = await uploadAt(cdp, x, y, file, ctx.fileChooserWaitMs);
-      await waitForUploadProcessing(cdp, ctx.sleep);
-      await ctx.sleep(SETTLE_MS);
+      const done = await watch.time("upload", () =>
+        uploadAt(cdp, x, y, file, ctx.fileChooserWaitMs),
+      );
+      await watch.time("uploadProcessing", () => waitForUploadProcessing(cdp, ctx.sleep));
+      await watch.time("settle", () => ctx.sleep(SETTLE_MS));
       return { detail: `${done.fileName}, ${done.bytes} bytes, through the ${done.via}` };
     }
     case "wait": {
-      await ctx.sleep(action.ms ?? 1000);
+      const ms = action.ms ?? 1000;
+      await watch.time("wait", () => ctx.sleep(ms));
       return {};
     }
     default:
@@ -191,12 +210,14 @@ async function perform(ctx: ExecutorContext, action: AgentAction): Promise<Done>
 export async function runActions(
   ctx: ExecutorContext,
   actions: AgentAction[],
+  /** Told the time the batch spent beyond its actions (watching the page's reaction to typing). */
+  batch = new Stopwatch(),
 ): Promise<AgentActionResult[]> {
   const results: AgentActionResult[] = [];
   let failed = false;
   // A step that types is looked at only once the page has answered what the typing asked of it.
   const typing = actions.some((action) => action.kind === "type" || action.kind === "key");
-  const effects = typing ? await watchInputEffects(ctx.cdp) : null;
+  const effects = typing ? await batch.time("watchInput", () => watchInputEffects(ctx.cdp)) : null;
   for (const action of actions) {
     if (failed) {
       results.push({
@@ -207,11 +228,15 @@ export async function runActions(
       continue;
     }
     ctx.checkStopped();
+    // Each action carries when it began and how long it took, and where that time went.
+    const watch = new Stopwatch();
+    const timing = () => ({ startedAt: watch.startedAt, ms: watch.ms, laps: watch.laps });
     try {
-      const done = await perform(ctx, action);
+      const done = await perform(ctx, action, watch);
       results.push({
         id: action.id,
         ok: true,
+        ...timing(),
         ...(done.detail ? { detail: done.detail } : {}),
         ...(done.opened ? { opened: done.opened } : {}),
       });
@@ -222,9 +247,10 @@ export async function runActions(
         id: action.id,
         ok: false,
         error: err instanceof Error ? err.message : String(err),
+        ...timing(),
       });
     }
   }
-  await effects?.settle(ctx.sleep);
+  if (effects) await batch.time("inputSettle", () => effects.settle(ctx.sleep));
   return results;
 }

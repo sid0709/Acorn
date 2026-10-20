@@ -62,6 +62,9 @@ type Response struct {
 	// Latency is how long the call took, retries included; Attempts is how many requests it sent.
 	Latency  time.Duration
 	Attempts int
+	// StartedAt is when the call began; Requests is the timing of each HTTP request it sent.
+	StartedAt time.Time
+	Requests  []Attempt
 }
 
 // Model is what the agent loop needs from a model. *OpenRouter is the real one.

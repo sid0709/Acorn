@@ -56,21 +56,27 @@ type stepTrace struct {
 	SurveyScreens int            `json:"surveyScreens,omitempty"`
 	Check         *checkTrace    `json:"check,omitempty"`
 	At            time.Time      `json:"at"`
-	URL           string         `json:"url"`
-	Title         string         `json:"title"`
-	Viewport      Viewport       `json:"viewport"`
-	Focus         *Focus         `json:"focus,omitempty"`
-	Notes         []string       `json:"notes,omitempty"`
-	Results       []ActionResult `json:"results,omitempty"`
-	Stale         int            `json:"stale"`
-	Observation   string         `json:"observation"`
-	Memo          string         `json:"memo"`
-	Job           string         `json:"job"`
-	Status        string         `json:"status"`
-	Message       string         `json:"message"`
-	Stop          *StopInfo      `json:"stop,omitempty"`
-	Actions       []Action       `json:"actions"`
-	Dropped       []string       `json:"dropped,omitempty"`
+	// StartedAt is when the server got the look this entry answers, EndedAt when the entry was
+	// written, and DurationMs the time between: the server's own time for the step, of which the
+	// model calls (their startedAt and latencyMs) are the part spent waiting on a provider.
+	StartedAt   time.Time      `json:"startedAt"`
+	EndedAt     time.Time      `json:"endedAt"`
+	DurationMs  int64          `json:"durationMs"`
+	URL         string         `json:"url"`
+	Title       string         `json:"title"`
+	Viewport    Viewport       `json:"viewport"`
+	Focus       *Focus         `json:"focus,omitempty"`
+	Notes       []string       `json:"notes,omitempty"`
+	Results     []ActionResult `json:"results,omitempty"`
+	Stale       int            `json:"stale"`
+	Observation string         `json:"observation"`
+	Memo        string         `json:"memo"`
+	Job         string         `json:"job"`
+	Status      string         `json:"status"`
+	Message     string         `json:"message"`
+	Stop        *StopInfo      `json:"stop,omitempty"`
+	Actions     []Action       `json:"actions"`
+	Dropped     []string       `json:"dropped,omitempty"`
 	// Error is why the step produced no answer (the model failed, the observation was refused).
 	Error string `json:"error,omitempty"`
 	// Usage is the run's model use up to and including this step.
@@ -99,6 +105,27 @@ type modelCall struct {
 	// HTTPAttempts is how many requests the call sent (a rate limit is retried).
 	HTTPAttempts int    `json:"httpAttempts"`
 	Error        string `json:"error,omitempty"`
+	// StartedAt is when the call began. Requests times each HTTP request it sent (connect, send,
+	// the provider's wait, read), and Provider and GenerationID say who served it and how to find
+	// it in OpenRouter's activity.
+	StartedAt    time.Time     `json:"startedAt"`
+	Requests     []llm.Attempt `json:"requests,omitempty"`
+	Provider     string        `json:"provider,omitempty"`
+	GenerationID string        `json:"generationId,omitempty"`
+}
+
+// timed adds a call's timing: when it began and how each request went.
+func (c modelCall) timed(startedAt time.Time, requests []llm.Attempt) modelCall {
+	c.StartedAt, c.Requests = startedAt, requests
+	for _, request := range requests {
+		if request.Provider != "" {
+			c.Provider = request.Provider
+		}
+		if request.GenerationID != "" {
+			c.GenerationID = request.GenerationID
+		}
+	}
+	return c
 }
 
 func traceMessages(messages []llm.Message) []tracedMessage {
@@ -312,6 +339,8 @@ func timelineLine(entry stepTrace, calls []modelCall) string {
 		status = "check:" + entry.Check.Outcome
 	}
 	line := fmt.Sprintf("%03d step %d %-14s %5dms $%.4f", entry.Seq, entry.Step, status, latency, entry.Usage.Cost)
+	// Model time against the server's whole time for the step, and when it began.
+	line += fmt.Sprintf(" server=%dms at=%s", entry.DurationMs, entry.StartedAt.Format("15:04:05.000"))
 	if entry.Check != nil {
 		line += fmt.Sprintf(" match=%.2f blocked=%.2f loading=%.2f", entry.Check.Matches, entry.Check.Blocked, entry.Check.Loading)
 	}
