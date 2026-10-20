@@ -461,6 +461,16 @@ func sameMessages(a, b []llm.Message) bool {
 	return true
 }
 
+// sameStart is whether a request carries the earlier request's messages as its start, apart from the
+// earlier request's current message: that one held the screenshot, which is not sent again.
+func sameStart(before, after []llm.Message) bool {
+	n := len(before) - 1
+	if len(after) < len(before) || !sameMessages(before[:n], after[:n]) {
+		return false
+	}
+	return after[n].Role == llm.RoleUser && len(after[n].Images) == 0 && strings.HasPrefix(after[n].Text, before[n].Text)
+}
+
 func runWaitSteps(t *testing.T, cfg Config, n int) *scriptedModel {
 	t.Helper()
 	var replies []string
@@ -479,11 +489,11 @@ func runWaitSteps(t *testing.T, cfg Config, n int) *scriptedModel {
 	return model
 }
 
-func TestHistoryOnlyGrowsAtTheEndSoTheProviderCanCacheIt(t *testing.T) {
+func TestHistoryOnlyGrowsAtTheEndAndSendsOnlyTheCurrentScreenshot(t *testing.T) {
 	model := runWaitSteps(t, DefaultConfig(), 8)
 	for n := 1; n < len(model.requests); n++ {
 		before, after := model.requests[n-1].Messages, model.requests[n].Messages
-		if len(after) != len(before)+2 || !sameMessages(before, after[:len(before)]) {
+		if len(after) != len(before)+2 || !sameStart(before, after) {
 			t.Fatalf("request %d does not start with request %d unchanged (%d then %d messages)", n+1, n, len(before), len(after))
 		}
 		if after[len(before)].Role != llm.RoleAssistant {
@@ -494,20 +504,20 @@ func TestHistoryOnlyGrowsAtTheEndSoTheProviderCanCacheIt(t *testing.T) {
 	for _, message := range model.requests[7].Messages {
 		images += len(message.Images)
 	}
-	if images != 8 {
-		t.Fatalf("every screenshot is kept until the history is compacted: %d, want 8", images)
+	if images != 1 {
+		t.Fatalf("only the current screenshot is sent: %d, want 1", images)
 	}
 }
 
 func TestHistoryIsCompactedOnceItPassesTheBudgetThenGrowsAgain(t *testing.T) {
 	cfg := DefaultConfig()
-	cfg.KeepTurns, cfg.KeepImages, cfg.HistoryTokens = 4, 2, 9000
+	cfg.KeepTurns, cfg.HistoryTokens = 4, 4800
 	model := runWaitSteps(t, cfg, 14)
 
 	compactions := 0
 	for n := 1; n < len(model.requests); n++ {
 		before, after := model.requests[n-1].Messages, model.requests[n].Messages
-		if len(after) == len(before)+2 && sameMessages(before, after[:len(before)]) {
+		if len(after) == len(before)+2 && sameStart(before, after) {
 			continue
 		}
 		compactions++
@@ -521,8 +531,8 @@ func TestHistoryIsCompactedOnceItPassesTheBudgetThenGrowsAgain(t *testing.T) {
 				folded = message.Text
 			}
 		}
-		// The newest kept turns keep their screenshots, plus the current one.
-		if turns > cfg.KeepTurns || images > cfg.KeepImages+1 || !strings.Contains(folded, "step 1: step A") {
+		// Only the current screenshot is sent.
+		if turns > cfg.KeepTurns || images != 1 || !strings.Contains(folded, "step 1: step A") {
 			t.Fatalf("request %d: turns=%d images=%d folded=%q", n+1, turns, images, folded)
 		}
 	}
@@ -990,4 +1000,17 @@ func shotOfSize(t *testing.T, width, height int) string {
 		t.Fatal(err)
 	}
 	return "data:image/jpeg;base64," + base64.StdEncoding.EncodeToString(buf.Bytes())
+}
+
+func TestKeepImagesSendsThatManyEarlierScreenshotsAgain(t *testing.T) {
+	cfg := DefaultConfig()
+	cfg.KeepImages = 2
+	model := runWaitSteps(t, cfg, 6)
+	images := 0
+	for _, message := range model.requests[5].Messages {
+		images += len(message.Images)
+	}
+	if images != 3 {
+		t.Fatalf("screenshots sent = %d, want the current one and 2 earlier", images)
+	}
 }

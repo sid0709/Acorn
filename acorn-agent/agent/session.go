@@ -16,8 +16,8 @@ import (
 type turn struct {
 	number int
 	// text is what the model was told beside the screenshot, notes included, exactly as it
-	// was sent; images are the screenshots (one, or a survey's), dropped when the history is
-	// compacted. text stays until the turn is folded into a summary.
+	// was sent; images are the screenshots (one, or a survey's), released once the turn is older than
+	// the screenshots the history still sends. text stays until the turn is folded into a summary.
 	text   string
 	images []string
 	// answer is the model's reply as JSON, replayed as its own earlier turn.
@@ -90,6 +90,8 @@ type session struct {
 	planned, sent, parts int
 	// maxActions is the most actions one answer of this run may plan.
 	maxActions int
+	// checks is whether a decision model checks the screen between runs of the model's actions.
+	checks bool
 	// carried holds the results of actions sent since the model last looked.
 	carried []ActionResult
 	// notes are things the model is told on its next look, about what its plan did.
@@ -161,18 +163,24 @@ func newSessionID() (string, error) {
 }
 
 // history builds the model's view of the run before the current step: the folded summary,
-// then every turn exactly as it was sent and answered, screenshots included.
+// then every turn as it was sent and answered. Only the newest keepImages turns still carry
+// their screenshots (none by default): the model reads the current screen from the current
+// step's own screenshot, and an old one only makes every request bigger to send and to read.
 //
-// It only ever grows at the end. The provider bills a prompt's tokens at a tenth of the price
-// when they repeat the start of an earlier prompt, and the first change anywhere in the prompt
-// makes everything after it a new prompt; so nothing earlier may change between one step and
-// the next. The history is therefore compacted only when it passes budget (in estimated
-// tokens), and then in one go: the oldest turns are folded into the summary and the
-// screenshots of all but the newest keepImages turns are dropped, so the history is small again
-// and the prompt grows by appending for many steps before it is compacted again.
+// The prompt only ever grows at the end. The provider bills a prompt's tokens at a tenth of the
+// price when they repeat the start of an earlier prompt, and the first change anywhere in the
+// prompt makes everything after it a new prompt. A turn's screenshot is gone from the first
+// request that replays it, and it was never part of an earlier request's replayed start (it
+// sat in that request's current message), so with keepImages 0 nothing earlier changes between
+// one step and the next. A keepImages above 0 slides a window of screenshots and changes the
+// prompt from the oldest kept turn on at every step.
+//
+// The history is compacted when it passes budget (in estimated tokens), in one go: the oldest
+// turns are folded into the summary, so the history is small again and the prompt grows by
+// appending for many steps before it is compacted again.
 func (s *session) history(keepTurns, keepImages, budget int) []llm.Message {
 	if budgetUsed(s) > budget {
-		s.compact(keepTurns, keepImages, budget)
+		s.compact(keepTurns, budget)
 	}
 	var out []llm.Message
 	if len(s.folded) > 0 {
@@ -181,9 +189,9 @@ func (s *session) history(keepTurns, keepImages, budget int) []llm.Message {
 			Text: "Earlier in this run (oldest first; your notes below are the full picture):\n- " + strings.Join(s.folded, "\n- "),
 		})
 	}
-	for _, t := range s.turns {
+	for i, t := range s.turns {
 		message := llm.Message{Role: llm.RoleUser, Text: t.text}
-		if len(t.images) > 0 {
+		if len(t.images) > 0 && i >= len(s.turns)-keepImages {
 			message.Images = t.images
 		} else {
 			message.Text += "\n(Screenshot no longer kept.)"
@@ -193,15 +201,19 @@ func (s *session) history(keepTurns, keepImages, budget int) []llm.Message {
 	return out
 }
 
-// compact makes the history small: only the newest keepTurns turns stay in full, only the
-// newest keepImages of them keep their screenshot, and if that is still over budget the oldest
-// turns are folded until it is not.
-func (s *session) compact(keepTurns, keepImages, budget int) {
-	for len(s.turns) > keepTurns {
-		s.fold()
-	}
+// releaseImages drops the screenshots of every turn but the newest keepImages, which the
+// history would not send again, so a long run does not hold them in memory.
+func (s *session) releaseImages(keepImages int) {
 	for i := 0; i < len(s.turns)-keepImages; i++ {
 		s.turns[i].images = nil
+	}
+}
+
+// compact makes the history small: only the newest keepTurns turns stay in full, and if that
+// is still over budget the oldest turns are folded until it is not.
+func (s *session) compact(keepTurns, budget int) {
+	for len(s.turns) > keepTurns {
+		s.fold()
 	}
 	for budgetUsed(s) > budget && len(s.turns) > 1 {
 		s.fold()

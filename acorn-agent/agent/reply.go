@@ -7,65 +7,6 @@ import (
 	"strings"
 )
 
-// replySchemaName and replySchema are the shape the model must answer in. Every property
-// is present on every answer (the provider's strict mode needs that); the ones an action
-// does not use are null. Observation comes first so the model reads the screen before it
-// decides, and memo is its own scratchpad: the one thing carried from step to step. It is
-// null when the notes did not change, so the model does not write them out again. An
-// action's check is what the screen should show once that action has run, null where the
-// model must look for itself.
-const replySchemaName = "agent_step"
-
-var replySchema = json.RawMessage(`{
-  "type": "object",
-  "additionalProperties": false,
-  "required": ["observation", "memo", "job", "status", "message", "stop", "actions"],
-  "properties": {
-    "observation": {"type": "string"},
-    "memo": {"type": ["string", "null"]},
-    "job": {"type": ["string", "null"]},
-    "status": {"type": "string", "enum": ["working", "done", "need_person", "stuck"]},
-    "message": {"type": "string"},
-    "stop": {
-      "anyOf": [
-        {"type": "null"},
-        {
-          "type": "object",
-          "additionalProperties": false,
-          "required": ["reason", "problem", "action"],
-          "properties": {
-            "reason": {"type": "string", "enum": ["captcha", "verification", "verification_link", "identity", "document", "sign_in", "account_rejected", "page_problem", "other"]},
-            "problem": {"type": "string"},
-            "action": {"type": "string"}
-          }
-        }
-      ]
-    },
-    "actions": {
-      "type": "array",
-      "items": {
-        "type": "object",
-        "additionalProperties": false,
-        "required": ["kind", "screen", "x", "y", "text", "secret", "keys", "dx", "dy", "ms", "resume", "check"],
-        "properties": {
-          "kind": {"type": "string", "enum": ["click", "double_click", "triple_click", "right_click", "hover", "type", "key", "scroll", "upload", "choose", "wait", "survey"]},
-          "screen": {"type": ["integer", "null"]},
-          "x": {"type": ["number", "null"]},
-          "y": {"type": ["number", "null"]},
-          "text": {"type": ["string", "null"]},
-          "secret": {"type": ["boolean", "null"]},
-          "keys": {"type": ["string", "null"]},
-          "dx": {"type": ["number", "null"]},
-          "dy": {"type": ["number", "null"]},
-          "ms": {"type": ["integer", "null"]},
-          "resume": {"type": ["string", "null"]},
-          "check": {"type": ["string", "null"]}
-        }
-      }
-    }
-  }
-}`)
-
 // reply is the model's answer as it arrives.
 type reply struct {
 	Observation string        `json:"observation"`

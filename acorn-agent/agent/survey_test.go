@@ -180,7 +180,7 @@ func TestAJobOfNullKeepsTheJobAndAStringReplacesIt(t *testing.T) {
 	}
 }
 
-func TestASurveyTurnKeepsAllItsScreensInTheHistoryUntilItIsCompacted(t *testing.T) {
+func TestASurveyTurnsScreensAreNotSentAgain(t *testing.T) {
 	model := &scriptedModel{replies: []string{
 		plan("planning", nil, onScreen(1, 10, 10, nil)), plan("next", nil, click(1, 1, nil)),
 	}}
@@ -194,8 +194,8 @@ func TestASurveyTurnKeepsAllItsScreensInTheHistoryUntilItIsCompacted(t *testing.
 	for _, message := range model.requests[1].Messages {
 		images += len(message.Images)
 	}
-	if images != 4 { // the survey's three screens and the new look
-		t.Fatalf("images = %d, want 4", images)
+	if images != 1 { // the new look only: the survey's three screens are not sent again
+		t.Fatalf("images = %d, want 1", images)
 	}
 }
 

@@ -68,7 +68,8 @@ type Config struct {
 	// KeepTurns is how many recent steps stay in full when the history is compacted; older
 	// ones are folded into one line each.
 	KeepTurns int
-	// KeepImages is how many of the newest steps keep their screenshot through a compaction.
+	// KeepImages is how many earlier steps' screenshots are sent again beside the current one
+	// (0: only the current screenshot goes; each one sent again makes every request bigger).
 	KeepImages int
 	// HistoryTokens is the estimated size the model's history may grow to, every screenshot
 	// included, before it is compacted (session.history).
@@ -103,7 +104,7 @@ type Config struct {
 func DefaultConfig() Config {
 	return Config{
 		MaxSteps:          150,
-		MaxActions:        12,
+		MaxActions:        30,
 		UncheckedActions:  6,
 		ChunkActions:      6,
 		CheckMatch:        0.9,
@@ -119,7 +120,7 @@ func DefaultConfig() Config {
 		SingleSignOnBlock: 0.5,
 		AccountAttempts:   8,
 		KeepTurns:         8,
-		KeepImages:        3,
+		KeepImages:        0,
 		HistoryTokens:     30_000,
 		MaxStale:          6,
 		SessionTTL:        time.Hour,
@@ -195,7 +196,7 @@ func (a *Agent) Start(ctx context.Context, key string, auth applicant.Auth, star
 		return Started{}, err
 	}
 	fresh := &session{
-		id: id, key: key, auth: auth, start: start, snap: snap, system: system, maxActions: maxActions, fallback: fallback,
+		id: id, key: key, auth: auth, start: start, snap: snap, system: system, maxActions: maxActions, checks: checks, fallback: fallback,
 		created: now, touched: now, wantTrace: start.Trace, stepLimit: a.cfg.MaxSteps,
 	}
 	fresh.remember(start.Memory)
@@ -507,6 +508,7 @@ func (a *Agent) step(ctx context.Context, id string, obs Observation) (Step, err
 		answer:  content,
 		summary: summaryLine(number, answer, planned),
 	})
+	s.releaseImages(a.cfg.KeepImages)
 	step := Step{
 		Status: status, Message: strings.TrimSpace(answer.Message), Stop: stopFor(status, answer), Actions: actions,
 		Number: number, Usage: s.usage, Dropped: dropped, Survey: surveyAsked && status == StatusWorking,
@@ -597,7 +599,7 @@ func (a *Agent) ask(ctx context.Context, s *session, messages []llm.Message) (re
 	sent := messages
 	historyTokens := budgetUsed(s)
 	for attempt := 0; attempt < 2; attempt++ {
-		resp, err := model.Complete(ctx, llm.Request{Messages: messages, SchemaName: replySchemaName, Schema: replySchema})
+		resp, err := model.Complete(ctx, llm.Request{Messages: messages, SchemaName: replySchemaName, Schema: replySchemaFor(s.start.Survey, s.checks)})
 		total.Add(resp.Usage)
 		call := modelCall{
 			Repair: attempt > 0, Messages: traceMessages(sent), Content: resp.Content, FinishReason: resp.FinishReason,

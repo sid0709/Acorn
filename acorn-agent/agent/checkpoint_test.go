@@ -458,8 +458,8 @@ func TestWithoutADecisionModelThePromptAndPlanStayAsBefore(t *testing.T) {
 	cid := start(t, checked)
 	stepOK(t, checked, cid, observation(shot(t, 40)))
 	system = checked.newModel("").(*scriptedModel).requests[0].Messages[0].Text
-	if !strings.Contains(system, `"check"`) || !strings.Contains(system, "up to 12") {
-		t.Fatalf("the checked prompt must explain checks and allow 12:\n%s", system)
+	if !strings.Contains(system, `"check"`) || !strings.Contains(system, "up to 30") {
+		t.Fatalf("the checked prompt must explain checks and allow 30:\n%s", system)
 	}
 }
 
