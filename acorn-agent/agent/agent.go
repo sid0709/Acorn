@@ -44,6 +44,10 @@ type Config struct {
 	UncheckedActions int
 	// ChunkActions is the most actions that run before the screen is checked.
 	ChunkActions int
+	// FastFillActions is the most actions one plan may hold in a fast-fill run (Start.FastFill): a
+	// whole page at once. The plan also runs as one piece, with no cut every ChunkActions, and
+	// without the UncheckedActions limit when no decision model checks the screen.
+	FastFillActions int
 	// CheckMatch is how sure the checker must be that the screen shows what the model
 	// expected, and CheckBlocked and CheckLoading how unsure it must be that something is in
 	// the way or the page is still loading, for the plan to go on (probabilities, 0 to 1).
@@ -108,6 +112,7 @@ func DefaultConfig() Config {
 		MaxActions:        30,
 		UncheckedActions:  6,
 		ChunkActions:      6,
+		FastFillActions:   60,
 		CheckMatch:        0.9,
 		CheckBlocked:      0.2,
 		CheckLoading:      0.3,
@@ -179,16 +184,21 @@ func (a *Agent) Start(ctx context.Context, key string, auth applicant.Auth, star
 		return Started{}, llm.ErrNoKey
 	}
 	now := a.now()
+	// A fast-fill run plans a page from a survey of it, so surveys are on for it.
+	start.Survey = start.Survey || start.FastFill
 	checks := a.newScreen != nil && a.cfg.ChunkActions > 0
 	maxActions := a.cfg.MaxActions
 	if !checks {
 		maxActions = min(maxActions, a.cfg.UncheckedActions)
 	}
+	if start.FastFill {
+		maxActions = max(maxActions, a.cfg.FastFillActions)
+	}
 	fallback, err := a.fallbackFor(snap.Resumes)
 	if err != nil {
 		return Started{}, err
 	}
-	system, err := systemPrompt(start, snap, maxActions, a.cfg.ChunkActions, checks, now)
+	system, err := systemPrompt(start, snap, maxActions, a.chunkLimit(start.FastFill), checks, now)
 	if err != nil {
 		return Started{}, err
 	}
@@ -511,7 +521,7 @@ func (a *Agent) step(ctx context.Context, id string, obs Observation) (Step, err
 	s.releaseImages(a.cfg.KeepImages)
 	step := Step{
 		Status: status, Message: strings.TrimSpace(answer.Message), Stop: stopFor(status, answer), Actions: actions,
-		Number: number, Usage: s.usage, Dropped: dropped, Survey: surveyAsked && status == StatusWorking,
+		Number: number, Usage: s.usage, Dropped: dropped, Survey: status == StatusWorking && a.surveyNext(s, actions, surveyAsked),
 	}
 	entry.Observation, entry.Memo, entry.Job = answer.Observation, s.memo, s.job
 	entry.Status, entry.Message, entry.Actions, entry.Dropped = status, step.Message, actions, dropped

@@ -57,6 +57,7 @@ const (
 	envDonePasses    = "ACORN_AGENT_DONE_PASSES"
 	envDoneConfirm   = "ACORN_AGENT_DONE_CONFIRM_PERCENT"
 	envMaxActions    = "ACORN_AGENT_MAX_ACTIONS"
+	envFastFillMax   = "ACORN_AGENT_FAST_FILL_ACTIONS"
 	envChecks        = "ACORN_AGENT_CHECKS"
 	envScreenModel   = "ACORN_AGENT_SCREEN_MODEL"
 	envDecisionsURL  = "ACORN_AGENT_DECISIONS_URL"
@@ -126,6 +127,7 @@ func run() error {
 	cfg.DoneConfirm = percent(envDoneConfirm, cfg.DoneConfirm)
 	cfg.MaxActions = config.EnvInt(envMaxActions, cfg.MaxActions)
 	cfg.ChunkActions = config.EnvInt(envChunkActions, cfg.ChunkActions)
+	cfg.FastFillActions = config.EnvInt(envFastFillMax, cfg.FastFillActions)
 	cfg.CheckMatch = percent(envCheckMatch, cfg.CheckMatch)
 	cfg.CheckBlocked = percent(envCheckBlocked, cfg.CheckBlocked)
 	cfg.CheckLoading = percent(envCheckLoading, cfg.CheckLoading)

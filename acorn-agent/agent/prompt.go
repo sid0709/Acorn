@@ -19,6 +19,9 @@ type systemData struct {
 	StopBeforeSubmit bool
 	// Survey is true when the run may look at a whole page as a survey of screenshots.
 	Survey bool
+	// FastFill is true when the run plans a whole page at once and carries the plan out without
+	// stopping to look (Start.FastFill).
+	FastFill bool
 	// Checks is true when a decision model checks the screen between the model's steps, so
 	// the model may plan ahead and say what each run of actions should lead to.
 	Checks     bool
@@ -40,6 +43,7 @@ func systemPrompt(start Start, snapshot applicant.Snapshot, maxActions, chunk in
 	err := systemTemplate.Execute(&out, systemData{
 		StopBeforeSubmit: start.StopBeforeSubmit,
 		Survey:           start.Survey,
+		FastFill:         start.FastFill,
 		Checks:           checks,
 		MaxActions:       maxActions,
 		Chunk:            chunk,

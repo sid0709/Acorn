@@ -203,9 +203,11 @@ function sleeper(signal: AbortSignal) {
 
 /** Which optional ways of working a run uses: what the caller asked for, else the build's default. */
 function runSwitches(args: AgentRunArgs): { surveyOn: boolean; fastFillOn: boolean } {
+  const fastFillOn = args.fastFill ?? AGENT_FAST_FILL;
   return {
-    surveyOn: args.survey ?? AGENT_SURVEY,
-    fastFillOn: args.fastFill ?? AGENT_FAST_FILL,
+    // Fast fill plans a page from a survey of it, so a fast-fill run surveys.
+    surveyOn: (args.survey ?? AGENT_SURVEY) || fastFillOn,
+    fastFillOn,
   };
 }
 

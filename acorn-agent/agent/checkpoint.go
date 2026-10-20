@@ -156,7 +156,7 @@ func (a *Agent) takePlan(s *session, actions []Action, dropped []string) ([]Acti
 		return nil, dropped
 	}
 	if !a.checksOn(s) {
-		if limit := a.cfg.UncheckedActions; limit > 0 && len(actions) > limit {
+		if limit := a.uncheckedLimit(s); limit > 0 && len(actions) > limit {
 			dropped = append(dropped, fmt.Sprintf("%d actions were not sent: only %d run without a check", len(actions)-limit, limit))
 			actions = actions[:limit]
 		}
@@ -164,7 +164,7 @@ func (a *Agent) takePlan(s *session, actions []Action, dropped []string) ([]Acti
 		return a.startScript(s, actions), dropped
 	}
 	batch := a.checksOn(s)
-	return a.sendRun(s, splitPlanForSession(actions, a.cfg.ChunkActions, batch), dropped)
+	return a.sendRun(s, splitPlanForSession(actions, a.chunkLimit(s.start.FastFill), batch), dropped)
 }
 
 // sendRun sends the first of the runs and keeps the rest only if the screen can be checked
@@ -258,7 +258,7 @@ func (a *Agent) continuePlan(ctx context.Context, s *session, obs Observation, r
 			return Step{}, false
 		}
 		actions, dropped := a.sendRun(s, s.plan, nil)
-		step := Step{Status: StatusWorking, Message: s.message, Actions: actions, Number: s.step, Usage: s.usage, Dropped: dropped}
+		step := Step{Status: StatusWorking, Message: s.message, Actions: actions, Number: s.step, Usage: s.usage, Dropped: dropped, Survey: a.surveyNext(s, actions, false)}
 		entry.Status, entry.Message, entry.Actions, entry.Dropped = step.Status, step.Message, actions, dropped
 		entry.Memo, entry.Job = s.memo, s.job
 		a.record(s, entry, obs.Screenshot, []modelCall{verdict.call(nil)})
@@ -317,4 +317,45 @@ func (a *Agent) screenName(key string) string {
 		return screen.Name()
 	}
 	return ""
+}
+
+// chunkLimit is how many actions of a plan run before the screen is checked: a fast-fill run
+// carries out a whole page at once, so a plan is cut only where the model put a check, at a
+// scroll or after an upload.
+func (a *Agent) chunkLimit(fastFill bool) int {
+	if fastFill {
+		return a.cfg.FastFillActions
+	}
+	return a.cfg.ChunkActions
+}
+
+// uncheckedLimit is the most actions of a plan that go out when no decision model checks the screen.
+func (a *Agent) uncheckedLimit(s *session) int {
+	if s.start.FastFill {
+		return a.cfg.FastFillActions
+	}
+	return a.cfg.UncheckedActions
+}
+
+// surveyNext is whether the extension's next look is a survey of the whole page: when the model
+// asked for one, and in a fast-fill run when what was just sent moves the page (an upload) or is
+// the last of the plan (so the whole page is looked at once, to finish and check what is left).
+// sent are the actions going out now; s.plan is what is left of the plan after them.
+func (a *Agent) surveyNext(s *session, sent []Action, asked bool) bool {
+	if asked && s.start.Survey {
+		return true
+	}
+	if !s.start.FastFill {
+		return false
+	}
+	acted := false
+	for _, action := range sent {
+		switch action.Kind {
+		case KindUpload:
+			return true
+		case KindClick, KindDoubleClick, KindTripleClick, KindRightClick, KindType, KindKey, KindChoose:
+			acted = true
+		}
+	}
+	return acted && len(s.plan) == 0
 }
