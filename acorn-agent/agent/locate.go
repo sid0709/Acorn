@@ -32,6 +32,9 @@ const (
 	// locateAmbiguity is how much better the best place must be than the best place elsewhere on the
 	// screen: two as good are two places the target might be, and which is not known.
 	locateAmbiguity = 0.04
+	// locateAloneScore is the correlation a place must reach when only one of an anchor's crops found
+	// it: a crop that stands alone, unconfirmed by the other, must match nearly as well as the survey itself.
+	locateAloneScore = 0.95
 	// locateMinContrast is the least spread of grey levels a crop needs to be found by: a plain white
 	// crop matches every plain white place.
 	locateMinContrast = 6.0
@@ -154,13 +157,57 @@ func (in integral) window(x, y, w, h int) (sum, sumSq float64) {
 	return in.sum[d] - in.sum[b] - in.sum[c] + in.sum[a], in.sumSq[d] - in.sumSq[b] - in.sumSq[c] + in.sumSq[a]
 }
 
-// locateAnchor is where the anchor's target is on a screenshot.
+// locateAgreementPx is how far apart (screenshot pixels) the places two crops of one target point to may be
+// and still be the same place.
+const locateAgreementPx = 6
+
+// locateAnchor is where the anchor's target is on a screenshot. Each crop of the anchor finds it on its
+// own: a crop that lies on something the plan itself changed (the field above, once filled) finds nothing,
+// and that is not a reason to doubt a crop that finds it. When two crops find it, they must agree: two
+// places is not a place.
 func locateAnchor(target anchor, screen image.Image) LocateResult {
+	hay := reduce(screen)
+	in := integrate(hay)
+	var found []LocateResult
+	var failed LocateResult
+	for _, crop := range target.Crops {
+		result := locateCrop(crop, target.Point, hay, in)
+		if !result.Found {
+			if result.Score >= failed.Score || failed.Reason == "" {
+				failed = result
+			}
+			continue
+		}
+		found = append(found, result)
+	}
+	switch {
+	case len(found) == 0 && failed.Reason == "":
+		return LocateResult{Reason: "the agent has no picture of that target"}
+	case len(found) == 0:
+		return failed
+	}
+	best := found[0]
+	if len(found) == 1 && len(target.Crops) > 1 && best.Score < locateAloneScore {
+		return LocateResult{Score: best.Score, Reason: fmt.Sprintf("only one of two pictures of it matched, and only by %.2f", best.Score)}
+	}
+	for _, result := range found[1:] {
+		if abs(int(result.Y)-int(best.Y)) > locateAgreementPx {
+			return LocateResult{Score: math.Max(best.Score, result.Score), Reason: fmt.Sprintf("two pictures of it point to different places (%.0f and %.0f px down the screen)", best.Y, result.Y)}
+		}
+		if result.Score > best.Score {
+			best = result
+		}
+	}
+	return best
+}
+
+// locateCrop is where the target is on a screenshot (already reduced, with its integral image), by one crop.
+func locateCrop(target anchorCrop, point image.Point, hay grey, in integral) LocateResult {
 	crop, err := jpeg.Decode(bytes.NewReader(target.JPEG))
 	if err != nil {
 		return LocateResult{Reason: "the picture of the target is not readable"}
 	}
-	template, hay := reduce(crop), reduce(screen)
+	template := reduce(crop)
 	if template.w < 4 || template.h < 4 || hay.w < template.w || hay.h < template.h {
 		return LocateResult{Reason: "the picture of the target is larger than the screen"}
 	}
@@ -180,7 +227,6 @@ func locateAnchor(target anchor, screen image.Image) LocateResult {
 		return LocateResult{Reason: "the target's surroundings are too plain to be found by"}
 	}
 
-	in := integrate(hay)
 	slack := locateSlackPx / locateShrink
 	x0 := target.Rect.Min.X / locateShrink
 	xFrom, xTo := max(0, x0-slack), min(hay.w-template.w, x0+slack)
@@ -228,7 +274,7 @@ func locateAnchor(target anchor, screen image.Image) LocateResult {
 	if second >= best[top]-locateAmbiguity {
 		return LocateResult{Score: best[top], Reason: fmt.Sprintf("two places look like it (%.2f and %.2f)", best[top], second)}
 	}
-	inCrop := target.Point.Sub(target.Rect.Min)
+	inCrop := point.Sub(target.Rect.Min)
 	return LocateResult{
 		Found: true,
 		X:     float64(bestX[top]*locateShrink + inCrop.X),

@@ -78,7 +78,7 @@ func observationText(step, maxSteps int, obs Observation, results []ActionResult
 		out.WriteString("Note: " + note + "\n")
 	}
 	if stale >= 1 {
-		fmt.Fprintf(&out, "Check: the screen looks the same as after your previous actions (%d step%s in a row). If required-field warnings still show but the fields already look filled, do not refill them; move on or report stuck (page_problem). Otherwise find out why before you repeat the same edit.\n", stale, plural(stale))
+		fmt.Fprintf(&out, "Check: the screen looks the same as after your previous actions (%d step%s in a row). If required-field warnings still show but the fields already look filled, do not refill them; press Submit again, the warning may be left from an earlier submit. Otherwise find out why before you repeat the same edit.\n", stale, plural(stale))
 	}
 	return strings.TrimRight(out.String(), "\n")
 }

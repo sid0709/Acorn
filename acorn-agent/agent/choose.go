@@ -190,6 +190,7 @@ func (a *Agent) dispatch(s *session, prefix []Action) []Action {
 		}
 		id := sc.nextID(s.seq)
 		click := Action{ID: id, Kind: KindClick, X: next.X, Y: next.Y, ScrollTo: next.ScrollTo, PageHeight: next.PageHeight}
+		s.carryAnchor(next.ID, id)
 		batch = append(batch, click)
 		sc.open = &openList{choose: next}
 		return batch
@@ -314,7 +315,7 @@ func (a *Agent) continueScript(ctx context.Context, s *session, obs Observation,
 		step = Step{Status: StatusWorking, Message: s.message, Actions: []Action{clear}, Number: s.step, Usage: s.usage}
 	case !listOpen && open.nudges < len(nudgeOffsets):
 		// The click opened nothing, so typing would go nowhere: click again, a little lower or higher.
-		click := nudgedClick(sc.nextID(s.seq), open.choose, nudgeOffsets[open.nudges], obs.Viewport)
+		click := a.nudgedClick(s, sc.nextID(s.seq), open.choose, nudgeOffsets[open.nudges], obs.Viewport)
 		open.nudges++
 		step = Step{Status: StatusWorking, Message: s.message, Actions: []Action{click}, Number: s.step, Usage: s.usage}
 	case !listOpen:
@@ -343,8 +344,10 @@ func (a *Agent) giveUp(s *session, obs Observation, entry stepTrace, open *openL
 }
 
 // nudgedClick is a click at the choose action's point moved dy pixels down (up when negative), kept on the screen.
-func nudgedClick(id string, choose Action, dy float64, vp Viewport) Action {
+// It keeps the dropdown's anchor, so a page that changed height is found at the control, not at the nudge.
+func (a *Agent) nudgedClick(s *session, id string, choose Action, dy float64, vp Viewport) Action {
 	y := math.Min(math.Max(*choose.Y+dy, 0), float64(vp.Height-1))
+	s.carryAnchor(choose.ID, id)
 	return Action{ID: id, Kind: KindClick, X: choose.X, Y: &y, ScrollTo: choose.ScrollTo, PageHeight: choose.PageHeight}
 }
 

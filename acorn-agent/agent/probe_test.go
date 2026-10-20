@@ -172,6 +172,58 @@ func TestANativeListIsPickedFromItsOptionsAsText(t *testing.T) {
 	}
 }
 
+func TestASearchBoxWhoseListIsNotOpenIsTypedInTheProbeBatch(t *testing.T) {
+	// The first picture shows no list (a search box, or a list that has not drawn). Position 0 keeps
+	// pickOptionFrom from treating a sure option as proof the list is open.
+	screen := &fakeScreen{closedLooks: 1}
+	a, id := newProbeAgent(t, []string{plan("filling", nil, chooseWithLabel(1, 500, 300, "Country", "United States"))}, screen, DefaultConfig())
+	first := stepOK(t, a, id, surveyObservation(t))
+	sends(t, a, id, first.Actions, nil)
+	obs := observation(shot(t, 130))
+	obs.Results = carriedOut(first.Actions)
+	second := stepOK(t, a, id, obs)
+	var typed bool
+	for _, action := range second.Actions {
+		typed = typed || (action.Kind == KindType && action.Text == "United States")
+	}
+	if !typed || len(snapsOf(second.Actions)) != 1 {
+		t.Fatalf("a search box was not typed and photographed in the batch: %s", kinds(second.Actions))
+	}
+	s, _ := a.sessions.get(id)
+	if s.probe == nil || s.script != nil {
+		t.Fatal("the search box was handed to the one-at-a-time script")
+	}
+}
+
+func TestAClickTheAgentMakesForADropdownKeepsItsAnchor(t *testing.T) {
+	a, id := newProbeAgent(t, []string{plan("filling", nil, chooseWithLabel(1, 500, 300, "Country", "United States"))}, &fakeScreen{}, DefaultConfig())
+	first := stepOK(t, a, id, surveyObservation(t))
+	s, _ := a.sessions.get(id)
+	open := firstClick(t, first.Actions)
+	if _, ok := s.anchors[open.ID]; !ok {
+		t.Fatal("the probe's click has no anchor")
+	}
+	obs := observation(shot(t, 130))
+	obs.Results = carriedOut(first.Actions)
+	second := stepOK(t, a, id, obs)
+	s, _ = a.sessions.get(id)
+	back := firstClick(t, second.Actions)
+	if _, ok := s.anchors[back.ID]; !ok {
+		t.Fatalf("the click handed back to the script (%s) has no anchor", back.ID)
+	}
+}
+
+func firstClick(t *testing.T, actions []Action) Action {
+	t.Helper()
+	for _, action := range actions {
+		if action.Kind == KindClick {
+			return action
+		}
+	}
+	t.Fatalf("no click in %s", kinds(actions))
+	return Action{}
+}
+
 func TestADropdownThatCannotBeReadGoesBackToTheScript(t *testing.T) {
 	// No picture arrives for it (the upload failed): the script sets it, one dropdown at a time.
 	a, id := newProbeAgent(t, []string{plan("filling", nil, chooseWithLabel(1, 500, 300, "Sponsorship", "No"))}, &fakeScreen{}, DefaultConfig())

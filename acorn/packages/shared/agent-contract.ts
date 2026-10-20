@@ -225,8 +225,14 @@ export interface AgentLocated {
 
 /** The parts of a page the model will not come back to (painted blue on the minimap), in screenshot pixels from its top. */
 export interface AgentSettledMap {
-  /** How tall the page was when they were settled; the parts are forgotten when it is a different height. */
+  /** How tall the page was when they were settled; when it is a different height only the parts above `fence` hold. */
   pageHeight: number;
+  /**
+   * How far down the page the plan being carried out leaves things as they are: where it first acts. Above
+   * it nothing the run does can move or change anything, so what is settled there is not forgotten when a
+   * form below it grows or shrinks.
+   */
+  fence: number;
   spans: { from: number; to: number }[];
 }
 

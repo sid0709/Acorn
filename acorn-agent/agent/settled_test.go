@@ -78,6 +78,7 @@ func TestTheExtensionIsToldWhenTheSettledPartsChangeAndOnlyThen(t *testing.T) {
 	model := &scriptedModel{replies: []string{
 		planSettled([]int{1, 2}, onScreen(3, 100, 100, nil)),
 		plan("next", nil, click(5, 5, nil)),
+		plan("again", nil, click(5, 5, nil)),
 	}}
 	a := newAgentWithScreen(t, model, &fixedDecider{}, &fakeScreen{}, DefaultConfig())
 	id := startFast(t, a, true)
@@ -88,8 +89,13 @@ func TestTheExtensionIsToldWhenTheSettledPartsChangeAndOnlyThen(t *testing.T) {
 	same := observation(shot(t, 90))
 	same.Viewport.PageHeight = 2400
 	second := stepOK(t, a, id, same)
-	if second.Settled != nil {
-		t.Fatalf("the extension was told again of what it already knows: %+v", second.Settled)
+	// The plan's first point is at y 5, so the fence moved: the extension is told the same stretches with it.
+	if second.Settled == nil || second.Settled.Fence != 5 || len(second.Settled.Spans) != 1 {
+		t.Fatalf("the extension is not told the fence: %+v", second.Settled)
+	}
+	third := stepOK(t, a, id, same)
+	if third.Settled != nil {
+		t.Fatalf("the extension was told again of what it already knows: %+v", third.Settled)
 	}
 }
 
@@ -209,5 +215,46 @@ func TestThePlanSaysWhyAScrollIntoASettledPartWasDropped(t *testing.T) {
 	stepOK(t, a, id, again)
 	if !strings.Contains(lastText(model), "a part of the page you settled") {
 		t.Fatalf("the model was not told why:\n%s", lastText(model))
+	}
+}
+
+func TestWhatLiesAboveWhereThePlanFirstActedStaysSettledWhenThePageChangesHeight(t *testing.T) {
+	obs := surveyObservation(t)
+	obs.Viewport.PageHeight = 2400
+	var s session
+	s.markSettled(obs, []int{1, 2}, nil, nil) // 0 to 1480 settled
+	// The plan about to run acts first at 1500 px down the page (a click at y 140 on the screen scrolled to 1360).
+	scroll, y := 1360.0, 140.0
+	s.setFence([]Action{{Kind: KindClick, X: &y, Y: &y, ScrollTo: &scroll}, {Kind: KindClick, X: &y, Y: &y, ScrollTo: &scroll}}, obs)
+	if s.settled.Fence != 1500 {
+		t.Fatalf("fence = %.0f, want 1500", s.settled.Fence)
+	}
+	s.takeSettledMap()
+	// A résumé was attached: the page is 112 px shorter.
+	shorter := obs
+	shorter.Viewport.PageHeight = 2288
+	s.forgetSettledIfStale(shorter)
+	if len(s.settled.Spans) != 1 || s.settled.Spans[0] != (Span{From: 0, To: 1480}) || s.settled.PageHeight != 2288 {
+		t.Fatalf("what lay above the plan's first point was forgotten: %+v", s.settled)
+	}
+	if told := s.takeSettledMap(); told == nil || told.PageHeight != 2288 {
+		t.Fatalf("the extension is not told the page's new height: %+v", told)
+	}
+	// A part below the fence does not hold.
+	s.settled.Spans = append(s.settled.Spans, Span{From: 1600, To: 2000})
+	s.settled.Fence = 1500
+	taller := obs
+	taller.Viewport.PageHeight = 2600
+	s.forgetSettledIfStale(taller)
+	if len(s.settled.Spans) != 1 || s.settled.Spans[0].To != 1480 {
+		t.Fatalf("spans = %+v", s.settled.Spans)
+	}
+}
+
+func TestAPlanThatActsOnNoPointLeavesTheWholePageAsItIs(t *testing.T) {
+	obs := surveyObservation(t)
+	obs.Viewport.PageHeight = 2400
+	if got := fenceOf([]Action{{Kind: KindWait, Ms: 100}}, obs); got != 2400 {
+		t.Fatalf("fence = %.0f", got)
 	}
 }

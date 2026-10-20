@@ -233,6 +233,14 @@ async function leaveZone(
   return next ?? zone;
 }
 
+/** What a result says of an action that was not run because one before it failed. */
+export const SKIPPED_ERROR = "skipped: an earlier action in this step failed";
+
+/** Whether a result is of an action that was skipped, not one that failed. */
+export function wasSkipped(result: AgentActionResult): boolean {
+  return !result.ok && result.error === SKIPPED_ERROR;
+}
+
 /**
  * Runs the actions in order. One that fails stops the batch: what came after it was
  * planned for a page the failed action did not leave behind, so it is reported as skipped
@@ -258,7 +266,7 @@ export async function runActions(
       results.push({
         id: action.id,
         ok: false,
-        error: "skipped: an earlier action in this step failed",
+        error: SKIPPED_ERROR,
       });
       continue;
     }

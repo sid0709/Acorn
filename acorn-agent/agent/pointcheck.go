@@ -199,6 +199,7 @@ func wrongPointsNote(planned []Action, wrong map[string]pointVerdict) string {
 		lines = append(lines, fmt.Sprintf("%q on screen %d", action.Label, action.Zone))
 	}
 	return fmt.Sprintf("Acorn did not carry out %s because the point was not on the control with that label: %s. The rest of your plan ran. "+
-		"Look at the screens again, find where each of them really is by its label, and plan them again with the right screen number.",
+		"Look at the screens again, find where each of them really is by its label, and plan them again with the right screen number. "+
+		"A box with no dropdown arrow is a text box: click it and type, do not choose it.",
 		plainlog.Count(len(lines), "action"), strings.Join(lines, "; "))
 }

@@ -69,11 +69,11 @@ func asJPEG(t *testing.T, img image.Image) []byte {
 func anchorAt(t *testing.T, img image.Image, x, y int) anchor {
 	t.Helper()
 	point := image.Pt(x, y)
-	rect, encoded, ok := cropAround(decodeJPEG(t, asJPEG(t, img)), point)
-	if !ok {
+	crops := cropAround(decodeJPEG(t, asJPEG(t, img)), point)
+	if len(crops) == 0 {
 		t.Fatal("no crop")
 	}
-	return anchor{Point: point, Rect: rect, JPEG: encoded}
+	return anchor{Point: point, Crops: crops}
 }
 
 func decodeJPEG(t *testing.T, raw []byte) image.Image {
@@ -157,6 +157,8 @@ func TestATargetThatIsGoneIsNotGuessedAt(t *testing.T) {
 func TestTwoPlacesThatLookAlikeAreNotGuessedBetween(t *testing.T) {
 	// The same field drawn twice (seed 1 both times): which one the target is, is not known.
 	before := anchorAt(t, page(pageField{1, 150}, pageField{2, 330}, pageField{3, 510}), 500, 150)
+	// Only the crop above: the field below the twin is another one, which would tell them apart.
+	before.Crops = before.Crops[:1]
 	twin := page(pageField{1, 150}, pageField{2, 330}, pageField{3, 510})
 	widget(twin, 1, 500, 650)
 	got := locateAnchor(before, decodeJPEG(t, asJPEG(t, twin)))
@@ -200,3 +202,68 @@ func TestTheAgentLocatesATargetOfThePlanOnAScreenshotTakenNow(t *testing.T) {
 }
 
 func b64(raw []byte) string { return base64.StdEncoding.EncodeToString(raw) }
+
+// tightField draws a field the way a stacked form does: the label inside the box, at its top left, and
+// the value below it. (x, y) is the middle of the box.
+func tightField(img *image.Gray, seed int64, x, y int, value bool) {
+	random := rand.New(rand.NewSource(seed))
+	bar := func(x0, y0, w, h int, level uint8) {
+		for yy := y0; yy < y0+h; yy++ {
+			for xx := x0; xx < x0+w; xx++ {
+				if image.Pt(xx, yy).In(img.Bounds()) {
+					img.SetGray(xx, yy, color.Gray{Y: level})
+				}
+			}
+		}
+	}
+	for i, at := 0, x-200; i < 3; i++ {
+		w := 20 + random.Intn(30)
+		bar(at, y-20, w, 10, uint8(20+random.Intn(60)))
+		at += w + 8
+	}
+	bar(x-210, y-28, 420, 2, 110)
+	bar(x-210, y+26, 420, 2, 110)
+	bar(x-210, y-28, 2, 56, 110)
+	bar(x+208, y-28, 2, 56, 110)
+	if value {
+		for i := 0; i < 9; i++ {
+			bar(x-200+i*17, y+2, 12, 14, 30)
+		}
+	}
+}
+
+func tightPage(filledAbove bool, shift int) *image.Gray {
+	img := image.NewGray(image.Rect(0, 0, 1280, 800))
+	for i := range img.Pix {
+		img.Pix[i] = 245
+	}
+	for i := int64(0); i < 6; i++ {
+		tightField(img, 11+i, 500, 190+shift+int(i)*70, filledAbove && i == 1)
+	}
+	return img
+}
+
+func TestAFieldTheFormFillsAboveATargetDoesNotHideTheTarget(t *testing.T) {
+	// Fields 70 px apart, the target the third (y 330): the field above it is filled by the plan itself
+	// before the plan gets to the target, and the page has grown by 76 px.
+	before := anchorAt(t, tightPage(false, 0), 500, 330)
+	after := decodeJPEG(t, asJPEG(t, tightPage(true, 0)))
+	if got := locateAnchor(before, after); !got.Found || abs(int(got.Y)-330) > 2 {
+		t.Fatalf("not found where it was: %+v", got)
+	}
+	grown := decodeJPEG(t, asJPEG(t, tightPage(true, 76)))
+	if got := locateAnchor(before, grown); !got.Found || abs(int(got.Y)-406) > 3 {
+		t.Fatalf("not found where it moved to: %+v", got)
+	}
+}
+
+func TestTwoPicturesOfATargetThatPointToDifferentPlacesAreNotGuessedBetween(t *testing.T) {
+	img := tightPage(false, 0)
+	target := anchorAt(t, img, 500, 330)
+	// The below crop's own row, taken to be 40 px lower than the above crop's: the two disagree.
+	target.Crops[1].Rect = target.Crops[1].Rect.Add(image.Pt(0, -40))
+	got := locateAnchor(target, decodeJPEG(t, asJPEG(t, img)))
+	if got.Found || !strings.Contains(got.Reason, "different places") {
+		t.Fatalf("%+v", got)
+	}
+}

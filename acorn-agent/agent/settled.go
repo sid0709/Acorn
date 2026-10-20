@@ -25,6 +25,8 @@ type settledState struct {
 	URL        string
 	PageHeight float64
 	Spans      []Span
+	// Fence is where the plan being carried out first acts on the page (see SettledMap).
+	Fence float64
 	// changed is set when the spans changed since they were last sent to the extension.
 	changed bool
 }
@@ -48,24 +50,63 @@ func mergeSettled(spans []Span) []Span {
 	return out
 }
 
-// forgetSettledIfStale drops what was settled when the look is of another page, or of the page at
-// another height.
+// forgetSettledIfStale drops what was settled when the look is of another page. When the page is at
+// another height, what lies above the fence (where the plan carried out since first acted on the page)
+// is kept: the page above the first thing the run touched cannot have moved or changed, so a part of the
+// page the model has settled is not forgotten, and not looked at again, because a form below it grew.
 func (s *session) forgetSettledIfStale(obs Observation) {
 	if len(s.settled.Spans) == 0 {
 		return
 	}
-	reason := ""
-	switch {
-	case s.settled.URL != withoutFragment(obs.URL):
-		reason = "the page is another page"
-	case abs(int(obs.Viewport.PageHeight)-int(s.settled.PageHeight)) > settledHeightTolerance:
-		reason = fmt.Sprintf("the page is %.0f px tall now and was %.0f px when they were settled", obs.Viewport.PageHeight, s.settled.PageHeight)
-	}
-	if reason == "" {
+	if s.settled.URL != withoutFragment(obs.URL) {
+		s.settled = settledState{changed: true}
+		slog.Info(runName(s.id) + ": what was settled on the page is forgotten: the page is another page.")
 		return
 	}
-	s.settled = settledState{changed: true}
-	slog.Info(runName(s.id) + ": what was settled on the page is forgotten: " + reason + ".")
+	if abs(int(obs.Viewport.PageHeight)-int(s.settled.PageHeight)) <= settledHeightTolerance {
+		return
+	}
+	kept := keepAbove(s.settled.Spans, s.settled.Fence)
+	slog.Info(fmt.Sprintf("%s: the page is %.0f px tall now and was %.0f px when its parts were settled; the %s above %.0f px stay settled, %s did not and are forgotten.",
+		runName(s.id), obs.Viewport.PageHeight, s.settled.PageHeight, plainlog.Count(len(kept), "stretch"), s.settled.Fence, plainlog.Count(len(s.settled.Spans)-len(kept), "stretch")))
+	s.settled.Spans, s.settled.PageHeight, s.settled.changed = kept, obs.Viewport.PageHeight, true
+}
+
+// keepAbove is the spans that end at or above y.
+func keepAbove(spans []Span, y float64) []Span {
+	var kept []Span
+	for _, span := range spans {
+		if span.To <= y {
+			kept = append(kept, span)
+		}
+	}
+	return kept
+}
+
+// fenceOf is how far down the page a plan leaves things as they are: the page position (screenshot
+// pixels) of the first point it acts on. A plan that acts on no point leaves the whole page as it is.
+func fenceOf(planned []Action, obs Observation) float64 {
+	fence := obs.Viewport.PageHeight
+	for _, action := range planned {
+		if !isPointAction(action) {
+			continue
+		}
+		top := obs.Viewport.ScrollY
+		if action.ScrollTo != nil {
+			top = *action.ScrollTo
+		}
+		fence = min(fence, top+*action.Y)
+	}
+	return fence
+}
+
+// setFence records where the plan about to be carried out first acts on the page, and tells the
+// extension when that changed what it knows.
+func (s *session) setFence(planned []Action, obs Observation) {
+	fence := fenceOf(planned, obs)
+	if fence != s.settled.Fence {
+		s.settled.Fence, s.settled.changed = fence, true
+	}
 }
 
 // touchedScreens are the screens of a survey the plan acts on: an action is on the screen it is
@@ -117,7 +158,7 @@ func (s *session) takeSettledMap() *SettledMap {
 		return nil
 	}
 	s.settled.changed = false
-	return &SettledMap{PageHeight: s.settled.PageHeight, Spans: append([]Span{}, s.settled.Spans...)}
+	return &SettledMap{PageHeight: s.settled.PageHeight, Fence: s.settled.Fence, Spans: append([]Span{}, s.settled.Spans...)}
 }
 
 // settledNote tells the model what a survey leaves out.

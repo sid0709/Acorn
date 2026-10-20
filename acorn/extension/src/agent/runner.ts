@@ -44,7 +44,7 @@ import {
   startSession,
   vetTarget,
 } from "./client";
-import { CHANGES_THE_PAGE, runActions, type ExecutorContext } from "./executor";
+import { CHANGES_THE_PAGE, runActions, wasSkipped, type ExecutorContext } from "./executor";
 import {
   createClickGuard,
   createFrameSweep,
@@ -817,7 +817,7 @@ export async function runAgent(args: AgentRunArgs): Promise<RunReport> {
           settled: surveys.left,
         });
       }
-      pageMap.look(shot, surveys.settled, surveyOn);
+      pageMap.look(shot, surveys.settledOn(shot), surveyOn);
       const [focus, text] = await look.time("pageRead", () =>
         Promise.all([readFocus(here.cdp), readPageText(here.cdp, here.tabId)]),
       );
@@ -973,8 +973,18 @@ export async function runAgent(args: AgentRunArgs): Promise<RunReport> {
           laps: result.laps,
         })),
       });
+      // One entry for the action that failed; the ones after it were not run, and are one line, not one each.
       for (const result of results) {
-        if (!result.ok) log.event("agent-action:failed", { id: result.id, error: result.error });
+        if (!result.ok && !wasSkipped(result)) {
+          log.event("agent-action:failed", { id: result.id, error: result.error });
+        }
+      }
+      const skipped = results.filter(wasSkipped);
+      if (skipped.length > 0) {
+        log.event("agent-actions:skipped", {
+          count: skipped.length,
+          ids: skipped.map((result) => result.id),
+        });
       }
       if (actions.some((action) => CHANGES_THE_PAGE.has(action.kind)))
         lastChangeAt = actionsBeganAt;

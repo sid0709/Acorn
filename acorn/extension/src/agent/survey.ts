@@ -100,6 +100,17 @@ export interface SurveyMemory {
 export interface SurveyReuse {
   previous: SurveyMemory | null;
   zones: AgentZoneShot[];
+  /**
+   * Whether the batch just carried out was a whole fast-fill plan that ran (`isReusableBatch`): then what it
+   * did not touch is good while the page is as tall as it was. Otherwise only what lies above the fence is.
+   */
+  exact: boolean;
+  /**
+   * Where the batch just carried out first acted on the page (screenshot pixels): above it nothing changed,
+   * when the batch stopped half way. 0 for one that ran whole (it may have gone to another step of the page)
+   * and for one that read a résumé, which fills fields anywhere.
+   */
+  fence: number;
 }
 
 /** What a survey is: its screens, how many of them were taken from what the run already had, and how many were left out. */
@@ -150,8 +161,12 @@ export async function captureSurvey(
   const original = first.viewport.scrollY / scale;
   const sameHeight =
     reuse?.previous != null &&
+    reuse.exact &&
     Math.abs(reuse.previous.pageHeight - first.viewport.pageHeight) <= LAYOUT_TOLERANCE_PX * scale;
-  const settledNow = isSettledStill(settled, first.viewport.pageHeight, scale) ? settled : null;
+  // A page is the same above where the batch first acted, however it ended: those screens are still good.
+  const unchanged = (at: number) =>
+    sameHeight || (reuse != null && at + first.viewport.height <= reuse.fence);
+  const settledNow = settledStill(settled, first.viewport.pageHeight, scale);
   const near = (a: number, b: number) => Math.abs(a - b) <= SCROLL_TOLERANCE_PX * scale;
   const taken = new Map<number, AgentSurveyScreen>();
   let reused = 0;
@@ -167,7 +182,7 @@ export async function captureSurvey(
       taken.set(y, { screenshot: first.dataUrl, scrollY: first.viewport.scrollY });
       continue;
     }
-    const have = sameHeight
+    const have = unchanged(at)
       ? (reuse?.zones.find((zone) => near(zone.scrollY, at)) ??
         reuse?.previous?.screens.find((screen) => near(screen.scrollY, at)))
       : undefined;
@@ -202,17 +217,20 @@ export async function captureSurvey(
     : null;
 }
 
-/** Whether what was settled is still good: the page is as tall as when it was settled. */
-function isSettledStill(
+/**
+ * What of the settled parts is still good on a page that is `pageHeight` tall (screenshot pixels): all of it
+ * when the page is as tall as when it was settled, and when it is not, the parts above the fence, which the
+ * run has not touched. Null when none is.
+ */
+export function settledStill(
   settled: SettledMap | null | undefined,
   pageHeight: number,
   scale: number,
-): boolean {
-  return (
-    settled != null &&
-    settled.spans.length > 0 &&
-    Math.abs(settled.pageHeight - pageHeight) <= LAYOUT_TOLERANCE_PX * scale
-  );
+): SettledMap | null {
+  if (!settled || settled.spans.length === 0) return null;
+  if (Math.abs(settled.pageHeight - pageHeight) <= LAYOUT_TOLERANCE_PX * scale) return settled;
+  const spans = settled.spans.filter((span) => span.to <= settled.fence);
+  return spans.length > 0 ? { ...settled, pageHeight, spans } : null;
 }
 
 /** Whether the screen that starts at `at` and is `height` tall (screenshot pixels) lies wholly in a settled part. */
@@ -231,8 +249,11 @@ export class SurveyKeeper {
   left = 0;
   private memory: SurveyMemory | null = null;
   private reusable = false;
+  private batchFence = 0;
   /** The parts of the page the model will not come back to (screenshot pixels), as the agent last said. */
   settled: SettledMap | null = null;
+  /** Where the plan being carried out first acts on the page (screenshot pixels), as the agent last said. */
+  private fence = 0;
   private scale = 1;
   private viewHeight = 0;
 
@@ -244,14 +265,11 @@ export class SurveyKeeper {
 
   /**
    * The settled parts of a page that is `pageHeight` tall (CSS pixels), for the run's scrolling to keep out
-   * of; undefined when nothing is settled or the page is not the height it was when they were settled.
+   * of; undefined when nothing is settled. A page of another height keeps those above the fence.
    */
   blue(pageHeight: number): BlueMap | undefined {
-    const settled = this.settled;
+    const settled = settledStill(this.settled, pageHeight * this.scale, this.scale);
     if (!settled || !(this.viewHeight > 0)) return undefined;
-    if (Math.abs(settled.pageHeight / this.scale - pageHeight) > LAYOUT_TOLERANCE_PX) {
-      return undefined;
-    }
     return {
       viewHeight: this.viewHeight,
       spans: settled.spans.map((span) => ({
@@ -263,17 +281,30 @@ export class SurveyKeeper {
 
   noteBatch(actions: AgentAction[], results: AgentActionResult[]): void {
     this.reusable = isReusableBatch(actions, results);
+    // Only a batch that stopped half way is known not to have left the page: one that ran whole may have
+    // ended on the click that goes to the next step. A résumé fills fields all over the page, above the
+    // point it was attached at too.
+    const stoppedHalfWay = results.some((result) => !result.ok);
+    const readsAResume = actions.some((action) => action.kind === "upload");
+    this.batchFence = stoppedHalfWay && !readsAResume ? this.fence : 0;
   }
 
   /** The agent says what is settled now (an empty map: nothing). */
   setSettled(settled: SettledMap): void {
     this.settled = settled.spans.length > 0 ? settled : null;
+    this.fence = settled.fence;
+  }
+
+  /** What is settled on the page as it is in `shot`, for the minimap: what still holds. */
+  settledOn(shot: Shot): SettledMap | null {
+    return settledStill(this.settled, shot.viewport.pageHeight, shot.scale);
   }
 
   /** A new page: nothing that was seen or settled on the last one holds. */
   forget(): void {
     this.memory = null;
     this.settled = null;
+    this.fence = 0;
     this.reusable = false;
   }
 
@@ -282,9 +313,16 @@ export class SurveyKeeper {
     first: Shot,
     zoneShots: AgentZoneShot[],
   ): Promise<AgentSurveyScreen[] | null> {
-    const reuse =
-      this.reusable && this.memory ? { previous: this.memory, zones: [...zoneShots] } : undefined;
+    const reuse: SurveyReuse | undefined = this.memory
+      ? {
+          previous: this.memory,
+          zones: this.reusable ? [...zoneShots] : [],
+          exact: this.reusable,
+          fence: this.batchFence,
+        }
+      : undefined;
     this.reusable = false;
+    this.batchFence = 0;
     const taken = await captureSurvey(deps, first, reuse, this.settled);
     this.reused = taken?.reused ?? 0;
     this.left = taken?.left ?? 0;

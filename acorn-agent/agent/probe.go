@@ -16,11 +16,13 @@ import (
 // agent reads the pictures side by side, and the next batch picks the answer in every dropdown:
 //
 //   - a good answer is among the options on the picture: it is picked by the keys, with no more looking;
-//   - the list is too long to count, or the answer is not in it (a list that is searched, or that loads as
-//     one types): the dropdown is opened again, the answer typed and a picture taken, and read again;
+//   - the list is too long to count, is not open yet, or the answer is not in it (a list that is searched,
+//     or that loads as one types): the dropdown is opened again, the answer typed and a picture taken,
+//     and read again, still in this batch;
 //   - a native list reports its options as text, and the answer is picked from them as before;
-//   - a dropdown that could not be resolved this way goes back to the script, which has ways of its own
-//     (clicking again a little lower, clearing what was typed, telling the model).
+//   - a dropdown that still could not be read after that typed picture, or whose picture never came, goes
+//     back to the script, which has ways of its own (clicking again a little lower, clearing what was
+//     typed, telling the model).
 //
 // Nothing checks a pick afterwards: that is the survey that follows the plan.
 
@@ -121,9 +123,7 @@ func (a *Agent) helper(s *session, choose Action, id string, kind string) Action
 	action := Action{ID: id, Kind: kind}
 	if kind == KindClick {
 		action.X, action.Y, action.ScrollTo, action.PageHeight = choose.X, choose.Y, choose.ScrollTo, choose.PageHeight
-		if found, ok := s.anchors[choose.ID]; ok {
-			s.anchors[id] = found
-		}
+		s.carryAnchor(choose.ID, id)
 	}
 	return action
 }
@@ -216,7 +216,7 @@ func (a *Agent) readProbes(ctx context.Context, s *session) []modelCall {
 			}
 			position, listOpen, check, err := a.pickOptionFrom(ctx, s, snap.Screenshot, answer)
 			readings[i] = reading{asked: true, cost: check.response.Usage.Cost, failure: err, call: check.call(err)}
-			if err != nil || !listOpen {
+			if err != nil {
 				return
 			}
 			limit := directMaxPosition
@@ -224,9 +224,11 @@ func (a *Agent) readProbes(ctx context.Context, s *session) []modelCall {
 				limit = maxOptionPosition
 			}
 			switch {
-			case position >= 1 && position <= limit:
+			case listOpen && position >= 1 && position <= limit:
 				item.pick = position
 			case !item.typed:
+				// Not a short list that can be counted: a search box (no list until the answer is typed),
+				// a list that has not drawn, or one too long. Type the answer in this batch and look again.
 				item.needs = true
 			}
 		}()

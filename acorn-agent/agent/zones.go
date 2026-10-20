@@ -17,16 +17,22 @@ import (
 // the last action of a zone is done, and the agent keeps a small crop of the survey around every
 // target (its anchor), so that when the page moves a target can be found again (docs 19.4m).
 
-// Shape of an anchor: a crop of the survey screen around the target. It reaches well above the point
-// because a field's label sits there and does not change when the field is filled, and it stops short of
-// the point's own row, where the field's value is written (typed text, a chosen option), which does.
+// Shape of an anchor: two crops of the survey screen around the target, both wide enough to take in the
+// label at a field's left edge. One reaches above the point and stops short of the point's own row,
+// where the field's value is written (typed text, a chosen option), which changes when the field is
+// filled. The other lies below the point's own row. A plan fills a form from the top down, so what is
+// above a target is what the plan itself just filled, and what is below it is not yet: the crop below
+// is the one that still looks like the survey when the plan gets there.
 const (
-	// anchorWidth is the crop's width in screenshot pixels, centred on the point and clipped.
-	anchorWidth = 360
-	// anchorAbove is how far the crop reaches above the point, and anchorBottom where it ends relative to
-	// the point (negative: above it, clear of the text a filled field shows at its middle).
+	// anchorWidth is the crops' width in screenshot pixels, centred on the point and clipped.
+	anchorWidth = 640
+	// anchorAbove is how far the crop above reaches above the point, and anchorBottom where it ends relative
+	// to the point (negative: above it, clear of the text a filled field shows at its middle).
 	anchorAbove  = 100
 	anchorBottom = -10
+	// anchorBelowFrom and anchorBelowTo are where the crop below starts and ends relative to the point.
+	anchorBelowFrom = 20
+	anchorBelowTo   = 130
 	// anchorQuality is the JPEG quality of a crop.
 	anchorQuality = 70
 	// maxZoneShots bounds the photos one batch of actions may send back.
@@ -39,10 +45,15 @@ type anchor struct {
 	Zone int
 	// ScrollY is where the page was scrolled to on that screen, in screenshot pixels.
 	ScrollY float64
-	// Point is the target in the screenshot's pixels and Rect the crop's place in it.
+	// Point is the target in the screenshot's pixels.
 	Point image.Point
-	Rect  image.Rectangle
-	// JPEG is the crop.
+	// Crops are the pictures it is found by: each of them is enough on its own.
+	Crops []anchorCrop
+}
+
+// anchorCrop is a crop of the survey screen: its place in it, and its JPEG.
+type anchorCrop struct {
+	Rect image.Rectangle
 	JPEG []byte
 }
 
@@ -126,34 +137,51 @@ func buildAnchors(actions []Action, obs Observation) map[string]anchor {
 			decoded[action.Zone] = img
 		}
 		point := image.Pt(int(*action.X), int(*action.Y))
-		crop, encoded, ok := cropAround(img, point)
-		if !ok {
+		crops := cropAround(img, point)
+		if len(crops) == 0 {
 			continue
 		}
-		out[action.ID] = anchor{Zone: action.Zone, ScrollY: scrollY, Point: point, Rect: crop, JPEG: encoded}
+		out[action.ID] = anchor{Zone: action.Zone, ScrollY: scrollY, Point: point, Crops: crops}
 	}
 	return out
 }
 
-// cropAround is the crop of img around a point (anchorWidth wide, from anchorAbove above the point to
-// anchorBottom from it, clipped to the image) and its JPEG.
-func cropAround(img image.Image, point image.Point) (image.Rectangle, []byte, bool) {
-	bounds := img.Bounds()
-	rect := image.Rect(point.X-anchorWidth/2, point.Y-anchorAbove, point.X+anchorWidth/2, point.Y+anchorBottom).Intersect(bounds)
-	if rect.Empty() {
-		return image.Rectangle{}, nil, false
+// carryAnchor gives an action the agent made the anchor of the model's action it came from.
+// A click that opens a dropdown, or retries that click, is not in the survey, so without this a
+// page that changed height cannot be found again and the rest of the plan stops.
+func (s *session) carryAnchor(fromID, toID string) {
+	if found, ok := s.anchors[fromID]; ok {
+		s.anchors[toID] = found
 	}
+}
+
+// cropAround is the crops of img around a point: the one above it and the one below it (anchorWidth wide,
+// clipped to the image), each with its JPEG. A crop that falls outside the image is left out.
+func cropAround(img image.Image, point image.Point) []anchorCrop {
+	bounds := img.Bounds()
 	sub, ok := img.(interface {
 		SubImage(image.Rectangle) image.Image
 	})
 	if !ok {
-		return image.Rectangle{}, nil, false
+		return nil
 	}
-	var buf bytes.Buffer
-	if err := jpeg.Encode(&buf, sub.SubImage(rect), &jpeg.Options{Quality: anchorQuality}); err != nil {
-		return image.Rectangle{}, nil, false
+	left, right := point.X-anchorWidth/2, point.X+anchorWidth/2
+	var out []anchorCrop
+	for _, rect := range []image.Rectangle{
+		image.Rect(left, point.Y-anchorAbove, right, point.Y+anchorBottom),
+		image.Rect(left, point.Y+anchorBelowFrom, right, point.Y+anchorBelowTo),
+	} {
+		rect = rect.Intersect(bounds)
+		if rect.Empty() {
+			continue
+		}
+		var buf bytes.Buffer
+		if err := jpeg.Encode(&buf, sub.SubImage(rect), &jpeg.Options{Quality: anchorQuality}); err != nil {
+			continue
+		}
+		out = append(out, anchorCrop{Rect: rect, JPEG: buf.Bytes()})
 	}
-	return rect, buf.Bytes(), true
+	return out
 }
 
 // acceptZoneShots keeps the photos of an observation that are usable: an image the size of the

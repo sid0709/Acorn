@@ -181,8 +181,12 @@ type Span struct {
 
 // SettledMap is the parts of a page the model will not come back to (painted blue on the page's
 // minimap): the page's height when they were settled, so the extension can tell the page changed.
+// Fence is how far down the page (screenshot pixels) the plan being carried out leaves things as they
+// are: it begins at the first point it acts on, and above it nothing the run does can move or change
+// anything. When the page's height changes the settled parts above the fence still hold; the rest do not.
 type SettledMap struct {
 	PageHeight float64 `json:"pageHeight"`
+	Fence      float64 `json:"fence"`
 	Spans      []Span  `json:"spans"`
 }
 

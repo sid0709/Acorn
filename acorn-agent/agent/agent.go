@@ -534,6 +534,7 @@ func (a *Agent) step(ctx context.Context, id string, obs Observation) (Step, err
 	if settled := s.markSettled(obs, answer.Settled, planned, claimed); settled > 0 {
 		slog.Info(settledLine(s.id, settled, s.settled.Spans))
 	}
+	s.setFence(planned, obs)
 	// What this plan fills in, by zone, for the reviews of its zones.
 	s.planGen++
 	s.expect = expectationsOf(planned)

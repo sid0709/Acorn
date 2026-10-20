@@ -61,19 +61,26 @@ func TestEveryPointGetsACropOfItsOwnSurveyScreenAroundIt(t *testing.T) {
 	if middle.Zone != 1 || middle.ScrollY != 0 || middle.Point != image.Pt(640, 400) {
 		t.Fatalf("anchor = %+v", middle)
 	}
-	if want := image.Rect(640-anchorWidth/2, 400-anchorAbove, 640+anchorWidth/2, 400+anchorBottom); middle.Rect != want {
-		t.Fatalf("crop %v, want %v", middle.Rect, want)
+	if len(middle.Crops) != 2 {
+		t.Fatalf("%d crops, want the one above and the one below", len(middle.Crops))
 	}
-	if size := decodeCrop(t, middle.JPEG).Bounds().Size(); size != middle.Rect.Size() {
-		t.Fatalf("the JPEG is %v, the crop %v", size, middle.Rect.Size())
+	above, below := middle.Crops[0], middle.Crops[1]
+	if want := image.Rect(640-anchorWidth/2, 400-anchorAbove, 640+anchorWidth/2, 400+anchorBottom); above.Rect != want {
+		t.Fatalf("crop above %v, want %v", above.Rect, want)
 	}
-	// A point near the edge of the screen is cropped to what the screen has.
+	if want := image.Rect(640-anchorWidth/2, 400+anchorBelowFrom, 640+anchorWidth/2, 400+anchorBelowTo); below.Rect != want {
+		t.Fatalf("crop below %v, want %v", below.Rect, want)
+	}
+	if size := decodeCrop(t, above.JPEG).Bounds().Size(); size != above.Rect.Size() {
+		t.Fatalf("the JPEG is %v, the crop %v", size, above.Rect.Size())
+	}
+	// A point near the edge of the screen is cropped to what the screen has: here nothing is left below it.
 	edge := got["edge"]
-	if edge.Zone != 3 || edge.ScrollY != 1360 || edge.Rect.Min.X != 0 || edge.Rect.Max.Y != 790+anchorBottom {
+	if edge.Zone != 3 || edge.ScrollY != 1360 || len(edge.Crops) != 1 || edge.Crops[0].Rect.Min.X != 0 || edge.Crops[0].Rect.Max.Y != 790+anchorBottom {
 		t.Fatalf("edge anchor = %+v", edge)
 	}
 	corner := got["corner"]
-	if corner.Rect.Min.Y != 0 || corner.Rect.Max.X != 1280 {
+	if corner.Crops[0].Rect.Min.Y != 0 || corner.Crops[0].Rect.Max.X != 1280 {
 		t.Fatalf("corner anchor = %+v", corner)
 	}
 }
@@ -85,12 +92,12 @@ func TestACropIsTakenFromTheScreenTheModelMeasuredItOn(t *testing.T) {
 	obs.Survey[1].Screenshot = shot(t, 200, patch)
 	middle := buildAnchors([]Action{pointAt(KindClick, 2, 650, 400)}, obs)["click"]
 	// Row 385 is inside the crop (it ends 10 px above the point) and inside the patch.
-	row := 385 - middle.Rect.Min.Y
-	if inside := color.GrayModel.Convert(decodeCrop(t, middle.JPEG).At(650-middle.Rect.Min.X, row)).(color.Gray).Y; inside > 60 {
+	row := 385 - middle.Crops[0].Rect.Min.Y
+	if inside := color.GrayModel.Convert(decodeCrop(t, middle.Crops[0].JPEG).At(650-middle.Crops[0].Rect.Min.X, row)).(color.Gray).Y; inside > 60 {
 		t.Fatalf("the crop does not show screen 2's patch: %d", inside)
 	}
 	other := buildAnchors([]Action{pointAt(KindClick, 3, 650, 400)}, obs)["click"]
-	if got := color.GrayModel.Convert(decodeCrop(t, other.JPEG).At(650-other.Rect.Min.X, 385-other.Rect.Min.Y)).(color.Gray).Y; got < 150 {
+	if got := color.GrayModel.Convert(decodeCrop(t, other.Crops[0].JPEG).At(650-other.Crops[0].Rect.Min.X, 385-other.Crops[0].Rect.Min.Y)).(color.Gray).Y; got < 150 {
 		t.Fatalf("screen 3's crop shows the patch: %d", got)
 	}
 }
@@ -99,7 +106,7 @@ func TestASingleScreenshotIsItsOwnScreen(t *testing.T) {
 	obs := observation(shot(t, 90))
 	obs.Viewport.ScrollY = 500
 	got := buildAnchors([]Action{pointAt(KindClick, 0, 300, 300)}, obs)["click"]
-	if got.Zone != 0 || got.ScrollY != 500 || len(got.JPEG) == 0 {
+	if got.Zone != 0 || got.ScrollY != 500 || len(got.Crops) == 0 {
 		t.Fatalf("anchor = %+v", got)
 	}
 }
