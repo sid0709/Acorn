@@ -10,7 +10,9 @@ import {
   AGENT_STATUS,
   type AgentAction,
   type AgentAsk,
+  type AgentStarted,
   type AgentSurveyScreen,
+  type AgentZoneShot,
   type AgentActionResult,
   type AgentMemory,
   type AgentStep,
@@ -211,8 +213,14 @@ function runSwitches(args: AgentRunArgs): { surveyOn: boolean; fastFillOn: boole
   };
 }
 
+/** A run surveys when it was set to, or the server says it does (fast fill, which the server may turn on for all runs). */
+function followServerSurvey(surveyOn: boolean, started: AgentStarted): boolean {
+  return surveyOn || started.survey === true;
+}
+
 export async function runAgent(args: AgentRunArgs): Promise<RunReport> {
-  const { surveyOn, fastFillOn } = runSwitches(args);
+  const { fastFillOn, ...switches } = runSwitches(args);
+  let { surveyOn } = switches;
   // A continued run writes to the same log and trace folder as the run it takes up.
   const runId = args.resume?.runId ?? crypto.randomUUID().slice(0, 8);
   const workTabId = args.resume?.tabId ?? args.tabId;
@@ -414,6 +422,8 @@ export async function runAgent(args: AgentRunArgs): Promise<RunReport> {
     },
   };
 
+  // The photos of the zones of the plan being carried out, sent with the next look (fast fill).
+  const zoneShots: AgentZoneShot[] = [];
   const executor: ExecutorContext = {
     get cdp() {
       return must(current).cdp;
@@ -451,6 +461,16 @@ export async function runAgent(args: AgentRunArgs): Promise<RunReport> {
     checkStopped,
     guard: clickGuard,
     afterClick: () => frames.sweep(),
+    zoneDone: async (zone) => {
+      const here = must(current);
+      await here.overlay.hideForCapture(true);
+      try {
+        const photo = await captureShot(here.cdp);
+        zoneShots.push({ zone, screenshot: photo.dataUrl, scrollY: photo.viewport.scrollY });
+      } finally {
+        await here.overlay.hideForCapture(false);
+      }
+    },
   };
 
   /** Moves the run into the tab the page opened, so the application goes on where it went. */
@@ -609,6 +629,8 @@ export async function runAgent(args: AgentRunArgs): Promise<RunReport> {
         onHttp,
       );
       sessionId = started.sessionId;
+      // The server may turn fast fill on for every run, and a fast-fill run surveys.
+      surveyOn = followServerSurvey(surveyOn, started);
       spent.start = Date.now() - sessionStartedAt;
       log.event("agent-session", { resumes: started.resumes.length, ms: spent.start });
       recordAgentTrace(log, started.trace);
@@ -693,6 +715,7 @@ export async function runAgent(args: AgentRunArgs): Promise<RunReport> {
         notes,
         results,
         ...(survey ? { survey } : {}),
+        ...(zoneShots.length > 0 ? { zoneShots: [...zoneShots] } : {}),
         ...(pageText ? { pageText } : {}),
         ...(answered ? { answer: answered } : {}),
       });
@@ -708,6 +731,7 @@ export async function runAgent(args: AgentRunArgs): Promise<RunReport> {
         seq: step.trace?.seq ?? step.number,
         screenshot: shot.dataUrl,
         survey: survey ?? undefined,
+        zones: zoneShots.splice(0),
       });
       log.event("agent-step", {
         number: step.number,

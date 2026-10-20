@@ -108,3 +108,30 @@ func TestOnlyTheLastPieceOfAPlanIsFollowedByASurvey(t *testing.T) {
 		t.Fatalf("the last piece: %d actions, survey %v", len(second.Actions), second.Survey)
 	}
 }
+
+func TestTheServerCanTurnFastFillOnForEveryRunAndSaysSo(t *testing.T) {
+	cfg := DefaultConfig()
+	cfg.FastFill = true
+	model := &scriptedModel{replies: []string{wholePage(1)}}
+	a := newAgentWithScreen(t, model, &fixedDecider{}, &fakeScreen{}, cfg)
+	started, err := a.Start(context.Background(), "key", applicant.Auth{}, Start{URL: "https://jobs.example/apply", Title: "Apply"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !started.FastFill || !started.Survey {
+		t.Fatalf("the answer to Start does not say what the run uses: %+v", started)
+	}
+	s, _ := a.sessions.get(started.SessionID)
+	s.mu.Lock()
+	s.formReady = true
+	s.mu.Unlock()
+	stepOK(t, a, started.SessionID, surveyObservation(t))
+	if !strings.Contains(model.requests[0].Messages[0].Text, "Filling a whole page at once") {
+		t.Fatal("the run was not given the fast-fill prompt")
+	}
+
+	off, err := newTestAgent(t, &scriptedModel{}, &fixedDecider{}, DefaultConfig()).Start(context.Background(), "key", applicant.Auth{}, Start{URL: "https://jobs.example/apply"})
+	if err != nil || off.FastFill || off.Survey {
+		t.Fatalf("a default server turned it on: %+v %v", off, err)
+	}
+}

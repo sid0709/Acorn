@@ -117,6 +117,7 @@ func placeOnScreen(action *Action, in modelAction, vp Viewport, screens []float6
 	}
 	scroll := screens[screen-1]
 	action.ScrollTo, action.PageHeight = &scroll, vp.PageHeight
+	action.Zone = screen
 	return ""
 }
 

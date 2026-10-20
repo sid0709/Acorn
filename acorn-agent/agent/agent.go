@@ -48,6 +48,10 @@ type Config struct {
 	// whole page at once. The plan also runs as one piece, with no cut every ChunkActions, and
 	// without the UncheckedActions limit when no decision model checks the screen.
 	FastFillActions int
+	// FastFill makes every run a fast-fill run, whatever its start request says: the server's own
+	// switch (ACORN_AGENT_FAST_FILL), so the agent can be tried without rebuilding the extension.
+	// The answer to Start says so, and the extension follows it.
+	FastFill bool
 	// CheckMatch is how sure the checker must be that the screen shows what the model
 	// expected, and CheckBlocked and CheckLoading how unsure it must be that something is in
 	// the way or the page is still loading, for the plan to go on (probabilities, 0 to 1).
@@ -185,6 +189,7 @@ func (a *Agent) Start(ctx context.Context, key string, auth applicant.Auth, star
 	}
 	now := a.now()
 	// A fast-fill run plans a page from a survey of it, so surveys are on for it.
+	start.FastFill = start.FastFill || a.cfg.FastFill
 	start.Survey = start.Survey || start.FastFill
 	checks := a.newScreen != nil && a.cfg.ChunkActions > 0
 	maxActions := a.cfg.MaxActions
@@ -224,7 +229,7 @@ func (a *Agent) Start(ctx context.Context, key string, auth applicant.Auth, star
 	for i, resume := range snap.Resumes {
 		infos[i] = ResumeInfo{ID: resume.ID, FileName: resume.FileName, Size: resume.Size}
 	}
-	return Started{SessionID: id, Resumes: infos, Trace: startTrace}, nil
+	return Started{SessionID: id, Resumes: infos, Trace: startTrace, FastFill: start.FastFill, Survey: start.Survey}, nil
 }
 
 // remember starts the run from what a run that stopped knew, when the extension passes it. The
@@ -360,6 +365,8 @@ func (a *Agent) step(ctx context.Context, id string, obs Observation) (Step, err
 		return Step{}, err
 	}
 	s.cover.see(obs.URL, obs.Viewport)
+	s.zones = nil
+	a.keepZoneShots(s, obs)
 	// What happened to every action sent since the model last looked, which may be several
 	// runs of one plan.
 	results := withoutChoose(append(append([]ActionResult(nil), s.carried...), obs.Results...))
@@ -466,6 +473,15 @@ func (a *Agent) step(ctx context.Context, id string, obs Observation) (Step, err
 	if cut > 0 && answer.Status == StatusWorking {
 		dropped = append(dropped, fmt.Sprintf("%d planned actions after the upload were not run: the page moves after a file is attached", cut))
 		s.notes = append(s.notes, afterUploadNote)
+	}
+	if s.start.FastFill {
+		planned = inheritZones(planned)
+		s.anchors = buildAnchors(planned, obs)
+	} else {
+		for i := range planned {
+			planned[i].Zone = 0
+		}
+		s.anchors = nil
 	}
 	planned, surveyAsked := withoutSurvey(planned)
 	// A run that did not turn surveys on is not told they exist, and one the model asks for anyway is ignored.

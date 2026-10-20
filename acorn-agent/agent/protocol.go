@@ -150,6 +150,10 @@ type Observation struct {
 	// position, sent on the first look of a page and when the model asks. The model plans the
 	// whole form from them; each action names the screen its point is measured on.
 	Survey []SurveyScreen `json:"survey,omitempty"`
+	// ZoneShots are the photos of the zones of the plan just carried out, each taken when the last
+	// action of its zone was done (a fast-fill run; docs 19.4m). Zone is the survey screen the
+	// actions of the zone were measured on.
+	ZoneShots []ZoneShot `json:"zoneShots,omitempty"`
 	// PageText is the page's visible text, sent when the page changed since the last step.
 	// The agent reads it for the job description, which a screenshot may have scrolled past.
 	PageText string `json:"pageText,omitempty"`
@@ -162,6 +166,14 @@ type Observation struct {
 // SurveyScreen is one screenshot of a survey: the page scrolled to ScrollY (in screenshot
 // pixels, as Viewport.ScrollY is).
 type SurveyScreen struct {
+	Screenshot string  `json:"screenshot"`
+	ScrollY    float64 `json:"scrollY"`
+}
+
+// ZoneShot is the screenshot taken when a zone of a plan was done: the zone's number and where the
+// page was scrolled to (in screenshot pixels).
+type ZoneShot struct {
+	Zone       int     `json:"zone"`
 	Screenshot string  `json:"screenshot"`
 	ScrollY    float64 `json:"scrollY"`
 }
@@ -192,6 +204,10 @@ type Action struct {
 	// page's height then, so the extension can tell the page changed shape since and refuse.
 	ScrollTo   *float64 `json:"scrollTo,omitempty"`
 	PageHeight float64  `json:"pageHeight,omitempty"`
+	// Zone is the survey screen (from 1) the action belongs to in a fast-fill run, so the extension
+	// can take a photo when the last action of a zone is done. Typing, keys and waits belong to the
+	// zone of the action before them. 0 when the run is not fast-fill or the look was one screen.
+	Zone int `json:"zone,omitempty"`
 	// Check is what the screen should show once this action has run, as the model expected.
 	// It stays on the agent: the extension never sees it.
 	Check string `json:"-"`
@@ -301,6 +317,10 @@ type Started struct {
 	Resumes   []ResumeInfo `json:"resumes"`
 	// Trace holds the run's start (session.json, system.txt) when the run asked for a trace.
 	Trace *Trace `json:"trace,omitempty"`
+	// FastFill and Survey are what the run really uses: the server may turn them on for every run
+	// (Config.FastFill), and a fast-fill run surveys. The extension follows them.
+	FastFill bool `json:"fastFill,omitempty"`
+	Survey   bool `json:"survey,omitempty"`
 }
 
 // Continued is a run taken back up: the step it stopped at and what it has spent, so the

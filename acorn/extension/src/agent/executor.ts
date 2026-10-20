@@ -51,6 +51,8 @@ export interface ExecutorContext {
   afterClick?: () => Promise<void>;
   /** How long an upload waits for the click to open a file picker; the default when unset. */
   fileChooserWaitMs?: number;
+  /** Called when the last action of a zone of a fast-fill plan is done: the run takes a photo of the page. */
+  zoneDone?: (zone: number) => Promise<void>;
 }
 
 /**
@@ -203,6 +205,19 @@ async function perform(ctx: ExecutorContext, action: AgentAction, watch: Stopwat
 }
 
 /**
+ * A fast-fill plan is carried out zone by zone. When the next action is in another zone (or there is
+ * none), the zone just done is photographed. Returns the zone the next action is in.
+ */
+async function leaveZone(
+  ctx: ExecutorContext,
+  zone: number | undefined,
+  next: number | undefined,
+): Promise<number | undefined> {
+  if (zone != null && next !== zone) await ctx.zoneDone?.(zone);
+  return next ?? zone;
+}
+
+/**
  * Runs the actions in order. One that fails stops the batch: what came after it was
  * planned for a page the failed action did not leave behind, so it is reported as skipped
  * and the agent looks at the page again.
@@ -218,6 +233,7 @@ export async function runActions(
   // A step that types is looked at only once the page has answered what the typing asked of it.
   const typing = actions.some((action) => action.kind === "type" || action.kind === "key");
   const effects = typing ? await batch.time("watchInput", () => watchInputEffects(ctx.cdp)) : null;
+  let zone: number | undefined;
   for (const action of actions) {
     if (failed) {
       results.push({
@@ -228,6 +244,7 @@ export async function runActions(
       continue;
     }
     ctx.checkStopped();
+    zone = await leaveZone(ctx, zone, action.zone ?? zone);
     // Each action carries when it began and how long it took, and where that time went.
     const watch = new Stopwatch();
     const timing = () => ({ startedAt: watch.startedAt, ms: watch.ms, laps: watch.laps });
@@ -251,6 +268,7 @@ export async function runActions(
       });
     }
   }
+  if (!failed) await leaveZone(ctx, zone, undefined);
   if (effects) await batch.time("inputSettle", () => effects.settle(ctx.sleep));
   return results;
 }

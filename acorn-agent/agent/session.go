@@ -115,6 +115,11 @@ type session struct {
 	accountSteps int
 	// stopPasses counts the stops for the applicant that were sent back to finish the page first.
 	stopPasses int
+	// zones are the photos the extension took of the zones of the plan it just carried out, and
+	// anchors a crop of the survey around each target of the plan being carried out, by action id
+	// (zones.go).
+	zones   []ZoneShot
+	anchors map[string]anchor
 	// script is a run of the model's actions with a dropdown to set in it, being carried out.
 	script *script
 	// cover is what the run has looked at on the page it is on, in pixels from the top.

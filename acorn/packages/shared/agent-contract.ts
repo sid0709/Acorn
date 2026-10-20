@@ -181,6 +181,15 @@ export interface AgentActionResult {
   opened?: ActionOpened;
 }
 
+/** The screenshot taken when the last action of a zone of a plan was done (fast fill, docs 19.4m). */
+export interface AgentZoneShot {
+  /** The survey screen the actions of the zone were measured on, from 1. */
+  zone: number;
+  screenshot: string;
+  /** Where the page was scrolled to (screenshot pixels). */
+  scrollY: number;
+}
+
 /** One screenshot of a survey: the page scrolled to `scrollY` (screenshot pixels). */
 export interface AgentSurveyScreen {
   screenshot: string;
@@ -198,6 +207,8 @@ export interface AgentObservation {
   results?: AgentActionResult[];
   /** The whole page as screenshots from top to bottom, sent on the first look of a page and when asked for. */
   survey?: AgentSurveyScreen[];
+  /** Photos of the zones of the plan just carried out, each taken when its zone was done (fast fill). */
+  zoneShots?: AgentZoneShot[];
   /** The page's visible text, sent when it changed since the last step: the job description may be in it. */
   pageText?: string;
   /** The person's answer (an AgentAskOption id) to the question the last step asked. */
@@ -226,6 +237,11 @@ export interface AgentAction {
    */
   scrollTo?: number;
   pageHeight?: number;
+  /**
+   * Fast fill: the survey screen this action belongs to. The extension takes a photo when the last
+   * action of a zone is done and sends it with the next look.
+   */
+  zone?: number;
 }
 
 export interface AgentUsage {
@@ -318,6 +334,9 @@ export interface AgentStarted {
   resumes: AgentResumeInfo[];
   /** The run's start (session.json, system.txt), when the run asked for the trace. */
   trace?: AgentTrace;
+  /** What the run really uses: the server may turn them on for every run, and a fast-fill run surveys. */
+  fastFill?: boolean;
+  survey?: boolean;
 }
 
 /** A stopped run taken back up: the step it was at and what it has spent, so the counters go on. */

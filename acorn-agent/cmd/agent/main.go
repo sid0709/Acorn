@@ -58,6 +58,7 @@ const (
 	envDoneConfirm   = "ACORN_AGENT_DONE_CONFIRM_PERCENT"
 	envMaxActions    = "ACORN_AGENT_MAX_ACTIONS"
 	envFastFillMax   = "ACORN_AGENT_FAST_FILL_ACTIONS"
+	envFastFill      = "ACORN_AGENT_FAST_FILL"
 	envChecks        = "ACORN_AGENT_CHECKS"
 	envScreenModel   = "ACORN_AGENT_SCREEN_MODEL"
 	envDecisionsURL  = "ACORN_AGENT_DECISIONS_URL"
@@ -103,6 +104,11 @@ func isOff(value string) bool {
 	return false
 }
 
+// isOn reports whether a switch's value turns it on: anything set that is not an off word.
+func isOn(value string) bool {
+	return strings.TrimSpace(value) != "" && !isOff(strings.TrimSpace(value))
+}
+
 // percent reads a probability given as a whole percent (90 is 0.9).
 func percent(name string, fallback float64) float64 {
 	return float64(config.EnvInt(name, int(fallback*100))) / 100
@@ -128,6 +134,7 @@ func run() error {
 	cfg.MaxActions = config.EnvInt(envMaxActions, cfg.MaxActions)
 	cfg.ChunkActions = config.EnvInt(envChunkActions, cfg.ChunkActions)
 	cfg.FastFillActions = config.EnvInt(envFastFillMax, cfg.FastFillActions)
+	cfg.FastFill = isOn(config.Env(envFastFill, ""))
 	cfg.CheckMatch = percent(envCheckMatch, cfg.CheckMatch)
 	cfg.CheckBlocked = percent(envCheckBlocked, cfg.CheckBlocked)
 	cfg.CheckLoading = percent(envCheckLoading, cfg.CheckLoading)
