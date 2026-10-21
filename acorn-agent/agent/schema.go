@@ -137,6 +137,13 @@ func buildReplySchema(survey, checks bool) json.RawMessage {
 	if survey {
 		// The screens the model will not come back to: asked last of the notes, before the plan.
 		fields = append(fields, field{"settled", `{"type": ["array", "null"], "items": {"type": "integer"}}`})
+		// The control that sends the page or goes on to its next step, once per page (key.go).
+		fields = append(fields, field{"next", `{"anyOf": [{"type": "null"}, ` +
+			object(field{"screen", schemaInteger}, field{"x", schemaNumber}, field{"y", schemaNumber}, field{"label", schemaString}) + `]}`})
+		// Every question of the form as the model reads it, with its state (fields.go).
+		fields = append(fields, field{"fields", `{"type": ["array", "null"], "items": ` +
+			object(field{"label", schemaString}, field{"screen", schemaInteger}, field{"y", schemaNumber},
+				field{"state", `{"type": "string", "enum": ["` + FieldFilled + `", "` + FieldEmpty + `", "` + FieldNeedsPerson + `"]}`}) + `}`})
 	}
 	fields = append(fields, field{"actions", `{"type": "array", "items": ` + action + `}`})
 	return json.RawMessage(object(fields...))

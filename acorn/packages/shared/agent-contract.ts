@@ -291,6 +291,8 @@ export interface AgentSettledMap {
    */
   fence: number;
   spans: { from: number; to: number }[];
+  /** The band round the control that sends the page or goes on, which the model named on the page's survey; painted red. */
+  key?: { from: number; to: number };
 }
 
 /** The screenshot taken when the last action of a zone of a plan was done (fast fill, docs 19.4m). */
@@ -464,12 +466,34 @@ export interface AgentStep {
   survey?: boolean;
   /** The parts of the page the model will not come back to, sent when they change; an empty list means none. */
   settled?: AgentSettledMap;
+  /**
+   * The form's to-do list as the model read it from the pictures, sent when it changed: every question,
+   * where it is (screenshot pixels from the page's top) and whether it is answered. The page's own control
+   * list says where controls are, never whether they are answered.
+   */
+  fields?: AgentFieldState[];
   actions: AgentAction[] | null;
   number: number;
   usage: AgentUsage;
   dropped?: string[];
   /** The trace of what the server recorded since the last answer, when the run asked for it. */
   trace?: AgentTrace;
+}
+
+/** What the model says of a field of the form: answered, to answer, or the applicant's own to give. */
+export const FIELD_STATE = {
+  filled: "filled",
+  empty: "empty",
+  needsPerson: "needs_person",
+} as const;
+export type FieldState = (typeof FIELD_STATE)[keyof typeof FIELD_STATE];
+
+/** One question of the form as the model read it on a survey. */
+export interface AgentFieldState {
+  label: string;
+  /** Screenshot pixels from the page's top. */
+  y: number;
+  state: FieldState;
 }
 
 /** One file of a run's trace the server made: text in `text`, an image as base64 in `data`. */

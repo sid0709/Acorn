@@ -314,6 +314,8 @@ type SettledMap struct {
 	PageHeight float64 `json:"pageHeight"`
 	Fence      float64 `json:"fence"`
 	Spans      []Span  `json:"spans"`
+	// Key is the band round the control that sends the page or goes on (key.go), painted red; nil when none is known.
+	Key *Span `json:"key,omitempty"`
 }
 
 // ZoneShot is the screenshot taken when a zone of a plan was done: the zone's number and where the
@@ -389,6 +391,9 @@ type Step struct {
 	// Settled is the parts of the page the model will not come back to, sent when they changed: the
 	// extension does not take them again in a survey, and draws them on the minimap.
 	Settled *SettledMap `json:"settled,omitempty"`
+	// Fields is the form's to-do list as the model read it from the pictures, sent when it changed: every
+	// question, where it is (screenshot pixels from the page's top), and whether it is answered (fields.go).
+	Fields []FieldState `json:"fields,omitempty"`
 	// Actions run in order, then the extension sends a new screenshot.
 	Actions []Action `json:"actions"`
 	// Number is this step's place in the run, from 1.

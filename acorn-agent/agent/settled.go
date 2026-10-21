@@ -64,6 +64,7 @@ func (s *session) forgetSettledIfStale(obs Observation) {
 	}
 	if s.settled.URL != withoutFragment(obs.URL) {
 		s.settled = settledState{changed: true}
+		s.confirmed = nil
 		slog.Info(runName(s.id) + ": what was settled on the page is forgotten: the page is another page.")
 		return
 	}
@@ -260,12 +261,17 @@ func (s *session) markSettled(obs Observation, screens []int, planned []Action, 
 		return 0
 	}
 	touched := touchedScreens(planned, obs)
+	key := s.keyOn(obs)
 	var added []Span
 	for _, n := range screens {
 		if n < 1 || n > len(obs.Survey) || touched[n] || claimed[n] {
 			continue
 		}
 		from := obs.Survey[n-1].ScrollY
+		// The screen with the key on it is never settled: the run comes back to it.
+		if key.within(from, from+float64(obs.Viewport.Height)) {
+			continue
+		}
 		added = append(added, Span{From: from, To: from + float64(obs.Viewport.Height)})
 	}
 	if len(added) == 0 {
@@ -284,7 +290,81 @@ func (s *session) takeSettledMap() *SettledMap {
 		return nil
 	}
 	s.settled.changed = false
-	return &SettledMap{PageHeight: s.settled.PageHeight, Fence: s.settled.Fence, Spans: append([]Span{}, s.settled.Spans...)}
+	out := &SettledMap{PageHeight: s.settled.PageHeight, Fence: s.settled.Fence, Spans: append([]Span{}, s.settled.Spans...)}
+	if s.pageKey != nil && (s.settled.URL == "" || s.pageKey.URL == s.settled.URL) {
+		band := s.pageKey.span()
+		out.Key = &band
+	}
+	return out
+}
+
+// rowTolerancePx is how far apart the middles of two controls may be (screenshot pixels) and still sit on
+// one row of the form (a country code beside a phone number).
+const rowTolerancePx = 8
+
+// settleRows settles the page row by row, from what the reviews confirmed: a row of the form is settled
+// when every control on it is a field the page reports filled and not invalid, whose label a review found
+// showing what was planned. A row's stretch runs from halfway to the row above to halfway to the row
+// below (the top of the page for the first row, its bottom for the last), the full width. A row with a
+// button on it, with a required field still empty, or with the key, is never settled: the run comes back
+// to those. It is the model's own judgment of the pictures (the review) that settles, not the page's list.
+func (s *session) settleRows(obs Observation) {
+	if len(s.confirmed) == 0 || len(obs.Marks) == 0 || len(obs.Survey) == 0 {
+		return
+	}
+	type row struct {
+		y  float64
+		ok bool
+	}
+	var rows []*row
+	for _, mark := range obs.Marks {
+		y := mark.Rect.centerY()
+		var at *row
+		for _, r := range rows {
+			if math.Abs(r.y-y) <= rowTolerancePx {
+				at = r
+				break
+			}
+		}
+		if at == nil {
+			at = &row{y: y, ok: true}
+			rows = append(rows, at)
+		}
+		at.ok = at.ok && isField(mark.Kind) && s.confirmedLabel(mark.Label)
+	}
+	sort.Slice(rows, func(i, j int) bool { return rows[i].y < rows[j].y })
+	key := s.keyOn(obs)
+	var added []Span
+	for i, r := range rows {
+		top, bottom := 0.0, obs.Viewport.PageHeight
+		if i > 0 {
+			top = (rows[i-1].y + r.y) / 2
+		}
+		if i+1 < len(rows) {
+			bottom = (r.y + rows[i+1].y) / 2
+		}
+		if !r.ok || key.within(top, bottom) || s.emptyFieldNear(obs.URL, top, bottom) {
+			continue
+		}
+		added = append(added, Span{From: top, To: bottom})
+	}
+	if len(added) == 0 {
+		return
+	}
+	s.settled.URL, s.settled.PageHeight = withoutFragment(obs.URL), obs.Viewport.PageHeight
+	s.settled.Spans = mergeSettled(append(s.settled.Spans, added...))
+	s.settled.changed = true
+	slog.Info(fmt.Sprintf("%s: %s of the form settled from what the reviews confirmed.", runName(s.id), plainlog.Count(len(added), "row")))
+}
+
+// confirmedLabel is whether a review found a field with this label showing what was planned.
+func (s *session) confirmedLabel(label string) bool {
+	for _, confirmed := range s.confirmed {
+		if labelsAgree(confirmed, label) {
+			return true
+		}
+	}
+	return false
 }
 
 // settledNote tells the model what a survey leaves out.

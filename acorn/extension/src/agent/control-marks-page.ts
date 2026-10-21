@@ -112,8 +112,32 @@ function installBody(): string {
     };
     // Whether a control is empty, when the page can tell: a text box, a text area, a native list, an
     // editable area. A dropdown the page draws itself keeps its value elsewhere, and a check or a button has none.
+    // A dropdown the page draws itself keeps the chosen value beside its box, not in it: the box's own
+    // input stays empty. The row the box sits on says: a hidden input the page posts the choice with holds
+    // a value, or the row shows text besides the question and a prompt ("Select...", a placeholder). A
+    // recorded run's sidebar listed answered dropdowns as needing an answer, and the run was sent back to them.
+    const drawnDropdownEmpty = (el) => {
+      let row = el;
+      for (let node = el.parentElement, up = 0; node && node !== document.body && up < SIZELESS_UP; node = node.parentElement, up += 1) {
+        if (node.getBoundingClientRect().height > FIELD_MAX_H) break;
+        row = node;
+      }
+      for (const hidden of row.querySelectorAll("input[type=hidden]")) {
+        if (collapse(hidden.value, 1) !== "") return false;
+      }
+      let text = " " + collapse(row.innerText || row.textContent, VALUE_MAX * 4) + " ";
+      const labelEl = labelElOf(el);
+      const prompts = [labelEl ? collapse(labelEl.textContent, VALUE_MAX * 4) : "", collapse(el.getAttribute("placeholder"), VALUE_MAX)];
+      for (const prompt of prompts) {
+        if (prompt) text = text.split(prompt).join(" ");
+      }
+      text = collapse(text, VALUE_MAX);
+      return text === "" || /(\\.\\.\\.|…)$/.test(text);
+    };
     const emptyOf = (el, tag, type) => {
-      if (el.getAttribute("role") === "combobox") return undefined;
+      if (el.getAttribute("role") === "combobox" || (tag === "input" && opensAList(el, tag))) {
+        return el.value !== "" ? false : drawnDropdownEmpty(el);
+      }
       if (tag === "textarea" || tag === "select") return el.value === "";
       if (tag === "input") {
         if (type === "checkbox" || type === "radio" || type === "file" || type === "button" || type === "submit" || type === "reset" || type === "image" || type === "hidden") return undefined;

@@ -363,6 +363,7 @@ func (a *Agent) Step(ctx context.Context, id string, obs Observation) (Step, err
 		if step.Settled == nil {
 			step.Settled = s.takeSettledMap()
 		}
+		step.Fields = s.takeFields()
 		if step.Trace = s.takeTrace(); step.Trace != nil {
 			step.Trace.Seq = s.seq
 		}
@@ -411,6 +412,7 @@ func (a *Agent) step(ctx context.Context, id string, obs Observation) (Step, err
 	a.keepZoneShots(s, obs)
 	a.reviewShots(s)
 	a.collectReviews(s)
+	s.settleRows(obs)
 	// What happened to every action sent since the model last looked, which may be several
 	// runs of one plan.
 	results := withoutChoose(append(append([]ActionResult(nil), s.carried...), obs.Results...))
@@ -439,6 +441,13 @@ func (a *Agent) step(ctx context.Context, id string, obs Observation) (Step, err
 	// A survey scrolls the page and comes back: the same screen again is expected, not a stall.
 	if s.step > 0 && len(screens) == 0 && unchanged(sig, s.lastSig) {
 		stale = s.stale + 1
+	}
+	if stale >= a.cfg.MaxStale {
+		// A page that stood still with its key not pressed gets one more look, sent to what is left or to the key.
+		if note, ok := s.goOnNote(obs); ok {
+			s.notes = append(s.notes, note)
+			stale = 0
+		}
 	}
 	if stale >= a.cfg.MaxStale {
 		return a.endWithTrace(s, obs, stale, StatusStuck, fmt.Sprintf("The page did not change for %d steps in a row.", stale), &StopInfo{
@@ -525,6 +534,8 @@ func (a *Agent) step(ctx context.Context, id string, obs Observation) (Step, err
 		}
 	}
 	s.message = strings.TrimSpace(answer.Message)
+	s.noteKey(answer, obs)
+	s.noteFields(answer, obs)
 
 	planned, dropped := checkActions(number, answer.Actions, obs.Viewport, s.maxActions, screens)
 	// lost counts the actions of the plan that could not be carried out: the click that sends the page waits for them.
@@ -592,6 +603,7 @@ func (a *Agent) step(ctx context.Context, id string, obs Observation) (Step, err
 	// was planned after it stay behind, and the run ends as ready to submit once nothing else is planned.
 	sendHeld := a.holdSend(s, &planned, &dropped)
 	a.holdRefusedSend(s, &planned, &dropped)
+	s.notePressed(planned, obs)
 	s.noteCommitPlanned(planned, obs)
 	if settled := s.markSettled(obs, answer.Settled, planned, claimed); settled > 0 {
 		slog.Info(settledLine(s.id, settled, s.settled.Spans))
@@ -642,6 +654,9 @@ func (a *Agent) step(ctx context.Context, id string, obs Observation) (Step, err
 		// A working run with nothing valid to do waits and looks again; the repeat check
 		// ends it if the page never changes.
 		dropped = append(dropped, "no usable action; waiting before the next look")
+		if note, ok := s.goOnNote(obs); ok {
+			s.notes = append(s.notes, note)
+		}
 		planned = []Action{{ID: fmt.Sprintf("s%da1", number), Kind: KindWait, Ms: 1000}}
 		fallthrough
 	default:

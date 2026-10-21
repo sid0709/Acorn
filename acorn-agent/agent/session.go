@@ -156,6 +156,17 @@ type session struct {
 	// sendRefused is set when the page refused the click that sent it and reported fields empty: the next
 	// plan's send is held for one look (stopgate.go).
 	sendRefused bool
+	// key is the control that sends the page or goes on to its next step, as the model named it on the
+	// page's first survey (key.go); confirmed are the labels of the fields the reviews found filled as
+	// planned on this page, for the stretches settled row by row (settled.go).
+	pageKey   *keyControl
+	confirmed []string
+	// fields is the form's to-do list as the model read it on the page's last survey, kept up to date by
+	// the reviews (fields.go); fieldsURL the page it is of, and fieldsChanged that the extension has not
+	// been sent it since it changed.
+	fields        []FieldState
+	fieldsURL     string
+	fieldsChanged bool
 }
 
 // addTrace keeps the trace of an entry until the next answer carries it to the extension.

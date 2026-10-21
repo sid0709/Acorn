@@ -83,10 +83,7 @@ func (a *Agent) holdReady(s *session, obs Observation) (string, bool) {
 	if a.cfg.StopPasses <= 0 || s.stopPasses >= a.cfg.StopPasses {
 		return "", false
 	}
-	if stale := staleMarkedFields(obs.Marks); len(stale) > 0 {
-		s.notes = append(s.notes, staleMarkedNote(stale))
-	}
-	left := unfilledFields(obs.Marks)
+	left := s.emptyFieldsOn(obs.URL)
 	if len(left) == 0 {
 		return "", false
 	}

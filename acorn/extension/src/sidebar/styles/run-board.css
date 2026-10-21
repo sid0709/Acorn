@@ -91,6 +91,12 @@
   fill: var(--color-accent);
 }
 
+/* The control that sends the page or goes on: the one place the run always comes back to. */
+.acorn-map-key {
+  fill: var(--color-data-categorical-red);
+  fill-opacity: 0.35;
+}
+
 .acorn-map-hatch-line {
   stroke: var(--color-data-yellow-4);
   stroke-width: 1.5;

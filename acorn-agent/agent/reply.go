@@ -9,14 +9,37 @@ import (
 
 // reply is the model's answer as it arrives.
 type reply struct {
-	Observation string        `json:"observation"`
-	Memo        *string       `json:"memo"`
-	Job         *string       `json:"job"`
-	Status      string        `json:"status"`
-	Message     string        `json:"message"`
-	Stop        *StopInfo     `json:"stop"`
-	Settled     []int         `json:"settled"`
-	Actions     []modelAction `json:"actions"`
+	Observation string    `json:"observation"`
+	Memo        *string   `json:"memo"`
+	Job         *string   `json:"job"`
+	Status      string    `json:"status"`
+	Message     string    `json:"message"`
+	Stop        *StopInfo `json:"stop"`
+	Settled     []int     `json:"settled"`
+	// Next is the control that sends the page or goes on to its next step, as the model sees it on a
+	// survey (key.go); null when none is in view or it was given already.
+	Next *modelPoint `json:"next"`
+	// Fields is every question of the form as the model reads it on a survey, with where it is and whether
+	// it is answered (fields.go); null when the look is not a survey.
+	Fields  []modelField  `json:"fields"`
+	Actions []modelAction `json:"actions"`
+}
+
+// modelField is one question of the form as the model reads it: its label, where it is on the survey, and
+// its state (FieldFilled, FieldEmpty, FieldNeedsPerson).
+type modelField struct {
+	Label  string   `json:"label"`
+	Screen *int     `json:"screen"`
+	Y      *float64 `json:"y"`
+	State  string   `json:"state"`
+}
+
+// modelPoint is a place on a survey screen the model names: a control, by its screen, point and label.
+type modelPoint struct {
+	Screen *int     `json:"screen"`
+	X      *float64 `json:"x"`
+	Y      *float64 `json:"y"`
+	Label  *string  `json:"label"`
 }
 
 type modelAction struct {

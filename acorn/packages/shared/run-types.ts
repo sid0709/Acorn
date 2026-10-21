@@ -215,6 +215,13 @@ export interface RunMapControl {
   value?: string;
 }
 
+/** One question of the form as the model read it: its label, where it is (CSS pixels) and its state. */
+export interface RunMapField {
+  label: string;
+  y: number;
+  state: "filled" | "empty" | "needs_person";
+}
+
 /** A point of the plan: where it aims on the page (CSS pixels) and what became of it. */
 export interface RunMapPoint {
   id: string;
@@ -257,6 +264,13 @@ export interface RunMap {
   settled: { from: number; to: number }[];
   /** How far down the page the plan being carried out first acts: nothing above it changes. Unset until a plan. */
   fence?: number;
+  /** The band round the control that sends the page or goes on, painted red. Unset until the model named one. */
+  key?: { from: number; to: number };
+  /**
+   * The form's to-do list as the model read it from the pictures (CSS pixels): the questions the sidebar
+   * lists and ticks off. Unset until the model's first survey; `controls` then only says where things are.
+   */
+  fields?: RunMapField[];
   controls: RunMapControl[];
   points: RunMapPoint[];
   screens: RunMapScreen[];

@@ -258,6 +258,8 @@ function runSwitches(args: AgentRunArgs): { surveyOn: boolean; fastFillOn: boole
  * minimap in the sidebar, which paints them.
  */
 function applySettled(step: AgentStep, surveys: SurveyKeeper, pages: PageMapKeeper): void {
+  // The to-do list the sidebar shows is the model's reading of the pictures, sent when it changed.
+  if (step.fields) pages.setFields(step.fields);
   if (!step.settled) return;
   surveys.setSettled(step.settled);
   pages.settle(step.settled);

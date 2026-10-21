@@ -180,6 +180,19 @@ func (a *Agent) collectReviews(s *session) {
 		}
 		for _, exp := range result.Failed {
 			wrong = append(wrong, fmt.Sprintf("%q does not show %q (screen %d)", exp.Label, exp.Value, result.Zone))
+			s.setField(exp.Label, FieldEmpty)
+		}
+		// What the zone's review did not fault, it confirmed: those fields are ticked off the to-do list
+		// (fields.go) and settle their rows (settled.go).
+		for _, exp := range s.expect[result.Zone] {
+			failed := false
+			for _, bad := range result.Failed {
+				failed = failed || bad.Label == exp.Label
+			}
+			if !failed {
+				s.confirmed = append(s.confirmed, exp.Label)
+				s.setField(exp.Label, FieldFilled)
+			}
 		}
 	}
 	if len(wrong) == 0 {
