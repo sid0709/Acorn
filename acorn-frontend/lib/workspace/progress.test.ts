@@ -26,8 +26,9 @@ describe("the days the page asks acorn-backend for", () => {
   test("cover the longest range and the same length before it, within what the backend allows", () => {
     const window = historyWindow(TODAY);
     const span = daysBetween(window.from, window.to) + 1;
-    expect(span).toBeGreaterThan(PROGRESS_HISTORY_DAYS);
+    expect(span).toBe(PROGRESS_HISTORY_DAYS + 2);
     expect(span).toBeLessThanOrEqual(RUNS_DAILY_MAX_DAYS);
+    expect(window.from).toBe("2025-10-26");
     expect(window.to).toBe("2026-10-22");
   });
 });
@@ -140,6 +141,14 @@ describe("what the table shows for a job", () => {
       where: "boards.example.com/acme/jobs/42",
       href: "https://boards.example.com/acme/jobs/42?gh_jid=42",
     });
+  });
+
+  test("cuts a long address for the table, and still links to all of it", () => {
+    const long = `https://jobs.example.com/${"a".repeat(200)}`;
+    const label = describeRun({ title: "A job", url: long });
+    expect(label.where.length).toBe(64);
+    expect(label.where.endsWith("…")).toBe(true);
+    expect(label.href).toBe(long);
   });
 
   test("falls back to the site when the page had no title", () => {

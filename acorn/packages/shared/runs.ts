@@ -47,7 +47,7 @@ export interface CompletedRunRecord {
 }
 
 /** A completed Run as the website reads it. */
-export interface CompletedRun {
+export type CompletedRun = {
   id: string;
   runId: string;
   /** The job's link; empty when the page's address was not one a person can open. */
@@ -63,15 +63,15 @@ export interface CompletedRun {
   steps: number;
   modelCalls: number;
   screenChecks: number;
-}
+};
 
 /** The Runs of one calendar day, summed. */
-export interface RunDay {
+export type RunDay = {
   day: string;
   count: number;
   durationMs: number;
   costNanos: number;
-}
+};
 
 /** Dollars (OpenRouter's own figure for a run) as the nanodollars a record carries. */
 export function usdToNanos(usd: number): number {

@@ -17,6 +17,7 @@ import type { AcornAccount } from "@/lib/auth/session";
 import { ROUTES } from "@/lib/routes";
 import type { Activity } from "@/lib/workspace/activity";
 import { firstName } from "@/lib/workspace/model";
+import type { RunProgressData } from "@/lib/workspace/progress";
 import {
   DEFAULT_RANGE,
   RANGES,
@@ -27,6 +28,7 @@ import {
   windowFor,
   type RangeValue,
 } from "@/lib/workspace/stats";
+import { DailyProgress } from "./overview/daily-progress";
 import { FullAnalytics } from "./overview/full-analytics";
 import { HeroMetrics } from "./overview/hero-metrics";
 import { KpiRow } from "./overview/kpi-row";
@@ -34,13 +36,18 @@ import { RecentTable } from "./overview/recent-table";
 
 const RECENT_ROWS = 24;
 
-/** Statistics: two headline numbers, one chart, the recent applications, then the deeper charts. */
+/**
+ * Statistics: daily progress (real: the applications Acorn sent), then two headline numbers, one
+ * chart, the recent applications, and the deeper charts (still samples until replies are tracked).
+ */
 export function OverviewPanel({
   account,
   activity,
+  progress,
 }: {
   account: AcornAccount;
   activity: Activity;
+  progress: RunProgressData;
 }) {
   const [range, setRange] = useState<RangeValue>(DEFAULT_RANGE);
   const { today, applications } = activity;
@@ -79,6 +86,7 @@ export function OverviewPanel({
           </HStack>
         }
       />
+      <DailyProgress progress={progress} range={range} serverToday={today} />
       <HeroMetrics current={current} previous={previous} trend={trend} />
       <KpiRow current={current} previous={previous} trend={trend} />
       <SectionCard
@@ -106,7 +114,8 @@ export function OverviewPanel({
       </SectionCard>
       <FullAnalytics applications={applications} period={period} />
       <Text type="supporting" color="secondary">
-        Sample · updates once the extension reports real activity. Figures cover{" "}
+        Daily progress counts the applications Acorn really sent. The cards marked Sample update
+        once Acorn tracks replies. Figures cover{" "}
         {RANGES.find((option) => option.value === range)?.label.toLowerCase()} ending today and
         compare against the same length of time before it.
       </Text>

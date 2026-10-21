@@ -36,7 +36,7 @@ export type RunProgressData =
  * since the person's today need not be the server's.
  */
 export function historyWindow(today: Day): Window {
-  return { from: addDays(today, -(PROGRESS_HISTORY_DAYS + 1)), to: addDays(today, 1) };
+  return { from: addDays(today, -PROGRESS_HISTORY_DAYS), to: addDays(today, 1) };
 }
 
 /** One entry per day in the window, days with no application included, so a chart has no holes. */
@@ -134,6 +134,9 @@ export function formatWorked(ms: number | null): string {
   return ms === null ? "—" : formatDuration(ms);
 }
 
+/** The most characters of a job's address the table shows; the rest is cut. */
+const WHERE_MAX = 64;
+
 export type RunLabel = {
   /** What the job is called: its title, else the site it is on. */
   title: string;
@@ -149,7 +152,12 @@ export function describeRun(run: Pick<CompletedRun, "url" | "title">): RunLabel 
     const url = new URL(run.url);
     if (url.protocol !== "http:" && url.protocol !== "https:") throw new Error("not a web page");
     const path = url.pathname === "/" ? "" : url.pathname;
-    return { title: run.title || url.host, where: `${url.host}${path}`, href: url.href };
+    const where = `${url.host}${path}`;
+    return {
+      title: run.title || url.host,
+      where: where.length > WHERE_MAX ? `${where.slice(0, WHERE_MAX - 1)}…` : where,
+      href: url.href,
+    };
   } catch {
     return { title: run.title || "Untitled job", where: "", href: null };
   }
