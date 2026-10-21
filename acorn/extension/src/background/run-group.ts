@@ -4,7 +4,7 @@ import { usageTabKey } from "../tab-usage-key";
 const RUN_GROUP_TITLE_PREFIX = "Acorn";
 /** Characters of the tab's Acorn key shown in the group's title. */
 const RUN_GROUP_HASH_LENGTH = 6;
-const RUN_GROUP_COLORS: chrome.tabGroups.Color[] = [
+const RUN_GROUP_COLORS: chrome.tabGroups.ColorEnum[] = [
   "blue",
   "red",
   "yellow",
