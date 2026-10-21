@@ -1,5 +1,3 @@
-import { AutoFocusSwitch } from "./AutoFocusSwitch";
-
 import type { AcornMainTab } from "./SidebarNav";
 import type { ReactNode } from "react";
 
@@ -9,7 +7,7 @@ interface Props {
   nowCard: ReactNode;
 }
 
-/** The Jobs tab: the Auto-Focus switch, and the active tab's run with the map of the page it is on. */
+/** The Jobs tab: the active tab's run with the map of the page it is on. */
 export function JobsPanel({ mainTab, nowCard }: Props) {
   return (
     <section
@@ -18,7 +16,6 @@ export function JobsPanel({ mainTab, nowCard }: Props) {
       aria-label="Jobs"
       hidden={mainTab !== "fill"}
     >
-      <AutoFocusSwitch />
       {nowCard}
     </section>
   );

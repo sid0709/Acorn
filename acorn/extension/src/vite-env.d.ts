@@ -9,8 +9,6 @@ interface ImportMetaEnv {
   readonly VITE_ACORN_AGENT_URL?: string;
   /** "true" turns on local debug capture (see acorn/.env.example). */
   readonly VITE_ACORN_DEBUG?: string;
-  /** Seconds Auto-Focus keeps each run tab in front (see acorn/.env.example). */
-  readonly VITE_ACORN_AUTO_FOCUS_SECONDS?: string;
   /** "true" makes runs fast-fill runs by default (see acorn/.env.example). */
   readonly VITE_ACORN_AGENT_FAST_FILL?: string;
   /** "true" lets runs survey long pages by default (see acorn/.env.example). */

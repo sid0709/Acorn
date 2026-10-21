@@ -10,7 +10,7 @@ const distDir = path.join(extensionDir, "dist");
 const envPath = path.join(repoRoot, "acorn", ".env");
 const extensionPkgPath = path.join(extensionDir, "package.json");
 
-const VITE_KEYS = ["VITE_ACORN_API_URL", "VITE_ACORN_WEB_URL", "VITE_ACORN_AUTO_FOCUS_SECONDS"];
+const VITE_KEYS = ["VITE_ACORN_API_URL", "VITE_ACORN_WEB_URL"];
 
 function parseArgs(argv) {
   let zipOut = path.join(repoRoot, "acorn-frontend", "public", "downloads", "acorn-chrome.zip");

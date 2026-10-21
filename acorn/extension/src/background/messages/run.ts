@@ -3,7 +3,6 @@ import { forgetKeptRunOfClosedTab, keepRun, takeKeptRun, type KeptRun } from "..
 import { runAgent } from "../../agent/runner";
 import { getAgentUrl } from "../../agent/settings";
 import { getAccessToken } from "../../auth/acorn-auth";
-import { syncAutoFocus } from "../auto-focus";
 import { answerRunOnTab, awaitRunAnswer } from "../run-answer";
 import { groupRunTab } from "../run-group";
 import { beginRunStop, claimRunStopTab, endRunStop, stopRunOnTab } from "../run-stop";
@@ -38,7 +37,6 @@ export function handleStartRun(
     runTabIds.add(tabId);
     void groupRunTab(tabId);
     syncWorkKeepAlive();
-    void syncAutoFocus();
     sendResponse({ ok: true });
 
     try {
@@ -64,7 +62,6 @@ export function handleStartRun(
           pipelineRunningTabIds.add(id);
           runTabIds.add(id);
           void groupRunTab(id);
-          void syncAutoFocus();
         },
       });
     } catch (err) {
@@ -80,7 +77,6 @@ export function handleStartRun(
         runTabIds.delete(id);
       }
       syncWorkKeepAlive();
-      void syncAutoFocus();
     }
   })();
 }
