@@ -22,10 +22,13 @@ const askSent = "application_sent"
 // donePassMessage is what the person sees while the agent makes the model look again.
 const donePassMessage = "The page has not confirmed the application was sent; looking again."
 
-// sentQuestion asks whether the screen shows a sent application.
+// sentQuestion asks whether the screen shows the employer has the application: the one just sent, or one the
+// applicant sent before (a recorded run sent an application again and was told it had already been
+// received; that is the job applied to, not a run that could not finish).
 func sentQuestion() map[string]decide.Question {
 	return map[string]decide.Question{askSent: decide.YesNo(
-		"Does this screen confirm that a job application was just submitted and received, for example a thank-you or confirmation message? " +
+		"Does this screen show that the employer has received the applicant's application for this job: a thank-you or confirmation " +
+			"for an application just submitted, or a notice that the applicant has already applied or that their application was already received? " +
 			"Answer no for a form that is still open or has fields to fill, an error message, a page that asks for something more, or a job posting.")}
 }
 
@@ -63,5 +66,5 @@ func (a *Agent) holdDone(ctx context.Context, s *session, obs Observation, answe
 		return "", false
 	}
 	s.donePasses++
-	return fmt.Sprintf("You reported done, but the screen does not show that the application was sent (a checker read it, %.0f%% sure it did). Done means the page confirmed receipt. If the form is still open, fill what is left and submit it. If you decided not to apply, do not report done: a posting's own requirements (a place to live, a degree, years of experience) are not a reason to leave an application unsent, the applicant chose this job, so submit it. If something outside the form stops you, say so with need_person.", sure*100), true
+	return fmt.Sprintf("You reported done, but the screen does not show that the application was sent (a checker read it, %.0f%% sure it did). Done means the page confirmed receipt, or says the applicant has already applied. If the form is still open, fill what is left and submit it. If you decided not to apply, do not report done: a posting's own requirements (a place to live, a degree, years of experience) are not a reason to leave an application unsent, the applicant chose this job, so submit it. If something outside the form stops you, say so with need_person.", sure*100), true
 }
