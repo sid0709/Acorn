@@ -46,7 +46,7 @@ func (a *Agent) holdDone(ctx context.Context, s *session, obs Observation, answe
 	if answer.Status != StatusDone || s.start.StopBeforeSubmit || !a.checksOn(s) || a.cfg.DonePasses < 0 {
 		return "", false
 	}
-	response, err := a.newScreen(s.key).Decide(ctx, decide.Request{State: checkState(obs.Screenshot), Questions: sentQuestion()})
+	response, err := a.newScreen(s.keys()).Decide(ctx, decide.Request{State: checkState(obs.Screenshot), Questions: sentQuestion()})
 	s.usage.Checks++
 	s.usage.CheckCost += response.Usage.Cost
 	s.usage.Cost += response.Usage.Cost

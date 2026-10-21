@@ -90,6 +90,8 @@ type Server struct {
 	sockets accountEmitter
 	// staff pushes claim changes to every open support console (adminClaimEvents).
 	staff *feed.Hub
+	// keys tells whether each model key of a profile works (keys.go).
+	keys *keyChecker
 }
 
 // Options are the Acorn API's settings. CORS is the server's: see acorn-backend/cmd/server.
@@ -135,6 +137,7 @@ type Options struct {
 
 func New(accounts Accounts, listings *jobs.Store, brain *acorn.Service, opts Options) (http.Handler, *gateway.Gateway) {
 	s := &Server{
+		keys:     newKeyChecker(),
 		accounts: accounts, listings: listings, acorn: brain,
 		cookie: opts.SessionCookie, switches: opts.KillSwitches,
 		google: opts.Google, googleRedirect: opts.GoogleRedirectURL,
@@ -262,6 +265,7 @@ func New(accounts Accounts, listings *jobs.Store, brain *acorn.Service, opts Opt
 	mux.HandleFunc("GET /acorn/agent/resumes/{resumeId}", s.agentResume)
 	mux.HandleFunc("GET /acorn/profile", s.getProfile)
 	mux.HandleFunc("PUT /acorn/profile", s.putProfile)
+	mux.HandleFunc("GET /acorn/profile/keys", s.profileKeys)
 	mux.HandleFunc("POST /acorn/profile/from-resume", s.fillProfile)
 
 	mux.HandleFunc("GET /acorn/gmail/mailboxes", s.listGmailMailboxes)

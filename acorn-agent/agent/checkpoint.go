@@ -224,7 +224,7 @@ func (a *Agent) continuePlan(ctx context.Context, s *session, obs Observation, r
 		a.abandon(s, "The screen did not change after them, so it is not what you expected.")
 		return Step{}, false
 	}
-	verdict, err := look(ctx, a.newScreen(s.key), obs.Screenshot, expect)
+	verdict, err := look(ctx, a.newScreen(s.keys()), obs.Screenshot, expect)
 	s.usage.Checks++
 	s.usage.CheckCost += verdict.response.Usage.Cost
 	s.usage.Cost += verdict.response.Usage.Cost
@@ -308,12 +308,12 @@ func failedResults(results []ActionResult) string {
 	return strings.Join(failed, "; ")
 }
 
-// screenName is the checker's model id, for the trace.
-func (a *Agent) screenName(key string) string {
+// screenName says which decision models answer a run on these keys, for the trace.
+func (a *Agent) screenName(keys decide.Keys) string {
 	if a.newScreen == nil {
 		return ""
 	}
-	if screen := a.newScreen(key); screen != nil {
+	if screen := a.newScreen(keys); screen != nil {
 		return screen.Name()
 	}
 	return ""

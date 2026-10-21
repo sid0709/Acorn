@@ -160,7 +160,7 @@ func (a *Agent) reviewZone(s *session, shot ZoneShot, exps []expectation) {
 		decide.Image(shot.Screenshot),
 	}
 	started := time.Now()
-	response, err := a.newScreen(s.key).Decide(ctx, decide.Request{State: state, Questions: questions})
+	response, err := a.newScreen(s.keys()).Decide(ctx, decide.Request{State: state, Questions: questions})
 	result := reviewResult{Zone: shot.Zone, Asked: exps, Err: err, Cost: response.Usage.Cost}
 	result.Call = verdict{response: response, prompt: fmt.Sprintf("what zone %d shows: %s", shot.Zone, expectLabels(exps))}.call(err)
 	if result.Call.LatencyMs == 0 {

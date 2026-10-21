@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/sid0709/acorn/acorn-agent/applicant"
+	"github.com/sid0709/acorn/acorn-agent/decide"
 	"github.com/sid0709/acorn/acorn-agent/llm"
 	"github.com/sid0709/acorn/acorn-backend/plainlog"
 )
@@ -166,9 +167,9 @@ type Agent struct {
 	cfg        Config
 	applicants applicant.Source
 	newModel   func(key string) llm.Model
-	newDecider func(key string) Decider
+	newDecider func(keys decide.Keys) Decider
 	// newScreen builds the decision model that checks the screen; nil means no checks.
-	newScreen func(key string) Screen
+	newScreen func(keys decide.Keys) Screen
 	sessions  *store
 	trace     *tracer
 	now       func() time.Time
@@ -178,7 +179,7 @@ type Agent struct {
 // newDecider the model that chooses among existing things, and newScreen the decision model
 // that checks the screen between runs of actions (nil turns the checks off); each is given
 // the run's key.
-func New(cfg Config, applicants applicant.Source, newModel func(key string) llm.Model, newDecider func(key string) Decider, newScreen func(key string) Screen) *Agent {
+func New(cfg Config, applicants applicant.Source, newModel func(key string) llm.Model, newDecider func(keys decide.Keys) Decider, newScreen func(keys decide.Keys) Screen) *Agent {
 	now := time.Now
 	return &Agent{
 		cfg:        cfg,
@@ -243,14 +244,14 @@ func (a *Agent) Start(ctx context.Context, key string, auth applicant.Auth, star
 		return Started{}, err
 	}
 	fresh := &session{
-		id: id, key: key, auth: auth, start: start, snap: snap, system: system, maxActions: maxActions, checks: checks, fallback: fallback,
+		id: id, key: key, openaiKey: strings.TrimSpace(snap.OpenAIKey), auth: auth, start: start, snap: snap, system: system, maxActions: maxActions, checks: checks, fallback: fallback,
 		created: now, touched: now, wantTrace: start.Trace, wantTraceImages: start.Trace && start.TraceImages, stepLimit: a.cfg.MaxSteps,
 	}
 	fresh.remember(start.Memory)
 	a.sessions.add(fresh)
 	stacks, documents := catalog(snap.Resumes)
 	startTrace, err := a.trace.recordSession(id, system, sessionTrace{
-		Started: now, Start: start, Model: a.modelName(key), ScreenModel: a.screenName(key), Config: a.cfg, Resumes: stacks, Documents: documents,
+		Started: now, Start: start, Model: a.modelName(key), ScreenModel: a.screenName(decide.Keys{OpenRouter: key, OpenAI: strings.TrimSpace(snap.OpenAIKey)}), Config: a.cfg, Resumes: stacks, Documents: documents,
 	}, start.Trace)
 	if err != nil {
 		slog.Warn("The trace of this run could not be saved, so its folder will be missing: "+runName(id)+".", plainlog.ErrorKey, err)

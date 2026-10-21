@@ -20,7 +20,6 @@ import (
 	"github.com/sid0709/acorn/acorn-agent/httpapi"
 	"github.com/sid0709/acorn/acorn-agent/llm"
 	"github.com/sid0709/acorn/acorn-backend/config"
-	"github.com/sid0709/acorn/acorn-backend/jev"
 	"github.com/sid0709/acorn/acorn-backend/plainlog"
 )
 
@@ -74,8 +73,16 @@ const (
 	envUnavailableSure = "ACORN_AGENT_UNAVAILABLE_PERCENT"
 	envProbe           = "ACORN_AGENT_PROBE_DROPDOWNS"
 	envChecks          = "ACORN_AGENT_CHECKS"
-	envScreenModel     = "ACORN_AGENT_SCREEN_MODEL"
-	envDecisionsURL    = "ACORN_AGENT_DECISIONS_URL"
+	// The decision routes (decide.Gateway): questions asked of text go to envDecisionTextModel on OpenRouter
+	// (Jev by default); questions about a screenshot to envDecisionImageModel on envDecisionImageProvider
+	// (GPT-6 Luna on OpenAI's own Decisions API by default, on the profile's OpenAI key). envScreenModel is the
+	// image model on OpenRouter, used when the provider is OpenRouter or the profile has no OpenAI key.
+	envDecisionTextModel     = "ACORN_AGENT_DECISION_TEXT_MODEL"
+	envDecisionImageModel    = "ACORN_AGENT_DECISION_IMAGE_MODEL"
+	envDecisionImageProvider = "ACORN_AGENT_DECISION_IMAGE_PROVIDER"
+	envOpenAIDecisionsURL    = "ACORN_AGENT_OPENAI_DECISIONS_URL"
+	envScreenModel           = "ACORN_AGENT_SCREEN_MODEL"
+	envDecisionsURL          = "ACORN_AGENT_DECISIONS_URL"
 	// envFallbackResume names the résumé folder offered to the person when a résumé is wanted and no
 	// job description was found, when the applicant is a local folder.
 	envFallbackResume = "DEFAULT_FALLBACK_RESUME"
@@ -196,16 +203,29 @@ func run() error {
 		cfg.FallbackResume = config.Env(envFallbackResume, "")
 	}
 
-	// The checks between a plan's runs of actions need a decision model that reads a screenshot.
+	// Every decision goes through one gateway, which sends a question about a screenshot to the image route and
+	// any other to the text route, on the person's keys; the checks between a plan's runs of actions are its
+	// questions about pictures.
 	decisionsURL := config.Env(envDecisionsURL, config.OpenRouterDecisionsURL)
-	var newScreen func(key string) agent.Screen
-	screenModel := config.Env(envScreenModel, config.ScreenDecisionModel)
-	if !isOff(config.Env(envChecks, "")) {
-		newScreen = func(key string) agent.Screen { return decide.New(key, screenModel, decisionsURL) }
+	openAIDecisionsURL := config.Env(envOpenAIDecisionsURL, config.OpenAIDecisionsURL)
+	openRouterImage := decide.Route{Provider: decide.ProviderOpenRouter, Model: config.Env(envScreenModel, config.ScreenDecisionModel), URL: decisionsURL}
+	image := decide.Route{Provider: decide.ProviderOpenAI, Model: config.Env(envDecisionImageModel, config.OpenAIDecisionModel), URL: openAIDecisionsURL}
+	if config.Env(envDecisionImageProvider, decide.ProviderOpenAI) == decide.ProviderOpenRouter {
+		image = openRouterImage
 	}
+	routes := decide.Routes{
+		Text:          decide.Route{Provider: decide.ProviderOpenRouter, Model: config.Env(envDecisionTextModel, config.JevModel), URL: decisionsURL},
+		Image:         image,
+		ImageFallback: openRouterImage,
+	}
+	var newScreen func(keys decide.Keys) agent.Screen
+	if !isOff(config.Env(envChecks, "")) {
+		newScreen = func(keys decide.Keys) agent.Screen { return decide.NewGateway(keys, routes) }
+	}
+	screenModel := decide.NewGateway(decide.Keys{OpenAI: "set"}, routes).Name()
 	a := agent.New(cfg, source,
 		func(key string) llm.Model { return llm.NewOpenRouter(key, model, baseURL, reasoning) },
-		func(key string) agent.Decider { return jev.NewWithURL(key, decisionsURL) },
+		func(keys decide.Keys) agent.Decider { return decide.NewGateway(keys, routes) },
 		newScreen,
 	)
 	defaultKey := config.Env(envOpenRouterKey, "")
@@ -225,10 +245,8 @@ func run() error {
 
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
-	go jev.Warm(ctx)
-	if newScreen != nil {
-		go decide.Warm(ctx, decisionsURL)
-	}
+	go decide.Warm(ctx, decisionsURL)
+	go decide.Warm(ctx, openAIDecisionsURL)
 	failed := make(chan error, 1)
 	go func() {
 		slog.Info(listeningStory(httpConfig.Addr, model, screenModel, newScreen != nil, source.Kind(), location, defaultKey != "", cfg.TraceDir, cfg.StopBeforeSubmit))
@@ -263,7 +281,7 @@ func logLevel() slog.Level {
 func listeningStory(addr, model, screenModel string, checks bool, applicantKind, from string, hasKey bool, traceDir string, stopBeforeSubmit bool) string {
 	line := fmt.Sprintf("The agent is ready on %s. It drives the browser with %s", addr, model)
 	if checks {
-		line += " and checks the screen with " + screenModel
+		line += " and asks its decisions of " + screenModel
 	} else {
 		line += ", with screen checks turned off"
 	}

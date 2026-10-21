@@ -104,7 +104,7 @@ func (a *Agent) tryNavigate(ctx context.Context, s *session, obs Observation, su
 		s.formReady = true
 		return Step{}, false
 	}
-	screen := a.newScreen(s.key)
+	screen := a.newScreen(s.keys())
 	ready, unavailable, response, err := formReady(ctx, screen, obs.Screenshot)
 	s.usage.Checks++
 	s.usage.CheckCost += response.Usage.Cost

@@ -93,7 +93,7 @@ func (a *Agent) handlePicker(ctx context.Context, s *session, obs Observation, r
 		decide.Text("A screenshot of a web page, with the control that was clicked marked."),
 		decide.Image("data:image/jpeg;base64," + base64.StdEncoding.EncodeToString(marked)),
 	}
-	response, err := a.newScreen(s.key).Decide(ctx, decide.Request{State: state, Questions: fileKindQuestion()})
+	response, err := a.newScreen(s.keys()).Decide(ctx, decide.Request{State: state, Questions: fileKindQuestion()})
 	check := verdict{response: response, prompt: "what file the control marked on the page takes"}
 	s.usage.Checks++
 	s.usage.CheckCost += response.Usage.Cost

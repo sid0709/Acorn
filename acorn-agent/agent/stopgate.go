@@ -105,7 +105,7 @@ func (a *Agent) noteRefusedSend(ctx context.Context, s *session, obs Observation
 	// This send is judged once: the next plan's send is a new one.
 	s.commit = commitState{}
 	started := time.Now()
-	response, err := a.newScreen(s.key).Decide(ctx, decide.Request{State: humanCheckState(obs), Questions: map[string]decide.Question{
+	response, err := a.newScreen(s.keys()).Decide(ctx, decide.Request{State: humanCheckState(obs), Questions: map[string]decide.Question{
 		askSendRefused: decide.YesNo("The button that sends this form was just pressed. Does the page still show the same form, with messages " +
 			"that some answers are missing or wrong (text beside fields, or a list of problems), rather than a confirmation, a new step of the " +
 			"form with other questions, or a page that asks for something else?"),
@@ -211,7 +211,7 @@ func humanCheckState(obs Observation) []decide.Part {
 // cannot answer leaves the model's word standing.
 func (a *Agent) humanCheckOnScreen(ctx context.Context, s *session, obs Observation) (float64, modelCall, bool) {
 	started := time.Now()
-	response, err := a.newScreen(s.key).Decide(ctx, decide.Request{State: humanCheckState(obs), Questions: humanCheckQuestion()})
+	response, err := a.newScreen(s.keys()).Decide(ctx, decide.Request{State: humanCheckState(obs), Questions: humanCheckQuestion()})
 	s.usage.Checks++
 	s.usage.CheckCost += response.Usage.Cost
 	s.usage.Cost += response.Usage.Cost
@@ -354,7 +354,7 @@ func (a *Agent) askPersonFields(ctx context.Context, s *session, stop *StopInfo,
 		"A helper is filling in a job application for an applicant, and wants to stop and ask the applicant to act. "+
 			"The problem it reports: %s What it asks the applicant to do: %s These fields of the page are still empty: %s.",
 		orNone(problem), orNone(todo), strings.Join(listed, "; ")))}
-	response, err := a.newScreen(s.key).Decide(ctx, decide.Request{State: state, Questions: questions})
+	response, err := a.newScreen(s.keys()).Decide(ctx, decide.Request{State: state, Questions: questions})
 	call := verdict{response: response, prompt: "fields only the applicant can fill: " + strings.Join(listed, ", ")}.call(err)
 	if call.LatencyMs == 0 {
 		call.LatencyMs = time.Since(started).Milliseconds()

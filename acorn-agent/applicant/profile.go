@@ -14,6 +14,8 @@ const (
 	wrapperField = "profile"
 	// APIKeyField is the OpenRouter key kept in the profile.
 	APIKeyField = "openrouterApiKey"
+	// OpenAIKeyField is the OpenAI key kept in the profile, for the decisions asked of OpenAI.
+	OpenAIKeyField = "openaiApiKey"
 	// AccountPasswordField is the password the agent uses when a site needs an account.
 	AccountPasswordField = "defaultAccountPassword"
 	// AccountPasswordToken stands for that password everywhere the model reads or writes:
@@ -25,7 +27,7 @@ const (
 // database's bookkeeping.
 var DefaultHiddenFields = []string{
 	"_id", "accountId", "updatedAt", "createdAt",
-	APIKeyField, "extensionPassword", "resumeFolderPath",
+	APIKeyField, OpenAIKeyField, "extensionPassword", "resumeFolderPath",
 }
 
 // secretFields are shown to the model only as a token.
@@ -44,6 +46,9 @@ func (s *profileShaper) shape(value any) (Snapshot, error) {
 	if object, ok := value.(map[string]any); ok {
 		if key, ok := object[APIKeyField].(string); ok {
 			out.APIKey = key
+		}
+		if key, ok := object[OpenAIKeyField].(string); ok {
+			out.OpenAIKey = key
 		}
 	}
 	cleaned := s.clean(value, out.Secrets)

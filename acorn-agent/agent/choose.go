@@ -456,7 +456,7 @@ func (a *Agent) decideListed(ctx context.Context, s *session, answer string, opt
 			"Answer none if no option answers it.",
 		Criteria: criteria,
 	}}
-	response, err := a.newScreen(s.key).Decide(ctx, decide.Request{State: []decide.Part{decide.Text("The label of the list: " + label)}, Questions: questions})
+	response, err := a.newScreen(s.keys()).Decide(ctx, decide.Request{State: []decide.Part{decide.Text("The label of the list: " + label)}, Questions: questions})
 	check = verdict{response: response, prompt: fmt.Sprintf("which of the listed options answers %q: %s", answer, listedLine(options))}
 	index = -1
 	if err != nil {

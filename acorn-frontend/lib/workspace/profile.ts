@@ -70,14 +70,16 @@ export type ApplicantProfile = {
   veteranStatus: string;
   desiredSalary: string;
   openrouterApiKey: string;
+  /** The key for decisions about screenshots, sent to OpenAI's own Decisions API. */
+  openaiApiKey: string;
   defaultAccountPassword: string;
   extensionPassword: string;
   resumeFolderPath: string;
   timeline: CareerEntry[];
 };
 
-/** The model every Acorn AI call uses. The profile stores the key, not a choice of model. */
-export const AI_MODEL_LABEL = "OpenRouter, GPT-6 Luna";
+/** The models Acorn's AI calls use. The profile stores the keys, not a choice of model. */
+export const AI_MODEL_LABEL = "GPT-6 Luna and Jev on OpenRouter; screenshot decisions on OpenAI";
 
 const choice = (labels: string[]) => labels.map((label) => ({ value: label, label }));
 
@@ -201,6 +203,7 @@ export function sampleProfile(account: AcornAccount): ApplicantProfile {
     veteranStatus: "I am not a protected veteran",
     desiredSalary: "150000",
     openrouterApiKey: "",
+    openaiApiKey: "",
     defaultAccountPassword: "sample-account-password",
     extensionPassword: "",
     resumeFolderPath: "~/Documents/Resumes",
@@ -275,6 +278,7 @@ const LATER_FIELDS = {
   willingToTravel: "",
   noticePeriod: "",
   openrouterApiKey: "",
+  openaiApiKey: "",
   extensionPassword: "",
 } satisfies Partial<ApplicantProfile>;
 
@@ -426,6 +430,7 @@ export function profileChecklist(profile: ApplicantProfile): ChecklistItem[] {
         .every((entry) => filled(entry.summary)),
     },
     { label: "AI model key", done: filled(profile.openrouterApiKey) },
+    { label: "OpenAI key", done: filled(profile.openaiApiKey) },
   ];
 }
 

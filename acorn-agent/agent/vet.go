@@ -216,7 +216,7 @@ func (a *Agent) Vet(ctx context.Context, id string, target VetTarget) (VetVerdic
 		return cached, nil
 	}
 	started := a.now()
-	res, err := a.newDecider(s.key).Decide(ctx, jev.Request{
+	res, err := a.decideText(ctx, s, "what the control or frame is", jev.Request{
 		State:     state,
 		Questions: target.questions(),
 	})

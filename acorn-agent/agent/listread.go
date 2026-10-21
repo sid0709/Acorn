@@ -128,7 +128,7 @@ func (a *Agent) readListPicture(ctx context.Context, s *session, screenshot, ans
 		"An option that is exactly the answer beats one that only begins with it or contains it."
 	questions[askOption] = decide.Question{Type: decide.TypeChoice, Instructions: instructions, Criteria: criteria}
 
-	response, err := a.newScreen(s.key).Decide(ctx, decide.Request{State: checkState(picture), Questions: questions})
+	response, err := a.newScreen(s.keys()).Decide(ctx, decide.Request{State: checkState(picture), Questions: questions})
 	check := verdict{response: response, prompt: fmt.Sprintf("which option of the open list answers %q (%s)", answer, readingKind(numbered))}
 	out := listReading{numbered: numbered}
 	if err != nil {

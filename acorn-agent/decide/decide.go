@@ -33,6 +33,8 @@ const (
 	TypeNoul = "noul"
 	// TypeChoice picks one of the criteria keys and gives a probability for each.
 	TypeChoice = "choice"
+	// MaxChoiceOptions is the most criteria one choice question may list.
+	MaxChoiceOptions = 255
 
 	partText  = "text"
 	partImage = "image_url"
@@ -103,12 +105,14 @@ type Response struct {
 	Requests  []llm.Attempt `json:"-"`
 }
 
-// Client calls one decision model on a person's OpenRouter key.
+// Client calls one decision model on one provider's Decisions API: OpenRouter's (the default) or
+// OpenAI's own (NewOpenAI), each with its wire format.
 type Client struct {
 	apiKey string
 	model  string
 	url    string
 	http   *http.Client
+	format wireFormat
 }
 
 // sharedHTTP is one pool for every client: a client is built per run key, and a fresh pool
@@ -125,7 +129,12 @@ func newHTTPClient() *http.Client {
 
 // New is a client for model at the Decisions API url.
 func New(apiKey, model, url string) *Client {
-	return &Client{apiKey: strings.TrimSpace(apiKey), model: model, url: url, http: sharedHTTP}
+	return &Client{apiKey: strings.TrimSpace(apiKey), model: model, url: url, http: sharedHTTP, format: openRouterFormat{}}
+}
+
+// NewOpenAI is a client for model at OpenAI's own Decisions API url, on an OpenAI key.
+func NewOpenAI(apiKey, model, url string) *Client {
+	return &Client{apiKey: strings.TrimSpace(apiKey), model: model, url: url, http: sharedHTTP, format: openAIFormat{}}
 }
 
 // Name is the model id.
@@ -150,11 +159,7 @@ func (c *Client) Decide(ctx context.Context, req Request) (Response, error) {
 	if c.apiKey == "" {
 		return Response{}, llm.ErrNoKey
 	}
-	body, err := json.Marshal(struct {
-		Model     string              `json:"model"`
-		State     []Part              `json:"state"`
-		Questions map[string]Question `json:"questions"`
-	}{c.model, req.State, req.Questions})
+	body, err := c.format.encode(c.model, req)
 	if err != nil {
 		return Response{}, fmt.Errorf("encode decision request: %w", err)
 	}
@@ -240,14 +245,14 @@ func (c *Client) once(ctx context.Context, body []byte) (got Response, retryAfte
 	if response.StatusCode < 200 || response.StatusCode >= 300 {
 		return Response{}, response.Header.Get("Retry-After"), statusError(response.StatusCode, payload)
 	}
-	var decoded Response
-	if err := json.Unmarshal(payload, &decoded); err != nil {
-		return Response{}, "", fmt.Errorf("decode decision response: %w", err)
-	}
 	// A failure written into a 200 answer (OpenRouter's out-of-credit is one) is an error with its own status.
 	var failed errorBody
 	if json.Unmarshal(payload, &failed) == nil && failed.Error != nil && (failed.Error.Message != "" || len(failed.Error.Code) > 0) {
 		return Response{}, "", statusError(llm.ErrorStatus(failed.Error.Code, http.StatusBadGateway), payload)
+	}
+	decoded, err := c.format.decode(payload)
+	if err != nil {
+		return Response{}, "", fmt.Errorf("decode decision response: %w", err)
 	}
 	return decoded, "", nil
 }

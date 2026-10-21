@@ -144,7 +144,7 @@ func (a *Agent) checkZonePoints(ctx context.Context, s *session, zone int, actio
 		decide.Text("A screenshot of a web page, with the points that are about to be clicked or typed at marked by numbered red rings."),
 		decide.Image("data:image/jpeg;base64," + base64.StdEncoding.EncodeToString(marked)),
 	}
-	response, err := a.newScreen(s.key).Decide(ctx, decide.Request{State: state, Questions: questions})
+	response, err := a.newScreen(s.keys()).Decide(ctx, decide.Request{State: state, Questions: questions})
 	prompt := fmt.Sprintf("points on screen %d: %s", zone, pointLabels(actions))
 	out.call = verdict{response: response, prompt: prompt}.call(err)
 	if out.call.LatencyMs == 0 {

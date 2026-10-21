@@ -77,7 +77,7 @@ func (a *Agent) learnJD(ctx context.Context, s *session, obs Observation) {
 	}
 	s.jdSeen[key] = true
 	s.jdChecks++
-	res, err := a.newDecider(s.key).Decide(ctx, jev.Request{
+	res, err := a.decideText(ctx, s, "whether the page holds a job description", jev.Request{
 		State: "Page: " + orNone(obs.Title) + " (" + orNone(obs.URL) + ")\n\n" + clipText(text, maxJDNoteChars),
 		Questions: map[string]jev.Question{askJobDescription: {
 			Type: jev.TypeNoul,
