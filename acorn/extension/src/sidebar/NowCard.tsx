@@ -5,20 +5,9 @@ import {
   isRunMap,
   type RunMap,
 } from "@acorn/shared/run-types";
-import { READY_TO_SUBMIT, describeRunFailure } from "@acorn/shared/user-messages";
+import { describeRunEnd } from "@acorn/shared/user-messages";
 import { useMemo } from "react";
-import {
-  Badge,
-  Banner,
-  Button,
-  Card,
-  Glyph,
-  HStack,
-  ProgressBar,
-  StatusDot,
-  Text,
-  VStack,
-} from "sid-ui";
+import { Button, Card, Glyph, HStack, ProgressBar, StatusDot, Text, VStack } from "sid-ui";
 
 import { AgentAsk } from "./AgentAsk";
 import { AgentStopNotice } from "./AgentStopNotice";
@@ -115,54 +104,25 @@ function RunHeadline({
   );
 }
 
-/** How the run stands beyond its board: the question it waits on, why it stopped, or that it is done. */
+/** How the run stands beyond its board: the question it waits on, how it ended, or that it is done. */
 function RunStatus({
   progress,
+  tabId,
   onAnswer,
 }: {
   progress: PipelineProgress;
+  tabId: number | null;
   onAnswer: (optionId: string) => void;
 }) {
   const run = progress.run;
-  const failure = run?.report?.failure;
   if (!run) return null;
   if (run.ask && run.endedAt == null) return <AgentAsk ask={run.ask} onAnswer={onAnswer} />;
-  if (failure?.agentStop) return <AgentStopNotice failure={failure} />;
-  if (failure) {
-    const said = describeRunFailure(failure);
-    return (
-      <VStack gap={1}>
-        <HStack gap={2} align="center">
-          <Badge variant="error" label="Run stopped" />
-        </HStack>
-        <Text type="supporting" weight="semibold">
-          {said.title}
-        </Text>
-        {said.detail ? <Text type="supporting">{said.detail}</Text> : null}
-        {said.technical && said.technical !== said.title ? (
-          <details className="run-failure-details">
-            <summary>Details</summary>
-            <Text type="supporting">{said.technical}</Text>
-          </details>
-        ) : null}
-      </VStack>
-    );
-  }
-  if (run.report?.outcome === RUN_OUTCOME.completed) {
+  const report = run.report;
+  if (!report) return null;
+  if (report.outcome === RUN_OUTCOME.completed) {
     return <RunCelebration key={run.runId} run={run} />;
   }
-  if (run.report?.outcome === RUN_OUTCOME.readyToSubmit) {
-    // Neither sent nor failed: the person reviews the page and sends it themselves.
-    return (
-      <Banner
-        status="info"
-        icon={<Glyph name="eye" />}
-        title={READY_TO_SUBMIT.title}
-        description={READY_TO_SUBMIT.detail}
-      />
-    );
-  }
-  return null;
+  return <AgentStopNotice said={describeRunEnd(report)} tabId={tabId} />;
 }
 
 /**
@@ -200,7 +160,7 @@ export function NowCard(props: NowCardProps) {
         {fillBusy || run ? (
           <RunHeadline progress={progress} map={map} questions={questions} working={fillBusy} />
         ) : null}
-        <RunStatus progress={progress} onAnswer={answerRun} />
+        <RunStatus progress={progress} tabId={tabId} onAnswer={answerRun} />
         {run?.mail && !completed ? <MailSearchPanel search={run.mail} /> : null}
         {map && run ? (
           <RunBoard

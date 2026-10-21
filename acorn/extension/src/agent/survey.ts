@@ -83,6 +83,37 @@ export function surveyPositions(
   return positions;
 }
 
+/**
+ * How far inside a screen's top and bottom edges (CSS pixels) a field still to fill must lie for that screen
+ * to show it whole: its question above it, its box below, and clear of what a page pins to the window's edges.
+ */
+export const SURVEY_FOCUS_EDGE_PX = 120;
+
+/**
+ * The survey's positions with a screen added for each field still to fill (`focus`, CSS pixels from the
+ * page's top) that no screen in `kept` shows clear of its edges: one centred on the field, kept on the page.
+ * A field at a screen's edge, or under what the page pins there, is aimed at where it is cut off, and the
+ * click misses; the screen added shows it whole, in the survey the run takes anyway, with no scroll of its own.
+ */
+export function focusPositions(
+  kept: number[],
+  focus: number[],
+  pageHeight: number,
+  viewHeight: number,
+): number[] {
+  if (!(viewHeight > 0)) return [];
+  const last = Math.max(0, pageHeight - viewHeight);
+  const edge = Math.min(SURVEY_FOCUS_EDGE_PX, viewHeight / 4);
+  const shows = (top: number, y: number) => y >= top + edge && y <= top + viewHeight - edge;
+  const added: number[] = [];
+  for (const y of focus) {
+    if (!(y >= 0 && y <= pageHeight)) continue;
+    if ([...kept, ...added].some((top) => shows(top, y))) continue;
+    added.push(Math.round(Math.min(Math.max(y - viewHeight / 2, 0), last)));
+  }
+  return added;
+}
+
 /** The screen top `y` moved up, as far as `floor`, to above every control its edge would cut. */
 function aboveAnyCut(y: number, floor: number, controls: SurveyBox[]): number {
   let top = y;
@@ -192,6 +223,8 @@ export async function captureSurvey(
   first: Shot,
   reuse?: SurveyReuse,
   settled?: SettledMap | null,
+  /** Where the fields still to fill lie (screenshot pixels from the page's top): each is shown whole. */
+  focus: number[] = [],
 ): Promise<SurveyResult | null> {
   const scale = first.scale;
   const positions = surveyPositions(
@@ -217,9 +250,22 @@ export async function captureSurvey(
   let left = 0;
   const toTake: number[] = [];
   const fresh: number[] = [];
-  for (const y of positions) {
+  // The screens kept (not left out as settled), and one added for each field still to fill that none of them
+  // shows whole. An added screen is never left out: what is still to fill is not settled.
+  const keep = positions.filter(
+    (y) => !(settledNow && isInSettled(settledNow, y * scale, first.viewport.height)),
+  );
+  const added = new Set(
+    focusPositions(
+      keep,
+      focus.map((y) => y / scale),
+      first.viewport.pageHeight / scale,
+      first.viewport.height / scale,
+    ),
+  );
+  for (const y of [...positions, ...added]) {
     const at = y * scale;
-    if (settledNow && isInSettled(settledNow, at, first.viewport.height)) {
+    if (!added.has(y) && settledNow && isInSettled(settledNow, at, first.viewport.height)) {
       left += 1;
       continue;
     }
@@ -384,6 +430,7 @@ export class SurveyKeeper {
     deps: SurveyDeps,
     first: Shot,
     zoneShots: AgentZoneShot[],
+    focus: number[] = [],
   ): Promise<AgentSurveyScreen[] | null> {
     const reuse: SurveyReuse | undefined = this.memory
       ? {
@@ -395,7 +442,13 @@ export class SurveyKeeper {
       : undefined;
     this.reusable = false;
     this.batchFence = 0;
-    const taken = await captureSurvey(deps, first, reuse, this.placed(first.viewport.pageHeight));
+    const taken = await captureSurvey(
+      deps,
+      first,
+      reuse,
+      this.placed(first.viewport.pageHeight),
+      focus,
+    );
     this.reused = taken?.reused ?? 0;
     this.left = taken?.left ?? 0;
     this.fresh = taken?.fresh ?? [];
@@ -438,6 +491,8 @@ export interface PlaceMarks {
    * survey has been taken). For a point bound to no control.
    */
   shift?(action: AgentAction, scale: number): number | null;
+  /** Waits until the form stops moving (after a résumé was attached, which the page reads and fills from). */
+  settle?(): Promise<void>;
 }
 
 /**
@@ -473,9 +528,22 @@ export async function scrollForAction(
     action.pageHeight != null && action.mark
       ? ((await deps.marks?.move(action, scale)) ?? null)
       : null;
+  // The page stays still for a point it already shows: a run of actions on one screen scrolls not at all.
+  const here = await pointInView(cdp, action, scale, deps, { own, wanted, bound });
+  if (here) return here;
   if (bound && moved(bound)) {
     const placed = await placeOnControl(cdp, action, deps, { own, wanted, bound });
     if (placed) return placed;
+  }
+  // A point bound to no control, on a page the form moved: straight to where its part of the page went, in
+  // one scroll, not first to where the survey saw it and then on by the move (a recorded run went back and
+  // forth that way twice for every dropdown).
+  if (!bound && action.pageHeight != null) {
+    const now = await pageState(cdp);
+    if (Math.abs(now.height - action.pageHeight / scale) > LAYOUT_TOLERANCE_PX) {
+      const shifted = await placeByShift(cdp, action, scale, deps, { own, wanted, state: now });
+      if (shifted) return shifted;
+    }
   }
   const state = await scrollPageSlowly(cdp, wanted, deps.sleep, deps.scroll, "action");
   if (state.moved) await deps.sleep(SURVEY_SETTLE_MS);
@@ -505,6 +573,45 @@ export async function scrollForAction(
     );
   }
   return own;
+}
+
+/**
+ * How far inside the window's top and bottom (CSS pixels) a point must lie to be acted on where it is, with no
+ * scroll: clear of what a page pins to its edges (a header, a cookie bar) and of Acorn's own bar.
+ */
+export const ACTION_EDGE_PX = 80;
+
+/**
+ * Where a point is in the window now (CSS pixels), when the window already shows it clear of its edges:
+ * where it lay on its survey screen, moved as its control moved (a point bound to one, which the page must
+ * agree is on that control's field), else as the form moved above it, or not at all for a point measured on
+ * the screenshot the window is at. Null when that cannot be told or the point is not in view: the window
+ * goes there.
+ */
+async function pointInView(
+  cdp: Cdp,
+  action: AgentAction,
+  scale: number,
+  deps: PlaceDeps,
+  at: { own: { x: number; y: number }; wanted: number; bound: MarkMove | null },
+): Promise<{ x: number; y: number } | null> {
+  let offset: { dx: number; dy: number } | null = null;
+  if (at.bound) offset = { dx: at.bound.dx, dy: at.bound.dy };
+  else if (action.pageHeight == null) offset = { dx: 0, dy: 0 };
+  else {
+    const shift = deps.marks?.shift?.(action, scale);
+    if (shift != null) offset = { dx: 0, dy: shift };
+  }
+  if (!offset) return null;
+  const state = await pageState(cdp);
+  const x = at.own.x + offset.dx;
+  const y = at.wanted + at.own.y + offset.dy - state.y;
+  const edge = Math.min(ACTION_EDGE_PX, state.view / 4);
+  if (y < edge || y > state.view - edge || x < 0 || (state.viewWidth > 0 && x >= state.viewWidth)) {
+    return null;
+  }
+  if (at.bound) return (await deps.marks?.holds(action, x, y)) === true ? { x, y } : null;
+  return { x, y };
 }
 
 /**

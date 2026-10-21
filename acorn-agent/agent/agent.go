@@ -364,6 +364,9 @@ func (a *Agent) Step(ctx context.Context, id string, obs Observation) (Step, err
 			step.Settled = s.takeSettledMap()
 		}
 		step.Fields = s.takeFields()
+		if step.Survey {
+			step.SurveyFocus = s.surveyFocus(obs)
+		}
 		if step.Trace = s.takeTrace(); step.Trace != nil {
 			step.Trace.Seq = s.seq
 		}
@@ -471,10 +474,6 @@ func (a *Agent) step(ctx context.Context, id string, obs Observation) (Step, err
 		return step, nil
 	}
 	if step, ok := a.tryNavigate(ctx, s, obs, len(screens), results, sig, stale); ok {
-		return step, nil
-	}
-
-	if step, ok := a.focusStep(s, obs, results, sig); ok {
 		return step, nil
 	}
 
@@ -676,7 +675,7 @@ func (a *Agent) step(ctx context.Context, id string, obs Observation) (Step, err
 	step := Step{
 		Status: status, Message: strings.TrimSpace(answer.Message), Stop: stopFor(status, answer), Actions: actions,
 		Number: number, Usage: s.usage, Dropped: dropped, Survey: status == StatusWorking && a.surveyNext(s, actions, surveyAsked),
-		Settled: s.takeSettledMap(), ReadyToSubmit: ready,
+		Settled: s.takeSettledMap(), ReadyToSubmit: ready, AlreadyApplied: status == StatusDone && s.alreadyApplied,
 	}
 	entry.Observation, entry.Memo, entry.Job = answer.Observation, s.memo, s.job
 	entry.Status, entry.Message, entry.Actions, entry.Dropped = status, step.Message, actions, dropped
@@ -732,7 +731,7 @@ func stopFor(status string, answer reply) *StopInfo {
 		stop.Action = strings.TrimSpace(answer.Stop.Action)
 	}
 	switch stop.Reason {
-	case StopCaptcha, StopVerification, StopVerificationLink, StopIdentity, StopDocument, StopSignIn, StopAccountRejected, StopPageProblem, StopOther, StopJobUnavailable:
+	case StopCaptcha, StopVerification, StopVerificationLink, StopIdentity, StopDocument, StopSignIn, StopAccountRejected, StopPageProblem, StopOther, StopJobUnavailable, StopNotConfirmed:
 	default:
 		stop.Reason = StopOther
 	}

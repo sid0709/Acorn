@@ -453,3 +453,11 @@
 .acorn-run-footer {
   color: var(--color-text-secondary);
 }
+
+/* A question row's badges: what its state asks of the person, above where the model saw it. */
+.acorn-question-badges {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: var(--spacing-0-5);
+}

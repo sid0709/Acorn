@@ -230,8 +230,11 @@ func optionPick(id string, list *OpenList, position int, scrollY float64, vp Vie
 		cx, cy := box.center()
 		x, y := cx-vp.ScrollX, cy-scrollY
 		if x >= 0 && y >= 0 && x < float64(vp.Width) && y < float64(vp.Height) {
+			// The option was placed on the picture of the open list, not on a survey screen: the click is made
+			// where the window was then, with no page height, so the form's moves since the survey are not
+			// applied to it a second time.
 			top := scrollY
-			return Action{ID: id, Kind: KindClick, X: &x, Y: &y, ScrollTo: &top, PageHeight: vp.PageHeight}
+			return Action{ID: id, Kind: KindClick, X: &x, Y: &y, ScrollTo: &top}
 		}
 	}
 	return Action{ID: id, Kind: KindKey, Keys: optionKeys(position)}

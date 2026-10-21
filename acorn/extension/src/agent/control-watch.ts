@@ -106,6 +106,9 @@ function sameMarks(a: ControlMark[], b: ControlMark[]): boolean {
 }
 
 /** Keeps the page's control list for one run. All places are the page's CSS pixels. */
+/** How often the list is read while waiting for the form to stop moving. */
+const FORM_SETTLE_POLL_MS = 100;
+
 export class ControlWatch {
   /** The latest list the page gave. */
   marks: ControlMark[] = [];
@@ -121,6 +124,27 @@ export class ControlWatch {
     this.told = [];
     this.surveyed = [];
     this.version = -1;
+  }
+
+  /**
+   * Waits until the form stops moving: the page's list of controls has not changed for `quietMs`, at most
+   * `maxMs` in all. A résumé that was just attached is read by the page, which fills and moves fields for a
+   * moment; a click placed while it does lands where a field was. Says how long it waited.
+   */
+  async settle(
+    cdp: Cdp,
+    sleep: (ms: number) => Promise<void>,
+    quietMs: number,
+    maxMs: number,
+  ): Promise<number> {
+    const started = Date.now();
+    let changedAt = started;
+    while (Date.now() - started < maxMs) {
+      if (await this.read(cdp, { fresh: true })) changedAt = Date.now();
+      if (Date.now() - changedAt >= quietMs) break;
+      await sleep(FORM_SETTLE_POLL_MS);
+    }
+    return Date.now() - started;
   }
 
   /**

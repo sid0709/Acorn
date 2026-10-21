@@ -1,4 +1,4 @@
-import { useEffect, useRef } from "react";
+import { useEffect, useRef, type ReactNode } from "react";
 import { Badge, Glyph, List, ListItem, Spinner, Text } from "sid-ui";
 
 import {
@@ -47,20 +47,52 @@ function QuestionMark({ status }: { status: QuestionStatus }) {
 }
 
 /**
- * Where the model saw a question: the number of the survey screen it lies on (the number on the pictures
- * beside the map, and on the screenshot the model was shown), or that it lies in a part the model settled.
+ * Where the model saw a question: the survey screen it lies on (the number on the pictures beside the map,
+ * and on the screenshot the model was shown), or a part the model settled.
  */
 function SeenBadge({ seen }: { seen: QuestionSeen }) {
-  if ("settled" in seen)
+  if ("settled" in seen) {
     return (
-      <Badge variant="blue" label="Settled" aria-label="In a part of the page the model settled" />
+      <Badge
+        variant="blue"
+        icon={<Glyph name="lock" />}
+        label="Settled"
+        aria-label="In a part of the page the model settled"
+      />
     );
+  }
   return (
     <Badge
       variant="neutral"
-      label={`S${seen.screen}`}
+      icon={<Glyph name="image" />}
+      label={`Screen ${seen.screen}`}
       aria-label={`On screen ${seen.screen} of the model's last look`}
     />
+  );
+}
+
+/** What a question's state asks of the person, when it asks anything: left blank, theirs, or not taken. */
+function stateBadge(question: RunQuestion): ReactNode {
+  if (question.flagged) {
+    return <Badge variant="warning" icon={<Glyph name="user" />} label="Needs you" />;
+  }
+  if (question.status === QUESTION_STATUS.problem) {
+    return <Badge variant="error" icon={<Glyph name="alert" />} label="Didn’t take" />;
+  }
+  if (question.status === QUESTION_STATUS.blank)
+    return <Badge variant="neutral" label="Optional" />;
+  return null;
+}
+
+/** The badges at a row's end: what its state asks, then where it was seen. */
+function RowBadges({ question }: { question: RunQuestion }) {
+  const state = stateBadge(question);
+  if (!question.seen && !state) return null;
+  return (
+    <span className="acorn-question-badges">
+      {state}
+      {question.seen ? <SeenBadge seen={question.seen} /> : null}
+    </span>
   );
 }
 
@@ -115,7 +147,7 @@ export function RunQuestions(props: RunQuestionsProps) {
         label={question.label}
         description={describe(question)}
         startContent={<QuestionMark status={question.status} />}
-        endContent={question.seen ? <SeenBadge seen={question.seen} /> : undefined}
+        endContent={<RowBadges question={question} />}
         isSelected={lit === question.id}
         onClick={() => {
           if (onShow) onShow(question);

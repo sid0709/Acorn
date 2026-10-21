@@ -244,15 +244,24 @@ func (c *Client) once(ctx context.Context, body []byte) (got Response, retryAfte
 	if err := json.Unmarshal(payload, &decoded); err != nil {
 		return Response{}, "", fmt.Errorf("decode decision response: %w", err)
 	}
+	// A failure written into a 200 answer (OpenRouter's out-of-credit is one) is an error with its own status.
+	var failed errorBody
+	if json.Unmarshal(payload, &failed) == nil && failed.Error != nil && (failed.Error.Message != "" || len(failed.Error.Code) > 0) {
+		return Response{}, "", statusError(llm.ErrorStatus(failed.Error.Code, http.StatusBadGateway), payload)
+	}
 	return decoded, "", nil
 }
 
+// errorBody is an error a provider wrote into its answer.
+type errorBody struct {
+	Error *struct {
+		Message string          `json:"message"`
+		Code    json.RawMessage `json:"code"`
+	} `json:"error"`
+}
+
 func statusError(status int, payload []byte) error {
-	var body struct {
-		Error *struct {
-			Message string `json:"message"`
-		} `json:"error"`
-	}
+	var body errorBody
 	message := ""
 	if json.Unmarshal(payload, &body) == nil && body.Error != nil {
 		message = strings.TrimSpace(body.Error.Message)

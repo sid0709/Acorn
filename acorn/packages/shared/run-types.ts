@@ -91,6 +91,8 @@ export interface RunReport {
   /** Refill rounds spent across the whole run. */
   refills: number;
   failure?: RunFailure;
+  /** A completed run whose page said the employer already had the application (sent before). */
+  alreadyApplied?: boolean;
   /** Decision-model cost of the Run's own decisions (page reads and diagnosis). */
   usage?: AiUsageSummary | null;
 }

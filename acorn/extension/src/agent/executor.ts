@@ -335,6 +335,9 @@ export async function runActions(
   // The zone of the last action, as that action itself has it: an action the agent made (a dropdown being
   // opened) has none, and a batch that ends with one ends with a list open, which is not a zone's photo.
   let lastOwnZone: number | undefined;
+  // After a résumé is attached the page reads it and moves its fields for a moment: the next click waits
+  // until the form stops moving, so it lands where the field is, not where it was.
+  let afterUpload = false;
   for (const action of actions) {
     if (unreached && reachesAControl(action)) unreached = false;
     if (failed || unreached) {
@@ -353,8 +356,13 @@ export async function runActions(
     const watch = new Stopwatch();
     const timing = () => ({ startedAt: watch.startedAt, ms: watch.ms, laps: watch.laps });
     ctx.progress?.(action, ACTION_PROGRESS.started);
+    if (afterUpload && reachesAControl(action) && action.kind !== "upload") {
+      afterUpload = false;
+      await watch.time("formSettle", () => ctx.marks?.settle?.() ?? Promise.resolve());
+    }
     try {
       const done = await perform(ctx, action, watch);
+      if (action.kind === "upload") afterUpload = true;
       results.push({
         id: action.id,
         ok: true,

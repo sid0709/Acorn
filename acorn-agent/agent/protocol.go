@@ -69,6 +69,9 @@ const (
 	// StopResumeChoice: no job description was found, so the agent could not choose a résumé,
 	// and the person chose to pick one themselves.
 	StopResumeChoice = "resume_choice"
+	// StopNotConfirmed: the model reported done, but the page never showed that the application was received
+	// (donegate.go), so the run ends without calling it sent.
+	StopNotConfirmed = "not_confirmed"
 )
 
 // How a job is unavailable (StopInfo.Kind with StopJobUnavailable), in the model's judgment.
@@ -384,6 +387,13 @@ type Step struct {
 	// or the server's own switch): every field is filled and the control that sends the application was
 	// not pressed. A done step without it is an application the page confirmed as sent.
 	ReadyToSubmit bool `json:"readyToSubmit,omitempty"`
+	// AlreadyApplied is set on a done step whose page says the employer already had the applicant's
+	// application (one sent before), rather than confirming one just sent (donegate.go).
+	AlreadyApplied bool `json:"alreadyApplied,omitempty"`
+	// SurveyFocus, with Survey, is where the fields still to fill lie on the page (screenshot pixels from its
+	// top): the survey adds a screen centred on one that none of its screens shows clear of the window's
+	// edges (focus.go).
+	SurveyFocus []float64 `json:"surveyFocus,omitempty"`
 	// Ask is the question the run waits on, when Status is StatusAsk.
 	Ask *Ask `json:"ask,omitempty"`
 	// Survey asks the extension to make its next look a survey of the whole page.

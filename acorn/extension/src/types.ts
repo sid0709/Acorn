@@ -1,3 +1,5 @@
+import type { MessageGlyph, NoticeAction, NoticeTone } from "@acorn/shared/user-messages";
+
 /** Long-lived side-panel port. Keeps the MV3 worker (and `/acorn/socket.io` socket) alive. */
 export const ACORN_SIDEBAR_PORT = "acorn-sidebar";
 
@@ -49,9 +51,16 @@ export type AcornNoticePayload = {
   title: string;
   detail?: string;
   /**
-   * When set, the toast belongs to that Chrome tab: it shows only while the tab
+   * When set, the notice belongs to that Chrome tab: it shows only while the tab
    * is focused, and leaves when the person switches to another tab.
    * Omit it for account and connection notices, which stay up in every tab.
    */
   tabId?: number;
+  /** The card's tone and icon; from `kind` when left out. */
+  tone?: NoticeTone;
+  glyph?: MessageGlyph;
+  /** Up to two buttons, run on the notice's tab (user-messages.ts NOTICE_ACTION). */
+  actions?: NoticeAction[];
+  /** Stays until acted on, dismissed, or the run on its tab moves on. */
+  sticky?: boolean;
 };

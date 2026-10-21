@@ -89,6 +89,8 @@ export const AGENT_STOP_REASON = {
   stepLimit: "step_limit",
   /** No job description was found, so no résumé was chosen, and the person chose to pick one. */
   resumeChoice: "resume_choice",
+  /** The model reported done, but the page never showed the application was received. */
+  notConfirmed: "not_confirmed",
 } as const;
 export type AgentStopReason = (typeof AGENT_STOP_REASON)[keyof typeof AGENT_STOP_REASON];
 
@@ -460,6 +462,16 @@ export interface AgentStep {
    * pressed. A `done` without it is an application the page confirmed as sent.
    */
   readyToSubmit?: boolean;
+  /**
+   * Set on a `done` step whose page says the employer already had the applicant's application (sent
+   * before), rather than confirming one just sent.
+   */
+  alreadyApplied?: boolean;
+  /**
+   * With `survey`: where the fields still to fill lie on the page (screenshot pixels from its top). The
+   * survey adds a screen centred on one that none of its screens shows clear of the window's edges.
+   */
+  surveyFocus?: number[];
   /** Set when the status is "ask": the question to put to the person. */
   ask?: AgentAsk;
   /** Make the next look a survey of the whole page. */

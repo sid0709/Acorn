@@ -7,6 +7,8 @@ import {
   SurveyKeeper,
   scrollForAction,
   settledStill,
+  focusPositions,
+  SURVEY_FOCUS_EDGE_PX,
   surveyPositions,
   type PlaceDeps,
 } from "../../src/agent/survey.ts";
@@ -90,6 +92,27 @@ function click(over: Partial<AgentAction> = {}): AgentAction {
 }
 
 describe("placing a point on a page that changed shape", () => {
+  it("does not scroll when the window already shows the point clear of its edges", async () => {
+    // The box moved 76 px down; the window, at 3700, shows it 276 px from its top.
+    const c = setup({ fieldY: 3956, scrollY: 3700 });
+    const where = await scrollForAction(c.page.cdp(), click(), 1, c.deps);
+    assert.deepEqual(where, { x: 500, y: 276 });
+    assert.equal(c.page.scrollY, 3700, "the page did not move");
+    assert.deepEqual(c.slept, [], "nothing was scrolled, so nothing was waited for");
+  });
+
+  it("goes straight to where the form moved a point bound to no control, in one scroll", async () => {
+    const c = setup({ fieldY: 3956, scrollY: 5000 });
+    c.shift = 76;
+    const where = await scrollForAction(c.page.cdp(), click({ mark: undefined }), 1, c.deps);
+    assert.equal(
+      c.page.scrollY,
+      3876,
+      "to the survey's place moved by the form's growth, not via 3800",
+    );
+    assert.deepEqual(where, { x: 500, y: 100 });
+  });
+
   it("moves the point with the control it was bound to, without looking for a picture of it", async () => {
     // A message appeared above the box: it is 76 px lower and the page 76 px taller.
     const c = setup({ fieldY: 3956, scrollY: 5000 });
@@ -300,5 +323,31 @@ describe("what is settled when the form moved", () => {
       [{ from: 0, to: 800 }],
       "the agent's stretches already match the page",
     );
+  });
+});
+
+describe("a field still to fill", () => {
+  it("adds no screen when a kept screen shows it clear of its edges", () => {
+    assert.deepEqual(focusPositions([0, 770], [400, 1200], 2400, 800), []);
+  });
+
+  it("adds a screen centred on a field that sits at a screen's edge", () => {
+    // 1550 lies 10 px above the bottom of the screen at 770 and is not on another kept screen.
+    assert.deepEqual(focusPositions([0, 770], [1550], 3000, 800), [1150]);
+  });
+
+  it("adds one for a field in a part the survey leaves out, and one screen serves two fields close together", () => {
+    assert.deepEqual(focusPositions([0], [2000, 2050], 3000, 800), [1600]);
+  });
+
+  it("keeps an added screen on the page", () => {
+    assert.deepEqual(focusPositions([0], [2990], 3000, 800), [2200]);
+    assert.deepEqual(focusPositions([800], [10], 3000, 800), [0]);
+  });
+
+  it("asks for a field to lie at least the edge margin inside a screen", () => {
+    assert.ok(SURVEY_FOCUS_EDGE_PX > 0);
+    assert.deepEqual(focusPositions([0], [800 - SURVEY_FOCUS_EDGE_PX], 3000, 800), []);
+    assert.equal(focusPositions([0], [800 - SURVEY_FOCUS_EDGE_PX + 1], 3000, 800).length, 1);
   });
 });

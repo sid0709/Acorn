@@ -130,3 +130,23 @@ func Code(err error) string {
 	}
 	return CodeNetwork
 }
+
+// ErrorStatus is the HTTP status an error a provider wrote into its answer stands for: OpenRouter answers
+// some failures with 200 and an error object whose "code" is the status (402 when the account has no
+// credit left, 401, 429). A code that is not such a status leaves fallback.
+func ErrorStatus(code json.RawMessage, fallback int) int {
+	var n int
+	if json.Unmarshal(code, &n) != nil {
+		var text string
+		if json.Unmarshal(code, &text) != nil {
+			return fallback
+		}
+		if _, err := fmt.Sscanf(text, "%d", &n); err != nil {
+			return fallback
+		}
+	}
+	if n >= 400 && n <= 599 {
+		return n
+	}
+	return fallback
+}
