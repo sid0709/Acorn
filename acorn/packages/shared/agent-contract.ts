@@ -16,14 +16,28 @@ export const AGENT_ROUTES = {
   vet: (sessionId: string) => `/agent/v1/sessions/${encodeURIComponent(sessionId)}/vet`,
   continue: (sessionId: string) => `/agent/v1/sessions/${encodeURIComponent(sessionId)}/continue`,
   memory: (sessionId: string) => `/agent/v1/sessions/${encodeURIComponent(sessionId)}/memory`,
-  prefill: (sessionId: string) => `/agent/v1/sessions/${encodeURIComponent(sessionId)}/prefill`,
-  review: (sessionId: string) => `/agent/v1/sessions/${encodeURIComponent(sessionId)}/review`,
-  advance: (sessionId: string) => `/agent/v1/sessions/${encodeURIComponent(sessionId)}/advance`,
-  pick: (sessionId: string) => `/agent/v1/sessions/${encodeURIComponent(sessionId)}/pick`,
+  locate: (sessionId: string) => `/agent/v1/sessions/${encodeURIComponent(sessionId)}/locate`,
+  shots: (sessionId: string) => `/agent/v1/sessions/${encodeURIComponent(sessionId)}/shots`,
+  blobs: (sessionId: string) => `/agent/v1/sessions/${encodeURIComponent(sessionId)}/blobs`,
 } as const;
+
+/**
+ * A picture the server already holds for the run is named instead of sent again: this prefix and the
+ * SHA-256 (hex) of its data URL, in any field that takes a screenshot. The server swaps it back before
+ * the agent sees the request, and answers `missing_blobs` (with `missing`) for a hash it no longer holds.
+ */
+export const AGENT_BLOB_REF_PREFIX = "ref:sha256:";
+/** The one content encoding the server speaks, for request bodies and JSON answers alike. */
+export const AGENT_GZIP_ENCODING = "gzip";
 
 /** Header that carries the person's OpenRouter key when the extension has one. */
 export const AGENT_KEY_HEADER = "X-OpenRouter-Key";
+
+/** Response headers: how long the server spent on a request (ms), and its clock then (unix ms). */
+export const AGENT_HANDLER_MS_HEADER = "X-Agent-Handler-Ms";
+export const AGENT_SERVER_TIME_HEADER = "X-Agent-Server-Time";
+/** Where a response says its time went (the agent's wait on acorn-backend, and the backend's own steps). */
+export const AGENT_SERVER_TIMING_HEADER = "Server-Timing";
 
 /** Every action is something a person does with a mouse and keyboard. */
 export const ACTION_KIND = {
@@ -37,8 +51,8 @@ export const ACTION_KIND = {
   scroll: "scroll",
   upload: "upload",
   wait: "wait",
-  /** Loads the page again at its address: for a page that shows an error or stopped loading. */
-  reload: "reload",
+  /** The agent's own, never the model's: take a picture of the page now and send it at once (a dropdown's list). */
+  snap: "snap",
 } as const;
 
 export type ActionKind = (typeof ACTION_KIND)[keyof typeof ACTION_KIND];
@@ -171,9 +185,96 @@ export type ActionOpened = (typeof ACTION_OPENED)[keyof typeof ACTION_OPENED];
 export interface AgentActionResult {
   id: string;
   ok: boolean;
+  /** When the action began (unix ms) and how long it took, for the log; the server ignores both. */
+  startedAt?: number;
+  ms?: number;
+  /** Where the action's time went, by name (glide, click, settle, …), in ms. */
+  laps?: Record<string, number>;
   error?: string;
   detail?: string;
   opened?: ActionOpened;
+}
+
+/**
+ * A picture the extension sends while a batch of actions is still being carried out, so the agent can work
+ * on it meanwhile: a zone's photo when its last action is done (reviewed on the side), or the photo of a
+ * dropdown a `snap` action opened (probed).
+ */
+export interface AgentShotUpload {
+  kind: "zone" | "snap";
+  /** The survey screen of a zone photo. */
+  zone?: number;
+  /** The `snap` action a dropdown photo is of. */
+  id?: string;
+  screenshot: string;
+  /** Where the page was scrolled to (screenshot pixels). */
+  scrollY: number;
+  /** What the page said had focus: a native list reports its options as text. */
+  focus?: AgentFocus | null;
+  /** The list open on the page when the photo was taken, as the page names its options; null when it names none. */
+  list?: AgentOpenList | null;
+}
+
+/** Pictures sent ahead of the look that will refer to them (a survey's screens, as each is taken). */
+export interface AgentBlobsUpload {
+  images: string[];
+}
+
+/** The hash of each picture sent, in the order they came. */
+export interface AgentBlobsKept {
+  hashes: string[];
+}
+
+/**
+ * What the server does to spare the person's line, told when a run starts or continues: it unpacks
+ * gzipped request bodies and packs its JSON answers (`gzip`), and it keeps the run's pictures by hash so
+ * one sent before goes again as a reference (`blobs`). An older server says nothing, and everything is
+ * then sent as bytes.
+ */
+export interface AgentTransport {
+  gzip?: boolean;
+  blobs?: boolean;
+}
+
+/**
+ * Where is the target of this action now? The page changed shape since the survey, so the extension
+ * sends a screenshot taken at the window's place and the agent finds the target by its anchor.
+ */
+export interface AgentLocate {
+  actionId: string;
+  screenshot: string;
+  /** Where the page was scrolled to when the screenshot was taken (screenshot pixels). */
+  scrollY: number;
+}
+
+/** The answer: the target's point in the screenshot's pixels, or why it was not found. */
+export interface AgentLocated {
+  found: boolean;
+  x?: number;
+  y?: number;
+  score?: number;
+  reason?: string;
+}
+
+/** The parts of a page the model will not come back to (painted blue on the minimap), in screenshot pixels from its top. */
+export interface AgentSettledMap {
+  /** How tall the page was when they were settled. A different height places the spans from `layout` on the look, it does not drop them. */
+  pageHeight: number;
+  /**
+   * How far down the page the plan being carried out leaves things as they are: where it first acts.
+   * A height change follows the controls (`layout` on the look) instead of forgetting what is below this.
+   */
+  fence: number;
+  spans: { from: number; to: number }[];
+}
+
+/** The screenshot taken when the last action of a zone of a plan was done (fast fill, docs 19.4m). */
+export interface AgentZoneShot {
+  /** The survey screen the actions of the zone were measured on, from 1. */
+  zone: number;
+  screenshot: string;
+  /** Where the page was scrolled to (screenshot pixels). */
+  scrollY: number;
 }
 
 /** One screenshot of a survey: the page scrolled to `scrollY` (screenshot pixels). */
@@ -182,177 +283,64 @@ export interface AgentSurveyScreen {
   scrollY: number;
 }
 
-/** What a fill of the quick text pass does to its field (acorn-agent's Fill* values; Oak's plan actions). */
-export const PREFILL_ACTION = {
-  /** Types the value into a text box, or chooses it in a native list. */
-  fill: "fill",
-  /** Picks the option of a radio group or a checkbox group that reads as the value. */
-  selectRadio: "select_radio",
-} as const;
-export type PrefillAction = (typeof PREFILL_ACTION)[keyof typeof PREFILL_ACTION];
-
-/** The page the run is on, serialized as Oak's "pure tree": lines of `tag[id] attributes "text"`. */
-export interface AgentPrefillRequest {
-  url: string;
-  title: string;
-  tree: string;
+/** A box on the page, in screenshot pixels from the page's top left. */
+export interface AgentRect {
+  x: number;
+  y: number;
+  w: number;
+  h: number;
 }
 
-export interface AgentPrefillFill {
-  /** The element's number in the tree. */
-  ref: number;
-  action: PrefillAction;
-  /** The question the field answers, as the model read it from the page. */
+/**
+ * One control of the page (an input, a dropdown, a button, a check, a file field, a link): a stable id
+ * (equal ids are the same control, even when the page moved), what kind it is, and where it sits. `box`
+ * is the field the control belongs to: the largest box round it that holds no other control, so a point
+ * on the control's own label is on its field. The agent binds each point of a plan to a control with it.
+ * `label` is what the page calls the control; `entry` the part of its own box that is not its label, when
+ * the label is printed inside the box (the place to click or type); `required`, `empty` and `invalid` what
+ * the page says of its state (`empty` is left out when the page cannot tell).
+ */
+export interface AgentControlMark extends AgentRect {
+  id: string;
+  kind: string;
+  box?: AgentRect;
   label?: string;
-  /** What kind of control the model took it for ("textbox", "radio", "checkbox"). */
-  role?: string;
-  /** The text to type, or the option's own wording for a list or a group. */
-  value?: string;
-  /** The value is the account password: typed, never logged or shown. */
-  secret?: boolean;
+  entry?: AgentRect;
+  required?: boolean;
+  empty?: boolean;
+  invalid?: boolean;
+  /** The group a radio button or a check box answers a question with, and the question, when the page says. */
+  group?: string;
+  question?: string;
 }
 
-export interface AgentPrefillPlan {
-  fills: AgentPrefillFill[] | null;
-  dropped?: string[];
-  usage: AgentUsage;
-  trace?: AgentTrace;
-}
-
-/** One field in a report: its label, and what was typed or why it was not. */
-export interface AgentPrefillLine {
-  label: string;
-  value?: string;
-  error?: string;
-}
-
-/** What the extension did with a plan; the model is told it at its next look. */
-export interface AgentPrefillReport {
-  filled?: AgentPrefillLine[];
-  failed?: AgentPrefillLine[];
-}
-
-/** What the page says of itself after the first draft (acorn-agent's ReviewFindings). */
-export interface AgentReviewFindings {
-  /** How many plain fields the page shows; 0 means it is not a form. */
-  fields: number;
-  /** Labels of required fields still empty. */
-  empty?: string[];
-  /** Visible error messages, and the labels of fields the page marked invalid. */
-  errors?: string[];
-  /** Labels of fills the pass made that did not take. */
-  failed?: string[];
-  /** Disabled controls that would continue the application, and, with one, the unticked boxes of its form. */
-  blocked?: string[];
-}
-
-export interface AgentReviewRequest {
-  url: string;
-  title: string;
-  screenshot: string;
-  viewport: AgentViewport;
-  dom: AgentReviewFindings;
-  /** The whole page as screenshots, when it is taller than the screen and the page's own state found nothing wrong. */
-  survey?: AgentSurveyScreen[];
-}
-
-/** What a review made of the page. */
-export const REVIEW_VERDICT = {
-  /** Every required field is answered and nothing is in the way: the page may go on. */
-  clean: "clean",
-  /** Something is left to do or went wrong; `problems` says what. */
-  fix: "fix",
-  /** The page is still changing: look again in a moment. */
-  loading: "loading",
-  /** The screen shows the application was received. */
-  sent: "sent",
-  /** Only the applicant's own hand can go on: `step` ends the run as need_person. */
-  human: "human",
-  /** The review could not decide: the driving model looks. */
-  look: "look",
-} as const;
-export type ReviewVerdict = (typeof REVIEW_VERDICT)[keyof typeof REVIEW_VERDICT];
-
-export interface AgentReviewResult {
-  verdict: ReviewVerdict;
-  problems?: string[];
-  /** What the driving model is told on its next look; absent when it needs none. */
-  note?: string;
-  step?: AgentStep;
-  usage: AgentUsage;
-  trace?: AgentTrace;
-}
-
-/** One control of the page that could be pressed, as the page words it. */
-export interface AgentAdvanceCandidate {
-  ref: number;
-  text: string;
-  kind: "button" | "submit";
-  inForm?: boolean;
-}
-
-/** How a choice is answered: exactly one option, or each option a yes or a no (checkboxes). */
-export const PICK_KIND = { one: "one", many: "many" } as const;
-export type PickKind = (typeof PICK_KIND)[keyof typeof PICK_KIND];
-
-/** One question of the page with its options, as the page words them. */
-export interface AgentPickField {
-  ref: number;
-  kind: PickKind;
-  question: string;
+/**
+ * A list of choices open on the page, as the page names its options (an ARIA listbox or menu), in the
+ * order they are drawn. No options is a list that is open with nothing in it yet: a box that searches as
+ * one types.
+ */
+export interface AgentOpenList {
   options: string[];
 }
 
-export interface AgentPickRequest {
-  url: string;
-  title: string;
-  fields: AgentPickField[];
+/**
+ * The control a point was bound to when it was planned, as it sat then. The extension finds the same
+ * control by `id` when the point is acted on, and the difference of the two places is how far the point
+ * has moved.
+ */
+export interface AgentMarkRef extends AgentRect {
+  id: string;
 }
 
-/** The options to choose for one field (indexes into its options); a field the model was unsure of is absent. */
-export interface AgentPickAnswer {
-  ref: number;
-  choices: number[];
-  sure: number;
-}
-
-export interface AgentPickResult {
-  picks: AgentPickAnswer[] | null;
-  usage: AgentUsage;
-  trace?: AgentTrace;
-}
-
-export interface AgentAdvanceRequest {
-  url: string;
-  title: string;
-  screenshot: string;
-  candidates: AgentAdvanceCandidate[];
-  /** The whole page as screenshots, so a control below the screen can be seen and chosen. */
-  survey?: AgentSurveyScreen[];
-  viewport: AgentViewport;
-}
-
-/** What to do about a page that reviewed clean. */
-export const ADVANCE_ACTION = {
-  click: "click",
-  /** The control that sends the application was found and the run is to stop before it. */
-  readyToSubmit: "ready_to_submit",
-  none: "none",
-} as const;
-export type AdvanceAction = (typeof ADVANCE_ACTION)[keyof typeof ADVANCE_ACTION];
-
-export interface AgentAdvanceResult {
-  action: AdvanceAction;
-  ref?: number;
-  text?: string;
-  /** The control sends the application rather than moving to another step. */
-  submit?: boolean;
-  /** How sure the decision model was of the pick, and that no control continues. */
-  sure?: number;
-  none?: number;
-  step?: AgentStep;
-  usage: AgentUsage;
-  trace?: AgentTrace;
+/**
+ * A move of the form between two looks, in the old page's pixels (screenshot pixels). The controls from
+ * `at` down moved by `dy`; what lay between `from` and `at` is where it happened (something appeared or
+ * went), so nothing there is known to be as it was.
+ */
+export interface AgentLayoutMove {
+  from: number;
+  at: number;
+  dy: number;
 }
 
 export interface AgentObservation {
@@ -366,12 +354,20 @@ export interface AgentObservation {
   results?: AgentActionResult[];
   /** The whole page as screenshots from top to bottom, sent on the first look of a page and when asked for. */
   survey?: AgentSurveyScreen[];
+  /** Photos of the zones of the plan just carried out, each taken when its zone was done (fast fill). */
+  zoneShots?: AgentZoneShot[];
   /** The page's visible text, sent when it changed since the last step: the job description may be in it. */
   pageText?: string;
   /** The person's answer (an AgentAskOption id) to the question the last step asked. */
   answer?: string;
-  /** What the quick text pass did on this page since the model last looked. */
-  prefill?: AgentPrefillReport;
+  /** The page's controls and where each sits (screenshot pixels), sent with each look of a run that surveys: the agent binds the plan's points to them. */
+  marks?: AgentControlMark[];
+  /** Where the form moved since the look before (screenshot pixels): the settled stretches follow it. Omitted when nothing moved. */
+  layout?: AgentLayoutMove[];
+  /** Names the look: a step sent again after a failure carries the same name, so the move in `layout` is placed once. */
+  look?: string;
+  /** The list open on the page at this look, as the page names its options; null when it names none. */
+  list?: AgentOpenList | null;
 }
 
 export interface AgentAction {
@@ -396,6 +392,16 @@ export interface AgentAction {
    */
   scrollTo?: number;
   pageHeight?: number;
+  /**
+   * Fast fill: the survey screen this action belongs to. The extension takes a photo when the last
+   * action of a zone is done and sends it with the next look.
+   */
+  zone?: number;
+  /**
+   * Fast fill: the control the point was bound to when it was planned. The extension finds that control
+   * again when it acts, so a page that changed shape moves the point with it.
+   */
+  mark?: AgentMarkRef;
 }
 
 export interface AgentUsage {
@@ -419,6 +425,8 @@ export interface AgentStep {
   ask?: AgentAsk;
   /** Make the next look a survey of the whole page. */
   survey?: boolean;
+  /** The parts of the page the model will not come back to, sent when they change; an empty list means none. */
+  settled?: AgentSettledMap;
   actions: AgentAction[] | null;
   number: number;
   usage: AgentUsage;
@@ -452,10 +460,18 @@ export interface AgentStart {
   stopBeforeSubmit: boolean;
   /** Return the run's trace in the answers, for the extension to keep in its own log. */
   trace?: boolean;
+  /**
+   * Return the trace's pictures too (the screen with each action drawn on it): hundreds of kilobytes a
+   * step over the person's line, so only a build made for debugging asks. Without it the trace is text.
+   */
+  traceImages?: boolean;
   /** Let the run survey a long page (several screenshots from top to bottom). Off: it sees the current screen only. */
   survey?: boolean;
-  /** Let the extension send the page's plain fields for a quick text pass before the model looks. */
-  prefill?: boolean;
+  /**
+   * Fast fill: plan a whole page at once and carry it out zone by zone, with the checks done on the side
+   * (docs 19.4m). Off, the run goes step by step as before. Phase 0 only carries the switch.
+   */
+  fastFill?: boolean;
   /** What a stopped run knew, to start a run that goes on from it when the server forgot the session. */
   memory?: AgentMemory;
 }
@@ -483,16 +499,19 @@ export interface AgentResumeInfo {
 export interface AgentStarted {
   sessionId: string;
   resumes: AgentResumeInfo[];
-  /** The model that drives the run and the API it is called on ("gpt-6-luna (OpenAI)"), for the run's log. */
-  model?: string;
   /** The run's start (session.json, system.txt), when the run asked for the trace. */
   trace?: AgentTrace;
+  /** What the run really uses: the server may turn them on for every run, and a fast-fill run surveys. */
+  fastFill?: boolean;
+  survey?: boolean;
+  transport?: AgentTransport;
 }
 
 /** A stopped run taken back up: the step it was at and what it has spent, so the counters go on. */
 export interface AgentContinued {
   number: number;
   usage: AgentUsage;
+  transport?: AgentTransport;
 }
 
 /** The server's stable codes beside an error (acorn-agent/httpapi and llm). */
@@ -516,15 +535,13 @@ export const AGENT_ERROR_CODE = {
   /** acorn-backend could not be reached from the agent. */
   backendUnreachable: "backend_unreachable",
   badFallbackResume: "bad_fallback_resume",
-  /** The quick text pass was refused: the page was unusable, or the run may make no more. */
-  badPrefill: "bad_prefill",
-  prefillUnavailable: "prefill_unavailable",
-  /** The model's own plan is still being carried out: ask again at a later look. */
-  prefillBusy: "prefill_busy",
+  /** A request named pictures the server no longer holds; `missing` lists their hashes. */
+  missingBlobs: "missing_blobs",
 } as const;
 
 /** The error body every failing route sends. */
 export interface AgentErrorBody {
   error: string;
   code: string;
+  missing?: string[];
 }

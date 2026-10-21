@@ -1,4 +1,4 @@
-/* Acorn-only run detail: the Logs tab entries and the Jobs tab activity list. */
+/* Acorn-only run detail: the Logs tab entries, and the Now card's stop and mail panels. */
 
 /* Logs tab: one collapsible row per pipeline event, its data as a code block. */
 .log-entry {
@@ -58,44 +58,6 @@
   cursor: pointer;
   font-size: var(--font-size-sm);
   color: var(--color-text-secondary);
-}
-
-/* Jobs tab: the run as a list of steps, each opening to the log entries behind it. */
-.activity-item {
-  border-bottom: var(--border-width) solid var(--color-border);
-  padding: var(--spacing-2) 0;
-}
-
-.activity-summary {
-  display: flex;
-  align-items: center;
-  gap: var(--spacing-2);
-  cursor: pointer;
-  min-width: 0;
-}
-
-.activity-title {
-  flex: 1;
-  min-width: 0;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-  font-size: var(--font-size-sm);
-}
-
-/* What happened inside another step (a call made while the form was filled). */
-.activity-child {
-  margin-left: var(--spacing-4);
-  border-left: var(--border-width) solid var(--color-border);
-  padding-left: var(--spacing-2);
-}
-
-/* Time between steps that no step accounts for. */
-.activity-gap {
-  display: flex;
-  align-items: center;
-  gap: var(--spacing-2);
-  font-style: italic;
 }
 
 /* Now card: what to do when the agent stopped for the person or could not go on. */

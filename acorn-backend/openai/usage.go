@@ -123,7 +123,9 @@ func Note(ctx context.Context, usage Usage) {
 	}
 	record, _ := ctx.Value(recorderKey{}).(Recorder)
 	if record == nil {
-		slog.WarnContext(ctx, "model call not recorded", "model", usage.Model, "step", usage.Step)
+		// A caller that keeps its own account of what it spends (the agent) has no recorder, so this is
+		// a note for whoever debugs the usage history, not a warning.
+		slog.DebugContext(ctx, "A call to "+usage.Model+" for the "+usage.Step+" step was not added to usage history: nothing was listening for it.")
 		return
 	}
 	record(usage)

@@ -4,6 +4,8 @@
 package httpapi
 
 import (
+	"bytes"
+	"compress/gzip"
 	"context"
 	"encoding/json"
 	"errors"
@@ -11,30 +13,50 @@ import (
 	"io"
 	"log/slog"
 	"net/http"
+	"strconv"
 	"strings"
 	"time"
 
 	"github.com/sid0709/acorn/acorn-agent/agent"
 	"github.com/sid0709/acorn/acorn-agent/applicant"
 	"github.com/sid0709/acorn/acorn-agent/llm"
+	"github.com/sid0709/acorn/acorn-backend/plainlog"
 )
 
 const (
 	// KeyHeader carries the person's OpenRouter key when the extension has one; without it
 	// the server's own key is used.
 	KeyHeader = "X-OpenRouter-Key"
+	// HandlerMsHeader is how long the server spent on a request (milliseconds, from the request's
+	// headers arriving to the answer's first byte), and ServerTimeHeader the server's clock then
+	// (unix milliseconds). The extension reads both to split a call's time into the server's and
+	// the network's.
+	HandlerMsHeader  = "X-Agent-Handler-Ms"
+	ServerTimeHeader = "X-Agent-Server-Time"
 	// BasePath prefixes every route.
 	BasePath = "/agent/v1"
 	// maxBodyBytes bounds one request: a screenshot as base64 plus a little JSON.
 	maxBodyBytes = 16 << 20
+	// maxInflatedBytes bounds a gzipped request once unpacked. Pictures hardly pack, so a request near
+	// maxBodyBytes unpacks to little more; a body that unpacks to far more is not one of ours.
+	maxInflatedBytes = 48 << 20
+	// minGzipBytes is the smallest JSON answer worth packing: below it the headers outweigh the saving.
+	minGzipBytes = 1024
+	// preflightMaxAge is how long the browser may keep a preflight answer (seconds), so a run does not
+	// pay a round trip before every request; Chrome keeps one at most two hours.
+	preflightMaxAge = "7200"
+	// maxBlobsPerUpload bounds the pictures one request to the blobs route may carry.
+	maxBlobsPerUpload = 32
+	// gzipEncoding is the one content encoding the server speaks, both ways.
+	gzipEncoding = "gzip"
 	// extensionScheme is the origin scheme of a browser extension.
 	extensionScheme = "chrome-extension://"
 	// stepTimeout bounds one step: a model call, its retries and the repair.
 	stepTimeout = 5 * time.Minute
-	// prefillTimeout bounds one quick text pass: a single model call over text.
-	prefillTimeout = 90 * time.Second
 	// vetTimeout bounds one check of a control or window: a click waits for it.
 	vetTimeout = 20 * time.Second
+	// locateTimeout bounds finding a target again on a screenshot: an action waits for it.
+	locateTimeout = 10 * time.Second
 )
 
 // Options configure the server.
@@ -49,6 +71,32 @@ type Options struct {
 	Source string
 	// MaxModelCalls bounds the steps being worked on at once; 0 means no bound.
 	MaxModelCalls int
+	// SessionTTL is how long the agent keeps an idle run; the run's pictures (blobs.go) are kept as long.
+	SessionTTL time.Duration
+}
+
+// transport is what the server can do to spare the person's line, told to the extension when a run
+// starts or continues: it unpacks gzipped requests and packs its JSON answers, and it keeps the run's
+// pictures by hash so one sent before is sent again as a reference (blobs.go). An older server says
+// nothing, and the extension then sends everything as bytes.
+type transport struct {
+	Gzip  bool `json:"gzip"`
+	Blobs bool `json:"blobs"`
+}
+
+// offer is what this server does.
+var offer = transport{Gzip: true, Blobs: true}
+
+// startedBody is the start's answer with the transport beside it.
+type startedBody struct {
+	agent.Started
+	Transport transport `json:"transport"`
+}
+
+// continuedBody is a continued run's answer with the transport beside it.
+type continuedBody struct {
+	agent.Continued
+	Transport transport `json:"transport"`
 }
 
 // Server is the HTTP front of the agent.
@@ -56,11 +104,13 @@ type Server struct {
 	agent *agent.Agent
 	opts  Options
 	slots chan struct{}
+	// blobs holds every live run's pictures by hash (blobs.go).
+	blobs *blobStore
 }
 
 // New is a server over the agent.
 func New(a *agent.Agent, opts Options) *Server {
-	s := &Server{agent: a, opts: opts}
+	s := &Server{agent: a, opts: opts, blobs: newBlobStore(maxBlobBytesPerSession, opts.SessionTTL, time.Now)}
 	if opts.MaxModelCalls > 0 {
 		s.slots = make(chan struct{}, opts.MaxModelCalls)
 	}
@@ -73,28 +123,30 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("GET "+BasePath+"/health", s.health)
 	mux.HandleFunc("POST "+BasePath+"/sessions", s.start)
 	mux.HandleFunc("POST "+BasePath+"/sessions/{id}/step", s.step)
-	mux.HandleFunc("POST "+BasePath+"/sessions/{id}/prefill", s.prefill)
-	mux.HandleFunc("POST "+BasePath+"/sessions/{id}/review", s.review)
-	mux.HandleFunc("POST "+BasePath+"/sessions/{id}/advance", s.advance)
-	mux.HandleFunc("POST "+BasePath+"/sessions/{id}/pick", s.pick)
 	mux.HandleFunc("POST "+BasePath+"/sessions/{id}/continue", s.continueRun)
 	mux.HandleFunc("GET "+BasePath+"/sessions/{id}/memory", s.memory)
 	mux.HandleFunc("POST "+BasePath+"/sessions/{id}/vet", s.vet)
+	mux.HandleFunc("POST "+BasePath+"/sessions/{id}/locate", s.locate)
+	mux.HandleFunc("POST "+BasePath+"/sessions/{id}/shots", s.shots)
+	mux.HandleFunc("POST "+BasePath+"/sessions/{id}/blobs", s.keepBlobs)
 	mux.HandleFunc("GET "+BasePath+"/sessions/{id}/resume", s.resume)
 	mux.HandleFunc("DELETE "+BasePath+"/sessions/{id}", s.end)
-	return s.cors(logged(mux))
+	return s.cors(logged(compressed(mux)))
 }
 
-// Response is every error body: the raw message and a code that stays the same.
+// Response is every error body: the raw message and a code that stays the same. Missing names the
+// pictures a request referred to that the server no longer holds (code missing_blobs): the extension
+// sends those as bytes.
 type errorBody struct {
-	Error string `json:"error"`
-	Code  string `json:"code"`
+	Error   string   `json:"error"`
+	Code    string   `json:"code"`
+	Missing []string `json:"missing,omitempty"`
 }
 
 func (s *Server) health(w http.ResponseWriter, _ *http.Request) {
 	writeJSON(w, http.StatusOK, map[string]any{
 		"ok": true, "model": s.opts.ModelName, "sessions": s.agent.Sessions(), "hasKey": s.opts.DefaultKey != "",
-		"source": s.opts.Source,
+		"source": s.opts.Source, "blobBytes": s.blobs.bytes(),
 	})
 }
 
@@ -103,17 +155,29 @@ func (s *Server) start(w http.ResponseWriter, r *http.Request) {
 	if !decode(w, r, &start) {
 		return
 	}
-	started, err := s.agent.Start(r.Context(), s.key(r), applicant.Auth{Token: bearerToken(r)}, start)
+	ctx, timing := applicant.WithTiming(r.Context())
+	started, err := s.agent.Start(ctx, s.key(r), applicant.Auth{Token: bearerToken(r)}, start)
+	setServerTiming(w, timing)
 	if err != nil {
 		writeError(w, err)
 		return
 	}
-	writeJSON(w, http.StatusOK, started)
+	writeJSON(w, http.StatusOK, startedBody{Started: started, Transport: offer})
 }
 
 func (s *Server) step(w http.ResponseWriter, r *http.Request) {
 	var obs agent.Observation
 	if !decode(w, r, &obs) {
+		return
+	}
+	id := r.PathValue("id")
+	if !s.agent.Has(id) {
+		writeError(w, agent.ErrNoSession)
+		return
+	}
+	// The pictures the look refers to are put back before the agent sees it; the ones it carries are kept.
+	if missing := s.blobs.resolve(id, observationImages(&obs), true); len(missing) > 0 {
+		writeMissing(w, missing)
 		return
 	}
 	ctx, cancel := context.WithTimeout(r.Context(), stepTimeout)
@@ -123,77 +187,12 @@ func (s *Server) step(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	defer s.release()
-	step, err := s.agent.Step(ctx, r.PathValue("id"), obs)
+	step, err := s.agent.Step(ctx, id, obs)
 	if err != nil {
 		writeError(w, err)
 		return
 	}
 	writeJSON(w, http.StatusOK, step)
-}
-
-func (s *Server) prefill(w http.ResponseWriter, r *http.Request) {
-	var req agent.PrefillRequest
-	if !decode(w, r, &req) {
-		return
-	}
-	ctx, cancel := context.WithTimeout(r.Context(), prefillTimeout)
-	defer cancel()
-	if !s.acquire(ctx) {
-		writeError(w, ctx.Err())
-		return
-	}
-	defer s.release()
-	plan, err := s.agent.Prefill(ctx, r.PathValue("id"), req)
-	if err != nil {
-		writeError(w, err)
-		return
-	}
-	writeJSON(w, http.StatusOK, plan)
-}
-
-func (s *Server) review(w http.ResponseWriter, r *http.Request) {
-	var req agent.ReviewRequest
-	if !decode(w, r, &req) {
-		return
-	}
-	ctx, cancel := context.WithTimeout(r.Context(), vetTimeout)
-	defer cancel()
-	result, err := s.agent.Review(ctx, r.PathValue("id"), req)
-	if err != nil {
-		writeError(w, err)
-		return
-	}
-	writeJSON(w, http.StatusOK, result)
-}
-
-func (s *Server) advance(w http.ResponseWriter, r *http.Request) {
-	var req agent.AdvanceRequest
-	if !decode(w, r, &req) {
-		return
-	}
-	ctx, cancel := context.WithTimeout(r.Context(), vetTimeout)
-	defer cancel()
-	result, err := s.agent.Advance(ctx, r.PathValue("id"), req)
-	if err != nil {
-		writeError(w, err)
-		return
-	}
-	writeJSON(w, http.StatusOK, result)
-}
-
-func (s *Server) pick(w http.ResponseWriter, r *http.Request) {
-	var req agent.PickRequest
-	if !decode(w, r, &req) {
-		return
-	}
-	ctx, cancel := context.WithTimeout(r.Context(), vetTimeout)
-	defer cancel()
-	result, err := s.agent.Pick(ctx, r.PathValue("id"), req)
-	if err != nil {
-		writeError(w, err)
-		return
-	}
-	writeJSON(w, http.StatusOK, result)
 }
 
 func (s *Server) continueRun(w http.ResponseWriter, r *http.Request) {
@@ -202,7 +201,7 @@ func (s *Server) continueRun(w http.ResponseWriter, r *http.Request) {
 		writeError(w, err)
 		return
 	}
-	writeJSON(w, http.StatusOK, continued)
+	writeJSON(w, http.StatusOK, continuedBody{Continued: continued, Transport: offer})
 }
 
 func (s *Server) memory(w http.ResponseWriter, r *http.Request) {
@@ -229,20 +228,107 @@ func (s *Server) vet(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, verdict)
 }
 
+func (s *Server) locate(w http.ResponseWriter, r *http.Request) {
+	var request agent.LocateRequest
+	if !decode(w, r, &request) {
+		return
+	}
+	// A picture taken to find a target is looked at once: it is not kept.
+	if missing := s.blobs.resolve(r.PathValue("id"), []*string{&request.Screenshot}, false); len(missing) > 0 {
+		writeMissing(w, missing)
+		return
+	}
+	ctx, cancel := context.WithTimeout(r.Context(), locateTimeout)
+	defer cancel()
+	found, err := s.agent.Locate(ctx, r.PathValue("id"), request)
+	if err != nil {
+		writeError(w, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, found)
+}
+
+func (s *Server) shots(w http.ResponseWriter, r *http.Request) {
+	var upload agent.ShotUpload
+	if !decode(w, r, &upload) {
+		return
+	}
+	id := r.PathValue("id")
+	if !s.agent.Has(id) {
+		writeError(w, agent.ErrNoSession)
+		return
+	}
+	// The picture is kept: the look after the batch refers to it instead of sending it again.
+	if missing := s.blobs.resolve(id, []*string{&upload.Screenshot}, true); len(missing) > 0 {
+		writeMissing(w, missing)
+		return
+	}
+	if err := s.agent.ReceiveShot(r.Context(), id, upload); err != nil {
+		writeError(w, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"ok": true, "hash": blobHash(upload.Screenshot)})
+}
+
+// keepBlobs takes pictures ahead of the look that will refer to them (a survey's screens, sent as each is
+// taken while the page is still being scrolled), and answers with their hashes.
+func (s *Server) keepBlobs(w http.ResponseWriter, r *http.Request) {
+	var upload blobsUpload
+	if !decode(w, r, &upload) {
+		return
+	}
+	id := r.PathValue("id")
+	if !s.agent.Has(id) {
+		writeError(w, agent.ErrNoSession)
+		return
+	}
+	if len(upload.Images) == 0 || len(upload.Images) > maxBlobsPerUpload {
+		writeJSON(w, http.StatusBadRequest, errorBody{Error: fmt.Sprintf("send 1 to %d pictures", maxBlobsPerUpload), Code: "bad_observation"})
+		return
+	}
+	kept := blobsKept{Hashes: make([]string, len(upload.Images))}
+	for i, image := range upload.Images {
+		if isBlobRef(image) || !strings.HasPrefix(image, "data:") {
+			writeJSON(w, http.StatusBadRequest, errorBody{Error: fmt.Sprintf("picture %d is not a data URL", i+1), Code: "bad_observation"})
+			return
+		}
+		kept.Hashes[i] = s.blobs.put(id, image)
+	}
+	writeJSON(w, http.StatusOK, kept)
+}
+
+// writeMissing answers a request that referred to pictures the server does not hold.
+func writeMissing(w http.ResponseWriter, missing []string) {
+	writeJSON(w, http.StatusUnprocessableEntity, errorBody{
+		Error:   fmt.Sprintf("%d of the pictures referred to are not held; send them as bytes", len(missing)),
+		Code:    codeMissingBlobs,
+		Missing: missing,
+	})
+}
+
 func (s *Server) resume(w http.ResponseWriter, r *http.Request) {
-	info, data, err := s.agent.ResumeFile(r.Context(), r.PathValue("id"), r.URL.Query().Get("id"))
+	ctx, timing := applicant.WithTiming(r.Context())
+	info, data, err := s.agent.ResumeFile(ctx, r.PathValue("id"), r.URL.Query().Get("id"))
+	setServerTiming(w, timing)
 	if err != nil {
 		writeError(w, err)
 		return
 	}
 	w.Header().Set("Content-Type", info.ContentType)
 	w.Header().Set("X-File-Name", info.FileName)
-	w.Header().Set("Access-Control-Expose-Headers", "X-File-Name")
 	_, _ = w.Write(data)
+}
+
+// setServerTiming tells the caller what the backend calls under this request cost.
+func setServerTiming(w http.ResponseWriter, timing *applicant.Timing) {
+	if value := timing.ServerTiming(); value != "" {
+		w.Header().Set(applicant.ServerTimingHeader, value)
+	}
 }
 
 func (s *Server) end(w http.ResponseWriter, r *http.Request) {
 	s.agent.End(r.PathValue("id"))
+	s.blobs.forget(r.PathValue("id"))
 	w.WriteHeader(http.StatusNoContent)
 }
 
@@ -281,11 +367,22 @@ func (s *Server) release() {
 	}
 }
 
-// decode reads the JSON body, bounded. It answers the error itself and reports false.
+// decode reads the JSON body, bounded, unpacking it when it came gzipped (Content-Encoding). It answers
+// the error itself and reports false.
 func decode(w http.ResponseWriter, r *http.Request, into any) bool {
 	body := http.MaxBytesReader(w, r.Body, maxBodyBytes)
 	defer func() { _, _ = io.Copy(io.Discard, body) }()
-	if err := json.NewDecoder(body).Decode(into); err != nil {
+	var reader io.Reader = body
+	if strings.EqualFold(strings.TrimSpace(r.Header.Get("Content-Encoding")), gzipEncoding) {
+		unpacked, err := gzip.NewReader(body)
+		if err != nil {
+			writeJSON(w, http.StatusBadRequest, errorBody{Error: "the request is not gzip: " + err.Error(), Code: "bad_json"})
+			return false
+		}
+		defer unpacked.Close()
+		reader = http.MaxBytesReader(w, unpacked, maxInflatedBytes)
+	}
+	if err := json.NewDecoder(reader).Decode(into); err != nil {
 		writeJSON(w, http.StatusBadRequest, errorBody{Error: "the request is not valid JSON: " + err.Error(), Code: "bad_json"})
 		return false
 	}
@@ -296,7 +393,7 @@ func writeJSON(w http.ResponseWriter, status int, body any) {
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(status)
 	if err := json.NewEncoder(w).Encode(body); err != nil {
-		slog.Warn("write response", "error", err)
+		slog.Warn("Could not finish writing an answer to the extension.", plainlog.ErrorKey, err)
 	}
 }
 
@@ -310,13 +407,6 @@ func writeError(w http.ResponseWriter, err error) {
 		status, code = http.StatusConflict, "run_over"
 	case errors.Is(err, agent.ErrBadObservation):
 		status, code = http.StatusBadRequest, "bad_observation"
-	case errors.Is(err, agent.ErrBadPrefill):
-		status, code = http.StatusBadRequest, "bad_prefill"
-	case errors.Is(err, agent.ErrPrefillBusy):
-		status, code = http.StatusConflict, "prefill_busy"
-	case errors.Is(err, agent.ErrPrefillOff), errors.Is(err, agent.ErrPrefillLimit),
-		errors.Is(err, agent.ErrReviewLimit), errors.Is(err, agent.ErrAdvanceLimit), errors.Is(err, agent.ErrPickLimit):
-		status, code = http.StatusConflict, "prefill_unavailable"
 	case errors.Is(err, applicant.ErrSignedOut):
 		status, code = http.StatusUnauthorized, "signed_out"
 	case errors.Is(err, applicant.ErrBackend):
@@ -340,7 +430,7 @@ func writeError(w http.ResponseWriter, err error) {
 		code = "error"
 	}
 	if status >= http.StatusInternalServerError {
-		slog.Error("request failed", "code", code, "error", err)
+		slog.Error("A request to the agent failed ("+code+").", plainlog.ErrorKey, err)
 	}
 	writeJSON(w, status, errorBody{Error: err.Error(), Code: code})
 }
@@ -351,8 +441,10 @@ func (s *Server) cors(next http.Handler) http.Handler {
 		if origin := r.Header.Get("Origin"); s.allowed(origin) {
 			w.Header().Set("Access-Control-Allow-Origin", origin)
 			w.Header().Set("Vary", "Origin")
-			w.Header().Set("Access-Control-Allow-Headers", "Content-Type, Authorization, "+KeyHeader)
+			w.Header().Set("Access-Control-Allow-Headers", "Content-Type, Content-Encoding, Authorization, "+KeyHeader)
 			w.Header().Set("Access-Control-Allow-Methods", "GET, POST, DELETE, OPTIONS")
+			w.Header().Set("Access-Control-Max-Age", preflightMaxAge)
+			w.Header().Set("Access-Control-Expose-Headers", strings.Join([]string{"X-File-Name", HandlerMsHeader, ServerTimeHeader, applicant.ServerTimingHeader}, ", "))
 		}
 		if r.Method == http.MethodOptions {
 			w.WriteHeader(http.StatusNoContent)
@@ -377,13 +469,16 @@ func (s *Server) allowed(origin string) bool {
 	return false
 }
 
-// logged records each request's method, path, status and time, and nothing of its body.
+// logged records each request's method, path, status and time, and nothing of its body. It also
+// tells the caller how long the server spent (HandlerMsHeader) and what its clock read
+// (ServerTimeHeader, unix milliseconds), so a slow call can be split into the server's time and the
+// network's, and a skew between the two clocks can be seen.
 func logged(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		started := time.Now()
 		recorder := &statusRecorder{ResponseWriter: w, status: http.StatusOK, started: started}
 		next.ServeHTTP(recorder, r)
-		slog.Debug("request", "method", r.Method, "path", r.URL.Path, "status", recorder.status, "ms", time.Since(started).Milliseconds())
+		slog.Debug(fmt.Sprintf("%s %s answered %d in %s.", r.Method, r.URL.Path, recorder.status, plainlog.Seconds(time.Since(started))))
 	})
 }
 
@@ -391,30 +486,103 @@ type statusRecorder struct {
 	http.ResponseWriter
 	status  int
 	started time.Time
-	wrote   bool
+	sent    bool
 }
 
-// serverTimingHeader and exposedHeaders let the extension read how long the server itself took, so a slow
-// request can be told apart into the server's part and everything else (the browser, the connection).
-const (
-	serverTimingHeader = "Server-Timing"
-	exposedHeaders     = "Access-Control-Expose-Headers"
-)
+// stamp writes the timing headers once, before the first byte of the answer.
+func (r *statusRecorder) stamp() {
+	if r.sent {
+		return
+	}
+	r.sent = true
+	now := time.Now()
+	r.Header().Set(HandlerMsHeader, strconv.FormatInt(now.Sub(r.started).Milliseconds(), 10))
+	r.Header().Set(ServerTimeHeader, strconv.FormatInt(now.UnixMilli(), 10))
+}
 
 func (r *statusRecorder) WriteHeader(status int) {
-	if !r.wrote {
-		r.wrote = true
-		r.ResponseWriter.Header().Set(serverTimingHeader, fmt.Sprintf("handler;dur=%d", time.Since(r.started).Milliseconds()))
-		r.ResponseWriter.Header().Set(exposedHeaders, serverTimingHeader)
-	}
 	r.status = status
+	r.stamp()
 	r.ResponseWriter.WriteHeader(status)
 }
 
-// Write sends the status first when the handler did not, so the timing header is always set.
-func (r *statusRecorder) Write(body []byte) (int, error) {
-	if !r.wrote {
-		r.WriteHeader(http.StatusOK)
+func (r *statusRecorder) Write(data []byte) (int, error) {
+	r.stamp()
+	return r.ResponseWriter.Write(data)
+}
+
+// compressed gzips a JSON answer when the caller accepts it (Accept-Encoding), and says how long it is.
+// Only JSON: a résumé file is already packed, and a short answer is left as it is.
+func compressed(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if !strings.Contains(r.Header.Get("Accept-Encoding"), gzipEncoding) {
+			next.ServeHTTP(w, r)
+			return
+		}
+		packer := &gzipWriter{ResponseWriter: w, status: http.StatusOK}
+		next.ServeHTTP(packer, r)
+		packer.finish()
+	})
+}
+
+// gzipWriter holds a JSON answer back until the handler is done, then sends it packed. Anything that is
+// not JSON goes straight through.
+type gzipWriter struct {
+	http.ResponseWriter
+	status  int
+	decided bool
+	packing bool
+	body    bytes.Buffer
+}
+
+// decide looks at the answer's type once, at the first header or byte written.
+func (g *gzipWriter) decide() {
+	if g.decided {
+		return
 	}
-	return r.ResponseWriter.Write(body)
+	g.decided = true
+	g.packing = strings.HasPrefix(g.Header().Get("Content-Type"), "application/json")
+	if !g.packing {
+		g.ResponseWriter.WriteHeader(g.status)
+	}
+}
+
+func (g *gzipWriter) WriteHeader(status int) {
+	g.status = status
+	g.decide()
+}
+
+func (g *gzipWriter) Write(data []byte) (int, error) {
+	g.decide()
+	if g.packing {
+		return g.body.Write(data)
+	}
+	return g.ResponseWriter.Write(data)
+}
+
+// finish sends a held answer: packed when it is long enough to gain by it.
+func (g *gzipWriter) finish() {
+	if !g.decided {
+		g.decided = true
+		g.ResponseWriter.WriteHeader(g.status)
+		return
+	}
+	if !g.packing {
+		return
+	}
+	if g.body.Len() < minGzipBytes {
+		g.ResponseWriter.WriteHeader(g.status)
+		_, _ = g.ResponseWriter.Write(g.body.Bytes())
+		return
+	}
+	var packed bytes.Buffer
+	zipper := gzip.NewWriter(&packed)
+	_, _ = zipper.Write(g.body.Bytes())
+	_ = zipper.Close()
+	header := g.Header()
+	header.Set("Content-Encoding", gzipEncoding)
+	header.Add("Vary", "Accept-Encoding")
+	header.Set("Content-Length", strconv.Itoa(packed.Len()))
+	g.ResponseWriter.WriteHeader(g.status)
+	_, _ = g.ResponseWriter.Write(packed.Bytes())
 }

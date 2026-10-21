@@ -158,23 +158,125 @@ export interface MailSearch {
   detail?: string;
 }
 
-/** What one way of working has done in a run. The two ways are the DOM pass and the screenshot agent. */
-export interface RunEngineStats {
-  /** DOM: passes made. Image: steps taken. */
-  rounds: number;
-  /** Model calls, and what they cost in US dollars. */
-  calls: number;
-  costUsd: number;
-  /** Time spent: typing for the DOM pass, waiting on the model for the image agent. */
-  ms: number;
-  /** DOM only: reviews of a page after the first draft, and controls pressed to go on without the model. */
-  reviews?: number;
-  advances?: number;
-  /** DOM only: fields typed that showed the answer, and fields that did not. */
-  filled?: number;
-  failed?: number;
-  /** The engine is working right now. */
-  active?: boolean;
+/** What an agent Run is doing, as the sidebar's map of the page says it. */
+export const RUN_MAP_PHASE = {
+  /** The tab is open; the first look has not been taken. */
+  starting: "starting",
+  /** A screenshot, or a survey of the whole page, is being taken. */
+  looking: "looking",
+  /** The look is with the model. */
+  thinking: "thinking",
+  /** The plan is being carried out. */
+  acting: "acting",
+  /** The run waits on the person: a question, a code, a CAPTCHA. */
+  waiting: "waiting",
+  ended: "ended",
+} as const;
+export type RunMapPhase = (typeof RUN_MAP_PHASE)[keyof typeof RUN_MAP_PHASE];
+
+/** What became of one point of the plan being carried out. */
+export const RUN_POINT_STATE = {
+  pending: "pending",
+  /** The one being acted on now. */
+  current: "current",
+  done: "done",
+  failed: "failed",
+  /** Not run: an action before it failed. */
+  skipped: "skipped",
+} as const;
+export type RunPointState = (typeof RUN_POINT_STATE)[keyof typeof RUN_POINT_STATE];
+
+/**
+ * A control of the page as the page reports it (an input, a dropdown, a button, a check, a file field), CSS
+ * pixels from the page's top left, and what the page says of it. `id` is the page's own name for the control,
+ * the same while it stays. Radio buttons, and check boxes that share a name, answer one question: they share
+ * `group`, and `question` is what the page calls that question. `value` is what the control shows now (a
+ * typed answer, a chosen option, a file's name) for the person to read in the sidebar: never a password or
+ * a secret the run typed, and left out of the progress relayed to acorn-backend.
+ */
+export interface RunMapControl {
+  id: string;
+  kind: string;
+  x: number;
+  y: number;
+  w: number;
+  h: number;
+  label?: string;
+  group?: string;
+  question?: string;
+  required?: boolean;
+  /** A text box, a text area or a native list says whether it is empty; left out when the page cannot tell. */
+  empty?: boolean;
+  /** A check or a radio button says whether it is ticked. */
+  checked?: boolean;
+  invalid?: boolean;
+  value?: string;
+}
+
+/** A point of the plan: where it aims on the page (CSS pixels) and what became of it. */
+export interface RunMapPoint {
+  id: string;
+  kind: string;
+  x: number;
+  y: number;
+  state: RunPointState;
+  /** The point was acted on somewhere else than it was planned: it followed its control, or was found again by its picture. */
+  moved?: boolean;
+  /** The control the point acts on, by its id: the one the plan bound it to, else the one it lands on. */
+  control?: string;
+}
+
+/** A screen of the last survey (CSS pixels): photographed for it, or reused from an earlier look. */
+export interface RunMapScreen {
+  top: number;
+  height: number;
+  reused: boolean;
+}
+
+/** A move of the form since the agent last saw the page (CSS pixels): what lay between `from` and `at` appeared or went, and what lies below moved by `dy`. */
+export interface RunMapMove {
+  from: number;
+  at: number;
+  dy: number;
+}
+
+/**
+ * The page an agent Run is on, for the sidebar's map of it: how large it is, where the window is, the
+ * parts the model settled (will not come back to), the page's controls, the points of the plan and what
+ * became of each, the screens of the last survey and where the form moved; all in CSS pixels from the top
+ * left of the page. A run has one from the moment it has a page, and keeps it when it ends.
+ */
+export interface RunMap {
+  phase: RunMapPhase;
+  pageWidth: number;
+  pageHeight: number;
+  viewTop: number;
+  viewHeight: number;
+  settled: { from: number; to: number }[];
+  /** How far down the page the plan being carried out first acts: nothing above it changes. Unset until a plan. */
+  fence?: number;
+  controls: RunMapControl[];
+  points: RunMapPoint[];
+  screens: RunMapScreen[];
+  moves: RunMapMove[];
+}
+
+/**
+ * Whether a value is a map of this build's shape: one that was made by another build (a tab's run state
+ * kept in the browser outlives the code that wrote it) is not, and is shown as no map rather than read.
+ */
+export function isRunMap(value: unknown): value is RunMap {
+  if (!value || typeof value !== "object") return false;
+  const map = value as Partial<RunMap>;
+  return (
+    typeof map.phase === "string" &&
+    [map.pageWidth, map.pageHeight, map.viewTop, map.viewHeight].every(
+      (n) => typeof n === "number" && Number.isFinite(n),
+    ) &&
+    [map.settled, map.controls, map.points, map.screens, map.moves].every(Array.isArray) &&
+    // Controls named by the page (1.97.0): an older map's controls were boxes alone.
+    (map.controls ?? []).every((control) => typeof control?.id === "string")
+  );
 }
 
 export interface RunProgress {
@@ -200,10 +302,8 @@ export interface RunProgress {
   costUsd?: number;
   modelCalls?: number;
   screenChecks?: number;
-  /** An agent Run: what the DOM quick pass did (its calls, cost and time), shown beside the image agent's. */
-  dom?: RunEngineStats;
-  /** An agent Run: what the screenshot agent did, and the model time its steps took. */
-  image?: RunEngineStats;
+  /** An agent Run: the map of the page it is on. Unset until the run has a page. */
+  map?: RunMap;
   /** An agent Run waiting on the person: the question and the answers they may give. */
   ask?: { id: string; question: string; options: { id: string; label: string }[] };
   /** An agent Run reading Gmail for a code or link: the emails read, and which one was used. */

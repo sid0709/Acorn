@@ -3,10 +3,11 @@ import {
   reconnectAcornSocketNow,
   scheduleConnectAcornSocket,
 } from "./acorn-socket";
+import { flushCompletedRuns } from "./agent/completed-run-sync";
 import { rekeyKeptRun } from "./agent/kept-run";
-import { bindAutoFocusSetting } from "./background/auto-focus";
 import { routeMessage } from "./background/message-router";
 import { endKeptRunOfTab } from "./background/messages/run";
+import { bindRunTabGrouping } from "./background/run-group";
 import { connectSocket, sidebarPorts, socketHandlers } from "./background/socket-connection";
 import {
   KEEP_ALIVE_ALARM,
@@ -28,6 +29,7 @@ import {
   tabsWithRunContext,
 } from "./tab-log-session";
 import { clearTabPipeline, rekeyTabPipeline } from "./tab-pipeline-session";
+import { clearTabRunShots, rekeyTabRunShots } from "./tab-run-shots";
 import { rekeyUsageTab } from "./tab-usage-key";
 import { MSG, ACORN_SIDEBAR_PORT } from "./types";
 
@@ -87,11 +89,13 @@ chrome.runtime.onConnect.addListener((port) => {
 });
 
 void connectSocket().catch(() => undefined);
+// Completed runs a past session could not send (offline, signed out, the backend down).
+void flushCompletedRuns().catch(() => undefined);
 // Back online: dial now instead of waiting out socket.io's backoff.
 self.addEventListener("online", () => reconnectAcornSocketNow(socketHandlers));
 enableSidePanelOnActionClick();
 bindContentScriptInjection();
-bindAutoFocusSetting();
+bindRunTabGrouping();
 void injectIntoOpenTabs();
 // Logs of tabs a past browser session closed with, and the log's old session-storage copy.
 void chrome.tabs
@@ -104,6 +108,7 @@ chrome.runtime.onInstalled.addListener(enableSidePanelOnActionClick);
 chrome.tabs.onRemoved.addListener((tabId) => {
   void endKeptRunOfTab(tabId);
   void clearTabPipeline(tabId);
+  void clearTabRunShots(tabId);
   void clearTabLog(tabId);
 });
 
@@ -117,12 +122,14 @@ chrome.tabs.onReplaced.addListener((addedTabId, removedTabId) => {
   void moveTabLog(removedTabId, addedTabId).catch(() => undefined);
   void rekeyUsageTab(removedTabId, addedTabId);
   void rekeyTabPipeline(removedTabId, addedTabId);
+  void rekeyTabRunShots(removedTabId, addedTabId);
   void rekeyKeptRun(removedTabId, addedTabId);
 });
 
 chrome.storage.onChanged.addListener((changes) => {
   if (changes.acornApiUrl || changes.acornSession) {
     scheduleConnectAcornSocket(socketHandlers);
+    void flushCompletedRuns().catch(() => undefined);
   }
 });
 

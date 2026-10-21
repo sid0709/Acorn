@@ -4,6 +4,7 @@ import {
   isAcornSocketConnected,
   type AcornSocketHandlers,
 } from "../acorn-socket";
+import { relayedProgress } from "../agent/page-map";
 import { queueTabPipeline } from "../tab-pipeline-session";
 import { MSG } from "../types";
 
@@ -16,7 +17,8 @@ export const sidebarPorts = new Set<chrome.runtime.Port>();
 const connectionNotice = createConnectionNotice();
 
 export function broadcastPipelineProgress(tabId: number, progress: PipelineProgress): void {
-  getAcornSocket()?.emit("pipeline:progress", { tabId, progress });
+  // The socket's copy goes through acorn-backend: what the page's fields show stays in the browser.
+  getAcornSocket()?.emit("pipeline:progress", { tabId, progress: relayedProgress(progress) });
   void queueTabPipeline(tabId, progress);
   chrome.runtime.sendMessage({ type: MSG.PIPELINE_PROGRESS, tabId, progress }, () => {
     void chrome.runtime.lastError;

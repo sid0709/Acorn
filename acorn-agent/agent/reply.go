@@ -7,65 +7,6 @@ import (
 	"strings"
 )
 
-// replySchemaName and replySchema are the shape the model must answer in. Every property
-// is present on every answer (the provider's strict mode needs that); the ones an action
-// does not use are null. Observation comes first so the model reads the screen before it
-// decides, and memo is its own scratchpad: the one thing carried from step to step. It is
-// null when the notes did not change, so the model does not write them out again. An
-// action's check is what the screen should show once that action has run, null where the
-// model must look for itself.
-const replySchemaName = "agent_step"
-
-var replySchema = json.RawMessage(`{
-  "type": "object",
-  "additionalProperties": false,
-  "required": ["observation", "memo", "job", "status", "message", "stop", "actions"],
-  "properties": {
-    "observation": {"type": "string"},
-    "memo": {"type": ["string", "null"]},
-    "job": {"type": ["string", "null"]},
-    "status": {"type": "string", "enum": ["working", "done", "need_person", "stuck"]},
-    "message": {"type": "string"},
-    "stop": {
-      "anyOf": [
-        {"type": "null"},
-        {
-          "type": "object",
-          "additionalProperties": false,
-          "required": ["reason", "problem", "action"],
-          "properties": {
-            "reason": {"type": "string", "enum": ["captcha", "verification", "verification_link", "identity", "document", "sign_in", "account_rejected", "page_problem", "other"]},
-            "problem": {"type": "string"},
-            "action": {"type": "string"}
-          }
-        }
-      ]
-    },
-    "actions": {
-      "type": "array",
-      "items": {
-        "type": "object",
-        "additionalProperties": false,
-        "required": ["kind", "screen", "x", "y", "text", "secret", "keys", "dx", "dy", "ms", "resume", "check"],
-        "properties": {
-          "kind": {"type": "string", "enum": ["click", "double_click", "triple_click", "right_click", "hover", "type", "key", "scroll", "upload", "choose", "wait", "reload", "survey"]},
-          "screen": {"type": ["integer", "null"]},
-          "x": {"type": ["number", "null"]},
-          "y": {"type": ["number", "null"]},
-          "text": {"type": ["string", "null"]},
-          "secret": {"type": ["boolean", "null"]},
-          "keys": {"type": ["string", "null"]},
-          "dx": {"type": ["number", "null"]},
-          "dy": {"type": ["number", "null"]},
-          "ms": {"type": ["integer", "null"]},
-          "resume": {"type": ["string", "null"]},
-          "check": {"type": ["string", "null"]}
-        }
-      }
-    }
-  }
-}`)
-
 // reply is the model's answer as it arrives.
 type reply struct {
 	Observation string        `json:"observation"`
@@ -74,6 +15,7 @@ type reply struct {
 	Status      string        `json:"status"`
 	Message     string        `json:"message"`
 	Stop        *StopInfo     `json:"stop"`
+	Settled     []int         `json:"settled"`
 	Actions     []modelAction `json:"actions"`
 }
 
@@ -90,6 +32,8 @@ type modelAction struct {
 	Ms     *int     `json:"ms"`
 	Resume *string  `json:"resume"`
 	Check  *string  `json:"check"`
+	Label  *string  `json:"label"`
+	Commit *bool    `json:"commit"`
 }
 
 // parseReply reads the model's JSON answer. It reads the first JSON object and ignores what
@@ -124,6 +68,7 @@ const (
 	maxWaitMs      = 10_000
 	maxScrollPages = 3
 	maxCheckChars  = 300
+	maxLabelChars  = 80
 )
 
 // checkActions turns the model's actions into ones the extension can run, and says why
@@ -147,9 +92,22 @@ func checkActions(step int, raw []modelAction, vp Viewport, maxActions int, scre
 		if in.Check != nil {
 			action.Check = clipText(strings.TrimSpace(*in.Check), maxCheckChars)
 		}
+		if in.Label != nil {
+			action.Label = clipText(strings.TrimSpace(*in.Label), maxLabelChars)
+		}
+		action.Commit = in.Commit != nil && *in.Commit && isClick(in.Kind)
 		valid = append(valid, action)
 	}
 	return valid, dropped
+}
+
+// isClick is whether a kind of action is a press of the mouse button.
+func isClick(kind string) bool {
+	switch kind {
+	case KindClick, KindDoubleClick, KindTripleClick, KindRightClick:
+		return true
+	}
+	return false
 }
 
 // placeOnScreen sets where the page must be scrolled for an action whose point the model
@@ -176,6 +134,7 @@ func placeOnScreen(action *Action, in modelAction, vp Viewport, screens []float6
 	}
 	scroll := screens[screen-1]
 	action.ScrollTo, action.PageHeight = &scroll, vp.PageHeight
+	action.Zone = screen
 	return ""
 }
 
@@ -244,8 +203,6 @@ func fill(out *Action, in modelAction, vp Viewport) string {
 		out.X, out.Y = &x, &y
 	case KindSurvey:
 		// Nothing to carry: the step asks the extension for a survey on its next look.
-	case KindReload:
-		// Nothing to carry: the extension reloads the page it is in.
 	case KindWait:
 		ms := 1000
 		if in.Ms != nil {

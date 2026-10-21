@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/sid0709/acorn/acorn-backend/jev"
+	"github.com/sid0709/acorn/acorn-backend/plainlog"
 )
 
 // The applicant has not allowed online file sources (a cloud drive, a file-sharing service, a
@@ -35,9 +36,6 @@ const (
 	VetControl = "control"
 	VetWindow  = "window"
 	VetFrame   = "frame"
-	// The probabilities of an online source at which a target is blocked, when the config gives none.
-	defaultVetBlock      = 0.3
-	defaultVetClickBlock = 0.6
 	// maxVetText bounds each piece of a description.
 	maxVetText = 240
 )
@@ -161,20 +159,11 @@ func (a *Agent) signOnBlockAbove() float64 {
 	return 0.5
 }
 
-// vetBlockAbove is the probability of an online source at which a target is blocked: a control about to
-// be clicked is blocked less readily than a window or frame that a click already opened, since the
-// latter guard closes whatever a doubtful click brings up.
-func (a *Agent) vetBlockAbove(kind string) float64 {
-	if kind == VetControl {
-		if a.cfg.VetClickBlock > 0 {
-			return a.cfg.VetClickBlock
-		}
-		return defaultVetClickBlock
-	}
+func (a *Agent) vetBlockAbove() float64 {
 	if a.cfg.VetBlock > 0 {
 		return a.cfg.VetBlock
 	}
-	return defaultVetBlock
+	return 0.3
 }
 
 // Vet judges something the extension is about to click, or has just had opened.
@@ -209,7 +198,7 @@ func (a *Agent) Vet(ctx context.Context, id string, target VetTarget) (VetVerdic
 		failed = "the decision model gave no answer"
 	default:
 		verdict.Probability = *answer.Noul
-		if verdict.Probability >= a.vetBlockAbove(target.Kind) {
+		if verdict.Probability >= a.vetBlockAbove() {
 			verdict.Blocked, verdict.Cause = true, CauseOnlineSource
 		}
 	}
@@ -232,7 +221,7 @@ func (a *Agent) Vet(ctx context.Context, id string, target VetTarget) (VetVerdic
 			verdict.Cause = CauseOnlineSource
 		}
 		verdict.Reason = "could not be checked"
-		slog.Warn("vet failed", "session", s.id, "kind", target.Kind, "blocked", verdict.Blocked, "error", failed)
+		slog.Warn(runName(s.id)+": could not check a "+target.Kind+" for online file sources"+vetOutcome(verdict.Blocked)+".", plainlog.ErrorKey, failed)
 	}
 	if verdict.Blocked && verdict.Reason == "" {
 		verdict.Reason = "it looks like an online file source or a place to paste text"
@@ -269,7 +258,7 @@ func (a *Agent) recordVet(sessionID string, line vetLine) {
 	}
 	dir, err := a.trace.folder(sessionID)
 	if err != nil {
-		slog.Warn("vet not written", "session", sessionID, "error", err)
+		slog.Warn(runName(sessionID)+": the record of a file-source check could not be saved.", plainlog.ErrorKey, err)
 		return
 	}
 	raw, err := json.Marshal(line)
@@ -277,6 +266,6 @@ func (a *Agent) recordVet(sessionID string, line vetLine) {
 		err = appendLine(filepath.Join(dir, "vets.jsonl"), string(raw))
 	}
 	if err != nil {
-		slog.Warn("vet not written", "session", sessionID, "error", err)
+		slog.Warn(runName(sessionID)+": the record of a file-source check could not be saved.", plainlog.ErrorKey, err)
 	}
 }

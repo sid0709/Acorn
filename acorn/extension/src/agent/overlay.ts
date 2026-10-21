@@ -35,6 +35,11 @@ const CURSOR_ARRIVE_MAX_MS = 900;
 const CLICK_PRESS_MS = 140;
 /** How long the overlay takes to fade back in after a screenshot. */
 const CAPTURE_FADE_IN_MS = 180;
+/**
+ * The cursor's three layers, of which one contrasts with any page (above): a white halo, a very dark brown
+ * edge, and the amber body. The field spotlight (`field-spotlight.ts`) draws its ring in them too.
+ */
+export const PAGE_INK = { halo: "#ffffff", edge: "#3b1500", body: "#ffb52e" } as const;
 
 /** The cursor's drawn size (CSS px), and the square its artwork is drawn in (viewBox units). */
 const CURSOR_SIZE_PX = 44;
@@ -234,7 +239,7 @@ export const OVERLAY_SCRIPT = `(() => {
   const acornGrad = svgNode("linearGradient", { id: "acornGrad", x1: "0%", y1: "0%", x2: "100%", y2: "100%" });
   acornGrad.append(
     svgNode("stop", { offset: "0%", "stop-color": "#ffc23d" }),
-    svgNode("stop", { offset: "35%", "stop-color": "#ffb52e" }),
+    svgNode("stop", { offset: "35%", "stop-color": "${PAGE_INK.body}" }),
     svgNode("stop", { offset: "85%", "stop-color": "#ff8a00" }),
     svgNode("stop", { offset: "100%", "stop-color": "#ff6a00" }),
   );
@@ -250,8 +255,8 @@ export const OVERLAY_SCRIPT = `(() => {
   const ring = (className, color, width) => svgNode("path", {
     class: className, d: OUTLINE, fill: color, stroke: color, "stroke-width": width, "stroke-linejoin": "round",
   });
-  const halo = ring("halo", "#ffffff", "21");
-  const edge = ring("edge", "#3b1500", "${CURSOR_EDGE_STROKE}");
+  const halo = ring("halo", "${PAGE_INK.halo}", "21");
+  const edge = ring("edge", "${PAGE_INK.edge}", "${CURSOR_EDGE_STROKE}");
   const body = svgNode("path", {
     class: "body",
     d: OUTLINE,
@@ -265,7 +270,7 @@ export const OVERLAY_SCRIPT = `(() => {
   const swoosh = svgNode("path", {
     class: "swoosh",
     d: "M 39 63 C 44 51, 56 51, 61 63",
-    stroke: "#3b1500",
+    stroke: "${PAGE_INK.edge}",
     "stroke-width": "6.5",
     "stroke-linecap": "round",
   });

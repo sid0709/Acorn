@@ -28,7 +28,6 @@ import {
   MAX_ATTACHMENTS,
   MESSAGE_KIND,
   SUPPORT_NAME,
-  type AttachmentSize,
   type ClaimAuthor,
   type MessageDraft,
   type SupportAttachment,
@@ -52,7 +51,6 @@ export function ClaimThread({
   viewer,
   onSend,
   attachmentSrc,
-  onOpenAttachments,
   density = "balanced",
   placeholder,
   emptyState,
@@ -63,10 +61,8 @@ export function ClaimThread({
   viewer: ClaimAuthor;
   /** Sends one message; reject to keep the draft and show the error. */
   onSend: (draft: MessageDraft) => Promise<void>;
-  /** Where a copy of an attached image loads from; undefined while it is still on its way. */
-  attachmentSrc: (attachment: SupportAttachment, size: AttachmentSize) => string | undefined;
-  /** An image was opened full size: load the originals of these if they are not at hand. */
-  onOpenAttachments?: (attachments: SupportAttachment[]) => void;
+  /** Where an attached image loads from; undefined while it is still on its way. */
+  attachmentSrc: (attachment: SupportAttachment) => string | undefined;
   density?: ChatDensity;
   placeholder?: string;
   emptyState?: ReactNode;
@@ -129,11 +125,7 @@ export function ClaimThread({
           </HStack>
         ) : null}
         {message.attachments?.length ? (
-          <MessageAttachments
-            attachments={message.attachments}
-            srcFor={attachmentSrc}
-            onOpen={onOpenAttachments}
-          />
+          <MessageAttachments attachments={message.attachments} srcFor={attachmentSrc} />
         ) : null}
         {message.body || null}
       </Stack>

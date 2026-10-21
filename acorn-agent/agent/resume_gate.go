@@ -9,6 +9,7 @@ import (
 
 	"github.com/sid0709/acorn/acorn-agent/applicant"
 	"github.com/sid0709/acorn/acorn-backend/jev"
+	"github.com/sid0709/acorn/acorn-backend/plainlog"
 )
 
 // The résumé is chosen from the whole job description, read as text. A screenshot may never show
@@ -90,7 +91,7 @@ func (a *Agent) learnJD(ctx context.Context, s *session, obs Observation) {
 	s.usage.Cost += res.Usage.Cost
 	answer, ok := res.Answers[askJobDescription]
 	if err != nil || !ok || answer.Noul == nil {
-		slog.Warn("job description check failed", "session", s.id, "error", err)
+		slog.Warn(runName(s.id)+": could not tell whether the page holds a job description.", plainlog.ErrorKey, err)
 		return
 	}
 	if *answer.Noul < jdAbove {

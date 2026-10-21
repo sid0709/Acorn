@@ -72,10 +72,6 @@ func TestServeEventsStreamsReadyThenPublishedClaimChanges(t *testing.T) {
 		!strings.Contains(data, `"id":"c1"`) {
 		t.Fatalf("event %q data %s", name, data)
 	}
-	// Every event is stamped with the send time, so each side can measure how long it took.
-	if !strings.Contains(data, `"`+eventSentAt+`":`) {
-		t.Fatalf("event has no %s: %s", eventSentAt, data)
-	}
 
 	s.publishStaffClaim(claim)
 	if name, _ := readEvent(t, lines); name != gateway.SupportClaimEvent {

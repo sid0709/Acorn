@@ -9,6 +9,7 @@ import (
 // memory. The website reads them on every Résumé visit and the extension around
 // every fill; a write through this process clears the account's copy at once, and
 // one made elsewhere (a support session on another process) is seen within the TTL.
+// A collection can be kept until a write instead (keepUntilChanged), as the Library is.
 const accountReadTTL = 30 * time.Second
 
 type accountRead struct {
@@ -20,6 +21,20 @@ type accountRead struct {
 type accountReads struct {
 	mu   sync.Mutex
 	rows map[string]accountRead
+	// window is how long a collection's reads are served from memory; a collection with an
+	// entry here uses it instead of accountReadTTL, and zero means until a write clears it.
+	window map[string]time.Duration
+}
+
+// keepFor sets how long a collection's reads are served from memory; zero keeps them until a
+// write clears them.
+func (c *accountReads) keepFor(collection string, window time.Duration) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	if c.window == nil {
+		c.window = map[string]time.Duration{}
+	}
+	c.window[collection] = window
 }
 
 func readKey(collection, accountID string) string { return collection + "\x00" + accountID }
@@ -28,7 +43,14 @@ func (c *accountReads) get(collection, accountID string) (any, bool) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	row, ok := c.rows[readKey(collection, accountID)]
-	if !ok || time.Since(row.at) >= accountReadTTL {
+	if !ok {
+		return nil, false
+	}
+	window := accountReadTTL
+	if custom, set := c.window[collection]; set {
+		window = custom
+	}
+	if window > 0 && time.Since(row.at) >= window {
 		return nil, false
 	}
 	return row.rows, true

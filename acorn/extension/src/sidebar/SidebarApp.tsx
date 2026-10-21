@@ -17,12 +17,10 @@ import { SidebarHeader } from "./SidebarHeader";
 import { SidebarNav, type AcornMainTab } from "./SidebarNav";
 import { SidebarOverlays } from "./SidebarOverlays";
 import { SignedOutView } from "./SignedOutView";
-import { StatusStrip } from "./StatusStrip";
 import { SupportPanel } from "./SupportPanel";
 import { UpdateDialog } from "./UpdateDialog";
 import { useActiveTabId } from "./use-active-tab";
 import { useAvailableUpdate } from "./use-available-update";
-import { useGmailStatus } from "./use-gmail-status";
 import { useSidebarAuth } from "./use-sidebar-auth";
 import { useSocketStatus } from "./use-socket-status";
 import { useSupportClaims } from "./use-support-claims";
@@ -49,7 +47,6 @@ export default function SidebarApp() {
     onSignedOut: () => setHelpOpen(false),
   });
   const connected = useSocketStatus(session, apiUrl);
-  const gmail = useGmailStatus(session, apiUrl);
   const support = useSupportClaims({
     signedIn: Boolean(session),
     visible: mainTab === "support",
@@ -161,7 +158,9 @@ export default function SidebarApp() {
     }
   };
 
-  const nowCard = <NowCard progress={progress} fillBusy={fillBusy} {...nowActions} />;
+  const nowCard = (
+    <NowCard progress={progress} fillBusy={fillBusy} tabId={activeTabId} {...nowActions} />
+  );
 
   return (
     <div className={`sidebar-app${session ? " signed-in" : ""} tab-${session ? mainTab : "fill"}`}>
@@ -182,7 +181,6 @@ export default function SidebarApp() {
               reportDisabled={reportDisabled}
               onSignOut={() => void handleSignOut()}
             />
-            <StatusStrip gmail={gmail} />
             <SidebarNav
               value={mainTab}
               onChange={setMainTab}
@@ -192,13 +190,7 @@ export default function SidebarApp() {
           </div>
 
           <main className="sidebar-scroll">
-            <JobsPanel
-              mainTab={mainTab}
-              nowCard={nowCard}
-              tabId={activeTabId}
-              signedIn={Boolean(session)}
-              socketConnected={connected}
-            />
+            <JobsPanel mainTab={mainTab} nowCard={nowCard} />
 
             <SupportPanel
               mainTab={mainTab}
@@ -237,7 +229,6 @@ export default function SidebarApp() {
         session={session}
         apiUrl={apiUrl}
         setApiUrl={setApiUrl}
-        gmail={gmail}
       />
     </div>
   );

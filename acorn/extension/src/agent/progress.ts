@@ -18,6 +18,7 @@ import {
   RUN_STAGE,
   type MailSearch,
   type RunFailure,
+  type RunMap,
   type RunProgress,
   type RunReport,
 } from "@acorn/shared/run-types";
@@ -58,8 +59,8 @@ export function agentRunState(input: {
   ask?: AgentAsk;
   /** What the run is reading in Gmail for a code or link, while it does and once it has. */
   mail?: MailSearch;
-  dom?: RunProgress["dom"];
-  image?: RunProgress["image"];
+  /** The page the run is on, for the minimap. */
+  map?: RunMap;
 }): RunProgress {
   return {
     runId: input.runId,
@@ -75,8 +76,7 @@ export function agentRunState(input: {
     screenChecks: input.usage?.checks,
     ask: input.ask,
     mail: input.mail,
-    dom: input.dom,
-    image: input.image,
+    map: input.map,
   };
 }
 

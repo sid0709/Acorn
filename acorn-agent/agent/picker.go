@@ -8,6 +8,7 @@ import (
 	"math"
 
 	"github.com/sid0709/acorn/acorn-agent/decide"
+	"github.com/sid0709/acorn/acorn-backend/plainlog"
 )
 
 // A file button clicked with a plain click opens the browser's file picker. The extension
@@ -105,7 +106,7 @@ func (a *Agent) handlePicker(ctx context.Context, s *session, obs Observation, r
 	if err != nil || answer.Probabilities[fileResume] < a.cfg.CheckMatch {
 		kind := answer.Choice
 		if err != nil {
-			slog.Warn("file picker check failed", "session", s.id, "error", err)
+			slog.Warn(runName(s.id)+": could not tell what the file picker takes, so the model decides.", plainlog.ErrorKey, err)
 			kind = ""
 		}
 		a.record(s, entry, obs.Screenshot, []modelCall{check.call(err)})
@@ -135,7 +136,7 @@ func (a *Agent) handlePicker(ctx context.Context, s *session, obs Observation, r
 	}
 	s.carried = results
 	s.notes = append(s.notes, fmt.Sprintf("Your click at %.0f,%.0f opened a file picker, which you cannot see, so Acorn uploaded %s there for you. Next time use upload.", *click.X, *click.Y, resume.FileName))
-	step := Step{Status: StatusWorking, Message: s.message, Actions: []Action{upload}, Number: s.step, Usage: s.usage}
+	step := Step{Status: StatusWorking, Message: s.message, Actions: []Action{upload}, Number: s.step, Usage: s.usage, Survey: a.surveyNext(s, []Action{upload}, false)}
 	if note != "" {
 		step.Dropped = []string{"note: " + note}
 	}

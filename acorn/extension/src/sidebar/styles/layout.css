@@ -11,12 +11,6 @@
   color: var(--color-text-primary);
 }
 
-/* The always-visible status row under the header: build, DOM pass, Gmail. It wraps on a narrow panel. */
-.acorn-status {
-  flex-wrap: wrap;
-  row-gap: var(--spacing-1);
-}
-
 .acorn-top {
   flex-shrink: 0;
   display: flex;

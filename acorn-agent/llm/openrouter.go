@@ -22,55 +22,17 @@ const (
 	maxErrorText   = 300
 )
 
-// The providers a client can speak to. Both take the same chat request; they differ in how reasoning is
-// asked for, whether the cost comes back, and which fields say who served the call.
-const (
-	ProviderOpenRouter = "openrouter"
-	ProviderOpenAI     = "openai"
-)
-
-// Prices are what a provider charges, in USD per million tokens. They price a call when the provider does
-// not report its cost (OpenAI's own API does not).
-type Prices struct {
-	Input      float64
-	Cached     float64
-	CacheWrite float64
-	Output     float64
-}
-
-// Cost prices a call: tokens read from the cache and tokens written to it are billed at their own rates, the
-// rest of the input at the normal one.
-func (p Prices) Cost(u Usage) float64 {
-	plain := max(0, u.InputTokens-u.CachedTokens-u.CacheWriteTokens)
-	return (float64(plain)*p.Input + float64(u.CachedTokens)*p.Cached +
-		float64(u.CacheWriteTokens)*p.CacheWrite + float64(u.OutputTokens)*p.Output) / 1e6
-}
-
-// OpenRouter calls a provider's chat completions with images and a JSON schema: OpenRouter's, or OpenAI's own.
+// OpenRouter calls OpenRouter's chat completions with images and a JSON schema.
 type OpenRouter struct {
 	apiKey    string
 	model     string
 	baseURL   string
 	reasoning string
-	provider  string
-	prices    *Prices
 	http      *http.Client
 }
 
-// idleConnTimeout keeps a pooled connection open between calls: a new one costs a TCP and a TLS handshake, and a run
-// waits seconds between its calls (a stop for the person, a rate limit) that the default 90 s would not cover.
-const idleConnTimeout = 15 * time.Minute
-
 // sharedHTTP is one pool for every client, since a client is built per session key.
-var sharedHTTP = newHTTPClient()
-
-func newHTTPClient() *http.Client {
-	client := llmhttp.NewClient(requestTimeout)
-	if transport, ok := client.Transport.(*http.Transport); ok {
-		transport.IdleConnTimeout = idleConnTimeout
-	}
-	return client
-}
+var sharedHTTP = llmhttp.NewClient(requestTimeout)
 
 // NewOpenRouter is a client for model on baseURL. reasoning is the effort sent to the
 // provider ("none", "low", "medium", "high"); empty sends none of it.
@@ -80,17 +42,8 @@ func NewOpenRouter(apiKey, model, baseURL, reasoning string) *OpenRouter {
 		model:     model,
 		baseURL:   strings.TrimRight(baseURL, "/"),
 		reasoning: strings.TrimSpace(reasoning),
-		provider:  ProviderOpenRouter,
 		http:      sharedHTTP,
 	}
-}
-
-// NewOpenAI is a client for OpenAI's own API. It reports no cost, so prices price each call.
-func NewOpenAI(apiKey, model, baseURL, reasoning string, prices Prices) *OpenRouter {
-	client := NewOpenRouter(apiKey, model, baseURL, reasoning)
-	client.provider = ProviderOpenAI
-	client.prices = &prices
-	return client
 }
 
 // Name is the model id.
@@ -101,9 +54,7 @@ type chatRequest struct {
 	Messages       []chatMessage    `json:"messages"`
 	ResponseFormat *responseFormat  `json:"response_format,omitempty"`
 	Reasoning      *reasoningEffort `json:"reasoning,omitempty"`
-	// ReasoningEffort is OpenAI's own way to ask for it.
-	ReasoningEffort string       `json:"reasoning_effort,omitempty"`
-	Usage           *usageOption `json:"usage,omitempty"`
+	Usage          usageOption      `json:"usage"`
 }
 
 type usageOption struct {
@@ -141,9 +92,9 @@ type jsonSchema struct {
 }
 
 type chatResponse struct {
-	Model string `json:"model"`
-	// Provider is who served the call, when OpenRouter says.
+	ID       string `json:"id"`
 	Provider string `json:"provider"`
+	Model    string `json:"model"`
 	Choices  []struct {
 		Message struct {
 			Content string `json:"content"`
@@ -166,10 +117,7 @@ type chatResponse struct {
 
 // body builds the provider request. A message with images sends its content as parts.
 func (c *OpenRouter) body(req Request) ([]byte, error) {
-	out := chatRequest{Model: c.model}
-	if c.provider == ProviderOpenRouter {
-		out.Usage = &usageOption{Include: true}
-	}
+	out := chatRequest{Model: c.model, Usage: usageOption{Include: true}}
 	for _, message := range req.Messages {
 		if len(message.Images) == 0 {
 			out.Messages = append(out.Messages, chatMessage{Role: message.Role, Content: message.Text})
@@ -188,11 +136,7 @@ func (c *OpenRouter) body(req Request) ([]byte, error) {
 		}
 	}
 	if c.reasoning != "" {
-		if c.provider == ProviderOpenAI {
-			out.ReasoningEffort = c.reasoning
-		} else {
-			out.Reasoning = &reasoningEffort{Effort: c.reasoning}
-		}
+		out.Reasoning = &reasoningEffort{Effort: c.reasoning}
 	}
 	return json.Marshal(out)
 }
@@ -208,29 +152,39 @@ func (c *OpenRouter) Complete(ctx context.Context, req Request) (Response, error
 	}
 	var lastErr error
 	var usage Usage
-	var served string
+	var requests []Attempt
+	var backoff time.Duration
 	started := time.Now()
+	stats := MeasureMessages(req.Messages)
+	finish := func(response Response, attempts int) Response {
+		response.Latency, response.Attempts = time.Since(started), attempts
+		response.StartedAt, response.Requests = started, requests
+		return response
+	}
 	for attempt := 0; attempt < maxAttempts; attempt++ {
 		response, retryAfter, err := c.once(ctx, body)
 		usage.Add(response.Usage)
-		served = response.Served
+		for _, request := range response.Requests {
+			request.BackoffMs = backoff.Milliseconds()
+			request.Body = &stats
+			requests = append(requests, request)
+		}
 		if err == nil {
 			response.Usage = usage
-			response.Latency, response.Attempts = time.Since(started), attempt+1
-			response.Provider, response.RequestBytes = c.provider, len(body)
-			return response, nil
+			return finish(response, attempt+1), nil
 		}
 		lastErr = err
 		if ctx.Err() != nil || !retryable(err) || attempt == maxAttempts-1 {
 			break
 		}
+		backoff = llmhttp.RetryDelay(attempt, retryAfter)
 		select {
 		case <-ctx.Done():
-			return Response{Usage: usage, Latency: time.Since(started), Attempts: attempt + 1}, ctx.Err()
-		case <-time.After(llmhttp.RetryDelay(attempt, retryAfter)):
+			return finish(Response{Usage: usage}, attempt+1), ctx.Err()
+		case <-time.After(backoff):
 		}
 	}
-	return Response{Usage: usage, Latency: time.Since(started), Attempts: maxAttempts, Provider: c.provider, Served: served, RequestBytes: len(body)}, lastErr
+	return finish(Response{Usage: usage}, maxAttempts), lastErr
 }
 
 // retryable is true for a rate limit, a provider failure, or a dropped connection.
@@ -242,9 +196,16 @@ func retryable(err error) bool {
 	return true
 }
 
-func (c *OpenRouter) once(ctx context.Context, body []byte) (Response, string, error) {
-	var conn ConnTrace
-	request, err := http.NewRequestWithContext(WithConnTrace(ctx, &conn), http.MethodPost, c.baseURL+"/chat/completions", bytes.NewReader(body))
+func (c *OpenRouter) once(ctx context.Context, body []byte) (got Response, retryAfter string, err error) {
+	ctx, probe := Begin(ctx)
+	var status, size int
+	var provider, generation string
+	defer func() {
+		attempt := probe.Finish(status, len(body), size, err)
+		attempt.Provider, attempt.GenerationID = provider, generation
+		got.Requests = []Attempt{attempt}
+	}()
+	request, err := http.NewRequestWithContext(ctx, http.MethodPost, c.baseURL+"/chat/completions", bytes.NewReader(body))
 	if err != nil {
 		return Response{}, "", fmt.Errorf("build model request: %w", err)
 	}
@@ -255,13 +216,16 @@ func (c *OpenRouter) once(ctx context.Context, body []byte) (Response, string, e
 		return Response{}, "", fmt.Errorf("call model: %w", err)
 	}
 	defer response.Body.Close()
+	status = response.StatusCode
 	payload, err := io.ReadAll(io.LimitReader(response.Body, maxResponse))
+	size = len(payload)
 	if err != nil {
 		return Response{}, "", fmt.Errorf("read model response: %w", err)
 	}
 	var decoded chatResponse
 	jsonErr := json.Unmarshal(payload, &decoded)
-	got := Response{
+	provider, generation = decoded.Provider, decoded.ID
+	got = Response{
 		Model: decoded.Model,
 		Usage: Usage{
 			InputTokens:      decoded.Usage.PromptTokens,
@@ -270,13 +234,6 @@ func (c *OpenRouter) once(ctx context.Context, body []byte) (Response, string, e
 			CacheWriteTokens: decoded.Usage.PromptTokensDetails.CacheWriteTokens,
 			Cost:             decoded.Usage.Cost,
 		},
-		Served:     decoded.Provider,
-		ConnReused: conn.Reused,
-		ConnectMs:  conn.Wait.Milliseconds(),
-	}
-	// A provider that does not report the cost is priced from its rates.
-	if got.Usage.Cost == 0 && c.prices != nil {
-		got.Usage.Cost = c.prices.Cost(got.Usage)
 	}
 	if response.StatusCode < 200 || response.StatusCode >= 300 {
 		message := ""

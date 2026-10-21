@@ -16,8 +16,8 @@ import (
 type turn struct {
 	number int
 	// text is what the model was told beside the screenshot, notes included, exactly as it
-	// was sent; images are the screenshots (one, or a survey's), dropped when the history is
-	// compacted. text stays until the turn is folded into a summary.
+	// was sent; images are the screenshots (one, or a survey's), released once the turn is older than
+	// the screenshots the history still sends. text stays until the turn is folded into a summary.
 	text   string
 	images []string
 	// answer is the model's reply as JSON, replayed as its own earlier turn.
@@ -28,18 +28,18 @@ type turn struct {
 
 // session is one application run: the applicant, the model's memory, and its history.
 type session struct {
-	id  string
-	key string // the person's OpenRouter key; held in memory only
-	// openAIKey is their OpenAI key, when the model that drives the run is called on it; held in memory only.
-	openAIKey string
-	auth      applicant.Auth // whose profile and files the run reads; held in memory only
-	start     Start
-	snap      applicant.Snapshot
-	system    string
-	created   time.Time
+	id      string
+	key     string         // the person's OpenRouter key; held in memory only
+	auth    applicant.Auth // whose profile and files the run reads; held in memory only
+	start   Start
+	snap    applicant.Snapshot
+	system  string
+	created time.Time
 
 	mu      sync.Mutex
 	touched time.Time
+	// stepStarted is when the server got the look being answered, for the trace's timing.
+	stepStarted time.Time
 	// seq counts every step asked, including the ones that failed, and names the trace files.
 	seq   int
 	step  int
@@ -52,9 +52,6 @@ type session struct {
 	lastSig []uint8
 	// stale counts steps in a row where the screen did not change.
 	stale int
-	// repeatSteps counts the steps in a row that only pressed the spot (repeatX, repeatY), repeatClicks the presses.
-	repeatSteps, repeatClicks int
-	repeatX, repeatY          float64
 	// resume is the résumé chosen for this run, once chosen.
 	resume string
 	usage  Usage
@@ -93,6 +90,8 @@ type session struct {
 	planned, sent, parts int
 	// maxActions is the most actions one answer of this run may plan.
 	maxActions int
+	// checks is whether a decision model checks the screen between runs of the model's actions.
+	checks bool
 	// carried holds the results of actions sent since the model last looked.
 	carried []ActionResult
 	// notes are things the model is told on its next look, about what its plan did.
@@ -108,23 +107,49 @@ type session struct {
 	navScrolls int
 	// wantTrace is set when the run asked for its trace in the answers, and pendingTrace is what was
 	// recorded since the last answer.
-	wantTrace    bool
-	pendingTrace *Trace
+	wantTrace bool
+	// wantTraceImages is set when the run asked for the trace's pictures as well as its text.
+	wantTraceImages bool
+	pendingTrace    *Trace
 	// donePasses counts the "done" answers sent back because the screen did not confirm a sent application.
 	donePasses int
 	// accountSteps counts the steps that typed the account password (sign-in, sign-up, reset).
 	accountSteps int
 	// stopPasses counts the stops for the applicant that were sent back to finish the page first.
 	stopPasses int
-	// overrides counts the stops for the applicant sent back because the screen did not show the need (stopcheck.go).
-	overrides int
-	// prefills, reviews and advances count the quick text passes, reviews and advances made, which a run
-	// may make only so many of.
-	prefills, reviews, advances, picks int
+	// zones are the photos the extension took of the zones of the plan it just carried out, and
+	// anchors a crop of the survey around each target of the plan being carried out, by action id
+	// (zones.go).
+	zones   []ZoneShot
+	anchors map[string]anchor
+	// marks binds each point of the plan being carried out to the control it is on, by action id
+	// (marks.go).
+	marks map[string]MarkRef
+	// settled is the parts of the page the model will not come back to (settled.go).
+	settled settledState
+	// viewport is the window as the last look saw it, to check the pictures sent mid-batch against.
+	viewport Viewport
+	// planGen counts the plans the model has made, and expect is what the current plan fills in, by
+	// zone; reviews are the reviews of its zones running beside it (review.go).
+	planGen int
+	expect  map[int][]expectation
+	reviews reviewState
+	// snaps are the photos of open dropdowns sent mid-batch, by action id (probe.go).
+	snaps map[string]ShotUpload
+	// surveyAgain asks for the next look to be a survey: points of the last plan were not carried
+	// out, and the model must see the whole page again to plan them.
+	surveyAgain bool
+	// probe is a run of the model's actions with dropdowns in it, being carried out by probing them
+	// together (probe.go); script the same run being carried out one dropdown at a time (choose.go).
+	probe *probeRun
 	// script is a run of the model's actions with a dropdown to set in it, being carried out.
 	script *script
 	// cover is what the run has looked at on the page it is on, in pixels from the top.
 	cover coverage
+	// commit is the click that sends the page, as the last plan kept it (stopgate.go).
+	commit commitState
+	// fieldHold is the last stop sent back for the required fields the page reported empty (stopgate.go).
+	fieldHold fieldHold
 }
 
 // addTrace keeps the trace of an entry until the next answer carries it to the extension.
@@ -169,18 +194,24 @@ func newSessionID() (string, error) {
 }
 
 // history builds the model's view of the run before the current step: the folded summary,
-// then every turn exactly as it was sent and answered, screenshots included.
+// then every turn as it was sent and answered. Only the newest keepImages turns still carry
+// their screenshots (none by default): the model reads the current screen from the current
+// step's own screenshot, and an old one only makes every request bigger to send and to read.
 //
-// It only ever grows at the end. The provider bills a prompt's tokens at a tenth of the price
-// when they repeat the start of an earlier prompt, and the first change anywhere in the prompt
-// makes everything after it a new prompt; so nothing earlier may change between one step and
-// the next. The history is therefore compacted only when it passes budget (in estimated
-// tokens), and then in one go: the oldest turns are folded into the summary and the
-// screenshots of all but the newest keepImages turns are dropped, so the history is small again
-// and the prompt grows by appending for many steps before it is compacted again.
+// The prompt only ever grows at the end. The provider bills a prompt's tokens at a tenth of the
+// price when they repeat the start of an earlier prompt, and the first change anywhere in the
+// prompt makes everything after it a new prompt. A turn's screenshot is gone from the first
+// request that replays it, and it was never part of an earlier request's replayed start (it
+// sat in that request's current message), so with keepImages 0 nothing earlier changes between
+// one step and the next. A keepImages above 0 slides a window of screenshots and changes the
+// prompt from the oldest kept turn on at every step.
+//
+// The history is compacted when it passes budget (in estimated tokens), in one go: the oldest
+// turns are folded into the summary, so the history is small again and the prompt grows by
+// appending for many steps before it is compacted again.
 func (s *session) history(keepTurns, keepImages, budget int) []llm.Message {
 	if budgetUsed(s) > budget {
-		s.compact(keepTurns, keepImages, budget)
+		s.compact(keepTurns, budget)
 	}
 	var out []llm.Message
 	if len(s.folded) > 0 {
@@ -189,9 +220,9 @@ func (s *session) history(keepTurns, keepImages, budget int) []llm.Message {
 			Text: "Earlier in this run (oldest first; your notes below are the full picture):\n- " + strings.Join(s.folded, "\n- "),
 		})
 	}
-	for _, t := range s.turns {
+	for i, t := range s.turns {
 		message := llm.Message{Role: llm.RoleUser, Text: t.text}
-		if len(t.images) > 0 {
+		if len(t.images) > 0 && i >= len(s.turns)-keepImages {
 			message.Images = t.images
 		} else {
 			message.Text += "\n(Screenshot no longer kept.)"
@@ -201,15 +232,19 @@ func (s *session) history(keepTurns, keepImages, budget int) []llm.Message {
 	return out
 }
 
-// compact makes the history small: only the newest keepTurns turns stay in full, only the
-// newest keepImages of them keep their screenshot, and if that is still over budget the oldest
-// turns are folded until it is not.
-func (s *session) compact(keepTurns, keepImages, budget int) {
-	for len(s.turns) > keepTurns {
-		s.fold()
-	}
+// releaseImages drops the screenshots of every turn but the newest keepImages, which the
+// history would not send again, so a long run does not hold them in memory.
+func (s *session) releaseImages(keepImages int) {
 	for i := 0; i < len(s.turns)-keepImages; i++ {
 		s.turns[i].images = nil
+	}
+}
+
+// compact makes the history small: only the newest keepTurns turns stay in full, and if that
+// is still over budget the oldest turns are folded until it is not.
+func (s *session) compact(keepTurns, budget int) {
+	for len(s.turns) > keepTurns {
+		s.fold()
 	}
 	for budgetUsed(s) > budget && len(s.turns) > 1 {
 		s.fold()

@@ -51,19 +51,20 @@ func fillBatchPrefix(actions []Action) (prefix, rest []Action) {
 
 // splitPlanForSession cuts a plan into runs. When batching is allowed and the prefix before
 // any scroll or upload fills at least two fields, that prefix is one run and one check; the
-// rest of the plan is split normally. Otherwise the plan is cut by limit.
-func splitPlanForSession(actions []Action, limit int, batch bool) []chunk {
+// rest of the plan is split normally. Otherwise the plan is cut by limit. A fast-fill plan is not
+// cut at an upload: its points follow the page's controls as the page moves.
+func splitPlanForSession(actions []Action, limit int, batch, fastFill bool) []chunk {
 	if batch {
 		prefix, rest := fillBatchPrefix(actions)
 		if fieldInteractions(prefix) >= minFieldInteractionsForBatch {
 			if expect := batchExpect(prefix); expect != "" {
 				out := []chunk{{actions: prefix, expect: expect}}
 				if len(rest) > 0 {
-					out = append(out, splitPlan(rest, limit)...)
+					out = append(out, splitPlan(rest, limit, !fastFill)...)
 				}
 				return out
 			}
 		}
 	}
-	return splitPlan(actions, limit)
+	return splitPlan(actions, limit, !fastFill)
 }

@@ -1,6 +1,6 @@
 # Build context is the Acorn repo. acorn-backend sits next to acorn-agent, and go.mod
 # replaces the module with ../acorn-backend. The agent imports only its config, jev,
-# llmhttp, openai and requestid packages, which use the standard library, so there is no
+# llmhttp, openai, plainlog and requestid packages, which use the standard library, so there is no
 # go.sum to copy.
 FROM golang:1.26.4-bookworm AS build
 

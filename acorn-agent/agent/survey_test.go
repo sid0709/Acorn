@@ -35,7 +35,8 @@ func TestASurveyIsShownToTheModelAsItsScreensNotTheSingleScreenshot(t *testing.T
 	stepOK(t, a, start(t, a), obs)
 	last := model.requests[0].Messages
 	message := last[len(last)-1]
-	if len(message.Images) != 3 || message.Images[1] != obs.Survey[1].Screenshot {
+	// The model's copies carry their numbers, so they are not the survey's own pictures.
+	if len(message.Images) != 3 || message.Images[1] != badged(obs.Survey[1].Screenshot, 2, 3) {
 		t.Fatalf("the model got %d images", len(message.Images))
 	}
 	for _, want := range []string{"survey of the whole page: 3 screenshots", "screen 2 is scrolled to 680 px", "The page shows screen 1 now", `give each click its "screen"`} {
@@ -180,7 +181,7 @@ func TestAJobOfNullKeepsTheJobAndAStringReplacesIt(t *testing.T) {
 	}
 }
 
-func TestASurveyTurnKeepsAllItsScreensInTheHistoryUntilItIsCompacted(t *testing.T) {
+func TestASurveyTurnsScreensAreNotSentAgain(t *testing.T) {
 	model := &scriptedModel{replies: []string{
 		plan("planning", nil, onScreen(1, 10, 10, nil)), plan("next", nil, click(1, 1, nil)),
 	}}
@@ -194,8 +195,8 @@ func TestASurveyTurnKeepsAllItsScreensInTheHistoryUntilItIsCompacted(t *testing.
 	for _, message := range model.requests[1].Messages {
 		images += len(message.Images)
 	}
-	if images != 4 { // the survey's three screens and the new look
-		t.Fatalf("images = %d, want 4", images)
+	if images != 1 { // the new look only: the survey's three screens are not sent again
+		t.Fatalf("images = %d, want 1", images)
 	}
 }
 

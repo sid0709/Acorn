@@ -108,9 +108,9 @@ type Document struct {
 	VeteranStatus          string  `json:"veteranStatus" bson:"veteranStatus"`
 	DesiredSalary          string  `json:"desiredSalary" bson:"desiredSalary"`
 	OpenrouterApiKey       string  `json:"openrouterApiKey" bson:"openrouterApiKey"`
-	OpenaiApiKey           string  `json:"openaiApiKey" bson:"openaiApiKey"`
 	DefaultAccountPassword string  `json:"defaultAccountPassword" bson:"defaultAccountPassword"`
 	ExtensionPassword      string  `json:"extensionPassword" bson:"extensionPassword"`
+	ResumeFolderPath       string  `json:"resumeFolderPath" bson:"resumeFolderPath"`
 	Timeline               []Entry `json:"timeline" bson:"timeline"`
 }
 
@@ -130,13 +130,22 @@ type Store struct {
 	readAt map[string]time.Time
 	coll   *mongo.Collection
 	model  Model
+	// trust is how long a profile read from Mongo is served from memory; zero or less means until
+	// a save or delete through this process replaces it (see SetTrust).
+	trust time.Duration
 }
 
-// profileCacheTTL is how long a profile read from Mongo is served from memory.
-// The extension reads the profile on nearly every step and the website on every
-// Profile visit; a save through this process replaces the copy at once, and one
-// made elsewhere is seen within the TTL.
-const profileCacheTTL = 30 * time.Second
+// SetTrust sets how long a profile read from Mongo is served from memory. The extension reads
+// the profile on nearly every step and the website on every Profile visit. A save through this
+// process replaces the copy at once; zero keeps a copy until then, which is right when this is
+// the only process that writes profiles. A positive window makes a change made elsewhere
+// (another server process) show within it. A profile is read when it is first asked for, not
+// when the server starts.
+func (s *Store) SetTrust(window time.Duration) {
+	s.mu.Lock()
+	s.trust = window
+	s.mu.Unlock()
+}
 
 func NewMemory() *Store {
 	return &Store{rows: map[string]Document{}, readAt: map[string]time.Time{}}
@@ -147,7 +156,7 @@ func (s *Store) fresh(accountID string) (Document, bool) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	doc, ok := s.rows[accountID]
-	if !ok || time.Since(s.readAt[accountID]) >= profileCacheTTL {
+	if !ok || (s.trust > 0 && time.Since(s.readAt[accountID]) >= s.trust) {
 		return Document{}, false
 	}
 	return doc, true
@@ -238,7 +247,7 @@ func (s *Store) AccountIDByProfileEmail(ctx context.Context, email string) (stri
 
 func (s *Store) Load(ctx context.Context, accountID string) (Document, bool, error) {
 	// With Mongo configured, the collection is the account profile. Memory is a
-	// cache of that read for profileCacheTTL; a save here replaces it at once.
+	// cache of that read (see SetTrust); a save here replaces it at once.
 	if s.coll == nil {
 		s.mu.Lock()
 		doc, ok := s.rows[accountID]
@@ -328,9 +337,9 @@ func normalize(doc Document) Document {
 	doc.VeteranStatus = orDefault(clip(doc.VeteranStatus, maxContact), defaultVeteranStatus)
 	doc.DesiredSalary = clip(doc.DesiredSalary, maxContact)
 	doc.OpenrouterApiKey = clip(doc.OpenrouterApiKey, maxSecret)
-	doc.OpenaiApiKey = clip(doc.OpenaiApiKey, maxSecret)
 	doc.DefaultAccountPassword = clip(doc.DefaultAccountPassword, maxSecret)
 	doc.ExtensionPassword = clip(doc.ExtensionPassword, maxSecret)
+	doc.ResumeFolderPath = clip(doc.ResumeFolderPath, maxContact)
 	if len(doc.Timeline) > maxTimeline {
 		doc.Timeline = doc.Timeline[:maxTimeline]
 	}

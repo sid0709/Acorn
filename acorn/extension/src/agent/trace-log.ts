@@ -1,6 +1,6 @@
 import { TIMELINE_FILE, entryName, splitImageDataUrl } from "./trace-names";
 
-import type { AgentSurveyScreen, AgentTrace } from "@acorn/shared/agent-contract";
+import type { AgentSurveyScreen, AgentTrace, AgentZoneShot } from "@acorn/shared/agent-contract";
 
 /** Where the run's trace files go: the run's log. */
 type FileSink = { agentFile(name: string, content: string): void };
@@ -10,6 +10,7 @@ export type AgentLook = {
   seq: number;
   screenshot: string;
   survey?: AgentSurveyScreen[];
+  zones?: AgentZoneShot[];
 };
 
 /**
@@ -28,6 +29,10 @@ export function recordAgentTrace(
     look.survey?.forEach((screen, index) => {
       const part = splitImageDataUrl(screen.screenshot);
       if (part) log.agentFile(`${stem}.survey${index + 1}.${part.ext}`, part.base64);
+    });
+    look.zones?.forEach((zone) => {
+      const part = splitImageDataUrl(zone.screenshot);
+      if (part) log.agentFile(`${stem}.zone${zone.zone}.${part.ext}`, part.base64);
     });
   }
   if (!trace) return;

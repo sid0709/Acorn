@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"math"
 	"strconv"
 	"strings"
@@ -30,10 +31,34 @@ type fakeScreen struct {
 	options []optionVerdict
 	// sent is the probability returned for "does the screen confirm a sent application"; nil means sure (1.0).
 	sent *float64
-	// nativeChoice is the key the screen gives for a native list's options (e.g. "option_4"); empty answers none.
-	nativeChoice string
+	// nativeChoice is the key the screen gives for a list's options given as text (e.g. "option_4"); empty
+	// answers none. listedWeights, when set, are the weights it gives each key instead (the heaviest is its
+	// choice), and listedRequests counts the times it was asked about options as text.
+	nativeChoice   string
+	listedWeights  map[string]float64
+	listedRequests int
+	// wrongPoints are the labels whose points the screen says are not on their controls, and
+	// pointRequests how many times it was asked about points.
+	wrongPoints   []string
+	pointRequests int
+	// wrongFirst are the labels whose points the screen refuses the first time it is asked about them
+	// and accepts after (a point that was moved onto its control); askedFirst are those it was asked about.
+	wrongFirst []string
+	askedFirst map[string]bool
+	// wrongFields are the values the screen says a field does not show, and reviewRequests how many
+	// times it was asked about the fields of a zone.
+	wrongFields    []string
+	reviewRequests int
+	// optionByAnswer is the verdict for the dropdown whose answer is the key, when the lists are read
+	// side by side; noListFor is an answer whose list is not open.
+	optionByAnswer map[string]optionVerdict
+	noListFor      string
 	// closedLooks is how many of the next looks at an open dropdown see no list open (a click that missed the control).
 	closedLooks int
+	// personFields are the names of the empty fields the screen says only the applicant can fill, and
+	// fieldRequests how many times it was asked about empty fields.
+	personFields  []string
+	fieldRequests int
 }
 
 // optionVerdict is the position the screen says answers a choose action (0 for none) and how sure it is.
@@ -53,6 +78,63 @@ func (f *fakeScreen) Decide(_ context.Context, req decide.Request) (decide.Respo
 	if f.err != nil {
 		return decide.Response{}, f.err
 	}
+	if _, asked := req.Questions[pointQuestionKey(1)]; asked {
+		// The points of one screen: a point is wrong when its question names a label the test said is wrong.
+		f.pointRequests++
+		answers := map[string]decide.Answer{}
+		for key, question := range req.Questions {
+			p := 0.98
+			for _, label := range f.wrongPoints {
+				if strings.Contains(question.Instructions, fmt.Sprintf("%q", label)) {
+					p = 0.04
+				}
+			}
+			for _, label := range f.wrongFirst {
+				if !strings.Contains(question.Instructions, fmt.Sprintf("%q", label)) {
+					continue
+				}
+				if !f.askedFirst[label] {
+					p = 0.04
+				}
+				if f.askedFirst == nil {
+					f.askedFirst = map[string]bool{}
+				}
+				f.askedFirst[label] = true
+			}
+			answers[key] = decide.Answer{Type: decide.TypeNoul, Noul: &p}
+		}
+		return decide.Response{Model: "fake-screen-1", Answers: answers, Usage: decide.Usage{InputTokens: 700, Cost: 0.0001}}, nil
+	}
+	if _, asked := req.Questions[expectKey(1)]; asked {
+		// The fields of one zone: a field is wrong when its question names a value the test said is wrong.
+		f.reviewRequests++
+		answers := map[string]decide.Answer{}
+		for key, question := range req.Questions {
+			p := 0.97
+			for _, value := range f.wrongFields {
+				if strings.Contains(question.Instructions, fmt.Sprintf("%q", value)) {
+					p = 0.03
+				}
+			}
+			answers[key] = decide.Answer{Type: decide.TypeNoul, Noul: &p}
+		}
+		return decide.Response{Model: "fake-screen-1", Answers: answers, Usage: decide.Usage{InputTokens: 600, Cost: 0.0001}}, nil
+	}
+	if _, asked := req.Questions[personFieldKey(1)]; asked {
+		// The fields the page reports empty: one is the applicant's when its question names a field the test said is theirs.
+		f.fieldRequests++
+		answers := map[string]decide.Answer{}
+		for key, question := range req.Questions {
+			p := 0.05
+			for _, name := range f.personFields {
+				if strings.Contains(question.Instructions, fmt.Sprintf("%q", name)) {
+					p = 0.95
+				}
+			}
+			answers[key] = decide.Answer{Type: decide.TypeNoul, Noul: &p}
+		}
+		return decide.Response{Model: "fake-screen-1", Answers: answers, Usage: decide.Usage{InputTokens: 400, Cost: 0.0001}}, nil
+	}
 	if _, asked := req.Questions[askSent]; asked {
 		p := 1.0
 		if f.sent != nil {
@@ -64,21 +146,42 @@ func (f *fakeScreen) Decide(_ context.Context, req decide.Request) (decide.Respo
 			Usage:   decide.Usage{InputTokens: 500, Cost: 0.0001},
 		}, nil
 	}
-	if _, asked := req.Questions[askNativeOption]; asked {
+	if _, asked := req.Questions[askListedOption]; asked {
+		f.listedRequests++
 		choice := optionNone
+		weights := map[string]float64{choice: 0.95}
 		if f.nativeChoice != "" {
 			choice = f.nativeChoice
+			weights = map[string]float64{choice: 0.95}
+		}
+		if f.listedWeights != nil {
+			weights = f.listedWeights
+			for key, weight := range weights {
+				if weight > weights[choice] || choice == optionNone {
+					choice = key
+				}
+			}
 		}
 		return decide.Response{
 			Model:   "fake-screen-1",
-			Answers: map[string]decide.Answer{askNativeOption: {Type: decide.TypeChoice, Choice: choice, Probabilities: map[string]float64{choice: 0.95}}},
+			Answers: map[string]decide.Answer{askListedOption: {Type: decide.TypeChoice, Choice: choice, Probabilities: weights}},
 			Usage:   decide.Usage{InputTokens: 300, Cost: 0.0001},
 		}, nil
 	}
 	if _, asked := req.Questions[askOption]; asked {
 		choice, sure := optionNone, 1.0
 		open := 1.0
-		if f.closedLooks > 0 {
+		if byAnswer := f.optionByAnswer; byAnswer != nil {
+			// The lists are read side by side, in no set order: each answer has its own verdict.
+			for answer, v := range byAnswer {
+				if strings.Contains(req.Questions[askOption].Instructions, strconv.Quote(answer)) && v.position > 0 {
+					choice, sure = strconv.Itoa(v.position), v.sure
+				}
+			}
+			if f.noListFor != "" && strings.Contains(req.Questions[askOption].Instructions, strconv.Quote(f.noListFor)) {
+				open = 0
+			}
+		} else if f.closedLooks > 0 {
 			f.closedLooks--
 			open = 0
 		} else if len(f.options) > 0 {
@@ -458,8 +561,8 @@ func TestWithoutADecisionModelThePromptAndPlanStayAsBefore(t *testing.T) {
 	cid := start(t, checked)
 	stepOK(t, checked, cid, observation(shot(t, 40)))
 	system = checked.newModel("").(*scriptedModel).requests[0].Messages[0].Text
-	if !strings.Contains(system, `"check"`) || !strings.Contains(system, "up to 12") {
-		t.Fatalf("the checked prompt must explain checks and allow 12:\n%s", system)
+	if !strings.Contains(system, `"check"`) || !strings.Contains(system, "up to 30") {
+		t.Fatalf("the checked prompt must explain checks and allow 30:\n%s", system)
 	}
 }
 
@@ -479,7 +582,7 @@ func TestChecksAreCountedAndCostedSeparately(t *testing.T) {
 
 func TestSplitPlanEndsARunAtACheckOrTheLimit(t *testing.T) {
 	act := func(check string) Action { return Action{Kind: KindClick, Check: check} }
-	runs := splitPlan([]Action{act(""), act("a"), act(""), act(""), act(""), act(""), act(""), act("b")}, 3)
+	runs := splitPlan([]Action{act(""), act("a"), act(""), act(""), act(""), act(""), act(""), act("b")}, 3, true)
 	var shape []string
 	for _, run := range runs {
 		shape = append(shape, strings.Repeat("x", len(run.actions))+"|"+run.expect)
@@ -487,7 +590,7 @@ func TestSplitPlanEndsARunAtACheckOrTheLimit(t *testing.T) {
 	if got := strings.Join(shape, " "); got != "xx|a xxx| xxx|b" {
 		t.Fatalf("runs = %s", got)
 	}
-	if got := splitPlan(nil, 3); len(got) != 0 {
+	if got := splitPlan(nil, 3, true); len(got) != 0 {
 		t.Fatalf("empty plan = %v", got)
 	}
 }

@@ -6,6 +6,7 @@ import (
 	"log/slog"
 
 	"github.com/sid0709/acorn/acorn-agent/decide"
+	"github.com/sid0709/acorn/acorn-backend/plainlog"
 )
 
 // "Done" means the page confirmed that the application was received. A model can say it without that
@@ -40,7 +41,7 @@ func (a *Agent) holdDone(ctx context.Context, s *session, obs Observation, answe
 	s.usage.Cost += response.Usage.Cost
 	if err != nil {
 		// A checker that cannot answer is not a reason to refuse the model's word.
-		slog.Warn("sent check failed; the run's own word stands", "session", s.id, "error", err)
+		slog.Warn(runName(s.id)+": could not confirm from the screen that the application was sent, so the model's word stands.", plainlog.ErrorKey, err)
 		return "", false
 	}
 	sure := 0.0

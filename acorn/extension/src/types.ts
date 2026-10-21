@@ -26,6 +26,8 @@ export const MSG = {
   STOP_RUN: "acorn:stop-run",
   /** Sidebar → service worker: the person's answer to the question an agent Run is waiting on. */
   ANSWER_RUN: "acorn:answer-run",
+  /** Sidebar → service worker: scroll this tab's page to a field (`control`) or a place (`y`) and ring it; refused while a Run works there. */
+  SHOW_ON_PAGE: "acorn:show-on-page",
   PIPELINE_PROGRESS: "acorn:pipeline-progress",
   SOCKET_STATUS: "acorn:socket-status",
   OPERATOR_NOTICE: "acorn:operator-notice",

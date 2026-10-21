@@ -11,6 +11,11 @@ import type { AgentViewport } from "@acorn/shared/agent-contract";
 export const SHOT_MAX_WIDTH = 1280;
 /** JPEG quality of a screenshot: text stays legible, the upload stays small. */
 export const SHOT_QUALITY = 70;
+/**
+ * JPEG quality of the picture taken at the screen's own resolution when it is made smaller after: it is
+ * compressed again at SHOT_QUALITY, so it is compressed lightly the first time.
+ */
+export const SHOT_FULL_QUALITY = 85;
 /** How long a screenshot may take before the tab is brought forward and asked again. */
 export const SHOT_TIMEOUT_MS = 8_000;
 
@@ -85,20 +90,93 @@ async function devicePixelRatio(cdp: Cdp): Promise<number> {
   }
 }
 
+/** The base64 text of bytes (a long array is turned into text in pieces). */
+function toBase64(bytes: Uint8Array): string {
+  const piece = 0x8000;
+  let binary = "";
+  for (let i = 0; i < bytes.length; i += piece) {
+    binary += String.fromCharCode(...bytes.subarray(i, i + piece));
+  }
+  return btoa(binary);
+}
+
+/** A JPEG (base64) drawn again at another size, with the browser's own scaler, at `quality` (0 to 100). */
+export async function resizeJpeg(
+  base64: string,
+  width: number,
+  height: number,
+  quality = SHOT_QUALITY,
+): Promise<string> {
+  const source = Uint8Array.from(atob(base64), (char) => char.charCodeAt(0));
+  const bitmap = await createImageBitmap(new Blob([source], { type: "image/jpeg" }));
+  try {
+    const canvas = new OffscreenCanvas(width, height);
+    const context = canvas.getContext("2d");
+    if (!context) throw new Error("no canvas to resize the screenshot on");
+    context.imageSmoothingQuality = "high";
+    context.drawImage(bitmap, 0, 0, width, height);
+    const blob = await canvas.convertToBlob({ type: "image/jpeg", quality: quality / 100 });
+    return toBase64(new Uint8Array(await blob.arrayBuffer()));
+  } finally {
+    bitmap.close();
+  }
+}
+
+/** Whether the picture of the visible page is taken whole and made smaller after; false once that failed. */
+let plainCapture = true;
+
+/**
+ * The picture of the visible page at the size asked for. It is taken whole, at the screen's own
+ * resolution, with no clip: a clip with a scale makes the browser resize the page for the moment the
+ * picture is taken, and the page is seen to flash smaller. A picture too large is then made smaller
+ * here. If that cannot be done (no canvas to draw on), the clip is used from then on.
+ */
+async function pictureOfPage(
+  cdp: Cdp,
+  area: { x: number; y: number; width: number; height: number },
+  wanted: number,
+  ratio: number,
+): Promise<string> {
+  const width = Math.round(area.width * wanted);
+  const height = Math.round(area.height * wanted);
+  if (plainCapture) {
+    try {
+      const resize = Math.abs(area.width * ratio - width) > 1;
+      const whole = await cdp.send<{ data: string }>("Page.captureScreenshot", {
+        format: "jpeg",
+        quality: resize ? SHOT_FULL_QUALITY : SHOT_QUALITY,
+        captureBeyondViewport: false,
+      });
+      return resize ? await resizeJpeg(whole.data, width, height) : whole.data;
+    } catch {
+      plainCapture = false;
+    }
+  }
+  // The clip's scale multiplies device pixels: on a screen with 2 device pixels to a CSS
+  // pixel the image comes out twice as large as asked unless it is divided out.
+  const clipped = await cdp.send<{ data: string }>("Page.captureScreenshot", {
+    format: "jpeg",
+    quality: SHOT_QUALITY,
+    clip: { ...area, scale: wanted / ratio },
+    captureBeyondViewport: false,
+  });
+  return clipped.data;
+}
+
 async function shoot(cdp: Cdp): Promise<Shot> {
   const metrics = await cdp.send<LayoutMetrics>("Page.getLayoutMetrics");
   const { pageX, pageY, clientWidth, clientHeight } = metrics.cssVisualViewport;
   if (!(clientWidth > 0) || !(clientHeight > 0)) throw new Error("the page has no visible area");
   const wanted = Math.min(1, SHOT_MAX_WIDTH / clientWidth);
-  // The clip's scale multiplies device pixels: on a screen with 2 device pixels to a CSS
-  // pixel the image comes out twice as large as asked unless it is divided out.
   const ratio = await devicePixelRatio(cdp);
-  const shot = await cdp.send<{ data: string }>("Page.captureScreenshot", {
-    format: "jpeg",
-    quality: SHOT_QUALITY,
-    clip: { x: pageX, y: pageY, width: clientWidth, height: clientHeight, scale: wanted / ratio },
-    captureBeyondViewport: false,
-  });
+  const shot = {
+    data: await pictureOfPage(
+      cdp,
+      { x: pageX, y: pageY, width: clientWidth, height: clientHeight },
+      wanted,
+      ratio,
+    ),
+  };
   // What the model sees is the image as it is, so its size, not the size asked for, defines
   // the pixels every coordinate is in.
   const size = jpegSize(shot.data) ?? {

@@ -15,8 +15,9 @@ import (
 // was measured on, and the extension scrolls there first.
 
 const (
-	// maxSurveyScreens bounds the screens one survey may carry.
-	maxSurveyScreens = 12
+	// maxSurveyScreens is the most screens one survey may carry. A page is surveyed to its bottom whatever
+	// its height (a survey is never cut short), so this is a guard against nonsense, not a limit.
+	maxSurveyScreens = 10_000
 	// maxStopScrolls is how many scroll actions a run that ends may still send, to bring what the
 	// person must act on into view.
 	maxStopScrolls = 2
@@ -64,15 +65,6 @@ func checkSurvey(obs Observation) ([]float64, error) {
 	return positions, nil
 }
 
-// surveyImages are the survey's screenshots in order.
-func surveyImages(obs Observation) []string {
-	images := make([]string, len(obs.Survey))
-	for i, screen := range obs.Survey {
-		images[i] = screen.Screenshot
-	}
-	return images
-}
-
 // surveyNote tells the model what its screenshots are.
 func surveyNote(obs Observation) string {
 	var out strings.Builder
@@ -85,7 +77,7 @@ func surveyNote(obs Observation) string {
 			best, showing = float64(d), i+1
 		}
 	}
-	fmt.Fprintf(&out, ". The page shows screen %d now. Plan from all of them: give each click its \"screen\" (the screenshot its x and y are measured on) and Acorn scrolls there first. Do not scroll between screens yourself.", showing)
+	fmt.Fprintf(&out, ". The page shows screen %d now. Plan from all of them: give each click its \"screen\" (the screenshot its x and y are measured on) and Acorn scrolls there first. Do not scroll between screens yourself. %s This look is the survey: plan from it, and do not ask for another survey in this answer.", showing, badgeNote())
 	return out.String()
 }
 
@@ -111,6 +103,9 @@ func scrollOnly(actions []Action, max int) []Action {
 	}
 	return kept
 }
+
+// encodeBase64 is the standard base64 text of bytes.
+func encodeBase64(raw []byte) string { return base64.StdEncoding.EncodeToString(raw) }
 
 // decodeDataURL is the bytes of a base64 data URL.
 func decodeDataURL(dataURL string) ([]byte, bool) {

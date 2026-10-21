@@ -30,21 +30,10 @@ func TestAControlThatLooksLikeAnOnlineFileSourceIsBlocked(t *testing.T) {
 	}
 }
 
-func TestADoubtfulControlIsClickedAndASureOneIsBlocked(t *testing.T) {
-	// A control that is only possibly an online source is clicked: what it opens is judged on its own.
-	for p, want := range map[float64]bool{0.02: false, 0.3: false, 0.38: false, 0.59: false, 0.6: true, 0.95: true} {
+func TestADoubtfulControlIsBlockedAndASureOneIsNot(t *testing.T) {
+	for p, want := range map[float64]bool{0.02: false, 0.29: false, 0.3: true, 0.6: true} {
 		a, id := vetAgent(t, &fixedDecider{online: p})
 		verdict, err := a.Vet(context.Background(), id, VetTarget{Kind: VetControl, Tag: "button", Text: "Attach"})
-		if err != nil || verdict.Blocked != want {
-			t.Fatalf("p=%.2f: %+v err=%v, want blocked=%v", p, verdict, err, want)
-		}
-	}
-}
-
-func TestADoubtfulWindowIsStillClosed(t *testing.T) {
-	for p, want := range map[float64]bool{0.29: false, 0.3: true, 0.6: true} {
-		a, id := vetAgent(t, &fixedDecider{online: p})
-		verdict, err := a.Vet(context.Background(), id, VetTarget{Kind: VetWindow, URL: "https://files.example/pick"})
 		if err != nil || verdict.Blocked != want {
 			t.Fatalf("p=%.2f: %+v err=%v, want blocked=%v", p, verdict, err, want)
 		}

@@ -1,10 +1,11 @@
 import { endSession } from "../../agent/client";
+import { flushCompletedRuns, recordCompletedRun } from "../../agent/completed-run-sync";
 import { forgetKeptRunOfClosedTab, keepRun, takeKeptRun, type KeptRun } from "../../agent/kept-run";
 import { runAgent } from "../../agent/runner";
 import { getAgentUrl } from "../../agent/settings";
 import { getAccessToken } from "../../auth/acorn-auth";
-import { syncAutoFocus } from "../auto-focus";
 import { answerRunOnTab, awaitRunAnswer } from "../run-answer";
+import { groupRunTab } from "../run-group";
 import { beginRunStop, claimRunStopTab, endRunStop, stopRunOnTab } from "../run-stop";
 import { broadcastPipelineProgress } from "../socket-connection";
 import { pinnedTabId } from "../tab-target";
@@ -35,9 +36,11 @@ export function handleStartRun(
     const stop = beginRunStop(tabId);
     pipelineRunningTabIds.add(tabId);
     runTabIds.add(tabId);
+    void groupRunTab(tabId);
     syncWorkKeepAlive();
-    void syncAutoFocus();
     sendResponse({ ok: true });
+    // A completed run the backend could not take earlier is sent again now.
+    void flushCompletedRuns().catch(() => undefined);
 
     try {
       // The agent plans from screenshots; it reads the person's profile and résumés from
@@ -51,6 +54,7 @@ export function handleStartRun(
         stopBeforeSubmit: stopBeforeSubmitFor(message),
         resume,
         keepRun,
+        recordCompleted: recordCompletedRun,
         accessToken: (await getAccessToken()) ?? undefined,
         emit: (tabIds, progress) => {
           for (const id of tabIds) broadcastPipelineProgress(id, progress);
@@ -61,7 +65,7 @@ export function handleStartRun(
           claimRunStopTab(stop, id);
           pipelineRunningTabIds.add(id);
           runTabIds.add(id);
-          void syncAutoFocus();
+          void groupRunTab(id);
         },
       });
     } catch (err) {
@@ -77,7 +81,6 @@ export function handleStartRun(
         runTabIds.delete(id);
       }
       syncWorkKeepAlive();
-      void syncAutoFocus();
     }
   })();
 }

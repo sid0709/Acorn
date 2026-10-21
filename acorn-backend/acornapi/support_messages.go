@@ -9,7 +9,6 @@ import (
 	"net/http"
 	"strconv"
 	"strings"
-	"time"
 
 	"github.com/sid0709/acorn/acorn-backend/acornapi/gateway"
 	"github.com/sid0709/acorn/acorn-backend/support"
@@ -21,12 +20,8 @@ const (
 	messageBodyLimit = support.MaxAttachments*support.MaxAttachmentBytes + 64<<10
 	// messageFieldLimit bounds one text field of a multipart message.
 	messageFieldLimit = support.MaxMessageLen + 1
-	// immutableCacheControl: an attachment or a screenshot, and its preview, never changes once sent.
-	immutableCacheControl = "private, max-age=31536000, immutable"
-	// imageSizeParam picks a copy of an image, and imageSizeThumb is the small one; the same
-	// strings are ATTACHMENT_SIZE in @acorn/support-chat.
-	imageSizeParam = "size"
-	imageSizeThumb = "thumb"
+	// attachmentCacheControl: an attachment never changes once sent.
+	attachmentCacheControl = "private, max-age=31536000, immutable"
 
 	// Multipart field names; the same strings are MESSAGE_FORM in @acorn/support-chat.
 	formBody      = "body"
@@ -80,7 +75,7 @@ func (s *Server) postMessage(w http.ResponseWriter, r *http.Request, claim suppo
 	s.publishStaffMessage(updated, row)
 	if s.sockets != nil {
 		s.sockets.EmitToAccount(claim.AccountID, gateway.SupportMessageEvent, map[string]any{
-			"claim": claimRow(updated, support.AuthorUser), "message": row, eventSentAt: time.Now().UnixMilli(),
+			"claim": claimRow(updated, support.AuthorUser), "message": row,
 		})
 	}
 	writeJSON(w, http.StatusCreated, map[string]any{"message": row, "claim": claimRow(updated, draft.Author)})
@@ -173,25 +168,9 @@ func (s *Server) adminClaimAttachment(w http.ResponseWriter, r *http.Request) {
 	s.writeAttachment(w, r, "")
 }
 
-// writeAttachment answers with one image of the claim in the path; accountID limits it to that
-// account's. `?size=thumb` answers with the small preview when the image has one.
+// writeAttachment answers with one image of the claim in the path; accountID limits it to that account's.
 func (s *Server) writeAttachment(w http.ResponseWriter, r *http.Request, accountID string) {
-	t := startTiming()
-	claimID, attachmentID := r.PathValue("id"), r.PathValue("attachmentId")
-	var (
-		file support.File
-		err  error
-	)
-	if r.URL.Query().Get(imageSizeParam) == imageSizeThumb {
-		var previewed bool
-		file, previewed, err = s.claims.AttachmentPreview(r.Context(), claimID, attachmentID, accountID)
-		if err == nil && !previewed {
-			file, err = s.claims.AttachmentFile(r.Context(), claimID, attachmentID, accountID)
-		}
-	} else {
-		file, err = s.claims.AttachmentFile(r.Context(), claimID, attachmentID, accountID)
-	}
-	t.step(timingImage)
+	file, err := s.claims.AttachmentFile(r.Context(), r.PathValue("id"), r.PathValue("attachmentId"), accountID)
 	if errors.Is(err, mongo.ErrNoDocuments) {
 		writeError(w, http.StatusNotFound, "attachment not found")
 		return
@@ -204,9 +183,8 @@ func (s *Server) writeAttachment(w http.ResponseWriter, r *http.Request, account
 	h := w.Header()
 	h.Set("Content-Type", file.MIME)
 	h.Set("Content-Length", strconv.Itoa(len(file.Data)))
-	h.Set("Cache-Control", immutableCacheControl)
+	h.Set("Cache-Control", attachmentCacheControl)
 	h.Set("X-Content-Type-Options", "nosniff")
-	t.apply(w)
 	_, _ = w.Write(file.Data)
 }
 

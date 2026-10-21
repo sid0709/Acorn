@@ -461,6 +461,16 @@ func sameMessages(a, b []llm.Message) bool {
 	return true
 }
 
+// sameStart is whether a request carries the earlier request's messages as its start, apart from the
+// earlier request's current message: that one held the screenshot, which is not sent again.
+func sameStart(before, after []llm.Message) bool {
+	n := len(before) - 1
+	if len(after) < len(before) || !sameMessages(before[:n], after[:n]) {
+		return false
+	}
+	return after[n].Role == llm.RoleUser && len(after[n].Images) == 0 && strings.HasPrefix(after[n].Text, before[n].Text)
+}
+
 func runWaitSteps(t *testing.T, cfg Config, n int) *scriptedModel {
 	t.Helper()
 	var replies []string
@@ -479,11 +489,11 @@ func runWaitSteps(t *testing.T, cfg Config, n int) *scriptedModel {
 	return model
 }
 
-func TestHistoryOnlyGrowsAtTheEndSoTheProviderCanCacheIt(t *testing.T) {
+func TestHistoryOnlyGrowsAtTheEndAndSendsOnlyTheCurrentScreenshot(t *testing.T) {
 	model := runWaitSteps(t, DefaultConfig(), 8)
 	for n := 1; n < len(model.requests); n++ {
 		before, after := model.requests[n-1].Messages, model.requests[n].Messages
-		if len(after) != len(before)+2 || !sameMessages(before, after[:len(before)]) {
+		if len(after) != len(before)+2 || !sameStart(before, after) {
 			t.Fatalf("request %d does not start with request %d unchanged (%d then %d messages)", n+1, n, len(before), len(after))
 		}
 		if after[len(before)].Role != llm.RoleAssistant {
@@ -494,20 +504,20 @@ func TestHistoryOnlyGrowsAtTheEndSoTheProviderCanCacheIt(t *testing.T) {
 	for _, message := range model.requests[7].Messages {
 		images += len(message.Images)
 	}
-	if images != 8 {
-		t.Fatalf("every screenshot is kept until the history is compacted: %d, want 8", images)
+	if images != 1 {
+		t.Fatalf("only the current screenshot is sent: %d, want 1", images)
 	}
 }
 
 func TestHistoryIsCompactedOnceItPassesTheBudgetThenGrowsAgain(t *testing.T) {
 	cfg := DefaultConfig()
-	cfg.KeepTurns, cfg.KeepImages, cfg.HistoryTokens = 4, 2, 9600
+	cfg.KeepTurns, cfg.HistoryTokens = 4, 4800
 	model := runWaitSteps(t, cfg, 14)
 
 	compactions := 0
 	for n := 1; n < len(model.requests); n++ {
 		before, after := model.requests[n-1].Messages, model.requests[n].Messages
-		if len(after) == len(before)+2 && sameMessages(before, after[:len(before)]) {
+		if len(after) == len(before)+2 && sameStart(before, after) {
 			continue
 		}
 		compactions++
@@ -521,8 +531,8 @@ func TestHistoryIsCompactedOnceItPassesTheBudgetThenGrowsAgain(t *testing.T) {
 				folded = message.Text
 			}
 		}
-		// The newest kept turns keep their screenshots, plus the current one.
-		if turns > cfg.KeepTurns || images > cfg.KeepImages+1 || !strings.Contains(folded, "step 1: step A") {
+		// Only the current screenshot is sent.
+		if turns > cfg.KeepTurns || images != 1 || !strings.Contains(folded, "step 1: step A") {
 			t.Fatalf("request %d: turns=%d images=%d folded=%q", n+1, turns, images, folded)
 		}
 	}
@@ -971,14 +981,29 @@ func TestAMarkedScreenshotShowsWhereEachActionPoints(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	// A red cross arm runs through the point; the page behind it is white.
-	r, g, b, _ := img.At(401, 290).RGBA()
-	if !(r>>8 > 150 && g>>8 < 130 && b>>8 < 130) {
-		t.Errorf("no red mark near the click point: %d %d %d", r>>8, g>>8, b>>8)
+	// A red ring stands round the point, with a dot at the point itself; what lies inside the ring (a
+	// button's text, the line a value is typed on) is left as it was, and so is the page away from it.
+	red := func(x, y int) bool {
+		r, g, b, _ := img.At(x, y).RGBA()
+		return r>>8 > 150 && g>>8 < 130 && b>>8 < 130
 	}
-	r, g, b, _ = img.At(900, 700).RGBA()
-	if !(r>>8 > 240 && g>>8 > 240 && b>>8 > 240) {
-		t.Errorf("the page away from the click was changed: %d %d %d", r>>8, g>>8, b>>8)
+	white := func(x, y int) bool {
+		r, g, b, _ := img.At(x, y).RGBA()
+		return r>>8 > 240 && g>>8 > 240 && b>>8 > 240
+	}
+	if !red(400, 300-markRingRadius-1) || !red(400+markRingRadius+1, 300) {
+		t.Error("no red ring round the click point")
+	}
+	if !red(400, 300) {
+		t.Error("no dot at the click point")
+	}
+	for _, at := range [][2]int{{400, 290}, {412, 300}, {400, 310}} {
+		if !white(at[0], at[1]) {
+			t.Errorf("the page inside the ring was drawn over at %v", at)
+		}
+	}
+	if !white(900, 700) {
+		t.Error("the page away from the click was changed")
 	}
 }
 
@@ -990,4 +1015,17 @@ func shotOfSize(t *testing.T, width, height int) string {
 		t.Fatal(err)
 	}
 	return "data:image/jpeg;base64," + base64.StdEncoding.EncodeToString(buf.Bytes())
+}
+
+func TestKeepImagesSendsThatManyEarlierScreenshotsAgain(t *testing.T) {
+	cfg := DefaultConfig()
+	cfg.KeepImages = 2
+	model := runWaitSteps(t, cfg, 6)
+	images := 0
+	for _, message := range model.requests[5].Messages {
+		images += len(message.Images)
+	}
+	if images != 3 {
+		t.Fatalf("screenshots sent = %d, want the current one and 2 earlier", images)
+	}
 }

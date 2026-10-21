@@ -31,11 +31,3 @@ export const claimsListKey = (filter: ClaimFilter, q: string) => {
 export const claimThreadKey = (id: string) => `${CLAIMS_API}/${encodeURIComponent(id)}`;
 export const isClaimsListKey = (key: string) =>
   key === CLAIMS_API || key.startsWith(`${CLAIMS_API}?`);
-
-/** What a list key asks for: its status filter ("all" when none) and search text. */
-export function parseClaimsListKey(key: string): { filter: ClaimFilter; query: string } {
-  const params = new URLSearchParams(key.split("?")[1] ?? "");
-  const status = params.get("status");
-  const filter = CLAIM_FILTERS.find((item) => item.value === status)?.value ?? "all";
-  return { filter, query: params.get("q") ?? "" };
-}

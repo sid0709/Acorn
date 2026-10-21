@@ -27,13 +27,14 @@ func TestRowVersionChangesWithTheFileNotWithItsBytes(t *testing.T) {
 }
 
 func TestFileCacheTrustsACopyOnlyForItsWindow(t *testing.T) {
+	const window = 30 * time.Second
 	now := time.Date(2026, 10, 14, 9, 0, 0, 0, time.UTC)
-	cache := &fileCache{nowFn: func() time.Time { return now }}
+	cache := &fileCache{trust: window, nowFn: func() time.Time { return now }}
 	cache.put("k", LibraryRow{ID: "a", Bytes: []byte("file")})
 	if _, fresh := cache.get("k"); !fresh {
 		t.Fatalf("a copy just read must be trusted")
 	}
-	now = now.Add(fileTrustTTL + time.Second)
+	now = now.Add(window + time.Second)
 	if copy, fresh := cache.get("k"); copy == nil || fresh {
 		t.Fatalf("a copy past its window must be kept but asked about, got copy=%v fresh=%v", copy != nil, fresh)
 	}
@@ -93,5 +94,27 @@ func TestStackTagFollowsItsFiles(t *testing.T) {
 	putFile(t, svc, LibraryRow{ID: "go-docx", Title: "Go", FileName: "go.docx", Size: 6})
 	if _, changed, _ := svc.LibraryFileVersioned("a", "go-pdf"); changed == first {
 		t.Fatalf("a changed file in the stack must change its tag")
+	}
+}
+
+func TestFileCacheWithNoWindowTrustsACopyUntilItIsDropped(t *testing.T) {
+	now := time.Date(2026, 10, 14, 9, 0, 0, 0, time.UTC)
+	cache := &fileCache{nowFn: func() time.Time { return now }}
+	cache.put("k", LibraryRow{ID: "a", Bytes: []byte("file")})
+	now = now.Add(24 * time.Hour)
+	if _, fresh := cache.get("k"); !fresh {
+		t.Fatalf("with no window a copy stays trusted however old it is")
+	}
+	if files, bytes := cache.usage(); files != 1 || bytes != 4 {
+		t.Fatalf("usage = %d files, %d bytes", files, bytes)
+	}
+	if !cache.has("k") {
+		t.Fatalf("has must say a copy is held")
+	}
+}
+
+func TestTheDefaultCapIsEightGigabytes(t *testing.T) {
+	if got := (&fileCache{}).limit(); got != 8<<30 {
+		t.Fatalf("limit = %d", got)
 	}
 }

@@ -19,8 +19,9 @@ type systemData struct {
 	StopBeforeSubmit bool
 	// Survey is true when the run may look at a whole page as a survey of screenshots.
 	Survey bool
-	// Prefill is true when a quick text pass may fill the page's plain fields before a look.
-	Prefill bool
+	// FastFill is true when the run plans a whole page at once and carries the plan out without
+	// stopping to look (Start.FastFill).
+	FastFill bool
 	// Checks is true when a decision model checks the screen between the model's steps, so
 	// the model may plan ahead and say what each run of actions should lead to.
 	Checks     bool
@@ -42,7 +43,7 @@ func systemPrompt(start Start, snapshot applicant.Snapshot, maxActions, chunk in
 	err := systemTemplate.Execute(&out, systemData{
 		StopBeforeSubmit: start.StopBeforeSubmit,
 		Survey:           start.Survey,
-		Prefill:          start.Prefill,
+		FastFill:         start.FastFill,
 		Checks:           checks,
 		MaxActions:       maxActions,
 		Chunk:            chunk,
@@ -77,7 +78,7 @@ func observationText(step, maxSteps int, obs Observation, results []ActionResult
 		out.WriteString("Note: " + note + "\n")
 	}
 	if stale >= 1 {
-		fmt.Fprintf(&out, "Check: the screen looks the same as after your previous actions (%d step%s in a row). If required-field warnings still show but the fields already look filled, do not refill them; move on or report stuck (page_problem). Otherwise find out why before you repeat the same edit.\n", stale, plural(stale))
+		fmt.Fprintf(&out, "Check: the screen looks the same as after your previous actions (%d step%s in a row). If required-field warnings still show but the fields already look filled, do not refill them; press Submit again, the warning may be left from an earlier submit. Otherwise find out why before you repeat the same edit.\n", stale, plural(stale))
 	}
 	return strings.TrimRight(out.String(), "\n")
 }
@@ -196,8 +197,6 @@ func describe(action Action) string {
 		return fmt.Sprintf("scroll %.0f,%.0f", action.DX, action.DY)
 	case KindWait:
 		return fmt.Sprintf("wait %dms", action.Ms)
-	case KindReload:
-		return "reload the page"
 	case KindUpload:
 		if action.FileName != "" {
 			return fmt.Sprintf("upload %s at %s", action.FileName, at(action))

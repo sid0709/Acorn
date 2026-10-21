@@ -10,6 +10,7 @@ import (
 
 	"github.com/sid0709/acorn/acorn-agent/decide"
 	"github.com/sid0709/acorn/acorn-agent/llm"
+	"github.com/sid0709/acorn/acorn-backend/plainlog"
 )
 
 // The driving model plans a whole screen at once and says, at the end of each run of actions it
@@ -124,17 +125,14 @@ func (v verdict) call(err error) modelCall {
 	answers, _ := json.Marshal(v.response.Answers)
 	call := modelCall{
 		Kind:      "decision",
-		Provider:  llm.ProviderOpenRouter,
 		Messages:  []tracedMessage{{Role: "state", Text: "expected: " + v.prompt, Images: 1}},
 		Content:   string(answers),
 		Model:     v.response.Model,
 		Usage:     llm.Usage{InputTokens: v.response.Usage.InputTokens, OutputTokens: v.response.Usage.OutputTokens, Cost: v.response.Usage.Cost},
 		LatencyMs: v.response.Latency.Milliseconds(),
-	}
+	}.timed(v.response.StartedAt, v.response.Requests)
 	if err != nil {
 		call.Error = err.Error()
-	} else {
-		call.NewConn, call.ConnectMs = !v.response.ConnReused, v.response.ConnectMs
 	}
 	return call
 }
@@ -158,7 +156,7 @@ func (a *Agent) takePlan(s *session, actions []Action, dropped []string) ([]Acti
 		return nil, dropped
 	}
 	if !a.checksOn(s) {
-		if limit := a.cfg.UncheckedActions; limit > 0 && len(actions) > limit {
+		if limit := a.uncheckedLimit(s); limit > 0 && len(actions) > limit {
 			dropped = append(dropped, fmt.Sprintf("%d actions were not sent: only %d run without a check", len(actions)-limit, limit))
 			actions = actions[:limit]
 		}
@@ -166,7 +164,7 @@ func (a *Agent) takePlan(s *session, actions []Action, dropped []string) ([]Acti
 		return a.startScript(s, actions), dropped
 	}
 	batch := a.checksOn(s)
-	return a.sendRun(s, splitPlanForSession(actions, a.cfg.ChunkActions, batch), dropped)
+	return a.sendRun(s, splitPlanForSession(actions, a.chunkLimit(s.start.FastFill), batch, s.start.FastFill), dropped)
 }
 
 // sendRun sends the first of the runs and keeps the rest only if the screen can be checked
@@ -241,7 +239,7 @@ func (a *Agent) continuePlan(ctx context.Context, s *session, obs Observation, r
 		entry.Check, entry.Usage = &check, s.usage
 		a.record(s, entry, obs.Screenshot, []modelCall{verdict.call(err)})
 		a.abandon(s, "The screen could not be checked, so the rest of your plan did not run.")
-		slog.Warn("screen check failed; the run goes on without checks", "session", s.id, "error", err)
+		slog.Warn(runName(s.id)+": the screen check failed, so the rest of this run goes without checks.", plainlog.ErrorKey, err)
 		return Step{}, false
 	}
 	outcome, reason := a.judge(verdict, s.loadWaits)
@@ -260,7 +258,7 @@ func (a *Agent) continuePlan(ctx context.Context, s *session, obs Observation, r
 			return Step{}, false
 		}
 		actions, dropped := a.sendRun(s, s.plan, nil)
-		step := Step{Status: StatusWorking, Message: s.message, Actions: actions, Number: s.step, Usage: s.usage, Dropped: dropped}
+		step := Step{Status: StatusWorking, Message: s.message, Actions: actions, Number: s.step, Usage: s.usage, Dropped: dropped, Survey: a.surveyNext(s, actions, false)}
 		entry.Status, entry.Message, entry.Actions, entry.Dropped = step.Status, step.Message, actions, dropped
 		entry.Memo, entry.Job = s.memo, s.job
 		a.record(s, entry, obs.Screenshot, []modelCall{verdict.call(nil)})
@@ -319,4 +317,52 @@ func (a *Agent) screenName(key string) string {
 		return screen.Name()
 	}
 	return ""
+}
+
+// chunkLimit is how many actions of a plan run before the screen is checked: a fast-fill run
+// carries out a whole page at once, so a plan is cut only where the model put a check, at a
+// scroll or after an upload.
+func (a *Agent) chunkLimit(fastFill bool) int {
+	if fastFill {
+		return a.cfg.FastFillActions
+	}
+	return a.cfg.ChunkActions
+}
+
+// uncheckedLimit is the most actions of a plan that go out when no decision model checks the screen.
+func (a *Agent) uncheckedLimit(s *session) int {
+	if s.start.FastFill {
+		return a.cfg.FastFillActions
+	}
+	return a.cfg.UncheckedActions
+}
+
+// surveyNext is whether the extension's next look is a survey of the whole page: when the model
+// asked for one, and in a fast-fill run when what was just sent moves the page (an upload) or is
+// the last of the plan (so the whole page is looked at once, to finish and check what is left). Never
+// while a run of dropdowns is half done. sent are the actions going out now; s.plan is what is left of
+// the plan after them.
+func (a *Agent) surveyNext(s *session, sent []Action, asked bool) bool {
+	// Dropdowns being probed or set go on to their next batch without the model, which looks at nothing in
+	// between: the survey is for the end of the run (probeStep asks for it there).
+	if s.probe != nil || s.script != nil {
+		return false
+	}
+	if (asked || s.surveyAgain) && s.start.Survey {
+		s.surveyAgain = false
+		return true
+	}
+	if !s.start.FastFill {
+		return false
+	}
+	acted := false
+	for _, action := range sent {
+		switch action.Kind {
+		case KindUpload:
+			return true
+		case KindClick, KindDoubleClick, KindTripleClick, KindRightClick, KindType, KindKey, KindChoose:
+			acted = true
+		}
+	}
+	return acted && len(s.plan) == 0
 }

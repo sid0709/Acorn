@@ -373,3 +373,70 @@ func withResults(obs Observation, step Step) Observation {
 	obs.Results = resultsOf(step)
 	return obs
 }
+
+func TestTheScriptPicksFromTheOptionsThePageNamesWithoutAPicture(t *testing.T) {
+	model := &scriptedModel{replies: []string{plan("answering", nil, chooseAction(500, 300, "No", "it shows the answer"))}}
+	screen := &fakeScreen{}
+	a := newAgentWithScreen(t, model, &fixedDecider{}, screen, DefaultConfig())
+	id := start(t, a)
+	step := stepOK(t, a, id, observation(shot(t, 40)))
+	obs := observation(shot(t, 80))
+	obs.Results = resultsOf(step)
+	obs.List = &OpenList{Options: []string{"Yes", "No"}}
+	step = stepOK(t, a, id, obs)
+	if got := strings.Join(sent(step.Actions), " "); got != "key:Home ArrowDown Enter" {
+		t.Fatalf("batch = %s, want the second option picked by its place", got)
+	}
+	if screen.listedRequests != 0 || askedAboutPictures(screen) != 0 {
+		t.Fatalf("the decision model was asked (%d text, %d pictures) though an option was exactly the answer", screen.listedRequests, askedAboutPictures(screen))
+	}
+}
+
+func TestTheScriptLeavesAListToTheModelWithItsOptionsWhenNoneAnswers(t *testing.T) {
+	model := &scriptedModel{replies: []string{
+		plan("answering", nil, chooseAction(500, 300, "Green", "it shows the answer"), click(9, 9, nil)),
+		plan("picking it myself", nil, click(60, 60, nil)),
+	}}
+	screen := &fakeScreen{listedWeights: map[string]float64{optionNone: 0.9, "option_0": 0.05, "option_1": 0.05}}
+	a := newAgentWithScreen(t, model, &fixedDecider{}, screen, DefaultConfig())
+	id := start(t, a)
+	step := stepOK(t, a, id, observation(shot(t, 40)))
+	obs := observation(shot(t, 80))
+	obs.Results = resultsOf(step)
+	obs.List = &OpenList{Options: []string{"Red", "Blue"}}
+	step = stepOK(t, a, id, obs)
+	if model.count() != 2 || len(step.Actions) != 1 || step.Actions[0].Kind != KindClick || *step.Actions[0].X != 60 {
+		t.Fatalf("the model must look next: calls %d, step %+v", model.count(), step)
+	}
+	if text := lastText(model); !strings.Contains(text, `choose "Green"`) || !strings.Contains(text, `1 "Red"; 2 "Blue"`) || !strings.Contains(text, "option's own words") {
+		t.Fatalf("the model was not told the options:\n%s", text)
+	}
+	for _, request := range screen.requests {
+		if _, asked := request.Questions[askOption]; asked {
+			t.Fatal("a picture was read though the page named the options")
+		}
+	}
+}
+
+func TestTheScriptTypesIntoAListThePageSaysIsOpenAndEmpty(t *testing.T) {
+	model := &scriptedModel{replies: []string{plan("answering", nil, chooseAction(500, 300, "93705", "it shows the answer"))}}
+	screen := &fakeScreen{listedWeights: map[string]float64{"option_0": 0.9, optionNone: 0.1}}
+	a := newAgentWithScreen(t, model, &fixedDecider{}, screen, DefaultConfig())
+	id := start(t, a)
+	step := stepOK(t, a, id, observation(shot(t, 40)))
+	obs := withResults(observation(shot(t, 80)), step)
+	obs.List = &OpenList{Options: []string{}}
+	step = stepOK(t, a, id, obs)
+	if got := strings.Join(sent(step.Actions), " "); got != "type:93705" {
+		t.Fatalf("batch = %s, want the answer typed into a box that searches as one types", got)
+	}
+	obs = withResults(observation(shot(t, 120)), step)
+	obs.List = &OpenList{Options: []string{"93705 Fresno, CA"}}
+	step = stepOK(t, a, id, obs)
+	if got := strings.Join(sent(step.Actions), " "); got != "key:Home Enter" {
+		t.Fatalf("batch = %s, want the one match picked", got)
+	}
+	if screen.listedRequests != 1 || askedAboutPictures(screen) != 0 {
+		t.Fatalf("the decision model was asked %d times about the text and %d about pictures, want the text once (the match is not exactly the answer)", screen.listedRequests, askedAboutPictures(screen))
+	}
+}

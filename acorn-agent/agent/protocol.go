@@ -19,14 +19,15 @@ const (
 	KindScroll      = "scroll"
 	KindUpload      = "upload"
 	KindWait        = "wait"
-	// KindReload loads the page again at its address, for a page that shows an error or stopped loading.
-	KindReload = "reload"
 	// KindChoose is not sent to the extension: it sets a dropdown the page draws itself to an
 	// answer given in words. The agent opens it, finds the option and picks it (choose.go).
 	KindChoose = "choose"
 	// KindSurvey is not sent to the extension: it asks for the next look to be a survey of
 	// the whole page (Step.Survey).
 	KindSurvey = "survey"
+	// KindSnap is an action of the agent's own, never the model's: the extension takes a picture of the
+	// page and sends it to the agent at once, so a dropdown that was opened can be looked at (probe.go).
+	KindSnap = "snap"
 )
 
 // Run statuses the agent reports with each step.
@@ -152,6 +153,10 @@ type Observation struct {
 	// position, sent on the first look of a page and when the model asks. The model plans the
 	// whole form from them; each action names the screen its point is measured on.
 	Survey []SurveyScreen `json:"survey,omitempty"`
+	// ZoneShots are the photos of the zones of the plan just carried out, each taken when the last
+	// action of its zone was done (a fast-fill run; docs 19.4m). Zone is the survey screen the
+	// actions of the zone were measured on.
+	ZoneShots []ZoneShot `json:"zoneShots,omitempty"`
 	// PageText is the page's visible text, sent when the page changed since the last step.
 	// The agent reads it for the job description, which a screenshot may have scrolled past.
 	PageText string `json:"pageText,omitempty"`
@@ -159,13 +164,126 @@ type Observation struct {
 	Answer string `json:"answer,omitempty"`
 	// Results answer the actions of the step before.
 	Results []ActionResult `json:"results,omitempty"`
-	// Prefill says what the quick text pass did on this page since the model last looked.
-	Prefill *PrefillReport `json:"prefill,omitempty"`
+	// Marks are the page's controls and where each sits on the page, so a point of a plan is bound to
+	// the control it is on (marks.go). Sent with each look of a run that surveys.
+	Marks []ControlMark `json:"marks,omitempty"`
+	// Layout is where the form moved since the look before: the settled stretches are placed from it
+	// (settled.go). Empty when nothing moved.
+	Layout []LayoutMove `json:"layout,omitempty"`
+	// Look names the look, the same on a step the extension sends again after a failure, so the move
+	// in Layout is placed once. Empty from an extension that does not name its looks.
+	Look string `json:"look,omitempty"`
+	// List is the list of choices open on the page at this look, as the page names its options
+	// (an ARIA listbox or menu); nil when the page names none. A dropdown the agent opened is read
+	// from it as text (choose.go), with no picture to count rows in.
+	List *OpenList `json:"list,omitempty"`
+}
+
+// OpenList is a list of choices open on the page, as the page names its options, in the order they
+// are drawn (so the n-th is reached with n-1 ArrowDown from the first). Empty options is a list that
+// is open with nothing in it yet: a box that searches as one types.
+type OpenList struct {
+	Options []string `json:"options"`
+}
+
+// Rect is a box on the page, in screenshot pixels from the page's top left.
+type Rect struct {
+	X float64 `json:"x"`
+	Y float64 `json:"y"`
+	W float64 `json:"w"`
+	H float64 `json:"h"`
+}
+
+// ControlMark is one control of the page (an input, a dropdown, a button, a check, a file field, a
+// link): a stable ID, what kind it is, where it sits, and Box, the field it belongs to: the largest
+// box around it that holds no other control, so a point on the control's own label is on its field.
+// Label is what the page calls it (its label, aria-label, placeholder, or a button's text). Entry is
+// the part of the control's own box that is not its label, when the label is printed inside the box
+// (a question's words inside a bordered field): the place to click or type. Required, Empty and
+// Invalid are what the page says of the control's state; Empty is nil when the page cannot tell (a
+// dropdown the page draws itself keeps its value elsewhere).
+type ControlMark struct {
+	ID   string `json:"id"`
+	Kind string `json:"kind"`
+	Rect
+	Box      *Rect  `json:"box,omitempty"`
+	Label    string `json:"label,omitempty"`
+	Entry    *Rect  `json:"entry,omitempty"`
+	Required bool   `json:"required,omitempty"`
+	Empty    *bool  `json:"empty,omitempty"`
+	Invalid  bool   `json:"invalid,omitempty"`
+	// Group is the group a radio button, or a check box of a shared name, answers one question with, and
+	// Question that question as the page prints it (a fieldset's legend), when the page says. Such a
+	// control is empty while none of its group is ticked, and required when the page marks any of them so.
+	Group    string `json:"group,omitempty"`
+	Question string `json:"question,omitempty"`
+}
+
+// The kinds of control the page reports (control-marks-page.ts).
+const (
+	MarkKindInput  = "input"
+	MarkKindSelect = "select"
+	MarkKindCheck  = "check"
+	MarkKindFile   = "file"
+	MarkKindButton = "button"
+	MarkKindLink   = "link"
+)
+
+// isField is whether a kind of control is filled rather than pressed: anything but a button or a link.
+func isField(kind string) bool {
+	return kind != MarkKindButton && kind != MarkKindLink
+}
+
+// MarkRef is the control a point was bound to when it was planned, as it sat then. The extension finds
+// the same control by ID when the point is acted on, and the difference of the two places is how far
+// the point has moved. Label and Kind stay on the agent: the point is checked against the label.
+type MarkRef struct {
+	ID string `json:"id"`
+	Rect
+	Label string `json:"-"`
+	Kind  string `json:"-"`
+}
+
+// LayoutMove is a move of the form between two looks, in old page positions (screenshot pixels). The
+// controls from At down moved by Dy; what lay between From and At is where it happened (something
+// appeared or went), so nothing there is known to be as it was.
+type LayoutMove struct {
+	From float64 `json:"from"`
+	At   float64 `json:"at"`
+	Dy   float64 `json:"dy"`
 }
 
 // SurveyScreen is one screenshot of a survey: the page scrolled to ScrollY (in screenshot
 // pixels, as Viewport.ScrollY is).
 type SurveyScreen struct {
+	Screenshot string  `json:"screenshot"`
+	ScrollY    float64 `json:"scrollY"`
+}
+
+// Span is a stretch of the page, in screenshot pixels from its top.
+type Span struct {
+	From float64 `json:"from"`
+	To   float64 `json:"to"`
+}
+
+// SettledMap is the parts of a page the model will not come back to (painted blue on the page's
+// minimap): the page's height when they were settled, so the extension can tell the page changed.
+// Fence is how far down the page (screenshot pixels) the plan being carried out leaves things as they
+// are: it begins at the first point it acts on. A height change does not delete what is below it.
+// The extension says where the controls moved (Observation.Layout), and the stretches follow them: a
+// stretch moves with the controls it lies among, and what lies where something appeared is no longer
+// settled. No control moved and the page grew: the new pixels are at the bottom and the coordinates
+// still hold.
+type SettledMap struct {
+	PageHeight float64 `json:"pageHeight"`
+	Fence      float64 `json:"fence"`
+	Spans      []Span  `json:"spans"`
+}
+
+// ZoneShot is the screenshot taken when a zone of a plan was done: the zone's number and where the
+// page was scrolled to (in screenshot pixels).
+type ZoneShot struct {
+	Zone       int     `json:"zone"`
 	Screenshot string  `json:"screenshot"`
 	ScrollY    float64 `json:"scrollY"`
 }
@@ -196,6 +314,19 @@ type Action struct {
 	// page's height then, so the extension can tell the page changed shape since and refuse.
 	ScrollTo   *float64 `json:"scrollTo,omitempty"`
 	PageHeight float64  `json:"pageHeight,omitempty"`
+	// Zone is the survey screen (from 1) the action belongs to in a fast-fill run, so the extension
+	// can take a photo when the last action of a zone is done. Typing, keys and waits belong to the
+	// zone of the action before them. 0 when the run is not fast-fill or the look was one screen.
+	Zone int `json:"zone,omitempty"`
+	// Mark is the control the point was bound to when it was planned (marks.go), set by the agent as
+	// the action goes out. The extension finds that control again to know where the point is now.
+	Mark *MarkRef `json:"mark,omitempty"`
+	// Label is what the model called the control at the point, as the page names it. It stays on
+	// the agent: the point is checked against it before the action is carried out.
+	Label string `json:"-"`
+	// Commit is that the model named this click as the one that sends the page or goes on to the next.
+	// It stays on the agent: the click is held back when part of the plan could not be carried out.
+	Commit bool `json:"-"`
 	// Check is what the screen should show once this action has run, as the model expected.
 	// It stays on the agent: the extension never sees it.
 	Check string `json:"-"`
@@ -213,6 +344,9 @@ type Step struct {
 	Ask *Ask `json:"ask,omitempty"`
 	// Survey asks the extension to make its next look a survey of the whole page.
 	Survey bool `json:"survey,omitempty"`
+	// Settled is the parts of the page the model will not come back to, sent when they changed: the
+	// extension does not take them again in a survey, and draws them on the minimap.
+	Settled *SettledMap `json:"settled,omitempty"`
 	// Actions run in order, then the extension sends a new screenshot.
 	Actions []Action `json:"actions"`
 	// Number is this step's place in the run, from 1.
@@ -248,13 +382,18 @@ type Start struct {
 	// model was sent and answered, how long each call took) come back with each step, for the
 	// extension to keep in its own log. The server writes and keeps nothing for it.
 	Trace bool `json:"trace,omitempty"`
+	// TraceImages asks for the trace's pictures too (the screenshot with each action drawn on it, a
+	// survey screen's likewise): hundreds of kilobytes a step, so only a build made for debugging asks.
+	// Without it the trace that comes back is text alone, which is a few kilobytes gzipped.
+	TraceImages bool `json:"traceImages,omitempty"`
 	// Survey lets the run look at a whole long page as several screenshots from top to bottom
 	// (the extension scrolls the page to take them). Off by default: the model then sees only the
 	// current screen, as a person does, and is not told surveys exist.
 	Survey bool `json:"survey,omitempty"`
-	// Prefill lets the extension send the page's plain fields for a quick text pass before the
-	// model looks (prefill.go). Off by default: the model is then not told such a pass exists.
-	Prefill bool `json:"prefill,omitempty"`
+	// FastFill asks for the fast way of filling a page: one plan for the whole page, carried out
+	// zone by zone with the checks done on the side. Off by default, the run goes step by step. The
+	// agent only records the switch for now (docs 19.4m); nothing behaves differently with it on.
+	FastFill bool `json:"fastFill,omitempty"`
 	// Memory is what a stopped run knew, kept by the extension, to start a run that goes on from it
 	// when the server forgot the session (it restarted, or the session expired).
 	Memory *Memory `json:"memory,omitempty"`
@@ -302,10 +441,12 @@ type ResumeInfo struct {
 type Started struct {
 	SessionID string       `json:"sessionId"`
 	Resumes   []ResumeInfo `json:"resumes"`
-	// Model is the model that drives the run and the API it is called on, for the run's log.
-	Model string `json:"model,omitempty"`
 	// Trace holds the run's start (session.json, system.txt) when the run asked for a trace.
 	Trace *Trace `json:"trace,omitempty"`
+	// FastFill and Survey are what the run really uses: the server may turn them on for every run
+	// (Config.FastFill), and a fast-fill run surveys. The extension follows them.
+	FastFill bool `json:"fastFill,omitempty"`
+	Survey   bool `json:"survey,omitempty"`
 }
 
 // Continued is a run taken back up: the step it stopped at and what it has spent, so the

@@ -12,23 +12,34 @@ export const DEFAULT_AGENT_URL = (
   import.meta.env.VITE_ACORN_AGENT_URL?.trim() || hosts.agent
 ).replace(/\/$/, "");
 
+/** Whether a build setting turns a switch on: "true", "on", "yes" or "1". Unset or anything else is off. */
+function switchOn(value: string | undefined): boolean {
+  return ["true", "on", "yes", "1"].includes((value ?? "").trim().toLowerCase());
+}
+
 /**
  * Whether a run may survey a long page: scroll it from top to bottom taking a screenshot at each stop,
  * so the model plans the whole form from one look. Off, the run sees only the current screen, as a
  * person does, and the page does not move on its own. A survey was never shown to save calls, time,
  * or money (see docs 19), and it scrolls the page in front of the person.
  */
-export const AGENT_SURVEY = false;
+export const AGENT_SURVEY = switchOn(import.meta.env.VITE_ACORN_AGENT_SURVEY);
 
 /**
- * Whether the run may make a quick text pass before the model looks at a page: the page's plain fields
- * (text boxes, native lists, radio groups, checkboxes) are listed as text, answered in one model call
- * that reads no image, and typed with real keystrokes, so the model's own look checks a first draft
- * instead of discovering the form (docs 19.4m). On unless a build sets VITE_ACORN_AGENT_PREFILL=false: the
- * deployed build reads no .env, and a pass that is off there is a run of the image agent alone.
+ * Whether a run uses fast fill: it plans a whole page from one look and carries the plan out zone by
+ * zone, with the checks of each zone done while the next one runs (docs 19.4m). Off, a run goes step by
+ * step, as it always has. The switch is here so a build can turn the new way on and the old way back
+ * on without touching anything else.
  */
-export const AGENT_PREFILL =
-  import.meta.env.VITE_ACORN_AGENT_PREFILL?.trim().toLowerCase() !== "false";
+export const AGENT_FAST_FILL = switchOn(import.meta.env.VITE_ACORN_AGENT_FAST_FILL);
+
+/**
+ * Whether a run's log keeps the pictures of its trace: the screenshots the extension took, and the server's
+ * copies with each action drawn on them, which then come back over the person's line (hundreds of
+ * kilobytes a step). Off, the trace is text alone, a few kilobytes gzipped, and the log holds no pictures.
+ * The server's own trace folder (ACORN_AGENT_TRACE) is not affected.
+ */
+export const AGENT_TRACE_IMAGES = switchOn(import.meta.env.VITE_ACORN_AGENT_TRACE_IMAGES);
 
 export function getAgentUrl(): string {
   return DEFAULT_AGENT_URL;

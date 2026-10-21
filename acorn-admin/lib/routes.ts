@@ -1,5 +1,3 @@
-import { ATTACHMENT_SIZE, IMAGE_SIZE_PARAM, type AttachmentSize } from "@acorn/support-chat";
-
 export const ROUTES = {
   statistics: "/statistics",
   users: "/users",
@@ -9,14 +7,8 @@ export const ROUTES = {
   claimScreenshot: (id: string, size: "thumb" | "view" | "original" = "original") =>
     `/api/claims/${encodeURIComponent(id)}/screenshot?size=${size}`,
   claimDebugLog: (id: string) => `/api/claims/${encodeURIComponent(id)}/debug-log`,
-  claimAttachment: (
-    id: string,
-    attachmentId: string,
-    size: AttachmentSize = ATTACHMENT_SIZE.full,
-  ) =>
-    `/api/claims/${encodeURIComponent(id)}/attachments/${encodeURIComponent(attachmentId)}${
-      size === ATTACHMENT_SIZE.thumb ? `?${IMAGE_SIZE_PARAM}=${ATTACHMENT_SIZE.thumb}` : ""
-    }`,
+  claimAttachment: (id: string, attachmentId: string) =>
+    `/api/claims/${encodeURIComponent(id)}/attachments/${encodeURIComponent(attachmentId)}`,
   claimMessages: (id: string) => `/api/claims/${encodeURIComponent(id)}/messages`,
   login: "/login",
 } as const;

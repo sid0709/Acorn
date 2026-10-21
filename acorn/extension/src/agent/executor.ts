@@ -17,15 +17,9 @@ import { NO_FOCUS_MESSAGE, nothingHasFocus, scrollsAPage } from "./focus-guard";
 import { blockedMessage, type GuardVerdict } from "./guard";
 import { clickAt, moveMouse, pressKeys, typeText, wheelAt } from "./input";
 import { watchInputEffects } from "./input-settle";
-import {
-  centerEdgeTarget,
-  focusControlAt,
-  hasState,
-  readPointInfo,
-  restoreScroll,
-  type PointInfo,
-} from "./point-info";
-import { scrollForAction } from "./survey";
+import { type ScrollContext } from "./page-scroll";
+import { scrollForAction, type PlaceMarks } from "./survey";
+import { Stopwatch } from "./timing";
 import { uploadAt, type ResumeFile } from "./upload";
 import { waitForUploadProcessing } from "./upload-settle";
 
@@ -34,15 +28,32 @@ import type { Overlay } from "./overlay";
 
 /** The pause after an action that changes the page, so what it did has drawn before the next look. */
 export const SETTLE_MS = 350;
-/**
- * A click within this fraction of the window's height of its top or bottom edge is made after scrolling
- * the control to the middle, and the page is then put back. Clicks that close to an edge did nothing
- * on a page where the same click at mid-screen worked, and nothing in the page said why (four sightings
- * in Workday runs), so the cause is unverified; a click away from the edges is made as it was.
- */
-export const EDGE_BAND_RATIO = 0.08;
 /** The pause after a scroll, which a page may answer by loading more. */
 export const SCROLL_SETTLE_MS = 500;
+
+/**
+ * The least a click pauses where the page is waited on only until it goes quiet: a click may open a file
+ * chooser, which the browser announces a moment after it, and the announcement is what says the click did.
+ */
+export const CLICK_SETTLE_FLOOR_MS = 150;
+
+/**
+ * Pauses after an action that changes the page: at most `ms`, and less where the run can tell the page has
+ * settled, but not less than `floorMs` there.
+ */
+function settle(ctx: ExecutorContext, ms: number, floorMs?: number): Promise<void> {
+  return ctx.settle ? ctx.settle(ms, floorMs) : ctx.sleep(ms);
+}
+
+/** What the run is told of an action as it goes: it began, it was aimed at a point of the window (CSS pixels), it was done, it failed, or it was skipped. */
+export const ACTION_PROGRESS = {
+  started: "started",
+  aimed: "aimed",
+  done: "done",
+  failed: "failed",
+  skipped: "skipped",
+} as const;
+export type ActionProgress = (typeof ACTION_PROGRESS)[keyof typeof ACTION_PROGRESS];
 
 /** What the executor needs from the run. */
 export interface ExecutorContext {
@@ -63,23 +74,26 @@ export interface ExecutorContext {
   guard?: (x: number, y: number) => Promise<GuardVerdict>;
   /** Runs after a click has settled: it closes a frame or window the click opened that is an online file source. */
   afterClick?: () => Promise<void>;
-  /**
-   * Told what was under the pointer before a click and after it, when the control there has a state a
-   * click can change (a box, a list, an expander): for the run's log, so a click that changed nothing
-   * can be explained. It never blocks or changes the click.
-   */
-  inspected?: (at: { x: number; y: number }, before: PointInfo, after: PointInfo | null) => void;
-  /**
-   * Told when text was about to be typed and nothing had focus: where the last click was, what was
-   * under it, and whether focusing the control there put the focus right. For the run's log.
-   */
-  noFocus?: (
-    at: { x: number; y: number } | null,
-    info: PointInfo | null,
-    refocused: boolean,
-  ) => void;
   /** How long an upload waits for the click to open a file picker; the default when unset. */
   fileChooserWaitMs?: number;
+  /** Called when the last action of a zone of a fast-fill plan is done: the run takes a photo of the page. */
+  zoneDone?: (zone: number) => Promise<void>;
+  /** The run's scrolling: the settled parts it keeps out of, and where it tells what it did. */
+  scroll?: ScrollContext;
+  /** Takes a picture of the page now and sends it to the agent for a `snap` action, which waits for it to arrive. */
+  snap?: (action: AgentAction) => Promise<void>;
+  /** Finds an action's target again on a page that changed shape: its point in screenshot pixels, or null. */
+  locate?: (action: AgentAction) => Promise<{ x: number; y: number } | null>;
+  /** Finds it again by the control the point was bound to when it was planned, which the page can say the place of. */
+  marks?: PlaceMarks;
+  /**
+   * Pauses after an action that changes the page, for at most `ms` and not less than `floorMs` where it
+   * pauses less: a run that can tell the page has gone quiet does, and one that cannot pauses `ms`, as it
+   * always did.
+   */
+  settle?: (ms: number, floorMs?: number) => Promise<void>;
+  /** Told of each action as it goes (for the map of the page); `at` is the point an action was aimed at, in the window's CSS pixels. */
+  progress?: (action: AgentAction, state: ActionProgress, at?: { x: number; y: number }) => void;
 }
 
 /**
@@ -114,9 +128,6 @@ async function refuseIfBlocked(verdict: Promise<GuardVerdict> | undefined): Prom
 
 type Done = { detail?: string; opened?: ActionOpened };
 
-/** Where each executor last clicked: typing goes to the control that click was meant for. */
-const lastClicks = new WeakMap<object, { x: number; y: number }>();
-
 /**
  * Clicks, and says whether the click opened a file picker. The session intercepts pickers so no
  * system dialog appears, which also hides them from a screenshot: without this the model would
@@ -127,135 +138,118 @@ async function clickWatchingForPicker(
   x: number,
   y: number,
   options: Parameters<typeof clickAt>[3],
+  watch: Stopwatch,
 ): Promise<Done> {
   let opened = false;
   const stop = ctx.cdp.onEvent((method) => {
     if (method === "Page.fileChooserOpened") opened = true;
   });
-  lastClicks.set(ctx, { x, y });
-  // Near an edge the control is brought to mid-screen for the click (and the page put back after it).
-  const edge = await centerEdgeTarget(ctx.cdp, x, y, EDGE_BAND_RATIO);
-  const at = edge ?? { x, y };
-  const before = ctx.inspected ? await readPointInfo(ctx.cdp, at.x, at.y) : null;
   try {
-    await clickAt(ctx.cdp, at.x, at.y, options);
-    await ctx.sleep(SETTLE_MS);
-    await ctx.afterClick?.();
-    if (before && hasState(before)) {
-      const after = await readPointInfo(ctx.cdp, at.x, at.y);
-      ctx.inspected?.({ x: at.x, y: at.y }, before, after);
-    }
+    await watch.time("click", () => clickAt(ctx.cdp, x, y, options));
+    await watch.time("settle", () => settle(ctx, SETTLE_MS, CLICK_SETTLE_FLOOR_MS));
+    await watch.time("afterClick", async () => ctx.afterClick?.());
   } finally {
     stop();
-    if (edge) await restoreScroll(ctx.cdp, edge.scrollX, edge.scrollY);
   }
   return opened ? { opened: ACTION_OPENED.filePicker } : {};
 }
 
-/** How long a reloaded page is waited for, and how often it is asked whether it has loaded. */
-const RELOAD_WAIT_MS = 15_000;
-const RELOAD_POLL_MS = 250;
-
-/** Waits until the page says it has loaded; a page still loading at the limit is looked at as it is. */
-async function waitForDocumentReady(cdp: Cdp, sleep: (ms: number) => Promise<void>): Promise<void> {
-  // The old document may still answer once before the new one replaces it.
-  await sleep(RELOAD_POLL_MS * 2);
-  for (let waited = 0; waited < RELOAD_WAIT_MS; waited += RELOAD_POLL_MS) {
-    try {
-      const answer = await cdp.send<{ result?: { value?: unknown } }>("Runtime.evaluate", {
-        expression: `document.readyState`,
-        returnByValue: true,
-      });
-      if (answer.result?.value === "complete") break;
-    } catch {
-      // The page is between documents.
-    }
-    await sleep(RELOAD_POLL_MS);
-  }
-  await sleep(SETTLE_MS);
-}
-
-async function perform(ctx: ExecutorContext, action: AgentAction): Promise<Done> {
+async function perform(ctx: ExecutorContext, action: AgentAction, watch: Stopwatch): Promise<Done> {
   const { cdp } = ctx;
   switch (action.kind) {
     case "click":
     case "double_click":
     case "triple_click":
     case "right_click": {
-      const { x, y } = point(action, ctx.scale());
-      await scrollForAction(cdp, action, ctx.scale(), ctx.sleep);
+      const { x, y } = await watch.time("scroll", () =>
+        scrollForAction(cdp, action, ctx.scale(), ctx),
+      );
+      ctx.progress?.(action, ACTION_PROGRESS.aimed, { x, y });
       const verdict = ctx.guard?.(x, y);
-      await glideTo(ctx, x, y);
-      await refuseIfBlocked(verdict);
+      await watch.time("glide", () => glideTo(ctx, x, y));
+      await watch.time("guard", () => refuseIfBlocked(verdict));
       void ctx.overlay.click();
       const count = action.kind === "double_click" ? 2 : action.kind === "triple_click" ? 3 : 1;
-      return clickWatchingForPicker(ctx, x, y, {
-        button: action.kind === "right_click" ? "right" : "left",
-        count,
-      });
+      return clickWatchingForPicker(
+        ctx,
+        x,
+        y,
+        {
+          button: action.kind === "right_click" ? "right" : "left",
+          count,
+        },
+        watch,
+      );
     }
     case "hover": {
-      const { x, y } = point(action, ctx.scale());
-      await scrollForAction(cdp, action, ctx.scale(), ctx.sleep);
-      await glideTo(ctx, x, y);
+      const { x, y } = await watch.time("scroll", () =>
+        scrollForAction(cdp, action, ctx.scale(), ctx),
+      );
+      ctx.progress?.(action, ACTION_PROGRESS.aimed, { x, y });
+      await watch.time("glide", () => glideTo(ctx, x, y));
       void ctx.overlay.hover(true);
-      await moveMouse(cdp, x, y);
-      await ctx.sleep(SETTLE_MS);
+      await watch.time("move", () => moveMouse(cdp, x, y));
+      await watch.time("settle", () => settle(ctx, SETTLE_MS));
       return {};
     }
     case "type": {
       if (!action.text) throw new Error("there is no text to type");
-      if (await nothingHasFocus(cdp)) {
-        // The click did not put focus in the control (something took it, or the page moved the focus
-        // away): the control at that point is focused, as a person would tab to it, and the text is
-        // typed with the same real keys. Without a control there, the text is refused as before.
-        const at = lastClicks.get(ctx) ?? null;
-        const refocused = at ? await focusControlAt(cdp, at.x, at.y) : false;
-        ctx.noFocus?.(at, at ? await readPointInfo(cdp, at.x, at.y) : null, refocused);
-        if (!refocused) throw new Error(NO_FOCUS_MESSAGE);
-      }
-      await typeText(cdp, action.text);
-      await ctx.sleep(SETTLE_MS / 2);
+      if (await watch.time("focusCheck", () => nothingHasFocus(cdp)))
+        throw new Error(NO_FOCUS_MESSAGE);
+      const text = action.text;
+      await watch.time("type", () => typeText(cdp, text));
+      await watch.time("settle", () => settle(ctx, SETTLE_MS / 2));
       return { detail: `${[...action.text].length} characters` };
     }
     case "key": {
       if (!action.keys) throw new Error("there is no key to press");
-      if (scrollsAPage(action.keys) && (await nothingHasFocus(cdp)))
+      const keys = action.keys;
+      if (scrollsAPage(keys) && (await watch.time("focusCheck", () => nothingHasFocus(cdp))))
         throw new Error(NO_FOCUS_MESSAGE);
-      await pressKeys(cdp, action.keys);
-      await ctx.sleep(SETTLE_MS);
+      await watch.time("keys", () => pressKeys(cdp, keys));
+      await watch.time("settle", () => settle(ctx, SETTLE_MS));
       return {};
     }
     case "scroll": {
       const { x, y } = point(action, ctx.scale());
       const scale = ctx.scale();
-      await glideTo(ctx, x, y);
-      await wheelAt(cdp, x, y, (action.dx ?? 0) / scale, (action.dy ?? 0) / scale);
-      await ctx.sleep(SCROLL_SETTLE_MS);
+      await watch.time("glide", () => glideTo(ctx, x, y));
+      await watch.time("wheel", () =>
+        wheelAt(cdp, x, y, (action.dx ?? 0) / scale, (action.dy ?? 0) / scale),
+      );
+      await watch.time("settle", () => ctx.sleep(SCROLL_SETTLE_MS));
       return {};
     }
     case "upload": {
-      const { x, y } = point(action, ctx.scale());
       if (!action.resume) throw new Error("the server named no résumé to upload");
-      const file = await ctx.resume(action.resume, action.fileName ?? action.resume);
-      await scrollForAction(cdp, action, ctx.scale(), ctx.sleep);
+      const resume = action.resume;
+      const file = await watch.time("resumeFetch", () =>
+        ctx.resume(resume, action.fileName ?? resume),
+      );
+      const { x, y } = await watch.time("scroll", () =>
+        scrollForAction(cdp, action, ctx.scale(), ctx),
+      );
+      ctx.progress?.(action, ACTION_PROGRESS.aimed, { x, y });
       const verdict = ctx.guard?.(x, y);
-      await glideTo(ctx, x, y);
-      await refuseIfBlocked(verdict);
+      await watch.time("glide", () => glideTo(ctx, x, y));
+      await watch.time("guard", () => refuseIfBlocked(verdict));
       void ctx.overlay.click();
-      const done = await uploadAt(cdp, x, y, file, ctx.fileChooserWaitMs);
-      await waitForUploadProcessing(cdp, ctx.sleep);
-      await ctx.sleep(SETTLE_MS);
+      const done = await watch.time("upload", () =>
+        uploadAt(cdp, x, y, file, ctx.fileChooserWaitMs),
+      );
+      await watch.time("uploadProcessing", () => waitForUploadProcessing(cdp, ctx.sleep));
+      await watch.time("settle", () => settle(ctx, SETTLE_MS));
       return { detail: `${done.fileName}, ${done.bytes} bytes, through the ${done.via}` };
     }
-    case "wait": {
-      await ctx.sleep(action.ms ?? 1000);
+    case "snap": {
+      if (!ctx.snap) throw new Error("the extension cannot take a picture here");
+      const snap = ctx.snap;
+      await watch.time("snap", () => snap(action));
       return {};
     }
-    case "reload": {
-      // A key chord goes to the page, not the browser, so a reload is the browser's own.
-      await cdp.send("Page.reload", { ignoreCache: false });
-      await waitForDocumentReady(cdp, ctx.sleep);
+    case "wait": {
+      const ms = action.ms ?? 1000;
+      await watch.time("wait", () => ctx.sleep(ms));
       return {};
     }
     default:
@@ -264,49 +258,109 @@ async function perform(ctx: ExecutorContext, action: AgentAction): Promise<Done>
 }
 
 /**
- * Runs the actions in order. One that fails stops the batch: what came after it was
- * planned for a page the failed action did not leave behind, so it is reported as skipped
- * and the agent looks at the page again.
+ * A fast-fill plan is carried out zone by zone. When the next action is in another zone (or there is
+ * none), the zone just done is photographed. Returns the zone the next action is in.
+ */
+async function leaveZone(
+  ctx: ExecutorContext,
+  zone: number | undefined,
+  next: number | undefined,
+): Promise<number | undefined> {
+  if (zone != null && next !== zone) await ctx.zoneDone?.(zone);
+  return next ?? zone;
+}
+
+/** What a result says of an action that was not run because one before it failed. */
+export const SKIPPED_ERROR = "skipped: an earlier action in this step failed";
+
+/** The kinds of action that reach a control of their own, at a point: what follows one of them (typing, keys) is meant for that control. */
+const REACHES_A_CONTROL: ReadonlySet<string> = new Set([
+  "click",
+  "double_click",
+  "triple_click",
+  "right_click",
+  "hover",
+  "upload",
+]);
+
+/** Whether an action reaches a control of its own. */
+function reachesAControl(action: AgentAction): boolean {
+  return REACHES_A_CONTROL.has(action.kind) && action.x != null && action.y != null;
+}
+
+/** Whether a result is of an action that was skipped, not one that failed. */
+export function wasSkipped(result: AgentActionResult): boolean {
+  return !result.ok && result.error === SKIPPED_ERROR;
+}
+
+/**
+ * Runs the actions in order. One that fails stops the batch: what came after it was planned for a page
+ * the failed action did not leave behind, so it is reported as skipped and the agent looks at the page
+ * again. The exception is typing or a key refused because nothing has focus: the click before it reached
+ * no control, and the page is as it was, so only what was meant for that control is skipped (up to the
+ * next action that reaches a control of its own) and the rest of the batch goes on. A recorded run lost
+ * eighteen planned actions, and a look, to each of nine such refusals on one phone box.
  */
 export async function runActions(
   ctx: ExecutorContext,
   actions: AgentAction[],
-  options: { settle?: boolean } = {},
+  /** Told the time the batch spent beyond its actions (watching the page's reaction to typing). */
+  batch = new Stopwatch(),
 ): Promise<AgentActionResult[]> {
   const results: AgentActionResult[] = [];
   let failed = false;
-  // A step that types is looked at only once the page has answered what the typing asked of it. A
-  // caller that runs many small batches in a row (the quick text pass) waits once, at the end.
+  // Set while what was meant for a control that was not reached is being skipped.
+  let unreached = false;
+  // A step that types is looked at only once the page has answered what the typing asked of it.
   const typing = actions.some((action) => action.kind === "type" || action.kind === "key");
-  const effects = typing && options.settle !== false ? await watchInputEffects(ctx.cdp) : null;
+  const effects = typing ? await batch.time("watchInput", () => watchInputEffects(ctx.cdp)) : null;
+  let zone: number | undefined;
+  // The zone of the last action, as that action itself has it: an action the agent made (a dropdown being
+  // opened) has none, and a batch that ends with one ends with a list open, which is not a zone's photo.
+  let lastOwnZone: number | undefined;
   for (const action of actions) {
-    if (failed) {
+    if (unreached && reachesAControl(action)) unreached = false;
+    if (failed || unreached) {
       results.push({
         id: action.id,
         ok: false,
-        error: "skipped: an earlier action in this step failed",
+        error: SKIPPED_ERROR,
       });
+      ctx.progress?.(action, ACTION_PROGRESS.skipped);
       continue;
     }
     ctx.checkStopped();
+    zone = await leaveZone(ctx, zone, action.zone ?? zone);
+    lastOwnZone = action.zone;
+    // Each action carries when it began and how long it took, and where that time went.
+    const watch = new Stopwatch();
+    const timing = () => ({ startedAt: watch.startedAt, ms: watch.ms, laps: watch.laps });
+    ctx.progress?.(action, ACTION_PROGRESS.started);
     try {
-      const done = await perform(ctx, action);
+      const done = await perform(ctx, action, watch);
       results.push({
         id: action.id,
         ok: true,
+        ...timing(),
         ...(done.detail ? { detail: done.detail } : {}),
         ...(done.opened ? { opened: done.opened } : {}),
       });
+      ctx.progress?.(action, ACTION_PROGRESS.done);
     } catch (err) {
       ctx.checkStopped();
-      failed = true;
+      const error = err instanceof Error ? err.message : String(err);
+      if (error === NO_FOCUS_MESSAGE) unreached = true;
+      else failed = true;
       results.push({
         id: action.id,
         ok: false,
-        error: err instanceof Error ? err.message : String(err),
+        error,
+        ...timing(),
       });
+      ctx.progress?.(action, ACTION_PROGRESS.failed);
     }
   }
-  await effects?.settle(ctx.sleep);
+  if (!failed && lastOwnZone != null) await leaveZone(ctx, zone, undefined);
+  if (effects) await batch.time("inputSettle", () => effects.settle(ctx.sleep));
   return results;
 }

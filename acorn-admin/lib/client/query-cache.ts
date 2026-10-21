@@ -51,13 +51,10 @@ export function writeCache<T>(key: string, data: T) {
 }
 
 /** Edits every cached value whose key `matches`. */
-export function mutateCache<T>(
-  matches: (key: string) => boolean,
-  edit: (data: T, key: string) => T,
-) {
+export function mutateCache<T>(matches: (key: string) => boolean, edit: (data: T) => T) {
   for (const [key, entry] of entries) {
     if (!matches(key) || entry.state.data === undefined) continue;
-    settle(entry, { data: edit(entry.state.data as T, key) });
+    settle(entry, { data: edit(entry.state.data as T) });
   }
 }
 

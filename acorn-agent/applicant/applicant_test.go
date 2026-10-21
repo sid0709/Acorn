@@ -85,7 +85,7 @@ func TestAnExportIsUnwrappedAndItsSecretsStayOutOfWhatTheModelReads(t *testing.T
 	  "_id": {"$oid": "64b"}, "accountId": "acc-1", "updatedAt": {"$date": "2026-10-15"},
 	  "profile": {
 	    "fullName": "Ada Lovelace", "middleName": "", "email": "ada@example.com",
-	    "openrouterApiKey": "sk-or-SECRET", "openaiApiKey": "sk-proj-SECRET", "extensionPassword": "ext-SECRET",
+	    "openrouterApiKey": "sk-or-SECRET", "extensionPassword": "ext-SECRET",
 	    "defaultAccountPassword": "Hunter2!pass", "internalNote": "hide me too",
 	    "timeline": [{"title": "Engineer", "org": "Analytical Engines", "summary": ""}, {}]
 	  }}`)
@@ -93,7 +93,7 @@ func TestAnExportIsUnwrappedAndItsSecretsStayOutOfWhatTheModelReads(t *testing.T
 	if err != nil {
 		t.Fatal(err)
 	}
-	for _, secret := range []string{"sk-or-SECRET", "sk-proj-SECRET", "ext-SECRET", "Hunter2", "64b", "acc-1", "hide me", "updatedAt", "middleName"} {
+	for _, secret := range []string{"sk-or-SECRET", "ext-SECRET", "Hunter2", "64b", "acc-1", "hide me", "updatedAt", "middleName"} {
 		if strings.Contains(got.Profile, secret) {
 			t.Fatalf("%q reached the model's profile:\n%s", secret, got.Profile)
 		}
@@ -106,8 +106,8 @@ func TestAnExportIsUnwrappedAndItsSecretsStayOutOfWhatTheModelReads(t *testing.T
 	if strings.Count(got.Profile, `"title"`) != 1 {
 		t.Fatalf("an empty timeline entry was kept:\n%s", got.Profile)
 	}
-	if got.Secrets[AccountPasswordToken] != "Hunter2!pass" || got.APIKey != "sk-or-SECRET" || got.OpenAIKey != "sk-proj-SECRET" {
-		t.Fatalf("secrets=%v key=%q openai=%q", got.Secrets, got.APIKey, got.OpenAIKey)
+	if got.Secrets[AccountPasswordToken] != "Hunter2!pass" || got.APIKey != "sk-or-SECRET" {
+		t.Fatalf("secrets=%v key=%q", got.Secrets, got.APIKey)
 	}
 }
 

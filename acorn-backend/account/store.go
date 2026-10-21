@@ -425,3 +425,40 @@ func hashToken(token string) string {
 	sum := sha256.Sum256([]byte(token))
 	return hex.EncodeToString(sum[:])
 }
+
+// RecentUserIDs are the accounts whose sign-in is still valid, most recently signed in first, at
+// most limit of them. The server loads their Library into memory before anyone else's, since they
+// are the people most likely to run next.
+func (s *Store) RecentUserIDs(ctx context.Context, now time.Time, limit int) ([]string, error) {
+	cursor, err := s.sessions.Find(ctx,
+		bson.D{{Key: "expiresAt", Value: bson.D{{Key: "$gt", Value: now}}}},
+		options.Find().
+			SetSort(bson.D{{Key: "createdAt", Value: -1}}).
+			SetProjection(bson.D{{Key: "userId", Value: 1}}).
+			SetLimit(int64(limit)*recentSessionsPerUser),
+	)
+	if err != nil {
+		return nil, fmt.Errorf("list recent sign-ins: %w", err)
+	}
+	defer cursor.Close(ctx)
+	var rows []storedSession
+	if err := cursor.All(ctx, &rows); err != nil {
+		return nil, fmt.Errorf("read recent sign-ins: %w", err)
+	}
+	seen := map[string]bool{}
+	var out []string
+	for _, row := range rows {
+		if row.UserID != "" && !seen[row.UserID] {
+			seen[row.UserID] = true
+			out = append(out, row.UserID)
+			if len(out) == limit {
+				break
+			}
+		}
+	}
+	return out, nil
+}
+
+// recentSessionsPerUser is how many sessions are read for each account asked for: a person with
+// several browsers or devices has several valid sessions.
+const recentSessionsPerUser = 4

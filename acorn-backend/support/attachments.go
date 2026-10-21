@@ -91,9 +91,6 @@ type attachmentDoc struct {
 	MIME      string    `bson:"mime"`
 	Data      []byte    `bson:"data"`
 	CreatedAt time.Time `bson:"createdAt"`
-	// Preview is a small copy of Data, made once after the message is sent; see previews.go.
-	Preview     []byte `bson:"preview,omitempty"`
-	PreviewMIME string `bson:"previewMime,omitempty"`
 }
 
 // File is an attachment's bytes and type, for serving.
@@ -107,20 +104,15 @@ func (s *Store) AttachmentFile(ctx context.Context, claimID, attachmentID, accou
 	if !s.ready() || claimID == "" || attachmentID == "" {
 		return File{}, mongo.ErrNoDocuments
 	}
-	var doc attachmentDoc
-	if err := s.attachments.FindOne(ctx, attachmentFilter(claimID, attachmentID, accountID)).Decode(&doc); err != nil {
-		return File{}, err
-	}
-	return File{MIME: doc.MIME, Data: doc.Data}, nil
-}
-
-// attachmentFilter matches one image of the claim; accountID, when set, limits it to that account's.
-func attachmentFilter(claimID, attachmentID, accountID string) bson.M {
 	filter := bson.M{"_id": attachmentID, "claimId": claimID}
 	if accountID != "" {
 		filter["accountId"] = accountID
 	}
-	return filter
+	var doc attachmentDoc
+	if err := s.attachments.FindOne(ctx, filter).Decode(&doc); err != nil {
+		return File{}, err
+	}
+	return File{MIME: doc.MIME, Data: doc.Data}, nil
 }
 
 // storeUploads saves a message's images and returns how the message lists them.
@@ -144,11 +136,6 @@ func (s *Store) storeUploads(ctx context.Context, msg Message, uploads []Upload)
 	if _, err := s.attachments.InsertMany(ctx, docs); err != nil {
 		return nil, err
 	}
-	ids := make([]string, 0, len(listed))
-	for _, a := range listed {
-		ids = append(ids, a.ID)
-	}
-	s.warmAttachmentPreviews(msg.ClaimID, ids)
 	return listed, nil
 }
 

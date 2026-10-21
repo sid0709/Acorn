@@ -25,7 +25,7 @@ func TestARunThatAsksForItsTraceGetsItBackWithNothingWrittenToDisk(t *testing.T)
 	model := &scriptedModel{replies: []string{plan("looking", nil, click(10, 20, nil))}}
 	cfg := DefaultConfig()
 	a := newTestAgent(t, model, &fixedDecider{}, cfg)
-	started, err := a.Start(context.Background(), "key", applicant.Auth{}, Start{URL: "https://jobs.example/apply", Title: "Apply", Trace: true})
+	started, err := a.Start(context.Background(), "key", applicant.Auth{}, Start{URL: "https://jobs.example/apply", Title: "Apply", Trace: true, TraceImages: true})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -61,6 +61,31 @@ func TestARunThatAsksForItsTraceGetsItBackWithNothingWrittenToDisk(t *testing.T)
 	}
 }
 
+// The pictures of a trace are hundreds of kilobytes a step over the person's line, so a run gets them
+// only when it asks for them beside the trace; the text, a few kilobytes, comes either way.
+func TestATraceComesBackWithoutItsPicturesUnlessAsked(t *testing.T) {
+	model := &scriptedModel{replies: []string{plan("looking", nil, click(10, 20, nil))}}
+	a := newTestAgent(t, model, &fixedDecider{}, DefaultConfig())
+	started, err := a.Start(context.Background(), "key", applicant.Auth{}, Start{URL: "https://jobs.example/apply", Title: "Apply", Trace: true})
+	if err != nil {
+		t.Fatal(err)
+	}
+	step := stepOK(t, a, started.SessionID, observation(shot(t, 40)))
+	if step.Trace == nil {
+		t.Fatal("the step carries no trace")
+	}
+	for _, name := range []string{"001.json", "001.model.json"} {
+		if file, ok := traceFileNamed(step.Trace, name); !ok || file.Text == "" {
+			t.Fatalf("%s is missing from a text-only trace: %+v", name, step.Trace.Files)
+		}
+	}
+	for _, file := range step.Trace.Files {
+		if file.Data != "" || strings.HasSuffix(file.Name, ".jpg") {
+			t.Fatalf("a picture came back unasked: %s", file.Name)
+		}
+	}
+}
+
 func TestARunThatDoesNotAskGetsNoTrace(t *testing.T) {
 	model := &scriptedModel{replies: []string{plan("looking", nil, click(10, 20, nil))}}
 	a := newTestAgent(t, model, &fixedDecider{}, DefaultConfig())
@@ -76,7 +101,7 @@ func TestATraceKeepsASecretOutOfWhatItReturns(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	for _, file := range bundle(files, "").Files {
+	for _, file := range bundle(files, "", true).Files {
 		if strings.Contains(file.Text, "hunter2-password") {
 			t.Fatalf("%s holds the secret: %s", file.Name, file.Text)
 		}

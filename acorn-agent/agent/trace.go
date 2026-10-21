@@ -41,21 +41,6 @@ const sourceCheck = "check"
 // file picker, with no call to the driving model.
 const sourcePicker = "picker"
 
-// sourcePrefill marks an entry where the quick text pass answered the page's plain fields, with no
-// look by the driving model.
-const sourcePrefill = "prefill"
-
-// sourceReview and sourceAdvance mark entries where the DOM-first loop reviewed the page after the first
-// draft, or picked the control that continues the application, with no look by the driving model.
-const (
-	sourceReview  = "review"
-	sourceAdvance = "advance"
-	// sourceStopCheck marks an entry where the decision model read the screen to confirm a stop for the applicant.
-	sourceStopCheck = "stopcheck"
-	// sourcePick marks an entry where the decision model chose among the options of the page's fields.
-	sourcePick = "pick"
-)
-
 // sourceAsk marks an entry where the run waited on the person's answer, or acted on it.
 const sourceAsk = "ask"
 
@@ -70,11 +55,13 @@ type stepTrace struct {
 	Survey        []SurveyScreen `json:"-"`
 	SurveyScreens int            `json:"surveyScreens,omitempty"`
 	Check         *checkTrace    `json:"check,omitempty"`
-	// Advance is what the decision model was asked about the controls of a clean page, and what it said.
-	Advance *advanceTrace `json:"advance,omitempty"`
-	// Picks is each choice the decision model was asked and what it said.
-	Picks       []string       `json:"picks,omitempty"`
-	At          time.Time      `json:"at"`
+	At            time.Time      `json:"at"`
+	// StartedAt is when the server got the look this entry answers, EndedAt when the entry was
+	// written, and DurationMs the time between: the server's own time for the step, of which the
+	// model calls (their startedAt and latencyMs) are the part spent waiting on a provider.
+	StartedAt   time.Time      `json:"startedAt"`
+	EndedAt     time.Time      `json:"endedAt"`
+	DurationMs  int64          `json:"durationMs"`
 	URL         string         `json:"url"`
 	Title       string         `json:"title"`
 	Viewport    Viewport       `json:"viewport"`
@@ -90,6 +77,10 @@ type stepTrace struct {
 	Stop        *StopInfo      `json:"stop,omitempty"`
 	Actions     []Action       `json:"actions"`
 	Dropped     []string       `json:"dropped,omitempty"`
+	// Marks is how many controls the page reported with the look, and Bound which control each point of
+	// the plan was bound to ("s3a1 input:text:first"), so a run can be read back without guessing.
+	Marks int      `json:"marks,omitempty"`
+	Bound []string `json:"bound,omitempty"`
 	// Error is why the step produced no answer (the model failed, the observation was refused).
 	Error string `json:"error,omitempty"`
 	// Usage is the run's model use up to and including this step.
@@ -115,35 +106,34 @@ type modelCall struct {
 	Model        string          `json:"model,omitempty"`
 	Usage        llm.Usage       `json:"usage"`
 	LatencyMs    int64           `json:"latencyMs"`
+	// HistoryTokens is the history's estimated size when the request was built, against
+	// HistoryBudget, the size past which the history is compacted (screenshots are dropped).
+	HistoryTokens int `json:"historyTokens,omitempty"`
+	HistoryBudget int `json:"historyBudget,omitempty"`
 	// HTTPAttempts is how many requests the call sent (a rate limit is retried).
 	HTTPAttempts int    `json:"httpAttempts"`
 	Error        string `json:"error,omitempty"`
-	// Provider is the API the call went to ("openai", "openrouter"), Served who answered it when OpenRouter says
-	// (OpenAI, Azure, Amazon Bedrock), RequestKB how large the request was, and CostSource whether the cost was
-	// reported by the provider or priced from its rates.
-	Provider   string `json:"provider,omitempty"`
-	Served     string `json:"served,omitempty"`
-	RequestKB  int    `json:"requestKb,omitempty"`
-	CostSource string `json:"costSource,omitempty"`
-	// NewConn is set when the call opened a new connection (a TCP and a TLS handshake) instead of using a pooled one,
-	// and ConnectMs is how long it waited for its connection.
-	NewConn   bool  `json:"newConn,omitempty"`
-	ConnectMs int64 `json:"connectMs,omitempty"`
+	// StartedAt is when the call began. Requests times each HTTP request it sent (connect, send,
+	// the provider's wait, read), and Provider and GenerationID say who served it and how to find
+	// it in OpenRouter's activity.
+	StartedAt    time.Time     `json:"startedAt"`
+	Requests     []llm.Attempt `json:"requests,omitempty"`
+	Provider     string        `json:"provider,omitempty"`
+	GenerationID string        `json:"generationId,omitempty"`
 }
 
-// tracedCall is a model call as the trace shows it: what was sent and what came back, how long it took, what it
-// cost and where it went. The extra it carries over the bare fields is what a comparison of providers needs.
-func tracedCall(messages []llm.Message, resp llm.Response) modelCall {
-	source := "reported"
-	if resp.Provider == llm.ProviderOpenAI {
-		source = "priced"
+// timed adds a call's timing: when it began and how each request went.
+func (c modelCall) timed(startedAt time.Time, requests []llm.Attempt) modelCall {
+	c.StartedAt, c.Requests = startedAt, requests
+	for _, request := range requests {
+		if request.Provider != "" {
+			c.Provider = request.Provider
+		}
+		if request.GenerationID != "" {
+			c.GenerationID = request.GenerationID
+		}
 	}
-	return modelCall{
-		Messages: traceMessages(messages), Content: resp.Content, FinishReason: resp.FinishReason, Model: resp.Model,
-		Usage: resp.Usage, LatencyMs: resp.Latency.Milliseconds(), HTTPAttempts: resp.Attempts,
-		Provider: resp.Provider, Served: resp.Served, RequestKB: resp.RequestBytes / 1024, CostSource: source,
-		NewConn: resp.Provider != "" && !resp.ConnReused, ConnectMs: resp.ConnectMs,
-	}
+	return c
 }
 
 func traceMessages(messages []llm.Message) []tracedMessage {
@@ -186,12 +176,14 @@ type traceEntryFile struct {
 	image bool
 }
 
-// bundle is the part of files that goes back to the extension.
-func bundle(files []traceEntryFile, timeline string) *Trace {
+// bundle is the part of files that goes back to the extension: its text, and its pictures only when
+// the run asked for them (images), since a picture is hundreds of kilobytes over the person's line.
+func bundle(files []traceEntryFile, timeline string, images bool) *Trace {
 	out := &Trace{Files: []TraceFile{}, Timeline: timeline}
 	for _, file := range files {
 		switch {
 		case !file.ship:
+		case file.image && !images:
 		case file.image:
 			out.Files = append(out.Files, TraceFile{Name: file.name, Data: base64.StdEncoding.EncodeToString(file.data)})
 		default:
@@ -249,7 +241,7 @@ func (t *tracer) recordSession(sessionID, system string, info sessionTrace, want
 	if !want {
 		return nil, failure
 	}
-	return bundle(files, ""), failure
+	return bundle(files, "", false), failure
 }
 
 // entryFiles is every file of one entry: what the page reported and the model decided, every model
@@ -308,9 +300,9 @@ func entryFiles(entry stepTrace, screenshot string, calls []modelCall) ([]traceE
 }
 
 // record writes one entry to the trace folder when there is one, and returns it for the extension
-// when the run asked for the trace (want). A write that fails is returned for the caller to log;
-// it never stops the run.
-func (t *tracer) record(sessionID string, entry stepTrace, screenshot string, calls []modelCall, want bool) (*Trace, error) {
+// when the run asked for the trace (want), with its pictures when it asked for those too (images). A
+// write that fails is returned for the caller to log; it never stops the run.
+func (t *tracer) record(sessionID string, entry stepTrace, screenshot string, calls []modelCall, want, images bool) (*Trace, error) {
 	if !t.enabled() && !want {
 		return nil, nil
 	}
@@ -331,7 +323,7 @@ func (t *tracer) record(sessionID string, entry stepTrace, screenshot string, ca
 	if !want {
 		return nil, failure
 	}
-	return bundle(files, line+"\n"), failure
+	return bundle(files, line+"\n", images), failure
 }
 
 func hasPoint(actions []Action) bool {
@@ -357,6 +349,8 @@ func timelineLine(entry stepTrace, calls []modelCall) string {
 		status = "check:" + entry.Check.Outcome
 	}
 	line := fmt.Sprintf("%03d step %d %-14s %5dms $%.4f", entry.Seq, entry.Step, status, latency, entry.Usage.Cost)
+	// Model time against the server's whole time for the step, and when it began.
+	line += fmt.Sprintf(" server=%dms at=%s", entry.DurationMs, entry.StartedAt.Format("15:04:05.000"))
 	if entry.Check != nil {
 		line += fmt.Sprintf(" match=%.2f blocked=%.2f loading=%.2f", entry.Check.Matches, entry.Check.Blocked, entry.Check.Loading)
 	}

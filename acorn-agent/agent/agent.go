@@ -10,6 +10,7 @@ import (
 
 	"github.com/sid0709/acorn/acorn-agent/applicant"
 	"github.com/sid0709/acorn/acorn-agent/llm"
+	"github.com/sid0709/acorn/acorn-backend/plainlog"
 )
 
 // sizeTolerance is how many pixels a screenshot may differ from the viewport it is sent with
@@ -43,6 +44,24 @@ type Config struct {
 	UncheckedActions int
 	// ChunkActions is the most actions that run before the screen is checked.
 	ChunkActions int
+	// FastFillActions is the most actions one plan may hold in a fast-fill run (Start.FastFill): a
+	// whole page at once. The plan also runs as one piece, with no cut every ChunkActions, and
+	// without the UncheckedActions limit when no decision model checks the screen.
+	FastFillActions int
+	// ProbeDropdowns makes a fast-fill run open all the dropdowns of a run of them and read their lists side by
+	// side, instead of setting them one at a time (probe.go).
+	ProbeDropdowns bool
+	// ReviewMatch is how sure the decision model must be that a field the plan filled in shows what was
+	// typed into it, or the field is told to the model as wrong (a probability, 0 to 1; 0 turns the review off).
+	ReviewMatch float64
+	// PointMatch is how sure the decision model must be that a labelled point of a fast-fill plan
+	// is on the control its label names for the point to be acted on (a probability, 0 to 1; 0
+	// turns the check off).
+	PointMatch float64
+	// FastFill makes every run a fast-fill run, whatever its start request says: the server's own
+	// switch (ACORN_AGENT_FAST_FILL), so the agent can be tried without rebuilding the extension.
+	// The answer to Start says so, and the extension follows it.
+	FastFill bool
 	// CheckMatch is how sure the checker must be that the screen shows what the model
 	// expected, and CheckBlocked and CheckLoading how unsure it must be that something is in
 	// the way or the page is still loading, for the plan to go on (probabilities, 0 to 1).
@@ -53,7 +72,11 @@ type Config struct {
 	CheckLoadingWait float64
 	// OptionMatch is how sure the checker must be of which option of an open dropdown answers a
 	// choose action (a probability) for the agent to pick it.
-	OptionMatch  float64
+	OptionMatch float64
+	// OptionAccept is how sure the checker must be of an option when the list's options are read as
+	// text (the page names them) and no other option has more than half its weight: a best option that
+	// is not so bad is taken, as a person would take it, rather than typing or asking the model.
+	OptionAccept float64
 	LoadWait     time.Duration
 	MaxLoadWaits int
 	// DonePasses is how many times a "done" the screen does not confirm (no thank-you or confirmation) is
@@ -65,36 +88,15 @@ type Config struct {
 	// StopPasses is how many times a run's stop for the applicant is sent back, to finish
 	// everything that does not need them first (stopgate.go); 0 accepts every stop at once.
 	StopPasses int
-	// MaxPrefills is the most quick text passes one run may make (prefill.go).
-	MaxPrefills int
-	// MaxReviews and MaxAdvances are the most reviews and advances one run may make (review.go, advance.go).
-	MaxReviews, MaxAdvances int
-	// MaxPicks is the most choice passes one run may make (pick.go); PickMatch is how sure the decision model must
-	// be of an option for it to be clicked, and PickMargin how far it must lead the next option.
-	MaxPicks              int
-	PickMatch, PickMargin float64
-	// ReviewErrors is how sure the decision model must be, of an error showing, a question unanswered,
-	// a box unticked, or the continue control greyed out, for a page to need fixing.
-	ReviewErrors float64
-	// HumanStop is how sure it must be that only the applicant can go on for the run to stop and ask.
-	HumanStop float64
-	// AdvanceMatch is how sure the decision model must be of the control that continues the application
-	// for it to be pressed outright, and AdvanceFinal of the one that sends it.
-	AdvanceMatch, AdvanceFinal float64
-	// A page that reviewed clean must go on, so a pick below AdvanceMatch is still pressed when the model
-	// is sure that some control continues (it gives "none" at most AdvanceNoneMax) and the pick has at
-	// least AdvanceTopMin and leads the next control by AdvanceMargin. A pick that changes nothing is
-	// found out by the extension (the same control pressed twice) and left to the driving model.
-	AdvanceNoneMax, AdvanceTopMin, AdvanceMargin float64
-	// A stop for the applicant is held to the screen (stopcheck.go): it stands only when the decision model
-	// is at least StopConfirm sure the page needs what the stop says. One that is not confirmed is sent back,
-	// at most StopOverridePasses times in a run; after that it stands, so a run cannot loop on its stops.
-	StopOverridePasses int
-	StopConfirm        float64
+	// PersonField is how sure the decision model must be that a required field the page reports empty
+	// is one only the applicant can fill (a probability) for a stop to stand with it empty; a field it is
+	// less sure of is the run's to fill, and the stop is sent back naming it (stopgate.go).
+	PersonField float64
 	// KeepTurns is how many recent steps stay in full when the history is compacted; older
 	// ones are folded into one line each.
 	KeepTurns int
-	// KeepImages is how many of the newest steps keep their screenshot through a compaction.
+	// KeepImages is how many earlier steps' screenshots are sent again beside the current one
+	// (0: only the current screenshot goes; each one sent again makes every request bigger).
 	KeepImages int
 	// HistoryTokens is the estimated size the model's history may grow to, every screenshot
 	// included, before it is compacted (session.history).
@@ -102,9 +104,6 @@ type Config struct {
 	// MaxStale is how many steps in a row the screen may stay the same before the run is
 	// declared stuck without asking the model again.
 	MaxStale int
-	// RepeatSteps is how many steps in a row may only press one spot before the model is told to find
-	// another way. Zero never tells it.
-	RepeatSteps int
 	// SessionTTL is how long an untouched session is kept.
 	SessionTTL time.Duration
 	// TraceDir, when set, records every step to disk.
@@ -112,11 +111,6 @@ type Config struct {
 	// VetBlock is the probability, from the decision model, at which a control, window or frame
 	// is blocked as an online file source (0 means 0.3).
 	VetBlock float64
-	// VetClickBlock is the same for a control about to be clicked (0 means 0.6). It is stricter on a
-	// window or frame, which a click already opened and which is closed at no cost, than on a click that
-	// cannot be taken back: a control that is only possibly an online source is clicked, and what it opens
-	// is judged by VetBlock.
-	VetClickBlock float64
 	// SingleSignOnBlock is the probability, from the decision model, at which a control, window
 	// or frame is blocked as a sign-in through another service's account (0 means 0.5).
 	SingleSignOnBlock float64
@@ -136,43 +130,33 @@ type Config struct {
 // DefaultConfig is the bounds a run has when nothing else is set.
 func DefaultConfig() Config {
 	return Config{
-		MaxSteps:           150,
-		MaxActions:         12,
-		UncheckedActions:   6,
-		ChunkActions:       6,
-		CheckMatch:         0.9,
-		CheckBlocked:       0.2,
-		CheckLoading:       0.3,
-		CheckLoadingWait:   0.7,
-		OptionMatch:        0.7,
-		LoadWait:           time.Second,
-		MaxLoadWaits:       4,
-		StopPasses:         2,
-		DonePasses:         2,
-		DoneConfirm:        0.7,
-		SingleSignOnBlock:  0.5,
-		AccountAttempts:    8,
-		MaxPrefills:        20,
-		MaxReviews:         80,
-		MaxAdvances:        40,
-		MaxPicks:           40,
-		PickMatch:          0.6,
-		PickMargin:         0.15,
-		ReviewErrors:       0.3,
-		HumanStop:          0.85,
-		AdvanceMatch:       0.8,
-		AdvanceFinal:       0.5,
-		AdvanceNoneMax:     0.2,
-		AdvanceTopMin:      0.5,
-		AdvanceMargin:      0.15,
-		StopOverridePasses: 2,
-		StopConfirm:        0.6,
-		KeepTurns:          8,
-		KeepImages:         3,
-		HistoryTokens:      30_000,
-		MaxStale:           6,
-		RepeatSteps:        2,
-		SessionTTL:         time.Hour,
+		MaxSteps:          150,
+		MaxActions:        30,
+		UncheckedActions:  6,
+		ChunkActions:      6,
+		FastFillActions:   60,
+		PointMatch:        0.7,
+		ReviewMatch:       0.8,
+		ProbeDropdowns:    true,
+		CheckMatch:        0.9,
+		CheckBlocked:      0.2,
+		CheckLoading:      0.3,
+		CheckLoadingWait:  0.7,
+		OptionMatch:       0.7,
+		OptionAccept:      0.5,
+		LoadWait:          time.Second,
+		MaxLoadWaits:      4,
+		StopPasses:        2,
+		PersonField:       0.5,
+		DonePasses:        2,
+		DoneConfirm:       0.7,
+		SingleSignOnBlock: 0.5,
+		AccountAttempts:   8,
+		KeepTurns:         8,
+		KeepImages:        0,
+		HistoryTokens:     30_000,
+		MaxStale:          6,
+		SessionTTL:        time.Hour,
 	}
 }
 
@@ -182,10 +166,6 @@ type Agent struct {
 	cfg        Config
 	applicants applicant.Source
 	newModel   func(key string) llm.Model
-	// newOpenAI builds the model that drives a run on a person's OpenAI key; nil means the OpenRouter one always drives.
-	newOpenAI func(key string) llm.Model
-	// warm opens the pooled connections a run is about to use, so its first calls do not pay a handshake; nil does nothing.
-	warm       func(ctx context.Context, openAI bool)
 	newDecider func(key string) Decider
 	// newScreen builds the decision model that checks the screen; nil means no checks.
 	newScreen func(key string) Screen
@@ -212,31 +192,14 @@ func New(cfg Config, applicants applicant.Source, newModel func(key string) llm.
 	}
 }
 
-// WithOpenAI lets a run whose profile holds an OpenAI key be driven on it, through the model newOpenAI builds. The
-// checks and the choices stay on the OpenRouter key: only the decision model there answers them.
-func (a *Agent) WithOpenAI(newOpenAI func(key string) llm.Model) *Agent {
-	a.newOpenAI = newOpenAI
-	return a
-}
-
-// WithWarm sets what opens the connections a run uses when it starts, given whether it is driven on OpenAI. It runs
-// in the background and its failure changes nothing.
-func (a *Agent) WithWarm(warm func(ctx context.Context, openAI bool)) *Agent {
-	a.warm = warm
-	return a
-}
-
-// driver is the model that drives this run: on the person's OpenAI key when they have one and the server can use
-// it, else on their OpenRouter key.
-func (a *Agent) driver(s *session) llm.Model {
-	if s.openAIKey != "" && a.newOpenAI != nil {
-		return a.newOpenAI(s.openAIKey)
-	}
-	return a.newModel(s.key)
-}
-
 // Sessions is how many runs are live.
 func (a *Agent) Sessions() int { return a.sessions.len() }
+
+// Has is whether a run with this id is live.
+func (a *Agent) Has(id string) bool {
+	_, ok := a.sessions.get(id)
+	return ok
+}
 
 // Start opens a run on the page the person is looking at. key is their OpenRouter key, and auth
 // is whose profile and files the run reads (the person's Acorn session when they live in the
@@ -250,25 +213,26 @@ func (a *Agent) Start(ctx context.Context, key string, auth applicant.Auth, star
 	if strings.TrimSpace(key) == "" {
 		key = strings.TrimSpace(snap.APIKey)
 	}
-	openAIKey := ""
-	if a.newOpenAI != nil {
-		openAIKey = strings.TrimSpace(snap.OpenAIKey)
-	}
-	// A run needs a key for its model and for its checks; either one alone still lets it begin.
-	if key == "" && openAIKey == "" {
+	if key == "" {
 		return Started{}, llm.ErrNoKey
 	}
 	now := a.now()
+	// A fast-fill run plans a page from a survey of it, so surveys are on for it.
+	start.FastFill = start.FastFill || a.cfg.FastFill
+	start.Survey = start.Survey || start.FastFill
 	checks := a.newScreen != nil && a.cfg.ChunkActions > 0
 	maxActions := a.cfg.MaxActions
 	if !checks {
 		maxActions = min(maxActions, a.cfg.UncheckedActions)
 	}
+	if start.FastFill {
+		maxActions = max(maxActions, a.cfg.FastFillActions)
+	}
 	fallback, err := a.fallbackFor(snap.Resumes)
 	if err != nil {
 		return Started{}, err
 	}
-	system, err := systemPrompt(start, snap, maxActions, a.cfg.ChunkActions, checks, now)
+	system, err := systemPrompt(start, snap, maxActions, a.chunkLimit(start.FastFill), checks, now)
 	if err != nil {
 		return Started{}, err
 	}
@@ -277,28 +241,24 @@ func (a *Agent) Start(ctx context.Context, key string, auth applicant.Auth, star
 		return Started{}, err
 	}
 	fresh := &session{
-		id: id, key: key, openAIKey: openAIKey, auth: auth, start: start, snap: snap, system: system, maxActions: maxActions, fallback: fallback,
-		created: now, touched: now, wantTrace: start.Trace, stepLimit: a.cfg.MaxSteps,
+		id: id, key: key, auth: auth, start: start, snap: snap, system: system, maxActions: maxActions, checks: checks, fallback: fallback,
+		created: now, touched: now, wantTrace: start.Trace, wantTraceImages: start.Trace && start.TraceImages, stepLimit: a.cfg.MaxSteps,
 	}
 	fresh.remember(start.Memory)
 	a.sessions.add(fresh)
-	if a.warm != nil {
-		go a.warm(context.Background(), openAIKey != "")
-	}
 	stacks, documents := catalog(snap.Resumes)
 	startTrace, err := a.trace.recordSession(id, system, sessionTrace{
-		Started: now, Start: start, Model: a.driverName(key, openAIKey), ScreenModel: a.screenName(key), Config: a.cfg, Resumes: stacks, Documents: documents,
+		Started: now, Start: start, Model: a.modelName(key), ScreenModel: a.screenName(key), Config: a.cfg, Resumes: stacks, Documents: documents,
 	}, start.Trace)
 	if err != nil {
-		slog.Warn("trace not written", "session", id, "error", err)
+		slog.Warn("The trace of this run could not be saved, so its folder will be missing: "+runName(id)+".", plainlog.ErrorKey, err)
 	}
-	slog.Info("run started", "session", id, "url", start.URL, "stopBeforeSubmit", start.StopBeforeSubmit,
-		"stacks", len(stacks), "trace", a.trace.enabled())
+	slog.Info(startStory(id, start, len(stacks), a.trace.enabled()))
 	infos := make([]ResumeInfo, len(snap.Resumes))
 	for i, resume := range snap.Resumes {
 		infos[i] = ResumeInfo{ID: resume.ID, FileName: resume.FileName, Size: resume.Size}
 	}
-	return Started{SessionID: id, Resumes: infos, Model: a.driverName(key, openAIKey), Trace: startTrace}, nil
+	return Started{SessionID: id, Resumes: infos, Trace: startTrace, FastFill: start.FastFill, Survey: start.Survey}, nil
 }
 
 // remember starts the run from what a run that stopped knew, when the extension passes it. The
@@ -360,7 +320,7 @@ func (a *Agent) Continue(id string) (Continued, error) {
 	s.stale, s.lastSig, s.loadWaits = 0, nil, 0
 	s.script = nil
 	s.notes = append(s.notes, note)
-	slog.Info("run continued", "session", s.id, "step", s.step, "limit", s.stepLimit)
+	slog.Info(fmt.Sprintf("%s continues after step %d, with room for %d steps in all.", runName(s.id), s.step, s.stepLimit))
 	return Continued{Number: s.step, Usage: s.usage}, nil
 }
 
@@ -394,6 +354,13 @@ func (a *Agent) Step(ctx context.Context, id string, obs Observation) (Step, err
 	}
 	if s, ok := a.sessions.get(id); ok {
 		s.mu.Lock()
+		s.attachMarks(step.Actions)
+		// Every answer carries the settled parts when they changed, however it was made (the model, a
+		// check, a probe of dropdowns): the look placed them where the form moved, and the extension's
+		// own copy must say the same.
+		if step.Settled == nil {
+			step.Settled = s.takeSettledMap()
+		}
 		if step.Trace = s.takeTrace(); step.Trace != nil {
 			step.Trace.Seq = s.seq
 		}
@@ -403,12 +370,14 @@ func (a *Agent) Step(ctx context.Context, id string, obs Observation) (Step, err
 }
 
 func (a *Agent) step(ctx context.Context, id string, obs Observation) (Step, error) {
+	received := a.now()
 	s, ok := a.sessions.get(id)
 	if !ok {
 		return Step{}, ErrNoSession
 	}
 	s.mu.Lock()
 	defer s.mu.Unlock()
+	s.stepStarted = received
 	s.touched = a.now()
 	if s.finished {
 		return Step{}, ErrSessionOver
@@ -431,11 +400,20 @@ func (a *Agent) step(ctx context.Context, id string, obs Observation) (Step, err
 		a.record(s, stepTrace{Seq: s.seq, Step: s.step + 1, At: a.now(), URL: obs.URL, Title: obs.Title, Viewport: obs.Viewport, Error: err.Error(), Usage: s.usage}, obs.Screenshot, nil)
 		return Step{}, err
 	}
+	s.viewport = obs.Viewport
+	obs.Marks = acceptMarks(obs.Marks)
 	s.cover.see(obs.URL, obs.Viewport)
-	a.learnPrefill(s, obs)
+	s.forgetSettledIfStale(obs)
+	s.seeSurvey(obs)
+	s.zones = nil
+	a.keepZoneShots(s, obs)
+	a.reviewShots(s)
+	a.collectReviews(s)
 	// What happened to every action sent since the model last looked, which may be several
 	// runs of one plan.
 	results := withoutChoose(append(append([]ActionResult(nil), s.carried...), obs.Results...))
+	s.noteCommitResults(obs.Results)
+	s.notes = append(s.notes, unreachedNotes(obs.Results, s.byID, s.marks, obs)...)
 	a.learnJD(ctx, s, obs)
 	if s.pendingUpload != nil {
 		return a.answerPending(s, obs, results, sig)
@@ -470,6 +448,9 @@ func (a *Agent) step(ctx context.Context, id string, obs Observation) (Step, err
 	if step, ok := a.handlePicker(ctx, s, obs, results, sig); ok {
 		return step, nil
 	}
+	if step, ok := a.continueProbe(ctx, s, obs, results, sig); ok {
+		return step, nil
+	}
 	if step, ok := a.continueScript(ctx, s, obs, results, sig); ok {
 		return step, nil
 	}
@@ -494,7 +475,10 @@ func (a *Agent) step(ctx context.Context, id string, obs Observation) (Step, err
 	images := []string{obs.Screenshot}
 	if len(screens) > 0 {
 		notes = append(notes, surveyNote(obs))
-		images = surveyImages(obs)
+		if note := s.settledNote(); note != "" {
+			notes = append(notes, note)
+		}
+		images = badgedImages(obs)
 	}
 	body := observationText(number, s.stepLimit, obs, results, notes, stale)
 	messages := append([]llm.Message{{Role: llm.RoleSystem, Text: s.system}},
@@ -534,14 +518,34 @@ func (a *Agent) step(ctx context.Context, id string, obs Observation) (Step, err
 	s.message = strings.TrimSpace(answer.Message)
 
 	planned, dropped := checkActions(number, answer.Actions, obs.Viewport, s.maxActions, screens)
+	// lost counts the actions of the plan that could not be carried out: the click that sends the page waits for them.
+	lost := len(answer.Actions) - len(planned)
 	planned = pinFrame(planned, obs.Viewport, len(screens))
-	if answer.Status == StatusWorking {
-		a.noteRepeat(s, planned)
+	// A fast-fill plan goes on past an upload: its points follow the page's controls as the page moves
+	// (marks.go). Without the controls, the plan ends at the upload as before.
+	if !s.start.FastFill || len(obs.Marks) == 0 {
+		var cut int
+		planned, cut = cutAfterUpload(planned)
+		if cut > 0 && answer.Status == StatusWorking {
+			dropped = append(dropped, fmt.Sprintf("%d planned actions after the upload were not run: the page moves after a file is attached", cut))
+			s.notes = append(s.notes, afterUploadNote)
+		}
 	}
-	planned, cut := cutAfterUpload(planned)
-	if cut > 0 && answer.Status == StatusWorking {
-		dropped = append(dropped, fmt.Sprintf("%d planned actions after the upload were not run: the page moves after a file is attached", cut))
-		s.notes = append(s.notes, afterUploadNote)
+	if s.start.FastFill {
+		planned = inheritZones(planned)
+		planned = s.aimAndLog(planned, obs)
+		s.anchors = buildAnchors(planned, obs)
+		s.marks = bindMarks(planned, obs)
+	} else {
+		for i := range planned {
+			planned[i].Zone = 0
+		}
+		s.anchors, s.marks = nil, nil
+	}
+	planned, blueScrolls := s.withoutBlueScrolls(planned, obs)
+	if blueScrolls > 0 {
+		dropped = append(dropped, fmt.Sprintf("%s to a settled part of the page not made", plainlog.Count(blueScrolls, "scroll")))
+		s.notes = append(s.notes, blueScrollNote)
 	}
 	planned, surveyAsked := withoutSurvey(planned)
 	// A run that did not turn surveys on is not told they exist, and one the model asks for anyway is ignored.
@@ -556,7 +560,27 @@ func (a *Agent) step(ctx context.Context, id string, obs Observation) (Step, err
 	if rejected := a.accountRejected(s, &answer); rejected {
 		planned = nil
 	}
+	uploadable := len(planned)
 	planned, dropped = a.resolveUploads(ctx, s, planned, dropped)
+	lost += uploadable - len(planned)
+	var pointCalls []modelCall
+	claimed := touchedScreens(planned, obs)
+	checkable := len(planned)
+	planned, pointCalls = a.checkPlanPoints(ctx, s, planned, obs)
+	lost += checkable - len(planned)
+	calls = append(calls, pointCalls...)
+	entry.Usage = s.usage
+	if held := a.holdCommits(s, &planned, lost); len(held) > 0 {
+		dropped = append(dropped, fmt.Sprintf("the click that sends the page was held back: the plan lost %s", plainlog.Count(lost, "action")))
+	}
+	s.noteCommitPlanned(planned, obs)
+	if settled := s.markSettled(obs, answer.Settled, planned, claimed); settled > 0 {
+		slog.Info(settledLine(s.id, settled, s.settled.Spans))
+	}
+	s.setFence(planned, obs)
+	// What this plan fills in, by zone, for the reviews of its zones.
+	s.planGen++
+	s.expect = expectationsOf(planned)
 	status := answer.Status
 	// "Done" is the page's confirmation, not the model's word: a done the screen does not show is sent back.
 	if note, held := a.holdDone(ctx, s, obs, &answer); held {
@@ -566,10 +590,13 @@ func (a *Agent) step(ctx context.Context, id string, obs Observation) (Step, err
 	}
 	status = answer.Status
 	// The applicant is asked last: a stop is first sent back to finish everything else on the page.
-	if note, held := a.holdStop(ctx, s, obs, status, answer); held {
+	stopNote, stopHeld, stopCalls := a.holdStop(ctx, s, status, answer, obs)
+	calls = append(calls, stopCalls...)
+	entry.Usage = s.usage
+	if stopHeld {
 		status, answer.Message = StatusWorking, stopPassMessage
 		planned = []Action{{ID: fmt.Sprintf("s%da1", number), Kind: KindWait, Ms: stopPassWaitMs}}
-		s.notes = append(s.notes, note)
+		s.notes = append(s.notes, stopNote)
 	}
 	var actions []Action
 	switch {
@@ -594,13 +621,16 @@ func (a *Agent) step(ctx context.Context, id string, obs Observation) (Step, err
 		answer:  content,
 		summary: summaryLine(number, answer, planned),
 	})
+	s.releaseImages(a.cfg.KeepImages)
 	step := Step{
 		Status: status, Message: strings.TrimSpace(answer.Message), Stop: stopFor(status, answer), Actions: actions,
-		Number: number, Usage: s.usage, Dropped: dropped, Survey: surveyAsked && status == StatusWorking,
+		Number: number, Usage: s.usage, Dropped: dropped, Survey: status == StatusWorking && a.surveyNext(s, actions, surveyAsked),
+		Settled: s.takeSettledMap(),
 	}
 	entry.Observation, entry.Memo, entry.Job = answer.Observation, s.memo, s.job
 	entry.Status, entry.Message, entry.Actions, entry.Dropped = status, step.Message, actions, dropped
 	entry.Stop = step.Stop
+	entry.Marks, entry.Bound = len(obs.Marks), boundLines(planned, s.marks)
 	a.record(s, entry, obs.Screenshot, calls)
 	if status != StatusWorking {
 		s.finished, s.stoppedFor = true, step.Message
@@ -614,25 +644,14 @@ func (a *Agent) step(ctx context.Context, id string, obs Observation) (Step, err
 
 // record writes one entry of the run to the trace and one line to the server's log.
 func (a *Agent) record(s *session, entry stepTrace, screenshot string, calls []modelCall) {
-	var latency int64
-	for _, call := range calls {
-		latency += call.LatencyMs
-	}
-	level := slog.LevelInfo
-	if entry.Error != "" {
-		level = slog.LevelWarn
-	}
-	status := entry.Status
-	if entry.Check != nil {
-		status = "check:" + entry.Check.Outcome
-	}
-	slog.Log(context.Background(), level, "step", "session", s.id, "seq", entry.Seq, "number", entry.Step,
-		"status", status, "actions", len(entry.Actions), "dropped", len(entry.Dropped),
-		"stale", entry.Stale, "ms", latency, "calls", entry.Usage.Calls, "checks", entry.Usage.Checks, "cost", entry.Usage.Cost,
-		"message", clipText(entry.Message, 140), "error", entry.Error)
-	trace, err := a.trace.record(s.id, entry, screenshot, calls, s.wantTrace)
+	calls = append(s.takeReviewCalls(), calls...)
+	entry.StartedAt, entry.EndedAt = s.stepStarted, a.now()
+	entry.DurationMs = entry.EndedAt.Sub(entry.StartedAt).Milliseconds()
+	level, line := storyOf(s.id, s.created, entry, calls)
+	slog.Log(context.Background(), level, line)
+	trace, err := a.trace.record(s.id, entry, screenshot, calls, s.wantTrace, s.wantTraceImages)
 	if err != nil {
-		slog.Warn("trace not written", "session", s.id, "error", err)
+		slog.Warn("The trace of this step could not be saved: "+runName(s.id)+", step "+fmt.Sprint(entry.Step)+".", plainlog.ErrorKey, err)
 	}
 	s.addTrace(trace)
 }
@@ -675,16 +694,20 @@ func stopFor(status string, answer reply) *StopInfo {
 // sent back to the model once with the reason, as a person would be told what was wrong.
 // Every call is returned for the trace, whether or not it was accepted.
 func (a *Agent) ask(ctx context.Context, s *session, messages []llm.Message) (reply, string, llm.Usage, []modelCall, error) {
-	model := a.driver(s)
+	model := a.newModel(s.key)
 	var total llm.Usage
 	var calls []modelCall
 	var lastErr error
 	sent := messages
+	historyTokens := budgetUsed(s)
 	for attempt := 0; attempt < 2; attempt++ {
-		resp, err := model.Complete(ctx, llm.Request{Messages: messages, SchemaName: replySchemaName, Schema: replySchema})
+		resp, err := model.Complete(ctx, llm.Request{Messages: messages, SchemaName: replySchemaName, Schema: replySchemaFor(s.start.Survey, s.checks)})
 		total.Add(resp.Usage)
-		call := tracedCall(sent, resp)
-		call.Repair = attempt > 0
+		call := modelCall{
+			Repair: attempt > 0, Messages: traceMessages(sent), Content: resp.Content, FinishReason: resp.FinishReason,
+			Model: resp.Model, Usage: resp.Usage, LatencyMs: resp.Latency.Milliseconds(), HTTPAttempts: resp.Attempts,
+			HistoryTokens: historyTokens, HistoryBudget: a.cfg.HistoryTokens,
+		}.timed(resp.StartedAt, resp.Requests)
 		if err != nil {
 			call.Error = err.Error()
 			return reply{}, "", total, append(calls, call), err
@@ -709,11 +732,8 @@ func (a *Agent) ask(ctx context.Context, s *session, messages []llm.Message) (re
 	return reply{}, "", total, calls, lastErr
 }
 
-// driverName is the id of the model a run with these keys is driven by.
-func (a *Agent) driverName(key, openAIKey string) string {
-	if openAIKey != "" && a.newOpenAI != nil {
-		return a.newOpenAI(openAIKey).Name() + " (OpenAI)"
-	}
+// modelName is the id of the model a run with this key is driven by.
+func (a *Agent) modelName(key string) string {
 	if model := a.newModel(key); model != nil {
 		return model.Name()
 	}

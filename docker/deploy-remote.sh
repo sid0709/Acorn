@@ -71,9 +71,6 @@ if is_forbidden_agent_port "$AGENT_PORT"; then
   echo "ACORN_AGENT_PORT=${AGENT_PORT} is reserved on this host. Use ${DEFAULT_AGENT_PORT}, not: ${FORBIDDEN_AGENT_PORTS}" >&2
   exit 1
 fi
-# A person's own OpenAI key (kept in their profile) drives their runs on OpenAI directly: on unless deploy.env turns it off.
-AGENT_OPENAI="${ACORN_AGENT_OPENAI:-$(deploy_env_value ACORN_AGENT_OPENAI)}"
-AGENT_OPENAI="${AGENT_OPENAI:-true}"
 AGENT_HEALTH_URL="${AGENT_HEALTH_URL:-http://127.0.0.1:${AGENT_PORT}/agent/v1/health}"
 
 # Fail before docker run if the chosen port is held by anything except this Acorn agent container.
@@ -227,7 +224,6 @@ if [[ "$want_agent" == true ]]; then
     -e ACORN_AGENT_PORT="$AGENT_PORT" \
     -e ACORN_AGENT_BACKEND_URL="$INTERNAL_API_URL" \
     -e ACORN_AGENT_TRACE=false \
-    -e ACORN_AGENT_OPENAI="$AGENT_OPENAI" \
     -p "127.0.0.1:${AGENT_PORT}:${AGENT_PORT}" \
     "$AGENT_REF"
   rm -f "$agent_env"

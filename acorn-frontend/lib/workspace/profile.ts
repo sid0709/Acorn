@@ -2,6 +2,7 @@ import type { AcornAccount } from "@/lib/auth/session";
 
 export const AGE_MAX = 3;
 export const SALARY_MAX = 12;
+export const PATH_MAX = 180;
 export const SECRET_MAX = 200;
 export const LINK_MAX = 200;
 export const ADDRESS_MAX = 120;
@@ -69,14 +70,14 @@ export type ApplicantProfile = {
   veteranStatus: string;
   desiredSalary: string;
   openrouterApiKey: string;
-  openaiApiKey: string;
   defaultAccountPassword: string;
   extensionPassword: string;
+  resumeFolderPath: string;
   timeline: CareerEntry[];
 };
 
-/** The model every Acorn AI call uses. The profile stores the keys, not a choice of model. */
-export const AI_MODEL_LABEL = "GPT-6 Luna";
+/** The model every Acorn AI call uses. The profile stores the key, not a choice of model. */
+export const AI_MODEL_LABEL = "OpenRouter, GPT-6 Luna";
 
 const choice = (labels: string[]) => labels.map((label) => ({ value: label, label }));
 
@@ -200,9 +201,9 @@ export function sampleProfile(account: AcornAccount): ApplicantProfile {
     veteranStatus: "I am not a protected veteran",
     desiredSalary: "150000",
     openrouterApiKey: "",
-    openaiApiKey: "",
     defaultAccountPassword: "sample-account-password",
     extensionPassword: "",
+    resumeFolderPath: "~/Documents/Resumes",
     timeline: [
       {
         id: "role-northwind",
@@ -274,7 +275,6 @@ const LATER_FIELDS = {
   willingToTravel: "",
   noticePeriod: "",
   openrouterApiKey: "",
-  openaiApiKey: "",
   extensionPassword: "",
 } satisfies Partial<ApplicantProfile>;
 
@@ -425,10 +425,7 @@ export function profileChecklist(profile: ApplicantProfile): ChecklistItem[] {
         .filter((entry) => entry.kind === "role")
         .every((entry) => filled(entry.summary)),
     },
-    {
-      label: "AI model key",
-      done: filled(profile.openrouterApiKey) || filled(profile.openaiApiKey),
-    },
+    { label: "AI model key", done: filled(profile.openrouterApiKey) },
   ];
 }
 

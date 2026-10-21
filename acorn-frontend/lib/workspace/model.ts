@@ -47,6 +47,7 @@ export const COMPANY_MAX = 80;
 export const LOCATION_MAX = 80;
 export const PHONE_MAX = 32;
 export const JOB_DESCRIPTION_MAX = 4000;
+export const MAILBOX_LABEL_MAX = 40;
 export const RESUME_LIMIT = 12;
 export const JOB_DESCRIPTION_ROWS = 8;
 export const SUMMARY_ROWS = 5;

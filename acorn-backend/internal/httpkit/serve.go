@@ -3,11 +3,14 @@ package httpkit
 import (
 	"context"
 	"errors"
+	"fmt"
 	"log/slog"
 	"net/http"
 	"os/signal"
 	"syscall"
 	"time"
+
+	"github.com/sid0709/acorn/acorn-backend/plainlog"
 )
 
 const (
@@ -36,11 +39,11 @@ func Serve(name, addr string, handler http.Handler) error {
 		shutdownCtx, cancel := context.WithTimeout(context.Background(), shutdownTimeout)
 		defer cancel()
 		if err := server.Shutdown(shutdownCtx); err != nil {
-			slog.Error("shutdown", "error", err)
+			slog.Error("The server did not shut down cleanly", plainlog.ErrorKey, err)
 		}
 	}()
 
-	slog.Info(name+" listening", "addr", addr)
+	slog.Info(fmt.Sprintf("The %s is ready and listening on %s.", name, addr))
 	if err := server.ListenAndServe(); err != nil && !errors.Is(err, http.ErrServerClosed) {
 		return err
 	}
@@ -53,7 +56,7 @@ func Health(db interface{ Ping(context.Context) error }) http.HandlerFunc {
 		ctx, cancel := context.WithTimeout(r.Context(), pingTimeout)
 		defer cancel()
 		if err := db.Ping(ctx); err != nil {
-			slog.Error("health", "error", err)
+			slog.Error("The database did not answer the health check", plainlog.ErrorKey, err)
 			WriteError(w, http.StatusServiceUnavailable, "database unavailable")
 			return
 		}

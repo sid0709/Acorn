@@ -115,6 +115,9 @@ func TestARunFromStartToEnd(t *testing.T) {
 	if response.StatusCode != 200 {
 		t.Fatalf("step = %d %s", response.StatusCode, body)
 	}
+	if response.Header.Get(HandlerMsHeader) == "" || response.Header.Get(ServerTimeHeader) == "" {
+		t.Fatalf("a step must say how long the server took: %v", response.Header)
+	}
 	var step agent.Step
 	if err := json.Unmarshal(body, &step); err != nil || step.Status != agent.StatusWorking || len(step.Actions) != 1 || step.Actions[0].Kind != agent.KindClick {
 		t.Fatalf("step = %+v %v", step, err)
@@ -224,17 +227,6 @@ func TestHealthReportsWithoutLeakingTheKey(t *testing.T) {
 	response, body := send(t, http.MethodGet, ts.URL+BasePath+"/health", nil, nil)
 	if response.StatusCode != 200 || strings.Contains(string(body), "super-secret-key") || !strings.Contains(string(body), `"hasKey":true`) {
 		t.Fatalf("health = %d %s", response.StatusCode, body)
-	}
-}
-
-func TestEveryAnswerSaysHowLongTheServerTookAndLetsTheExtensionReadIt(t *testing.T) {
-	_, ts := newServer(t, fakeModel{}, "k")
-	response, _ := send(t, http.MethodGet, ts.URL+BasePath+"/health", nil, nil)
-	if got := response.Header.Get("Server-Timing"); !strings.HasPrefix(got, "handler;dur=") {
-		t.Fatalf("Server-Timing = %q", got)
-	}
-	if response.Header.Get("Access-Control-Expose-Headers") != "Server-Timing" {
-		t.Fatalf("the extension cannot read the timing: %v", response.Header)
 	}
 }
 
@@ -397,37 +389,37 @@ func TestAStoppedRunContinuesOverHTTP(t *testing.T) {
 	}
 }
 
-func TestThePrefillRouteAnswersFieldsAndRefusesARunThatDidNotTurnItOn(t *testing.T) {
-	reply := `{"fills":[{"element_index":3,"action":"fill","expected_label":"Name","expected_role":"textbox","value":"Ada"}]}`
-	_, ts := newServer(t, fakeModel{content: reply}, "server-key")
-	fields := agent.PrefillRequest{URL: "https://jobs.example", Title: "Apply", Tree: "form[2]\n  input[3] domId=3 type=text name=full_name"}
-
-	_, body := send(t, http.MethodPost, ts.URL+BasePath+"/sessions", agent.Start{URL: "https://jobs.example", Prefill: true}, nil)
-	var on agent.Started
-	if err := json.Unmarshal(body, &on); err != nil {
+func TestLocateAndShotsAnswerForARunAndRefuseAnUnknownOne(t *testing.T) {
+	_, ts := newServer(t, fakeModel{content: workingReply}, "server-key")
+	_, body := send(t, http.MethodPost, ts.URL+BasePath+"/sessions", agent.Start{URL: "https://jobs.example"}, nil)
+	var started agent.Started
+	if err := json.Unmarshal(body, &started); err != nil {
 		t.Fatal(err)
 	}
-	response, body := send(t, http.MethodPost, ts.URL+BasePath+"/sessions/"+on.SessionID+"/prefill", fields, nil)
-	if response.StatusCode != 200 {
-		t.Fatalf("prefill = %d %s", response.StatusCode, body)
+	base := ts.URL + BasePath + "/sessions/"
+
+	// A target the agent has no picture of is not found, which is an answer and not an error.
+	response, body := send(t, http.MethodPost, base+started.SessionID+"/locate", agent.LocateRequest{ActionID: "s1a1", Screenshot: screenshot(t)}, nil)
+	var located agent.LocateResult
+	_ = json.Unmarshal(body, &located)
+	if response.StatusCode != 200 || located.Found || located.Reason == "" {
+		t.Fatalf("locate = %d %+v", response.StatusCode, located)
 	}
-	var plan agent.PrefillPlan
-	if err := json.Unmarshal(body, &plan); err != nil || len(plan.Fills) != 1 || plan.Fills[0].Value != "Ada" || plan.Fills[0].Ref != 3 {
-		t.Fatalf("plan = %+v %v", plan, err)
+	if response, _ := send(t, http.MethodPost, base+"nope/locate", agent.LocateRequest{ActionID: "s1a1", Screenshot: screenshot(t)}, nil); response.StatusCode != http.StatusNotFound {
+		t.Fatalf("locate on an unknown run = %d", response.StatusCode)
+	}
+	if response, _ := send(t, http.MethodPost, base+started.SessionID+"/locate", "not an object", nil); response.StatusCode != http.StatusBadRequest {
+		t.Fatalf("a body that is not a request = %d", response.StatusCode)
 	}
 
-	_, body = send(t, http.MethodPost, ts.URL+BasePath+"/sessions", agent.Start{URL: "https://jobs.example"}, nil)
-	var off agent.Started
-	if err := json.Unmarshal(body, &off); err != nil {
-		t.Fatal(err)
+	// A snap is kept; a kind nobody sends is refused; an unknown run is unknown.
+	if response, _ := send(t, http.MethodPost, base+started.SessionID+"/shots", agent.ShotUpload{Kind: agent.ShotSnap, ID: "s1ch1", Screenshot: screenshot(t)}, nil); response.StatusCode != 200 {
+		t.Fatalf("a snap = %d", response.StatusCode)
 	}
-	response, body = send(t, http.MethodPost, ts.URL+BasePath+"/sessions/"+off.SessionID+"/prefill", fields, nil)
-	if response.StatusCode != http.StatusConflict || !strings.Contains(string(body), `"prefill_unavailable"`) {
-		t.Fatalf("a run without the pass = %d %s", response.StatusCode, body)
+	if response, _ := send(t, http.MethodPost, base+started.SessionID+"/shots", agent.ShotUpload{Kind: "mystery", Screenshot: screenshot(t)}, nil); response.StatusCode < 400 {
+		t.Fatalf("a shot of an unknown kind = %d", response.StatusCode)
 	}
-
-	response, body = send(t, http.MethodPost, ts.URL+BasePath+"/sessions/"+on.SessionID+"/prefill", agent.PrefillRequest{}, nil)
-	if response.StatusCode != http.StatusBadRequest || !strings.Contains(string(body), `"bad_prefill"`) {
-		t.Fatalf("an empty list = %d %s", response.StatusCode, body)
+	if response, _ := send(t, http.MethodPost, base+"nope/shots", agent.ShotUpload{Kind: agent.ShotZone, Screenshot: screenshot(t)}, nil); response.StatusCode != http.StatusNotFound {
+		t.Fatalf("a shot for an unknown run = %d", response.StatusCode)
 	}
 }

@@ -5,13 +5,12 @@ package main
 import (
 	"context"
 	"errors"
+	"fmt"
 	"log/slog"
 	"net/http"
 	"os"
 	"os/signal"
-	"strconv"
 	"strings"
-	"sync"
 	"syscall"
 	"time"
 
@@ -22,6 +21,7 @@ import (
 	"github.com/sid0709/acorn/acorn-agent/llm"
 	"github.com/sid0709/acorn/acorn-backend/config"
 	"github.com/sid0709/acorn/acorn-backend/jev"
+	"github.com/sid0709/acorn/acorn-backend/plainlog"
 )
 
 const (
@@ -37,21 +37,12 @@ const (
 	// defaultReasoning is the reasoning effort sent with each step. "none" keeps the JSON
 	// answer in the message content, as the rest of Acorn calls Luna.
 	defaultReasoning = "none"
-	// The model that drives a run on a person's OpenAI key, and its list prices in USD per million tokens. OpenAI's own
-	// API reports no cost, so each call is priced from these. They are OpenRouter's published rates for
-	// openai/gpt-6-luna (prompt 0.10, completion 0.50, cache read 0.01, cache write 0.125), which OpenAI's price
-	// pages repeat; check developers.openai.com/api/docs/pricing and set the ACORN_AGENT_OPENAI_PRICE_* values if they differ.
-	defaultOpenAIBaseURL         = "https://api.openai.com/v1"
-	defaultOpenAIModel           = "gpt-6-luna"
-	defaultOpenAIPriceInput      = 0.10
-	defaultOpenAIPriceCached     = 0.01
-	defaultOpenAIPriceCacheWrite = 0.125
-	defaultOpenAIPriceOutput     = 0.50
-	// warmTimeout bounds opening a run's connections when it starts.
-	warmTimeout = 10 * time.Second
 	// defaultMaxModelCalls bounds the steps in flight across every run.
 	defaultMaxModelCalls = 256
-	shutdownTimeout      = 10 * time.Second
+	// defaultFastFill makes every run plan a whole page from one look. ACORN_AGENT_FAST_FILL=off
+	// goes back to step by step.
+	defaultFastFill = true
+	shutdownTimeout = 10 * time.Second
 )
 
 // Environment variable names this service reads.
@@ -60,48 +51,31 @@ const (
 	envBaseURL       = "OPENROUTER_BASE_URL"
 	envModel         = "ACORN_AGENT_MODEL"
 	envReasoning     = "ACORN_AGENT_REASONING"
-	// ACORN_AGENT_OPENAI=false drives every run on OpenRouter, whatever keys the profiles hold.
-	envOpenAI                = "ACORN_AGENT_OPENAI"
-	envOpenAIBaseURL         = "ACORN_AGENT_OPENAI_BASE_URL"
-	envOpenAIModel           = "ACORN_AGENT_OPENAI_MODEL"
-	envOpenAIPriceInput      = "ACORN_AGENT_OPENAI_PRICE_INPUT"
-	envOpenAIPriceCached     = "ACORN_AGENT_OPENAI_PRICE_CACHED"
-	envOpenAIPriceCacheWrite = "ACORN_AGENT_OPENAI_PRICE_CACHE_WRITE"
-	envOpenAIPriceOutput     = "ACORN_AGENT_OPENAI_PRICE_OUTPUT"
-	envDataDir               = "ACORN_AGENT_DATA_DIR"
-	envHideFields            = "ACORN_AGENT_PROFILE_HIDE"
-	envTrace                 = "ACORN_AGENT_TRACE"
-	envTraceDir              = "ACORN_AGENT_TRACE_DIR"
-	envMaxSteps              = "ACORN_AGENT_MAX_STEPS"
-	envStopPasses            = "ACORN_AGENT_STOP_PASSES"
-	envDonePasses            = "ACORN_AGENT_DONE_PASSES"
-	envDoneConfirm           = "ACORN_AGENT_DONE_CONFIRM_PERCENT"
-	envMaxActions            = "ACORN_AGENT_MAX_ACTIONS"
-	envChecks                = "ACORN_AGENT_CHECKS"
-	envScreenModel           = "ACORN_AGENT_SCREEN_MODEL"
-	envDecisionsURL          = "ACORN_AGENT_DECISIONS_URL"
+	envDataDir       = "ACORN_AGENT_DATA_DIR"
+	envHideFields    = "ACORN_AGENT_PROFILE_HIDE"
+	envTrace         = "ACORN_AGENT_TRACE"
+	envTraceDir      = "ACORN_AGENT_TRACE_DIR"
+	envMaxSteps      = "ACORN_AGENT_MAX_STEPS"
+	envStopPasses    = "ACORN_AGENT_STOP_PASSES"
+	envPersonField   = "ACORN_AGENT_PERSON_FIELD_PERCENT"
+	envDonePasses    = "ACORN_AGENT_DONE_PASSES"
+	envDoneConfirm   = "ACORN_AGENT_DONE_CONFIRM_PERCENT"
+	envMaxActions    = "ACORN_AGENT_MAX_ACTIONS"
+	envFastFillMax   = "ACORN_AGENT_FAST_FILL_ACTIONS"
+	envFastFill      = "ACORN_AGENT_FAST_FILL"
+	envPointMatch    = "ACORN_AGENT_POINT_MATCH_PERCENT"
+	envReviewMatch   = "ACORN_AGENT_REVIEW_MATCH_PERCENT"
+	envProbe         = "ACORN_AGENT_PROBE_DROPDOWNS"
+	envChecks        = "ACORN_AGENT_CHECKS"
+	envScreenModel   = "ACORN_AGENT_SCREEN_MODEL"
+	envDecisionsURL  = "ACORN_AGENT_DECISIONS_URL"
 	// envFallbackResume names the résumé folder offered to the person when a résumé is wanted and no
 	// job description was found, when the applicant is a local folder.
 	envFallbackResume = "DEFAULT_FALLBACK_RESUME"
 	envChunkActions   = "ACORN_AGENT_CHUNK_ACTIONS"
 	envVetBlock       = "ACORN_AGENT_VET_BLOCK_PERCENT"
-	envVetClickBlock  = "ACORN_AGENT_VET_CLICK_BLOCK_PERCENT"
 	envSignOnBlock    = "ACORN_AGENT_SSO_BLOCK_PERCENT"
 	envAccountTries   = "ACORN_AGENT_ACCOUNT_ATTEMPTS"
-	envMaxPrefills    = "ACORN_AGENT_MAX_PREFILLS"
-	envMaxReviews     = "ACORN_AGENT_MAX_REVIEWS"
-	envMaxAdvances    = "ACORN_AGENT_MAX_ADVANCES"
-	envMaxPicks       = "ACORN_AGENT_MAX_PICKS"
-	envPickMatch      = "ACORN_AGENT_PICK_PERCENT"
-	envPickMargin     = "ACORN_AGENT_PICK_MARGIN_PERCENT"
-	envHumanStop      = "ACORN_AGENT_HUMAN_STOP_PERCENT"
-	envReviewProblem  = "ACORN_AGENT_REVIEW_PROBLEM_PERCENT"
-	envAdvanceMatch   = "ACORN_AGENT_ADVANCE_PERCENT"
-	envAdvanceNone    = "ACORN_AGENT_ADVANCE_NONE_MAX_PERCENT"
-	envAdvanceTop     = "ACORN_AGENT_ADVANCE_TOP_MIN_PERCENT"
-	envAdvanceMargin  = "ACORN_AGENT_ADVANCE_MARGIN_PERCENT"
-	envOverridePasses = "ACORN_AGENT_STOP_OVERRIDE_PASSES"
-	envStopConfirm    = "ACORN_AGENT_STOP_CONFIRM_PERCENT"
 	// envBackendURL is where acorn-backend is. When set, the applicant is the signed-in person's
 	// own profile and Library there (the person's session comes with each run); otherwise it is the
 	// profile.json and résumé folder on this computer.
@@ -110,10 +84,10 @@ const (
 	envCheckBlocked  = "ACORN_AGENT_CHECK_BLOCKED_PERCENT"
 	envCheckLoading  = "ACORN_AGENT_CHECK_LOADING_PERCENT"
 	envOptionMatch   = "ACORN_AGENT_OPTION_MATCH_PERCENT"
+	envOptionAccept  = "ACORN_AGENT_OPTION_ACCEPT_PERCENT"
 	envKeepTurns     = "ACORN_AGENT_KEEP_TURNS"
 	envKeepImages    = "ACORN_AGENT_KEEP_IMAGES"
 	envMaxStale      = "ACORN_AGENT_MAX_STALE"
-	envRepeatSteps   = "ACORN_AGENT_REPEAT_STEPS"
 	envMaxModelCalls = "ACORN_AGENT_MAX_MODEL_CALLS"
 	envAgentPort     = "ACORN_AGENT_PORT"
 )
@@ -122,9 +96,9 @@ const (
 var defaultOrigins = []string{"http://localhost:3000"}
 
 func main() {
-	slog.SetDefault(slog.New(slog.NewTextHandler(os.Stderr, &slog.HandlerOptions{Level: slog.LevelInfo})))
+	slog.SetDefault(slog.New(plainlog.New(os.Stderr, logLevel())))
 	if err := run(); err != nil {
-		slog.Error("agent stopped", "error", err)
+		slog.Error("The agent stopped", plainlog.ErrorKey, err)
 		os.Exit(1)
 	}
 }
@@ -138,13 +112,9 @@ func isOff(value string) bool {
 	return false
 }
 
-// number reads a decimal setting, such as a price per million tokens; a value that is not a number is the fallback.
-func number(name string, fallback float64) float64 {
-	value, err := strconv.ParseFloat(strings.TrimSpace(config.Env(name, "")), 64)
-	if err != nil || value < 0 {
-		return fallback
-	}
-	return value
+// isOn reports whether a switch's value turns it on: anything set that is not an off word.
+func isOn(value string) bool {
+	return strings.TrimSpace(value) != "" && !isOff(strings.TrimSpace(value))
 }
 
 // percent reads a probability given as a whole percent (90 is 0.9).
@@ -167,36 +137,30 @@ func run() error {
 	cfg := agent.DefaultConfig()
 	cfg.MaxSteps = config.EnvInt(envMaxSteps, cfg.MaxSteps)
 	cfg.StopPasses = config.EnvInt(envStopPasses, cfg.StopPasses)
+	cfg.PersonField = percent(envPersonField, cfg.PersonField)
 	cfg.DonePasses = config.EnvInt(envDonePasses, cfg.DonePasses)
 	cfg.DoneConfirm = percent(envDoneConfirm, cfg.DoneConfirm)
 	cfg.MaxActions = config.EnvInt(envMaxActions, cfg.MaxActions)
 	cfg.ChunkActions = config.EnvInt(envChunkActions, cfg.ChunkActions)
+	cfg.FastFillActions = config.EnvInt(envFastFillMax, cfg.FastFillActions)
+	cfg.FastFill = defaultFastFill
+	if value := config.Env(envFastFill, ""); value != "" {
+		cfg.FastFill = isOn(value)
+	}
+	cfg.PointMatch = percent(envPointMatch, cfg.PointMatch)
+	cfg.ReviewMatch = percent(envReviewMatch, cfg.ReviewMatch)
+	cfg.ProbeDropdowns = !isOff(config.Env(envProbe, ""))
 	cfg.CheckMatch = percent(envCheckMatch, cfg.CheckMatch)
 	cfg.CheckBlocked = percent(envCheckBlocked, cfg.CheckBlocked)
 	cfg.CheckLoading = percent(envCheckLoading, cfg.CheckLoading)
 	cfg.OptionMatch = percent(envOptionMatch, cfg.OptionMatch)
+	cfg.OptionAccept = percent(envOptionAccept, cfg.OptionAccept)
 	cfg.VetBlock = percent(envVetBlock, 0.3)
-	cfg.VetClickBlock = percent(envVetClickBlock, 0.6)
 	cfg.SingleSignOnBlock = percent(envSignOnBlock, 0.5)
 	cfg.AccountAttempts = config.EnvInt(envAccountTries, cfg.AccountAttempts)
-	cfg.MaxPrefills = config.EnvInt(envMaxPrefills, cfg.MaxPrefills)
-	cfg.MaxReviews = config.EnvInt(envMaxReviews, cfg.MaxReviews)
-	cfg.MaxAdvances = config.EnvInt(envMaxAdvances, cfg.MaxAdvances)
-	cfg.MaxPicks = config.EnvInt(envMaxPicks, cfg.MaxPicks)
-	cfg.PickMatch = percent(envPickMatch, cfg.PickMatch)
-	cfg.PickMargin = percent(envPickMargin, cfg.PickMargin)
-	cfg.HumanStop = percent(envHumanStop, cfg.HumanStop)
-	cfg.ReviewErrors = percent(envReviewProblem, cfg.ReviewErrors)
-	cfg.AdvanceMatch = percent(envAdvanceMatch, cfg.AdvanceMatch)
-	cfg.AdvanceNoneMax = percent(envAdvanceNone, cfg.AdvanceNoneMax)
-	cfg.AdvanceTopMin = percent(envAdvanceTop, cfg.AdvanceTopMin)
-	cfg.AdvanceMargin = percent(envAdvanceMargin, cfg.AdvanceMargin)
-	cfg.StopOverridePasses = config.EnvInt(envOverridePasses, cfg.StopOverridePasses)
-	cfg.StopConfirm = percent(envStopConfirm, cfg.StopConfirm)
 	cfg.KeepTurns = config.EnvInt(envKeepTurns, cfg.KeepTurns)
 	cfg.KeepImages = config.EnvInt(envKeepImages, cfg.KeepImages)
 	cfg.MaxStale = config.EnvInt(envMaxStale, cfg.MaxStale)
-	cfg.RepeatSteps = config.EnvInt(envRepeatSteps, cfg.RepeatSteps)
 	if !isOff(config.Env(envTrace, "")) {
 		cfg.TraceDir = config.Env(envTraceDir, defaultTraceDir)
 	}
@@ -234,43 +198,6 @@ func run() error {
 		func(key string) agent.Decider { return jev.NewWithURL(key, decisionsURL) },
 		newScreen,
 	)
-	openAIHost := ""
-	// A run whose profile holds an OpenAI key is driven on it, directly: OpenRouter caps a new account at 20 requests
-	// a minute for the model, and OpenAI does not. The checks and the choices stay on OpenRouter's decision model.
-	if !isOff(config.Env(envOpenAI, "")) {
-		openAIModel := config.Env(envOpenAIModel, defaultOpenAIModel)
-		openAIURL := config.Env(envOpenAIBaseURL, defaultOpenAIBaseURL)
-		prices := llm.Prices{
-			Input:      number(envOpenAIPriceInput, defaultOpenAIPriceInput),
-			Cached:     number(envOpenAIPriceCached, defaultOpenAIPriceCached),
-			CacheWrite: number(envOpenAIPriceCacheWrite, defaultOpenAIPriceCacheWrite),
-			Output:     number(envOpenAIPriceOutput, defaultOpenAIPriceOutput),
-		}
-		a.WithOpenAI(func(key string) llm.Model { return llm.NewOpenAI(key, openAIModel, openAIURL, reasoning, prices) })
-		openAIHost = openAIURL
-	}
-	// A run that starts opens its connections at once: a new one costs about a second of handshakes from far away,
-	// which would land on the run's first look.
-	a.WithWarm(func(ctx context.Context, openAI bool) {
-		ctx, cancel := context.WithTimeout(ctx, warmTimeout)
-		defer cancel()
-		var warming sync.WaitGroup
-		warm := func(open func(context.Context)) {
-			warming.Add(1)
-			go func() {
-				defer warming.Done()
-				open(ctx)
-			}()
-		}
-		warm(func(ctx context.Context) { llm.Warm(ctx, baseURL) })
-		if openAI && openAIHost != "" {
-			warm(func(ctx context.Context) { llm.Warm(ctx, openAIHost) })
-		}
-		if newScreen != nil {
-			warm(func(ctx context.Context) { decide.Warm(ctx, decisionsURL) })
-		}
-		warming.Wait()
-	})
 	defaultKey := config.Env(envOpenRouterKey, "")
 	server := &http.Server{
 		Addr: httpConfig.Addr,
@@ -280,6 +207,7 @@ func run() error {
 			ModelName:     model,
 			Source:        source.Kind(),
 			MaxModelCalls: config.EnvInt(envMaxModelCalls, defaultMaxModelCalls),
+			SessionTTL:    cfg.SessionTTL,
 		}).Handler(),
 		ReadHeaderTimeout: 10 * time.Second,
 	}
@@ -292,9 +220,7 @@ func run() error {
 	}
 	failed := make(chan error, 1)
 	go func() {
-		slog.Info("agent listening", "addr", httpConfig.Addr, "model", model,
-			"checks", newScreen != nil, "screenModel", screenModel,
-			"applicant", source.Kind(), "from", location, "key", defaultKey != "", "trace", cfg.TraceDir != "")
+		slog.Info(listeningStory(httpConfig.Addr, model, screenModel, newScreen != nil, source.Kind(), location, defaultKey != "", cfg.TraceDir))
 		failed <- server.ListenAndServe()
 	}()
 	select {
@@ -308,4 +234,34 @@ func run() error {
 		return server.Shutdown(shutdown)
 	}
 	return nil
+}
+
+// envLogLevel is the setting that shows the quiet lines too (every request the extension makes):
+// "debug" turns them on.
+const envLogLevel = "ACORN_AGENT_LOG_LEVEL"
+
+// logLevel is how much the terminal shows: the run's story, or everything with debug.
+func logLevel() slog.Level {
+	if strings.EqualFold(config.Env(envLogLevel, ""), "debug") {
+		return slog.LevelDebug
+	}
+	return slog.LevelInfo
+}
+
+// listeningStory is the sentence that says the agent is ready and how it is set up.
+func listeningStory(addr, model, screenModel string, checks bool, applicantKind, from string, hasKey bool, traceDir string) string {
+	line := fmt.Sprintf("The agent is ready on %s. It drives the browser with %s", addr, model)
+	if checks {
+		line += " and checks the screen with " + screenModel
+	} else {
+		line += ", with screen checks turned off"
+	}
+	line += fmt.Sprintf(", and reads the applicant from %s (%s).", from, applicantKind)
+	if !hasKey {
+		line += " No server key is set, so each run brings its own."
+	}
+	if traceDir != "" {
+		line += " Traces are saved in " + traceDir + "."
+	}
+	return line
 }

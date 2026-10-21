@@ -9,6 +9,7 @@
 
 import { withStorageLock } from "../storage-lock";
 
+import type { JobPage } from "./completed-run";
 import type { AgentMemory } from "@acorn/shared/agent-contract";
 
 export const KEPT_RUNS_STORAGE_KEY = "acornKeptAgentRuns";
@@ -24,6 +25,11 @@ export interface KeptRun {
   stopBeforeSubmit: boolean;
   /** What the run knew when it stopped, so Continue can go on from it if the agent forgot the session. */
   memory?: AgentMemory;
+  /** The page the run began on, so a Run that ends sent still counts for the job it was started on. */
+  job?: JobPage;
+  /** How long the run has worked over its legs so far (ms), and what the models have cost (dollars). */
+  workMs?: number;
+  costUsd?: number;
 }
 
 type KeptRunMap = Record<string, KeptRun>;

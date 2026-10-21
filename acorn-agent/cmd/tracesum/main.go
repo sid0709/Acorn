@@ -19,15 +19,13 @@ import (
 
 const defaultTraces = "traces"
 
-// sourcePrefill marks a trace entry the quick text pass made (agent.sourcePrefill).
-const sourcePrefill = "prefill"
-
 type entry struct {
-	At      time.Time `json:"at"`
-	Source  string    `json:"source"`
-	Status  string    `json:"status"`
-	Error   string    `json:"error"`
-	Actions []struct {
+	At         time.Time `json:"at"`
+	DurationMs int64     `json:"durationMs"`
+	Source     string    `json:"source"`
+	Status     string    `json:"status"`
+	Error      string    `json:"error"`
+	Actions    []struct {
 		Kind string `json:"kind"`
 	} `json:"actions"`
 	Check *struct {
@@ -44,102 +42,110 @@ type call struct {
 		CachedTokens int     `json:"cachedTokens"`
 		Cost         float64 `json:"cost"`
 	} `json:"usage"`
-	LatencyMs int64 `json:"latencyMs"`
-	// Where the call went, for comparing providers: the API, who answered (OpenRouter's provider), the model, the
-	// request's size, and whether the cost was reported or priced from rates.
-	Provider   string `json:"provider"`
-	Served     string `json:"served"`
-	Model      string `json:"model"`
-	RequestKB  int    `json:"requestKb"`
-	CostSource string `json:"costSource"`
-	NewConn    bool   `json:"newConn"`
-	ConnectMs  int64  `json:"connectMs"`
+	LatencyMs    int64  `json:"latencyMs"`
+	Provider     string `json:"provider"`
+	GenerationID string `json:"generationId"`
+	// Requests times each HTTP request of the call (traces from v1.88 on).
+	Requests []request `json:"requests"`
 }
 
-// group is the driving model's calls to one provider, and who answered them.
-type group struct {
-	latencies           []int64
-	in, out, cached, kb int
-	cost                float64
-	priced              int
-	newConns            int
-	connectMs           int64
+// request is one HTTP request of a call. The size and protocol fields come from traces that
+// record the traffic (v1.89.4 on).
+type request struct {
+	BackoffMs       int64  `json:"backoffMs"`
+	ConnectMs       int64  `json:"connectMs"`
+	SendMs          int64  `json:"sendMs"`
+	WaitMs          int64  `json:"waitMs"`
+	ReadMs          int64  `json:"readMs"`
+	Status          int    `json:"status"`
+	Proto           string `json:"proto"`
+	SendBytesPerSec int64  `json:"sendBytesPerSec"`
+	RequestBytes    int64  `json:"requestBytes"`
+	ResponseBytes   int64  `json:"responseBytes"`
+	Body            *struct {
+		SystemBytes       int64 `json:"systemBytes"`
+		HistoryTextBytes  int64 `json:"historyTextBytes"`
+		CurrentTextBytes  int64 `json:"currentTextBytes"`
+		HistoryImages     int64 `json:"historyImages"`
+		HistoryImageBytes int64 `json:"historyImageBytes"`
+		CurrentImages     int64 `json:"currentImages"`
+		CurrentImageBytes int64 `json:"currentImageBytes"`
+	} `json:"body"`
 }
 
-func (g *group) add(c call) {
-	g.latencies = append(g.latencies, c.LatencyMs)
-	g.in += c.Usage.InputTokens
-	g.out += c.Usage.OutputTokens
-	g.cached += c.Usage.CachedTokens
-	g.kb += c.RequestKB
-	g.cost += c.Usage.Cost
-	if c.CostSource == "priced" {
-		g.priced++
-	}
-	if c.NewConn {
-		g.newConns++
-		g.connectMs += c.ConnectMs
-	}
+// traffic sums what one model's requests sent and how fast, and keeps the largest.
+type traffic struct {
+	requests       int
+	sent, received int64
+	sendMs         int64
+	protos         map[string]bool
+	largest        request
 }
 
-// groupKey names where a call went. A call from before the trace recorded it went to OpenRouter.
-func groupKey(c call) string {
-	provider := c.Provider
-	if provider == "" {
-		provider = "openrouter"
-	}
-	served := c.Served
-	if served == "" {
-		served = "-"
-	}
-	return provider + " / " + served + " / " + c.Model
-}
-
-// groups are every run's driving-model calls so far, by where they went.
-var groups = map[string]*group{}
-
-// decisionGroups are the decision model's calls, which go only to OpenRouter.
-var decisionGroups = map[string]*group{}
-
-func percentile(sorted []int64, q float64) int64 {
-	if len(sorted) == 0 {
-		return 0
-	}
-	return sorted[min(len(sorted)-1, int(float64(len(sorted))*q))]
-}
-
-// printGroups is the comparison of providers: how long a call took, what it cost, and how much it carried. The
-// latency is the call's whole time as the agent saw it, so it includes the network to the provider.
-func printGroups(title string, groups map[string]*group) {
-	if len(groups) == 0 {
+func (t *traffic) add(r request) {
+	if r.RequestBytes == 0 {
 		return
 	}
-	keys := make([]string, 0, len(groups))
-	for key := range groups {
-		keys = append(keys, key)
+	t.requests++
+	t.sent += r.RequestBytes
+	t.received += r.ResponseBytes
+	t.sendMs += r.SendMs
+	if r.Proto != "" {
+		if t.protos == nil {
+			t.protos = map[string]bool{}
+		}
+		t.protos[r.Proto] = true
 	}
-	sort.Strings(keys)
-	fmt.Printf("  %s\n", title)
-	fmt.Printf("    %-52s %5s %8s %8s %9s %8s %7s %7s\n", "provider / served by / model", "calls", "median s", "p90 s", "$/call", "in/call", "cached", "KB/call")
-	for _, key := range keys {
-		g := groups[key]
-		sorted := append([]int64(nil), g.latencies...)
-		sort.Slice(sorted, func(i, j int) bool { return sorted[i] < sorted[j] })
-		n := len(sorted)
-		cachedShare := 0.0
-		if g.in > 0 {
-			cachedShare = 100 * float64(g.cached) / float64(g.in)
-		}
-		note := ""
-		if g.priced > 0 {
-			note = "  (cost priced from rates)"
-		}
-		if g.newConns > 0 {
-			note += fmt.Sprintf("  (%d of %d opened a new connection, %d ms each)", g.newConns, n, g.connectMs/int64(g.newConns))
-		}
-		fmt.Printf("    %-52s %5d %8.1f %8.1f %9.5f %8d %6.0f%% %7d%s\n", key, n,
-			float64(percentile(sorted, 0.5))/1000, float64(percentile(sorted, 0.9))/1000, per(g.cost, n), perInt(g.in, n), cachedShare, perInt(g.kb, n), note)
+	if r.RequestBytes > t.largest.RequestBytes {
+		t.largest = r
 	}
+}
+
+func (t *traffic) print(label string) {
+	if t.requests == 0 {
+		return
+	}
+	protos := make([]string, 0, len(t.protos))
+	for proto := range t.protos {
+		protos = append(protos, proto)
+	}
+	sort.Strings(protos)
+	rate := int64(0)
+	if t.sendMs > 0 {
+		rate = t.sent * 1000 / t.sendMs
+	}
+	fmt.Printf("  %s: %d requests, %s sent, %s received, sending took %s (%s/s on average), protocol %s\n",
+		label, t.requests, kb(t.sent), kb(t.received), (time.Duration(t.sendMs) * time.Millisecond).Round(time.Millisecond), kb(rate), orNone(strings.Join(protos, ",")))
+	if body := t.largest.Body; body != nil {
+		fmt.Printf("    largest request %s = system %s + text %s + %d images %s (%d of them history, %s)\n",
+			kb(t.largest.RequestBytes), kb(body.SystemBytes), kb(body.HistoryTextBytes+body.CurrentTextBytes),
+			body.HistoryImages+body.CurrentImages, kb(body.HistoryImageBytes+body.CurrentImageBytes),
+			body.HistoryImages, kb(body.HistoryImageBytes))
+	}
+}
+
+func kb(bytes int64) string { return fmt.Sprintf("%.0f KB", float64(bytes)/1024) }
+
+// phases sums where the model calls' time went, request by request.
+type phases struct {
+	timed                              int
+	backoff, connect, send, wait, read int64
+	slowest                            []call
+}
+
+func (p *phases) add(c call) {
+	if len(c.Requests) == 0 {
+		return
+	}
+	p.timed++
+	for _, r := range c.Requests {
+		p.backoff += r.BackoffMs
+		p.connect += r.ConnectMs
+		p.send += r.SendMs
+		p.wait += r.WaitMs
+		p.read += r.ReadMs
+	}
+	p.slowest = append(p.slowest, c)
 }
 
 type tally struct {
@@ -174,11 +180,11 @@ func summarize(dir string) error {
 		return fmt.Errorf("no steps in %s", dir)
 	}
 	sort.Strings(steps)
-	var model, screen, prefill tally
-	runGroups := map[string]*group{}
-	runDecisions := map[string]*group{}
+	var model, screen tally
+	var net phases
+	var driving, deciding traffic
+	var server time.Duration
 	outcomes := map[string]int{}
-	reviews, advances := 0, 0
 	actions, failures := 0, 0
 	var first, last time.Time
 	var lastLatency time.Duration
@@ -191,18 +197,13 @@ func summarize(dir string) error {
 			first = e.At
 		}
 		last, lastLatency = e.At, 0
+		server += time.Duration(e.DurationMs) * time.Millisecond
 		actions += len(e.Actions)
 		if e.Error != "" {
 			failures++
 		}
 		if e.Check != nil {
 			outcomes[e.Check.Outcome]++
-		}
-		switch e.Source {
-		case "review":
-			reviews++
-		case "advance":
-			advances++
 		}
 		var calls []call
 		if err := read(strings.TrimSuffix(path, ".json")+".model.json", &calls); err != nil && !os.IsNotExist(err) {
@@ -211,53 +212,55 @@ func summarize(dir string) error {
 		for _, c := range calls {
 			if c.Kind == "decision" {
 				screen.add(c)
-				key := groupKey(c)
-				for _, into := range []map[string]*group{runDecisions, decisionGroups} {
-					if into[key] == nil {
-						into[key] = &group{}
-					}
-					into[key].add(c)
+				for _, r := range c.Requests {
+					deciding.add(r)
 				}
 				continue
 			}
-			key := groupKey(c)
-			for _, into := range []map[string]*group{runGroups, groups} {
-				if into[key] == nil {
-					into[key] = &group{}
-				}
-				into[key].add(c)
-			}
-			if e.Source == sourcePrefill {
-				prefill.add(c)
-				continue
+			for _, r := range c.Requests {
+				driving.add(r)
 			}
 			model.add(c)
+			net.add(c)
 			lastLatency += time.Duration(c.LatencyMs) * time.Millisecond
 		}
 	}
 	wall := last.Sub(first) + lastLatency
-	rest := wall - model.latency - screen.latency - prefill.latency
+	rest := wall - model.latency - screen.latency
 	fmt.Printf("%s\n", filepath.Base(dir))
 	fmt.Printf("  wall %s over %d entries, %d actions sent, %d failed model calls\n", wall.Round(time.Second), len(steps), actions, failures)
 	fmt.Printf("  model:  %3d calls (%d repairs)  in %d (cached %d)  out %d  $%.4f  %s  (%.1fs/call, %d in/call)\n",
 		model.calls, model.repairs, model.in, model.cached, model.out, model.cost, model.latency.Round(time.Second),
 		per(model.latency.Seconds(), model.calls), perInt(model.in, model.calls))
-	if reviews+advances > 0 {
-		fmt.Printf("  DOM-first: %d reviews, %d advances (their decision-model calls are in checks)\n", reviews, advances)
-	}
-	if prefill.calls > 0 {
-		fmt.Printf("  prefill: %2d calls  in %d (cached %d)  out %d  $%.4f  %s  (%.1fs/call)\n",
-			prefill.calls, prefill.in, prefill.cached, prefill.out, prefill.cost, prefill.latency.Round(time.Second), per(prefill.latency.Seconds(), prefill.calls))
-	}
 	if screen.calls > 0 {
 		fmt.Printf("  checks: %3d calls  in %d  $%.4f  %s  (%.2fs/call)  outcomes %v\n",
 			screen.calls, screen.in, screen.cost, screen.latency.Round(time.Millisecond), per(screen.latency.Seconds(), screen.calls), outcomes)
 	}
-	fmt.Printf("  extension and waiting: %s   total cost $%.4f\n", rest.Round(time.Second), model.cost+screen.cost+prefill.cost)
-	printGroups("driving-model calls by where they went:", runGroups)
-	printGroups("decision-model calls:", runDecisions)
+	fmt.Printf("  extension and waiting: %s   total cost $%.4f\n", rest.Round(time.Second), model.cost+screen.cost)
+	if net.timed > 0 {
+		ms := func(v int64) time.Duration { return time.Duration(v) * time.Millisecond }
+		fmt.Printf("  model requests (%d timed): connect %s  send %s  provider wait %s  read %s  retry delays %s   server time %s\n",
+			net.timed, ms(net.connect), ms(net.send), ms(net.wait), ms(net.read), ms(net.backoff), server.Round(time.Millisecond))
+		sort.Slice(net.slowest, func(i, j int) bool { return net.slowest[i].LatencyMs > net.slowest[j].LatencyMs })
+		for i, c := range net.slowest {
+			if i == 3 {
+				break
+			}
+			fmt.Printf("    slow call %dms  provider %s  generation %s  attempts %d  in %d (cached %d) out %d\n",
+				c.LatencyMs, orNone(c.Provider), orNone(c.GenerationID), len(c.Requests), c.Usage.InputTokens, c.Usage.CachedTokens, c.Usage.OutputTokens)
+		}
+	}
+	driving.print("driving model traffic")
+	deciding.print("decision model traffic")
 	fmt.Println()
 	return nil
+}
+
+func orNone(text string) string {
+	if text == "" {
+		return "-"
+	}
+	return text
 }
 
 func per(total float64, n int) float64 {
@@ -287,10 +290,6 @@ func main() {
 			fmt.Fprintln(os.Stderr, err)
 			status = 1
 		}
-	}
-	if len(dirs) > 1 {
-		printGroups("every run together, driving-model calls by where they went:", groups)
-		printGroups("every run together, decision-model calls:", decisionGroups)
 	}
 	os.Exit(status)
 }

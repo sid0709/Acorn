@@ -7,7 +7,9 @@ import { useEffect, useState } from "react";
 
 import {
   listTabPipelines,
+  readableProgress,
   TAB_PIPELINES_STORAGE_KEY,
+  tabPipelinesFromStored,
   type TabPipelineMap,
 } from "../tab-pipeline-session";
 import { MSG } from "../types";
@@ -29,8 +31,7 @@ export function useTabSession(activeTabId: number | null) {
     ) => {
       if (area !== "session") return;
       if (changes[TAB_PIPELINES_STORAGE_KEY]) {
-        const next = changes[TAB_PIPELINES_STORAGE_KEY].newValue;
-        setPipelines(next && typeof next === "object" ? (next as TabPipelineMap) : {});
+        setPipelines(tabPipelinesFromStored(changes[TAB_PIPELINES_STORAGE_KEY].newValue));
       }
     };
     chrome.storage.onChanged.addListener(onChanged);
@@ -45,7 +46,7 @@ export function useTabSession(activeTabId: number | null) {
       if (message.type !== MSG.PIPELINE_PROGRESS || !message.progress) return;
       if (typeof message.tabId !== "number") return;
       const tabId = message.tabId;
-      const next = message.progress;
+      const next = readableProgress(message.progress);
       setPipelines((prev) => {
         const key = String(tabId);
         return {

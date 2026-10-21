@@ -46,3 +46,14 @@ export function formatDay(day: Day): string {
   const [, month, date] = day.split("-").map(Number);
   return `${MONTHS[(month ?? 1) - 1]} ${date ?? 1}`;
 }
+
+const MINUTES_PER_HOUR = 60;
+const HOURS_PER_HALF_DAY = 12;
+
+/** "3:05 PM", from minutes after midnight on the clock the time was read on. */
+export function formatTime(minutes: number): string {
+  const hour = Math.floor(minutes / MINUTES_PER_HOUR) % (2 * HOURS_PER_HALF_DAY);
+  const minute = String(minutes % MINUTES_PER_HOUR).padStart(2, "0");
+  const clock = hour % HOURS_PER_HALF_DAY === 0 ? HOURS_PER_HALF_DAY : hour % HOURS_PER_HALF_DAY;
+  return `${clock}:${minute} ${hour < HOURS_PER_HALF_DAY ? "AM" : "PM"}`;
+}
