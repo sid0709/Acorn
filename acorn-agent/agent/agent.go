@@ -415,6 +415,7 @@ func (a *Agent) step(ctx context.Context, id string, obs Observation) (Step, err
 	// runs of one plan.
 	results := withoutChoose(append(append([]ActionResult(nil), s.carried...), obs.Results...))
 	s.noteCommitResults(obs.Results)
+	s.noteRefusedSend(obs)
 	s.notes = append(s.notes, unreachedNotes(obs.Results, s.byID, s.marks, obs)...)
 	a.learnJD(ctx, s, obs)
 	if s.pendingUpload != nil {
@@ -541,6 +542,12 @@ func (a *Agent) step(ctx context.Context, id string, obs Observation) (Step, err
 		planned = s.aimAndLog(planned, obs)
 		s.anchors = buildAnchors(planned, obs)
 		s.marks = bindMarks(planned, obs)
+		var misaimed int
+		planned, misaimed = s.withoutMisaimedCommits(planned)
+		if misaimed > 0 {
+			lost += misaimed
+			dropped = append(dropped, fmt.Sprintf("%s that sends the page or goes on was on a field, not a button, and was not made", plainlog.Count(misaimed, "click")))
+		}
 	} else {
 		for i := range planned {
 			planned[i].Zone = 0
@@ -581,6 +588,7 @@ func (a *Agent) step(ctx context.Context, id string, obs Observation) (Step, err
 	// A run asked to stop before sending never presses the click that sends the application: it and what
 	// was planned after it stay behind, and the run ends as ready to submit once nothing else is planned.
 	sendHeld := a.holdSend(s, &planned, &dropped)
+	a.holdRefusedSend(s, &planned, &dropped)
 	s.noteCommitPlanned(planned, obs)
 	if settled := s.markSettled(obs, answer.Settled, planned, claimed); settled > 0 {
 		slog.Info(settledLine(s.id, settled, s.settled.Spans))

@@ -1,6 +1,10 @@
 package agent
 
-import "math"
+import (
+	"fmt"
+	"math"
+	"strings"
+)
 
 // The extension keeps a list of the page's controls and where each one sits on the page, and sends it with
 // a survey. A point of a plan is measured on a picture; when it is made, the control it is on is looked up
@@ -180,6 +184,41 @@ func bindMarks(planned []Action, obs Observation) map[string]MarkRef {
 		}
 	}
 	return out
+}
+
+// withoutMisaimedCommits takes out of a plan a click the model says sends the page or goes on to the next
+// (Action.Commit) whose point is bound to a control that is filled rather than pressed: the model's point
+// missed the button and landed on a field (a recorded run's "Submit" click was bound to the LinkedIn box
+// above it, and clicked into it). The page's own word on what is at the point is already known, so no
+// checker is asked; the plan loses the click, the send is held with it (holdCommits), and the model is told
+// to aim again. It says how many were taken out.
+func (s *session) withoutMisaimedCommits(planned []Action) ([]Action, int) {
+	var kept []Action
+	taken := 0
+	for _, action := range planned {
+		ref, bound := s.marks[action.ID]
+		if action.Commit != "" && bound && isField(ref.Kind) {
+			taken++
+			delete(s.marks, action.ID)
+			s.notes = append(s.notes, misaimedCommitNote(action, ref))
+			continue
+		}
+		kept = append(kept, action)
+	}
+	return kept, taken
+}
+
+// misaimedCommitNote tells the model that its click to send the page was on a field, and which.
+func misaimedCommitNote(action Action, ref MarkRef) string {
+	what := "the click that sends the page or goes on"
+	if label := strings.TrimSpace(action.Label); label != "" {
+		what = fmt.Sprintf("your click on %q", label)
+	}
+	where := "a field"
+	if label := strings.TrimSpace(ref.Label); label != "" {
+		where = fmt.Sprintf("the field %q", label)
+	}
+	return fmt.Sprintf("Acorn did not make %s: its point was on %s, not on a button. Find the button on the screens and plan the click on it, with the right screen number.", what, where)
 }
 
 // boundLines says which control each point of a plan is bound to, for the trace: "s3a1 input:text:first".

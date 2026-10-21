@@ -61,7 +61,7 @@ func checkQuestions(expect string) map[string]decide.Question {
 	return map[string]decide.Question{
 		askMatches: decide.YesNo("Someone has just typed and clicked on this page. They expected the page to now show: " + expect + ". Does the screenshot show that?"),
 		askBlocked: decide.YesNo("Is the page blocked by something other than the form itself: a popup, dialog or overlay covering the form, a CAPTCHA, a sign-in wall, or a page-level error such as 'something went wrong'? A small validation message beside a form field does not count."),
-		askLoading: decide.YesNo("Is the page still loading or changing: a spinner, a progress bar, or a blank or half-drawn page?"),
+		askLoading: decide.YesNo("Is the page still loading or changing: a spinner, a progress bar, a blank or half-drawn page, or a form that says it is still reading a file or filling itself in?"),
 	}
 }
 
@@ -355,14 +355,23 @@ func (a *Agent) surveyNext(s *session, sent []Action, asked bool) bool {
 	if !s.start.FastFill {
 		return false
 	}
-	acted := false
+	acted, waited := false, false
 	for _, action := range sent {
 		switch action.Kind {
 		case KindUpload:
 			return true
 		case KindClick, KindDoubleClick, KindTripleClick, KindRightClick, KindType, KindKey, KindChoose:
 			acted = true
+		case KindWait:
+			waited = true
 		}
+	}
+	// A plan that only waits is the model waiting for the page (a file being read, a page loading): what it
+	// must judge next is the whole page, not the screen the page happens to be scrolled to. A recorded run
+	// waited for a résumé to be read, then planned from one screen at the bottom of the page while the top
+	// still said the reading was going on, and filled fields the page then reset.
+	if waited && !acted && len(s.plan) == 0 {
+		return true
 	}
 	return acted && len(s.plan) == 0
 }

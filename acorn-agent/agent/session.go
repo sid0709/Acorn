@@ -153,6 +153,9 @@ type session struct {
 	commit commitState
 	// fieldHold is the last stop sent back for the required fields the page reported empty (stopgate.go).
 	fieldHold fieldHold
+	// sendRefused is set when the page refused the click that sent it and reported fields empty: the next
+	// plan's send is held for one look (stopgate.go).
+	sendRefused bool
 }
 
 // addTrace keeps the trace of an entry until the next answer carries it to the extension.

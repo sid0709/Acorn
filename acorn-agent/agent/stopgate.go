@@ -105,6 +105,59 @@ func (s *session) noteCommitResults(results []ActionResult) {
 	}
 }
 
+// noteRefusedSend says whether the page refused the click that sent it: the click went through, the look
+// after it is the same page, and the page reports required fields empty or marked invalid. The model is
+// told which, and how to set them so the page registers them, and the next click that sends the page is
+// held for one look (Agent.holdRefusedSend), so what the page reported is set before it is sent again. A
+// recorded run clicked an option the page showed as chosen and sent the page again at once, twice in two
+// minutes, and the page refused the application as possible spam.
+func (s *session) noteRefusedSend(obs Observation) bool {
+	if !s.commit.done || s.commit.url != withoutFragment(obs.URL) || !s.commit.samePage(obs.Marks) {
+		return false
+	}
+	left := unfilledFields(obs.Marks)
+	if len(left) == 0 {
+		return false
+	}
+	// This send is judged once: the next plan's send is a new one.
+	s.commit = commitState{}
+	s.sendRefused = true
+	s.notes = append(s.notes, refusedSendNote(left))
+	s.surveyAgain = true
+	slog.Info(fmt.Sprintf("%s: the page refused the send: it reports %s empty or invalid (%s); the next send is held for one look.",
+		runName(s.id), plainlog.Count(len(left), "required field"), quoted(left)))
+	return true
+}
+
+// refusedSendNote tells the model that the page did not take the send, which fields it names, and how to
+// set a field whose answer is on screen but not registered.
+func refusedSendNote(left []string) string {
+	return fmt.Sprintf("The page did not accept the click that sends it: it reports these required fields empty or invalid: %s. "+
+		"An answer that looks chosen on the screen may not be registered by the page. Set each field named again: for a choice, "+
+		"pick a different option first and then the one you want; for a box, click it, clear it and enter the value again. "+
+		"Plan only those fields on this look. The click that sends the page is held until your next look, when you have seen the fields set.", quoted(left))
+}
+
+// holdRefusedSend takes the click that sends the page out of the first plan after the page refused one, so
+// the fields the page named are set and seen set before the page is sent again. It reports whether one was
+// held, and says so in dropped for the log.
+func (a *Agent) holdRefusedSend(s *session, planned *[]Action, dropped *[]string) bool {
+	if !s.sendRefused {
+		return false
+	}
+	s.sendRefused = false
+	kept, held := withoutSend(*planned)
+	if len(held) == 0 {
+		return false
+	}
+	*planned = kept
+	*dropped = append(*dropped, fmt.Sprintf("the click that sends the page was held back (%s with it): the page refused the last send, and the fields it named are set first",
+		plainlog.Count(len(held)-1, "later action")))
+	s.surveyAgain = true
+	slog.Info(fmt.Sprintf("%s: the click that sends the page was held back: the page refused the last send.", runName(s.id)))
+	return true
+}
+
 // samePage is whether the page still holds at least half of the fields it had when it was sent. A send
 // that leads on to the next page of a form that keeps one URL (a wizard) leaves few or none of them, and
 // what that page asks is the run's to fill, not the applicant's; a page that asks for a code after the
