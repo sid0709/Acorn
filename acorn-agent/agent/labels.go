@@ -5,11 +5,10 @@ import (
 	"unicode"
 )
 
-// A labelled point of a plan is checked against its label by the decision model: a picture, a
-// question, a second or two. When the point is bound to a control the page itself names, and the page
-// calls the control what the model called it, the question is already answered: the model aimed at the
-// control it meant. The check is then not asked, which saves the call and the refusals a picture can
-// give (a marker over a short button's text, a point on a question's words).
+// Two labels agree when they name the same question: the model's words for a control and another's (the
+// model's own on another look, a review's, the label the page gives a control). Agreement only ever finds
+// where something is (the control a point that missed its field meant, marks.go) or matches the model's
+// readings with each other; what the page calls a control never answers a question about it.
 
 const (
 	// minLabelAgreeChars is the least a label may have, once its words are read, to agree with another:

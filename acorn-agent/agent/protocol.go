@@ -198,15 +198,15 @@ type Observation struct {
 	// Look names the look, the same on a step the extension sends again after a failure, so the move
 	// in Layout is placed once. Empty from an extension that does not name its looks.
 	Look string `json:"look,omitempty"`
-	// List is the list of choices open on the page at this look, as the page names its options
-	// (an ARIA listbox or menu); nil when the page names none. A dropdown the agent opened is read
-	// from it as text (choose.go), with no picture to count rows in.
+	// List is the list of choices open on the page at this look, as the page names and places its
+	// options (an ARIA listbox or menu); nil when the page names none. Only where its options are drawn
+	// is used: they are numbered on the picture the decision model reads (listread.go).
 	List *OpenList `json:"list,omitempty"`
 }
 
 // OpenList is a list of choices open on the page, as the page names its options, in the order they
-// are drawn (so the n-th is reached with n-1 ArrowDown from the first). Empty options is a list that
-// is open with nothing in it yet: a box that searches as one types.
+// are drawn (so the n-th is reached with n-1 ArrowDown from the first). Only the boxes are used: what
+// the options are called is read from the picture (listread.go).
 type OpenList struct {
 	Options []string `json:"options"`
 	// Boxes is where each option is drawn, one per option in the same order (screenshot pixels from the
@@ -236,8 +236,8 @@ type Rect struct {
 // Label is what the page calls it (its label, aria-label, placeholder, or a button's text). Entry is
 // the part of the control's own box that is not its label, when the label is printed inside the box
 // (a question's words inside a bordered field): the place to click or type. Required, Empty and
-// Invalid are what the page says of the control's state; Empty is nil when the page cannot tell (a
-// dropdown the page draws itself keeps its value elsewhere).
+// Invalid are what the page says of the control's state; the agent decides nothing by them (or by Kind):
+// the pictures say what a control is and holds, the page only where it is.
 type ControlMark struct {
 	ID   string `json:"id"`
 	Kind string `json:"kind"`

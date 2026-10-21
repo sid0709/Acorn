@@ -17,7 +17,7 @@ import (
 // server. A "next" click goes out as usual: the run fills every page of the form and stops only at the
 // control that sends it. When nothing but the send was planned (the page is complete, in the model's
 // judgment), or when the model itself reports done, the run ends as ready to submit (Step.ReadyToSubmit),
-// unless the page still reports required fields empty: then the model is sent back to fill them first, as
+// unless the model read fields as empty on its last survey: then it is sent back to fill them first, as
 // a stop for the applicant is (stopgate.go), with the same number of passes and the same rule that a pass
 // which filled none of them is the last.
 //
@@ -28,7 +28,7 @@ import (
 // readyMessage is the run's last line when the agent ended it at the control that sends the application.
 const readyMessage = "Ready to submit: every field is filled, and the application was not sent."
 
-// readyPassMessage is what the person sees while the model fills what the page still reports empty.
+// readyPassMessage is what the person sees while the model fills what it read as empty.
 const readyPassMessage = "Finishing the required fields before stopping at Submit."
 
 // withoutSend is the plan up to the first click the model marked as the one that sends the application:
@@ -75,10 +75,10 @@ func sendHeldNote(send Action) string {
 }
 
 // holdReady says whether a run about to end as ready to submit is sent back instead, with the note that
-// names the required fields the page still reports empty (or marked invalid). It uses the passes a stop
+// names the fields the model read as empty on its last survey (fields.go). It uses the passes a stop
 // for the applicant has (Config.StopPasses, counted in session.stopPasses), and the rule that a pass which
 // filled none of the fields is the last (session.fieldHold), so a model that will not fill a field does
-// not go round for ever. A look that reports no controls says nothing, and the run ends ready.
+// not go round for ever. A page the model read no empty field on says nothing, and the run ends ready.
 func (a *Agent) holdReady(s *session, obs Observation) (string, bool) {
 	if a.cfg.StopPasses <= 0 || s.stopPasses >= a.cfg.StopPasses {
 		return "", false
@@ -89,22 +89,22 @@ func (a *Agent) holdReady(s *session, obs Observation) (string, bool) {
 	}
 	url := withoutFragment(obs.URL)
 	if s.fieldHold.url == url && len(left) >= len(s.fieldHold.left) {
-		slog.Warn(fmt.Sprintf("%s: the run ends ready to submit though the page reports %s empty: the last pass filled none of them (%s).",
-			runName(s.id), plainlog.Count(len(left), "required field"), quoted(left)))
+		slog.Warn(fmt.Sprintf("%s: the run ends ready to submit though %s read as empty: the last pass filled none of them (%s).",
+			runName(s.id), plainlog.Count(len(left), "field"), quoted(left)))
 		return "", false
 	}
 	s.fieldHold = fieldHold{url: url, left: left}
 	s.stopPasses++
 	// The model is shown the whole page again, so it finds the fields it is told to fill.
 	s.surveyAgain = true
-	slog.Info(fmt.Sprintf("%s: the ready stop is sent back: the page reports %s empty that the run can fill (%s).",
-		runName(s.id), plainlog.Count(len(left), "required field"), quoted(left)))
+	slog.Info(fmt.Sprintf("%s: the ready stop is sent back: %s read as empty that the run can fill (%s).",
+		runName(s.id), plainlog.Count(len(left), "field"), quoted(left)))
 	return readyHoldNote(left), true
 }
 
-// readyHoldNote tells the model which required fields the page still reports empty before it may stop.
+// readyHoldNote tells the model which fields it read as empty before it may stop.
 func readyHoldNote(left []string) string {
-	return fmt.Sprintf("You stopped at the control that sends the application, but the page still reports these required fields empty: %s. "+
+	return fmt.Sprintf("You stopped at the control that sends the application, but you read these fields as still empty: %s. "+
 		"Fill each of them now from the applicant's details, with the answer most applicants give where the details say nothing, all in one plan. "+
 		"Then stop again at that control without pressing it.", quoted(left))
 }

@@ -22,8 +22,9 @@ import (
 // the model: a point the checker doubts is acted on as planned, and the model is told the doubt with its
 // next look (a survey), so it checks what the point filled and puts right what landed wrong. The driving
 // model sees the screen; the checker only hurries its correction. Before the check, each point is moved
-// onto the entry of the control it is on (aim.go), and a point on a control the page calls what the model
-// called it is not checked at all (labels.go).
+// onto the entry of the control it is on (aim.go). Every labelled point is checked against the picture:
+// what the page calls the control under a point is not taken for an answer (it lies for a control the
+// page draws itself).
 
 // askPointPrefix starts the key of the question about a numbered point: "p1", "p2", ...
 const askPointPrefix = "p"
@@ -45,10 +46,9 @@ func pointQuestion(n int, label string) decide.Question {
 }
 
 // checkedPoints are the point actions of a plan that can be checked, by zone: they have a label and
-// an anchor (the survey screen they were measured on is readable). A point bound to a control the page
-// calls what the model called it is not checked: the page has answered (labels.go). Zones come in the
-// order of their first action; trusted counts the points the page answered for.
-func (s *session) checkedPoints(planned []Action) (zones []int, byZone map[int][]Action, trusted int) {
+// an anchor (the survey screen they were measured on is readable). Zones come in the order of their
+// first action.
+func (s *session) checkedPoints(planned []Action) (zones []int, byZone map[int][]Action) {
 	byZone = map[int][]Action{}
 	for _, action := range planned {
 		if !isPointAction(action) || strings.TrimSpace(action.Label) == "" {
@@ -57,16 +57,12 @@ func (s *session) checkedPoints(planned []Action) (zones []int, byZone map[int][
 		if _, ok := s.anchors[action.ID]; !ok {
 			continue
 		}
-		if ref, bound := s.marks[action.ID]; bound && labelsAgree(action.Label, ref.Label) {
-			trusted++
-			continue
-		}
 		if _, seen := byZone[action.Zone]; !seen {
 			zones = append(zones, action.Zone)
 		}
 		byZone[action.Zone] = append(byZone[action.Zone], action)
 	}
-	return zones, byZone, trusted
+	return zones, byZone
 }
 
 // zoneImage is the survey screen of a zone (the single screenshot when there is no survey).
@@ -85,11 +81,7 @@ func (a *Agent) checkPlanPoints(ctx context.Context, s *session, planned []Actio
 	if !s.start.FastFill || !a.checksOn(s) {
 		return planned, nil
 	}
-	zones, byZone, trusted := s.checkedPoints(planned)
-	if trusted > 0 {
-		slog.Info(fmt.Sprintf("%s: %s of the plan %s on a control the page calls what the model called it, and %s not checked against a picture.",
-			runName(s.id), plainlog.Count(trusted, "point"), isOrAre(trusted), isOrAre(trusted)))
-	}
+	zones, byZone := s.checkedPoints(planned)
 	if len(zones) == 0 {
 		return planned, nil
 	}
@@ -192,8 +184,7 @@ func doubtfulPointsNote(planned []Action, wrong map[string]pointVerdict) string 
 		lines = append(lines, fmt.Sprintf("%q on screen %d", action.Label, action.Zone))
 	}
 	return fmt.Sprintf("Your plan ran in full, but a checker doubts that %s %s on the control named: %s. "+
-		"Look at the screens: if what you typed landed in another field, clear it and fill the right field by its label, with the right screen number. "+
-		"A box with no dropdown arrow is a text box: click it and type, do not choose it.",
+		"Look at the screens: if what you typed landed in another field, clear it and fill the right field by its label, with the right screen number.",
 		plainlog.Count(len(lines), "point"), isOrAre(len(lines)), strings.Join(lines, "; "))
 }
 

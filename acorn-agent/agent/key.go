@@ -100,7 +100,7 @@ func (s *session) notePressed(planned []Action, obs Observation) {
 }
 
 // goOnNote is where the model is sent when the run idles with the key not pressed: to the required fields
-// the page still reports empty, else to the key. Once per page; the next look is a survey, so the key's
+// the model read as empty, else to the key. Once per page; the next look is a survey, so the key's
 // screen is in it. It reports false when there is no key, or it was pressed or sent to already.
 func (s *session) goOnNote(obs Observation) (string, bool) {
 	k := s.keyOn(obs)
@@ -110,7 +110,7 @@ func (s *session) goOnNote(obs Observation) (string, bool) {
 	k.nudges++
 	s.surveyAgain = true
 	if left := s.emptyFieldsOn(obs.URL); len(left) > 0 {
-		return fmt.Sprintf("The page still reports these required fields empty: %s. Go to each, check it on the screen and fill it. "+
+		return fmt.Sprintf("You read these fields as still empty: %s. Go to each, check it on the screen and fill it. "+
 			"Then press %s, %.0f px from the top of the page.", quoted(left), k.name(), k.Y), true
 	}
 	return fmt.Sprintf("Everything you can fill looks done. %s is %.0f px from the top of the page: scroll there and press it, marked \"commit\".",

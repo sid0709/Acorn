@@ -15,6 +15,7 @@ import {
   needsYou,
   questionTally,
   questionsOf,
+  seenAt,
 } from "../../src/sidebar/run-questions.ts";
 
 function control(id: string, y: number, rest: Partial<RunMapControl> = {}): RunMapControl {
@@ -154,5 +155,51 @@ describe("the line that says what the run is doing", () => {
       "Asking the model what to do next",
     );
     assert.equal(actionLine({ ...map(controls), phase: RUN_MAP_PHASE.ended }, []), "");
+  });
+});
+
+describe("where a question was seen", () => {
+  const surveyed: RunMap = {
+    ...map([]),
+    screens: [
+      { top: 900, height: 800, reused: false },
+      { top: 1670, height: 800, reused: true },
+    ],
+    settled: [{ from: 0, to: 900 }],
+  };
+
+  it("is the survey screen it lies on, numbered as the pictures are", () => {
+    assert.deepEqual(seenAt(surveyed, 1000), { screen: 1 });
+    assert.deepEqual(seenAt(surveyed, 2400), { screen: 2 });
+  });
+
+  it("is the screen it lies most inside of where two screens overlap", () => {
+    assert.deepEqual(seenAt(surveyed, 1680), { screen: 1 });
+    assert.deepEqual(seenAt(surveyed, 1690), { screen: 2 });
+    assert.deepEqual(seenAt(surveyed, 1660), { screen: 1 });
+  });
+
+  it("is a settled part when no screen of the survey holds it, and nothing when neither does", () => {
+    assert.deepEqual(seenAt(surveyed, 400), { settled: true });
+    assert.equal(seenAt(surveyed, 2600), undefined);
+  });
+
+  it("goes with each question of the model's list", () => {
+    const questions = questionsOf({
+      ...surveyed,
+      fields: [
+        { label: "Visa sponsorship", y: 1100, state: "empty" },
+        { label: "Race", y: 2300, state: "filled" },
+        { label: "First name", y: 300, state: "filled" },
+      ],
+    });
+    assert.deepEqual(
+      questions.map((question) => [question.label, question.seen]),
+      [
+        ["Visa sponsorship", { screen: 1 }],
+        ["Race", { screen: 2 }],
+        ["First name", { settled: true }],
+      ],
+    );
   });
 });

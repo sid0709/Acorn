@@ -59,12 +59,15 @@ func mergeSettled(spans []Span) []Span {
 // stretch moves with the controls it lies among. No control moved and the page grew: what was added is
 // at the bottom, so the coordinates still hold. The page shrank and nothing moved: the bottom was cut.
 func (s *session) forgetSettledIfStale(obs Observation) {
+	// What the reviews confirmed is of the page they were on, whether or not any of it was settled.
+	if url := withoutFragment(obs.URL); s.confirmedURL != url {
+		s.confirmed, s.confirmedURL = nil, url
+	}
 	if len(s.settled.Spans) == 0 {
 		return
 	}
 	if s.settled.URL != withoutFragment(obs.URL) {
 		s.settled = settledState{changed: true}
-		s.confirmed = nil
 		slog.Info(runName(s.id) + ": what was settled on the page is forgotten: the page is another page.")
 		return
 	}
@@ -302,14 +305,17 @@ func (s *session) takeSettledMap() *SettledMap {
 // one row of the form (a country code beside a phone number).
 const rowTolerancePx = 8
 
-// settleRows settles the page row by row, from what the reviews confirmed: a row of the form is settled
-// when every control on it is a field the page reports filled and not invalid, whose label a review found
-// showing what was planned. A row's stretch runs from halfway to the row above to halfway to the row
-// below (the top of the page for the first row, its bottom for the last), the full width. A row with a
-// button on it, with a required field still empty, or with the key, is never settled: the run comes back
-// to those. It is the model's own judgment of the pictures (the review) that settles, not the page's list.
+// settleRows settles the page row by row, from what the pictures say: a row of the form is settled when
+// every control on it lies on a question the model read as filled on its survey (fields.go) and a review of
+// a zone's photo found showing what was planned. The page's controls give only the rows' places: controls
+// whose middles lie within rowTolerancePx are one row, and a row's stretch runs from halfway to the row
+// above to halfway to the row below (the top of the page for the first row, its bottom for the last), the
+// full width. A row with a control on it the model did not read as a question (a button, a link), with a
+// field read as empty, or with the key, is never settled: the run comes back to those. What the page says
+// a control is, or holds, settles nothing.
 func (s *session) settleRows(obs Observation) {
-	if len(s.confirmed) == 0 || len(obs.Marks) == 0 || len(obs.Survey) == 0 {
+	fields := s.fieldsOn(obs.URL)
+	if len(s.confirmed) == 0 || len(fields) == 0 || len(obs.Marks) == 0 || len(obs.Survey) == 0 {
 		return
 	}
 	type row struct {
@@ -330,7 +336,7 @@ func (s *session) settleRows(obs Observation) {
 			at = &row{y: y, ok: true}
 			rows = append(rows, at)
 		}
-		at.ok = at.ok && isField(mark.Kind) && s.confirmedLabel(mark.Label)
+		at.ok = at.ok && s.confirmedAt(fields, mark.fieldOf())
 	}
 	sort.Slice(rows, func(i, j int) bool { return rows[i].y < rows[j].y })
 	key := s.keyOn(obs)
@@ -355,6 +361,17 @@ func (s *session) settleRows(obs Observation) {
 	s.settled.Spans = mergeSettled(append(s.settled.Spans, added...))
 	s.settled.changed = true
 	slog.Info(fmt.Sprintf("%s: %s of the form settled from what the reviews confirmed.", runName(s.id), plainlog.Count(len(added), "row")))
+}
+
+// confirmedAt is whether a control's field (its place on the page) holds a question the model read as filled
+// and a review confirmed: the question's row lies within the field, give or take a row's tolerance.
+func (s *session) confirmedAt(fields []FieldState, field Rect) bool {
+	for _, f := range fields {
+		if f.State == FieldFilled && f.Y >= field.Y-rowTolerancePx && f.Y <= field.Y+field.H+rowTolerancePx && s.confirmedLabel(f.Label) {
+			return true
+		}
+	}
+	return false
 }
 
 // confirmedLabel is whether a review found a field with this label showing what was planned.

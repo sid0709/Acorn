@@ -89,6 +89,40 @@ export interface RunQuestion {
   controls: string[];
   /** Its place on the page (CSS pixels), round all its controls. */
   box: { x: number; y: number; w: number; h: number };
+  /**
+   * Where the model saw it on its last survey: the number (from 1) of the screen it lies on, as written on
+   * that screenshot and on the pictures beside the map, or that it lies in a part the model settled. Unset
+   * when no survey holds it.
+   */
+  seen?: QuestionSeen;
+}
+
+/** Where a question was seen: on a screen of the last survey, or in a settled part of the page. */
+export type QuestionSeen = { screen: number } | { settled: true };
+
+/**
+ * Where a place on the page (CSS pixels from its top) was seen: the screen of the last survey it lies most
+ * inside of where screens overlap, else a settled part that holds it.
+ */
+export function seenAt(map: RunMap, y: number): QuestionSeen | undefined {
+  let best = 0;
+  let room = -1;
+  map.screens.forEach((screen, index) => {
+    if (y < screen.top || y > screen.top + screen.height) return;
+    const inside = Math.min(y - screen.top, screen.top + screen.height - y);
+    if (inside > room) {
+      best = index + 1;
+      room = inside;
+    }
+  });
+  if (best > 0) return { screen: best };
+  return map.settled.some((span) => y >= span.from && y <= span.to) ? { settled: true } : undefined;
+}
+
+/** A question with where it was seen, by the middle of its place. */
+function withSeen(map: RunMap, question: RunQuestion): RunQuestion {
+  const seen = seenAt(map, question.box.y + question.box.h / 2);
+  return seen ? { ...question, seen } : question;
 }
 
 function boxOf(controls: RunMapControl[]): RunQuestion["box"] {
@@ -208,7 +242,8 @@ function questionsOfFields(map: RunMap, fields: RunMapField[]): RunQuestion[] {
  * page, else the page's controls, which say where things are but not whether they are answered.
  */
 export function questionsOf(map: RunMap): RunQuestion[] {
-  if (map.fields && map.fields.length > 0) return questionsOfFields(map, map.fields);
+  if (map.fields && map.fields.length > 0)
+    return questionsOfFields(map, map.fields).map((question) => withSeen(map, question));
   const points = pointsByControl(map.points);
   const groups = new Map<string, RunMapControl[]>();
   for (const control of map.controls) {
@@ -217,7 +252,7 @@ export function questionsOf(map: RunMap): RunQuestion[] {
     groups.set(key, [...(groups.get(key) ?? []), control]);
   }
   return [...groups.entries()]
-    .map(([id, members]) => questionOf(id, members, points))
+    .map(([id, members]) => withSeen(map, questionOf(id, members, points)))
     .sort((a, b) => a.box.y - b.box.y || a.box.x - b.box.x);
 }
 

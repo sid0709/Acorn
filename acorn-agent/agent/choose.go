@@ -19,22 +19,17 @@ import (
 // dropdown should be set to (a "choose" action: the control's point and the answer in words), and
 // the agent does the rest: open the control and read the list.
 //
-// The page names the options of an open list (an ARIA listbox or menu, Observation.List and a
-// snap's), in the order they are drawn. An option that is exactly the answer is picked with no
-// model at all; otherwise the decision model reads the options as text (a second, no picture to
-// count rows in) and the best one is picked when the model is sure of it, or when it leads clearly
-// (Config.OptionAccept: not so bad, as a person would take it). When none answers, the driving model
-// is told the options and chooses on its next look, in one call for every dropdown left: it knows
-// the applicant, and a list that splits "Asian" into East, South and Southeast is its call, not a
-// thing to retry. Nothing is typed into a list that shows options: only a box that searches as one
-// types (a list that is open with nothing in it) gets the answer typed, and is read again.
-//
-// A page that names no options is read from a picture, as before: the decision model is asked
-// whether a list is open (a click can miss the control: it is moved onto the box and tried again,
-// and nothing is ever typed into a list that is not open, since typed spaces scroll the page) and
-// which option, counting from the first, answers; a long list is narrowed by typing the answer
-// first (a model counts three options reliably and ten not). Picked options are reached with Home,
-// ArrowDown and Enter. The extension only ever receives a click, some typing and keys.
+// The open list is read from its picture (listread.go): the decision model says whether a list is open,
+// whether the box already shows the answer, and which option answers; where the page says it drew each
+// option, the options in view are numbered on the picture and the pick is a click on the numbered one, else
+// the option is counted from the list's first and reached with Home, ArrowDown and Enter. When none
+// answers, the driving model chooses on its next look: it knows the applicant, and a list that splits
+// "Asian" into East, South and Southeast is its call, not a thing to retry. A click can miss the control:
+// it is moved onto the box and tried again, and nothing is ever typed into a list that is not open, since
+// typed spaces scroll the page. Typing is for one case only: a list that is open but shows no answer (too
+// long, or one that searches as one types) gets the start of the answer typed, and is read again. The
+// options of a list the browser draws itself (a native select) are the one thing read as text: no picture
+// ever shows that popup. The extension only ever receives a click, some typing and keys.
 //
 // Several dropdowns in one plan are set from the bottom of the screen up: a choice can add or
 // remove a message under its control, which moves everything below it but nothing above.
@@ -47,9 +42,9 @@ const (
 	askListOpen = "list_open"
 	// listOpenMatch is how sure the decision model must be that a list is open.
 	listOpenMatch = 0.5
-	// askListedOption is its question about a list whose options the page reports as text.
+	// askListedOption is its question about a native list, whose options the browser reports as text.
 	askListedOption = "listed_option"
-	// listedOptionPrefix starts the criteria keys of that question.
+	// listedOptionPrefix starts the criteria keys of the questions about options.
 	listedOptionPrefix = "option_"
 	// maxListedOptionChars bounds one option's text in that question and in a note to the model.
 	maxListedOptionChars = 120
@@ -221,52 +216,6 @@ func (a *Agent) dispatch(s *session, prefix []Action) []Action {
 	return batch
 }
 
-// optionCriteria are the answers the decision model may give about an open list in a picture.
-func optionCriteria() map[string]string {
-	criteria := map[string]string{optionNone: "no option of the open list answers it, or the first option of the list is not visible"}
-	for i := 1; i <= maxOptionPosition; i++ {
-		criteria[strconv.Itoa(i)] = "option number " + strconv.Itoa(i) + " of the open list, counting from its first option"
-	}
-	return criteria
-}
-
-// pickOption asks the decision model whether a dropdown list is open and, if it is, which of its
-// options answers the choose action: the position counted from the list's first option, and whether
-// the model was sure enough.
-func (a *Agent) pickOption(ctx context.Context, s *session, obs Observation, answer string) (position int, listOpen bool, check verdict, err error) {
-	return a.pickOptionFrom(ctx, s, obs.Screenshot, answer)
-}
-
-// pickOptionFrom is pickOption on a screenshot: the probe of a dropdown is a photo taken while the batch
-// was still being carried out, not the look that followed it.
-func (a *Agent) pickOptionFrom(ctx context.Context, s *session, screenshot, answer string) (position int, listOpen bool, check verdict, err error) {
-	questions := map[string]decide.Question{
-		askListOpen: decide.YesNo("Is a dropdown list of choices open on this page right now: a list of options shown below or above a control, so that one can be picked?"),
-		askOption: {
-			Type: decide.TypeChoice,
-			Instructions: "A dropdown list of choices is open on this page. Someone wants to choose the option that answers: " + strconv.Quote(answer) + ". " +
-				"Counting from the first option of the list, which option is it? " +
-				"Choose the option whose meaning matches: for a yes or no answer, the option that says yes or no, even when it goes on to explain. " +
-				"If the list is scrolled so that its first option is not visible, answer none.",
-			Criteria: optionCriteria(),
-		},
-	}
-	response, err := a.newScreen(s.key).Decide(ctx, decide.Request{State: checkState(screenshot), Questions: questions})
-	check = verdict{response: response, prompt: "which option of the open list answers " + strconv.Quote(answer)}
-	if err != nil {
-		return 0, false, check, err
-	}
-	if open, ok := response.Answers[askListOpen]; ok && open.Noul != nil {
-		listOpen = *open.Noul >= listOpenMatch
-	}
-	found := response.Answers[askOption]
-	position, convErr := strconv.Atoi(found.Choice)
-	if convErr != nil || position < 1 || position > maxOptionPosition || found.Probabilities[found.Choice] < a.cfg.OptionMatch {
-		return 0, listOpen, check, nil
-	}
-	return position, true, check, nil
-}
-
 // optionKeys goes to the first option of an open list (Home, as in any list box: the highlighted
 // option follows the mouse pointer, so it is not necessarily the first), moves down to the one at
 // position and picks it.
@@ -297,27 +246,6 @@ func optionKeys(position int) string {
 	return strings.Join(append(keys, "Enter"), " ")
 }
 
-// listRead is what one look at an open dropdown decided: the option's position (0 for none), whether a
-// list is open, and the decision call made for it (none when the page's own words answered).
-type listRead struct {
-	position int
-	listOpen bool
-	check    verdict
-	asked    bool
-	err      error
-}
-
-// readList reads the dropdown that is open at a look: from the options the page names when it names
-// them (no picture), else from the picture.
-func (a *Agent) readList(ctx context.Context, s *session, obs Observation, open *openList) listRead {
-	if list := obs.List; list != nil && len(list.Options) == 0 {
-		// The page says a list is open with nothing in it yet: a box that searches as one types.
-		return listRead{listOpen: true}
-	}
-	position, listOpen, check, err := a.pickOption(ctx, s, obs, open.choose.Text)
-	return listRead{position: position, listOpen: listOpen, check: check, asked: true, err: err}
-}
-
 // continueScript carries on a run that has a dropdown open: it looks at the list, picks, and
 // opens the next dropdown. It reports false when the model must look instead (the list did not
 // answer, or something failed), and the rest of the run is dropped.
@@ -339,31 +267,34 @@ func (a *Agent) continueScript(ctx context.Context, s *session, obs Observation,
 	if options := nativeList(obs.Focus); options != nil {
 		return a.chooseNative(ctx, s, obs, entry, results, sig, options)
 	}
-	if list := obs.List; list != nil && len(list.Options) > 0 {
-		return a.chooseListed(ctx, s, obs, entry, results, sig, list.Options)
-	}
-	read := a.readList(ctx, s, obs, open)
-	var calls []modelCall
-	if read.asked {
-		s.usage.Checks++
-		s.usage.CheckCost += read.check.response.Usage.Cost
-		s.usage.Cost += read.check.response.Usage.Cost
-		calls = []modelCall{read.check.call(read.err)}
-	}
+	read, check, readErr := a.readListPicture(ctx, s, obs.Screenshot, open.choose.Text, chooseLabel(open.choose, nil), obs.List, obs.Viewport.ScrollY, open.typed == 0)
+	s.usage.Checks++
+	s.usage.CheckCost += check.response.Usage.Cost
+	s.usage.Cost += check.response.Usage.Cost
+	calls := []modelCall{check.call(readErr)}
 	entry.Usage = s.usage
-	if read.err != nil {
-		slog.Warn(runName(s.id)+": could not tell which option of the open list to pick.", plainlog.ErrorKey, read.err)
+	if readErr != nil {
+		slog.Warn(runName(s.id)+": could not tell which option of the open list to pick.", plainlog.ErrorKey, readErr)
 	}
 	s.carried = withoutChoose(results)
 	s.stale, s.lastSig = 0, sig
 
 	var step Step
 	switch {
+	case readErr == nil && read.shows && open.typed == 0:
+		// The box shows the answer already: close what the click opened and go on to the next dropdown.
+		sc.open = nil
+		escape := Action{ID: sc.nextID(s.seq), Kind: KindKey, Keys: "Escape"}
+		step = Step{Status: StatusWorking, Message: s.message, Actions: a.dispatch(s, []Action{escape}), Number: s.step, Usage: s.usage}
 	case read.position > 0:
-		pick := optionPick(sc.nextID(s.seq), obs.List, read.position, obs.Viewport.ScrollY, obs.Viewport)
+		var list *OpenList
+		if read.numbered {
+			list = obs.List
+		}
+		pick := optionPick(sc.nextID(s.seq), list, read.position, obs.Viewport.ScrollY, obs.Viewport)
 		sc.open = nil
 		step = Step{Status: StatusWorking, Message: s.message, Actions: a.dispatch(s, []Action{pick}), Number: s.step, Usage: s.usage}
-	case read.err != nil || open.cleared:
+	case readErr != nil || open.cleared:
 		// Nothing answers even in the whole list (or the checker failed): the model looks, with the list open.
 		return a.giveUp(s, obs, entry, open, nil, calls)
 	case open.typed > 0 && !open.waited:
@@ -381,50 +312,20 @@ func (a *Agent) continueScript(ctx context.Context, s *session, obs Observation,
 		}
 		clear := Action{ID: sc.nextID(s.seq), Kind: KindKey, Keys: strings.Join(backspaces, " ")}
 		step = Step{Status: StatusWorking, Message: s.message, Actions: []Action{clear}, Number: s.step, Usage: s.usage}
-	case !read.listOpen && open.nudges < len(nudgeOffsets):
+	case !read.open && open.nudges < len(nudgeOffsets):
 		// The click opened nothing, so typing would go nowhere: click again, a little lower or higher.
 		click := a.nudgedClick(s, sc.nextID(s.seq), open.choose, nudgeOffsets[open.nudges], obs.Viewport)
 		open.nudges++
 		step = Step{Status: StatusWorking, Message: s.message, Actions: []Action{click}, Number: s.step, Usage: s.usage}
-	case !read.listOpen:
+	case !read.open:
 		return a.giveUp(s, obs, entry, open, nil, calls)
 	default:
-		// The list is open and shows nothing the page names or a picture can count: narrow it by typing
-		// the answer, so that few options are left to choose among, and look again.
+		// The list is open and shows no answer in its picture: narrow it by typing the answer, so that few
+		// options are left to choose among, and look again.
 		open.typed = len([]rune(open.choose.Text))
 		typed := Action{ID: sc.nextID(s.seq), Kind: KindType, Text: open.choose.Text}
 		step = Step{Status: StatusWorking, Message: s.message, Actions: []Action{typed}, Number: s.step, Usage: s.usage}
 	}
-	entry.Status, entry.Message, entry.Actions = step.Status, step.Message, step.Actions
-	a.record(s, entry, obs.Screenshot, calls)
-	return step, true
-}
-
-// chooseListed picks, in a list whose options the page names, the one that answers the choose action,
-// by its place among them (Home, ArrowDown, Enter). When none answers the model looks, told the options.
-func (a *Agent) chooseListed(ctx context.Context, s *session, obs Observation, entry stepTrace, results []ActionResult, sig []uint8, options []string) (Step, bool) {
-	sc := s.script
-	open := sc.open
-	index, check, asked, err := a.decideListed(ctx, s, open.choose.Text, options, chooseLabel(open.choose, obs.Focus))
-	var calls []modelCall
-	if asked {
-		s.usage.Checks++
-		s.usage.CheckCost += check.response.Usage.Cost
-		s.usage.Cost += check.response.Usage.Cost
-		calls = []modelCall{check.call(err)}
-	}
-	entry.Usage = s.usage
-	s.carried = withoutChoose(results)
-	s.stale, s.lastSig = 0, sig
-	if err != nil {
-		slog.Warn(runName(s.id)+": could not tell which of the listed options to pick.", plainlog.ErrorKey, err)
-	}
-	if index < 0 {
-		return a.giveUp(s, obs, entry, open, options, calls)
-	}
-	pick := optionPick(sc.nextID(s.seq), obs.List, index+1, obs.Viewport.ScrollY, obs.Viewport)
-	sc.open = nil
-	step := Step{Status: StatusWorking, Message: s.message, Actions: a.dispatch(s, []Action{pick}), Number: s.step, Usage: s.usage}
 	entry.Status, entry.Message, entry.Actions = step.Status, step.Message, step.Actions
 	a.record(s, entry, obs.Screenshot, calls)
 	return step, true
@@ -446,19 +347,9 @@ func (a *Agent) giveUp(s *session, obs Observation, entry stepTrace, open *openL
 	return Step{}, false
 }
 
-// unsureNote tells the model which dropdown found no sure option among the options the page named, and
-// what they are, so it chooses among them in one answer: a choose whose text is the option's own words
-// is picked with no further question.
-// openListNote tells the model that a list of choices is open on the screen it is looking at, and that
-// the pick is a click on an option before anything else. A recorded run typed a city into a box, saw its
-// list open on the next look, went on to the next field, and the page cleared the box: a value in such a
-// box counts only once an option is clicked, and any click or key elsewhere closes the list first.
-func openListNote(options []string) string {
-	return fmt.Sprintf("A list of choices is open on this screen, under the box last typed into. Its options are: %s. "+
-		"Pick now, by clicking the option on the screenshot that answers, before any other action: a click or a key anywhere else closes the list "+
-		"and the page drops what was typed. Do not type into the box again.", listedLine(options))
-}
-
+// unsureNote tells the model which dropdown found no sure option, so it chooses on its next look; for a
+// native list, whose popup no picture shows, it is told the options, and a choose whose text is the option's
+// own words is picked with no further question.
 func unsureNote(choose Action, options []string) string {
 	where := fmt.Sprintf("at %.0f,%.0f", *choose.X, *choose.Y)
 	if choose.Zone > 0 {
@@ -469,7 +360,7 @@ func unsureNote(choose Action, options []string) string {
 		name = fmt.Sprintf(" %q", label)
 	}
 	if len(options) == 0 {
-		return fmt.Sprintf("You asked Acorn to choose %q in the dropdown%s %s, but its list showed no option for those words, so it was left unset. Look at it on the survey and plan a choose on it again, with the answer as the list might word it (the list may use other words than the applicant's); for a list that searches as one types, click it, type a few characters, and click the option you see on your next look.", choose.Text, name, where)
+		return fmt.Sprintf("You asked Acorn to choose %q in the dropdown%s %s, but its list showed no option for those words, so it was left unset. Look at it on the survey and plan a choose on it again, with the answer as the list might word it (the list may use other words than the applicant's); if its list is open on the screenshot, click the option that answers.", choose.Text, name, where)
 	}
 	return fmt.Sprintf("You asked Acorn to choose %q in the dropdown%s %s, but none of its options was a sure match, so it was left unset. Its options are: %s. Choose again from them: plan a choose on the same box whose \"text\" is the option's own words, or leave it when none fits.", choose.Text, name, where, listedLine(options))
 }

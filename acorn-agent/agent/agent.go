@@ -66,8 +66,8 @@ type Config struct {
 	// OptionMatch is how sure the checker must be of which option of an open dropdown answers a
 	// choose action (a probability) for the agent to pick it.
 	OptionMatch float64
-	// OptionAccept is how sure the checker must be of an option when the list's options are read as
-	// text (the page names them) and no other option has more than half its weight: a best option that
+	// OptionAccept is how sure the checker must be of an option when no other option has more than half
+	// its weight (the options numbered on a picture, or a native list's as text): a best option that
 	// is not so bad is taken, as a person would take it, rather than typing or asking the model.
 	OptionAccept float64
 	LoadWait     time.Duration
@@ -81,7 +81,7 @@ type Config struct {
 	// StopPasses is how many times a run's stop for the applicant is sent back, to finish
 	// everything that does not need them first (stopgate.go); 0 accepts every stop at once.
 	StopPasses int
-	// PersonField is how sure the decision model must be that a required field the page reports empty
+	// PersonField is how sure the decision model must be that a field the model read as empty
 	// is one only the applicant can fill (a probability) for a stop to stand with it empty; a field it is
 	// less sure of is the run's to fill, and the stop is sent back naming it (stopgate.go).
 	PersonField float64
@@ -417,7 +417,7 @@ func (a *Agent) step(ctx context.Context, id string, obs Observation) (Step, err
 	// runs of one plan.
 	results := withoutChoose(append(append([]ActionResult(nil), s.carried...), obs.Results...))
 	s.noteCommitResults(obs.Results)
-	s.noteRefusedSend(obs)
+	a.noteRefusedSend(ctx, s, obs)
 	s.notes = append(s.notes, unreachedNotes(obs.Results, s.byID, s.marks, obs)...)
 	a.learnJD(ctx, s, obs)
 	if s.pendingUpload != nil {
@@ -478,9 +478,6 @@ func (a *Agent) step(ctx context.Context, id string, obs Observation) (Step, err
 	s.script = nil
 	number := s.step + 1
 	notes := append(append([]string(nil), obs.Notes...), s.notes...)
-	if obs.List != nil && len(obs.List.Options) > 0 {
-		notes = append(notes, openListNote(obs.List.Options))
-	}
 	if line := s.cover.line(obs.Viewport); line != "" {
 		notes = append(notes, line)
 	}
@@ -491,6 +488,9 @@ func (a *Agent) step(ctx context.Context, id string, obs Observation) (Step, err
 	if len(screens) > 0 {
 		notes = append(notes, surveyNote(obs))
 		if note := s.settledNote(); note != "" {
+			notes = append(notes, note)
+		}
+		if note := s.fieldsNote(obs); note != "" {
 			notes = append(notes, note)
 		}
 		images = badgedImages(obs)
@@ -556,12 +556,6 @@ func (a *Agent) step(ctx context.Context, id string, obs Observation) (Step, err
 		planned = s.aimAndLog(planned, obs)
 		s.anchors = buildAnchors(planned, obs)
 		s.marks = bindMarks(planned, obs)
-		var misaimed int
-		planned, misaimed = s.withoutMisaimedCommits(planned)
-		if misaimed > 0 {
-			lost += misaimed
-			dropped = append(dropped, fmt.Sprintf("%s that sends the page or goes on was on a field, not a button, and was not made", plainlog.Count(misaimed, "click")))
-		}
 	} else {
 		for i := range planned {
 			planned[i].Zone = 0
@@ -611,7 +605,7 @@ func (a *Agent) step(ctx context.Context, id string, obs Observation) (Step, err
 	s.setFence(planned, obs)
 	// What this plan fills in, by zone, for the reviews of its zones.
 	s.planGen++
-	s.expect = expectationsOf(planned)
+	s.expect, s.expectURL = expectationsOf(planned), withoutFragment(obs.URL)
 	status := answer.Status
 	// "Done" is the page's confirmation, not the model's word: a done the screen does not show is sent back.
 	if note, held := a.holdDone(ctx, s, obs, &answer); held {
