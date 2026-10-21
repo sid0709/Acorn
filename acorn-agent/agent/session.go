@@ -155,14 +155,12 @@ type session struct {
 	fieldHold fieldHold
 	// listHold counts the sends held on this page for fields the to-do list has empty (sendgate.go).
 	listHold listHold
-	// retry holds the fields whose fill did not verify since the model last looked, and retried the fields
-	// already brought to the middle of the window once on their page (focus.go); planScrollY is where the
-	// page was scrolled when the plan being carried out was made.
 	// alreadyApplied is that the done check read the page as saying the application was sent before.
 	alreadyApplied bool
-	retry          []focusTarget
-	retried        map[string]bool
-	planScrollY    float64
+	// retry holds the fields whose fill did not verify since the model last looked (focus.go); planScrollY
+	// is where the page was scrolled when the plan being carried out was made.
+	retry       []focusTarget
+	planScrollY float64
 	// sendRefused is set when the screen showed the page refused the click that sent it: the next plan's
 	// send is held for one look (stopgate.go).
 	sendRefused bool

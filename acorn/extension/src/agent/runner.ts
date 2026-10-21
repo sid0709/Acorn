@@ -346,6 +346,11 @@ function prefetchUploads(actions: AgentAction[], resume: ExecutorContext["resume
 }
 
 /** A run surveys when it was set to, or the server says it does (fast fill, which the server may turn on for all runs). */
+/** Where the fields still to fill lie, for the survey a step asks for to show each whole; none without one. */
+function surveyFocusOf(step: AgentStep): number[] {
+  return step.survey ? (step.surveyFocus ?? []) : [];
+}
+
 function followServerSurvey(surveyOn: boolean, started: AgentStarted): boolean {
   return surveyOn || started.survey === true;
 }
@@ -662,7 +667,7 @@ export async function runAgent(args: AgentRunArgs): Promise<RunReport> {
     guard: clickGuard,
     afterClick: () => frames.sweep(),
     scroll: scrolls,
-    marks: placeMarksFor({ tab: () => must(current), watch: marks, log }),
+    marks: placeMarksFor({ tab: () => must(current), watch: marks, log, sleep }),
     // A fast-fill run waits for the page to go quiet after an action, not the fixed time a slow page needs.
     settle: quietSettle(() => must(current), sleep, fastFill),
     progress: mapProgress(
@@ -962,6 +967,8 @@ export async function runAgent(args: AgentRunArgs): Promise<RunReport> {
     // With surveys on (AGENT_SURVEY), the first look of a page is a survey of the whole of it, so
     // the model can plan the form at once; so is the look after the model asks for one.
     let surveyNext = surveyOn;
+    // Where the fields still to fill lie (the agent's `surveyFocus`): the next survey shows each whole.
+    let surveyFocus: number[] = [];
     // What the last survey saw, so the next one takes again only what changed; and whether the batch
     // just carried out leaves it good for the parts the batch did not touch (survey.ts).
     let lastLook = "";
@@ -1019,6 +1026,7 @@ export async function runAgent(args: AgentRunArgs): Promise<RunReport> {
                 },
                 first,
                 zoneShots,
+                surveyFocus,
               ),
             )
             .catch((err: unknown) => {
@@ -1099,6 +1107,7 @@ export async function runAgent(args: AgentRunArgs): Promise<RunReport> {
       pageMap.plan(actions, shot);
       pageMap.phase(phaseAfter(step));
       if (step.survey) surveyNext = true;
+      surveyFocus = surveyFocusOf(step);
       log.step = step.number;
       // The zone photos go to the log with this look's pictures, when pictures are kept; either way the
       // next look starts without them.

@@ -390,6 +390,10 @@ type Step struct {
 	// AlreadyApplied is set on a done step whose page says the employer already had the applicant's
 	// application (one sent before), rather than confirming one just sent (donegate.go).
 	AlreadyApplied bool `json:"alreadyApplied,omitempty"`
+	// SurveyFocus, with Survey, is where the fields still to fill lie on the page (screenshot pixels from its
+	// top): the survey adds a screen centred on one that none of its screens shows clear of the window's
+	// edges (focus.go).
+	SurveyFocus []float64 `json:"surveyFocus,omitempty"`
 	// Ask is the question the run waits on, when Status is StatusAsk.
 	Ask *Ask `json:"ask,omitempty"`
 	// Survey asks the extension to make its next look a survey of the whole page.

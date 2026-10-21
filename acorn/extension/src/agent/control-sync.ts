@@ -99,13 +99,28 @@ export async function syncControlLayout(
   surveys.noteLayout(watch.moves());
 }
 
+/** How long the form's controls must stay where they are, after a résumé is attached, before the next click. */
+export const FORM_QUIET_MS = 500;
+/** The longest that wait lasts: a page that keeps moving is acted on anyway. */
+export const FORM_SETTLE_MAX_MS = 4000;
+
 /** What the executor asks of the control a point was bound to: the page answers, and what is not ordinary is logged. */
 export function placeMarksFor(args: {
   tab: () => { cdp: Cdp };
   watch: ControlWatch;
   log: RunLog;
+  sleep: (ms: number) => Promise<void>;
 }): PlaceMarks {
   return {
+    settle: async () => {
+      const ms = await args.watch.settle(
+        args.tab().cdp,
+        args.sleep,
+        FORM_QUIET_MS,
+        FORM_SETTLE_MAX_MS,
+      );
+      args.log.event("agent-form-settle", { ms });
+    },
     move: async (action, scale) => {
       if (!action.mark) return null;
       const move = await args.watch.move(args.tab().cdp, action.mark, scale);

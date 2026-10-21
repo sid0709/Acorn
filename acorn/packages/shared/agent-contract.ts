@@ -467,6 +467,11 @@ export interface AgentStep {
    * before), rather than confirming one just sent.
    */
   alreadyApplied?: boolean;
+  /**
+   * With `survey`: where the fields still to fill lie on the page (screenshot pixels from its top). The
+   * survey adds a screen centred on one that none of its screens shows clear of the window's edges.
+   */
+  surveyFocus?: number[];
   /** Set when the status is "ask": the question to put to the person. */
   ask?: AgentAsk;
   /** Make the next look a survey of the whole page. */

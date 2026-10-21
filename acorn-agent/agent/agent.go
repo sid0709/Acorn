@@ -364,6 +364,9 @@ func (a *Agent) Step(ctx context.Context, id string, obs Observation) (Step, err
 			step.Settled = s.takeSettledMap()
 		}
 		step.Fields = s.takeFields()
+		if step.Survey {
+			step.SurveyFocus = s.surveyFocus(obs)
+		}
 		if step.Trace = s.takeTrace(); step.Trace != nil {
 			step.Trace.Seq = s.seq
 		}
@@ -471,10 +474,6 @@ func (a *Agent) step(ctx context.Context, id string, obs Observation) (Step, err
 		return step, nil
 	}
 	if step, ok := a.tryNavigate(ctx, s, obs, len(screens), results, sig, stale); ok {
-		return step, nil
-	}
-
-	if step, ok := a.focusStep(s, obs, results, sig); ok {
 		return step, nil
 	}
 
