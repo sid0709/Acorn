@@ -351,7 +351,7 @@ func TestNoSurveyIsAskedForWhileARunOfDropdownsIsHalfDone(t *testing.T) {
 	}
 }
 
-func TestARefusedPointStillGetsItsSurveyAfterTheDropdownsAreSet(t *testing.T) {
+func TestADoubtedPointStillGetsItsSurveyAfterTheDropdownsAreSet(t *testing.T) {
 	reply := plan("filling", nil,
 		labelled(1, 100, 100, "First Name"),
 		chooseWithLabel(1, 500, 300, "Sponsorship", "No"),
@@ -367,7 +367,7 @@ func TestARefusedPointStillGetsItsSurveyAfterTheDropdownsAreSet(t *testing.T) {
 	obs.Results = carriedOut(first.Actions)
 	second := stepOK(t, a, id, obs)
 	if !second.Survey {
-		t.Fatal("the survey the refused point asked for was lost")
+		t.Fatal("the survey the doubted point asked for was lost")
 	}
 	s, _ := a.sessions.get(id)
 	if s.surveyAgain {

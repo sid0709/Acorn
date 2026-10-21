@@ -84,7 +84,7 @@ let points: Points | null = null;
 let script: Script = () => answer({ status: "stuck", message: "no script" });
 const model = startFakeModel(
   () => points as Points,
-  (step, at, survey) => script(step, at, survey),
+  (step, at, survey, look) => script(step, at, survey, look),
 );
 
 let verdict = { matches: 0.98, blocked: 0.01, loading: 0.01 };
@@ -654,7 +654,8 @@ try {
     );
   }
 
-  // 1i. A control that brings a file from an online service is never clicked.
+  // 1i. A control that brings a file from an online service is clicked as the model planned (the model
+  // sees the screen; a description never overrides it), and the model is told the checker's doubt.
   script = (step, at) =>
     step === 1
       ? answer({
@@ -667,10 +668,13 @@ try {
   const cloud = await newForm("?cloud=dropbox");
   await run(cloud.tabId);
   check(
-    !(await cloud.page.evaluate(
+    (await cloud.page.evaluate(
       () => (window as unknown as { __dropboxClicked?: boolean }).__dropboxClicked,
-    )) && lookText(beforeCloud + 1).includes("blocked: that control uses an online file source"),
-    "a click on an online file source is refused before it happens, and the model is told why",
+    )) === true &&
+      lookText(beforeCloud + 1).includes(
+        "a checker read this control's description as an online file source",
+      ),
+    "a click on what looks like an online file source goes ahead, and the model is told the doubt",
     lookText(beforeCloud + 1).slice(0, 500),
   );
 
@@ -794,18 +798,19 @@ try {
     requests.length - beforeTall,
   );
 
-  // 1o. The page grows after the first answer: the points below it no longer mean what the survey
-  // saw, so the next action is refused, and the model is told and looks again.
+  // 1o. The page grows after the first answer: with the page's controls reported, the points below the
+  // growth follow their controls (19.4m), so the email is still typed into the email field and the model
+  // is not told of a changed shape.
   script = (step, at, survey) =>
     step === 1 ? wholeForm(at, survey as Survey, 4) : answer({ status: "done", message: "ok" });
   const beforeGrow = requests.length;
   const growing = await newForm("?jd=1&tall=1&grow=1");
   await run(growing.tabId);
   check(
-    lookText(beforeGrow + 1).includes("changed shape since the survey") &&
-      (await pageState(growing.page)).email === "",
-    "a page that changed shape since the survey is not acted on, and the model is told",
-    lookText(beforeGrow + 1).slice(0, 500),
+    !lookText(beforeGrow + 1).includes("changed shape since the survey") &&
+      (await pageState(growing.page)).email === "ada@example.com",
+    "a page that grew after the first answer still gets its points, which follow their controls",
+    { look: lookText(beforeGrow + 1).slice(0, 300), state: await pageState(growing.page) },
   );
 
   // 1p. A run that ends for the person first scrolls what they must act on into view.
@@ -855,7 +860,7 @@ try {
   );
 
   // 4. Stop before Submit, from the server's own switch: the agent is restarted with
-  // ACORN_AGENT_STOP_BEFORE_SUBMIT=true, as the live runner starts it. The form's button goes on to a
+  // ACORN_AGENT_STOP_BEFORE_SUBMIT=false, as the live runner starts it. The form's button goes on to a
   // review page (a "next" click, made as usual); the review page's Submit is the "send", which is never
   // clicked though the model plans it, and the run ends ready to submit with nothing sent.
   agent.kill();
@@ -863,7 +868,7 @@ try {
   agent = await startAgent(
     binary,
     AGENT_URL,
-    { ...agentEnv, ACORN_AGENT_STOP_BEFORE_SUBMIT: "true" },
+    { ...agentEnv, ACORN_AGENT_STOP_BEFORE_SUBMIT: "false" },
     dataDir,
   );
   check(

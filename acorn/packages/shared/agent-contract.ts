@@ -185,10 +185,13 @@ export const VET_CAUSE = {
 export type VetCause = (typeof VET_CAUSE)[keyof typeof VET_CAUSE];
 
 export interface AgentVetVerdict {
+  /** Only a window or frame a click opened is ever blocked (closed); a control goes ahead. */
   blocked: boolean;
   probability: number;
   cause?: VetCause;
   reason?: string;
+  /** For a control that looks like something not allowed: the doubt, told to the model with the click's result. */
+  hint?: string;
 }
 
 /** What an action set off beyond itself, that a screenshot cannot show. */

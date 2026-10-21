@@ -86,7 +86,7 @@ func expectKey(n int) string { return fmt.Sprintf("%s%d", askExpectPrefix, n) }
 
 // reviewsOn is whether the zones of this run are reviewed.
 func (a *Agent) reviewsOn(s *session) bool {
-	return s.start.FastFill && a.checksOn(s) && a.cfg.ReviewMatch > 0
+	return s.start.FastFill && a.checksOn(s)
 }
 
 // startReview starts the review of a zone's photo on the side, unless it has one. The session is locked.
@@ -130,7 +130,8 @@ func (a *Agent) reviewZone(s *session, shot ZoneShot, exps []expectation) {
 	if err == nil {
 		for i, exp := range exps {
 			answer, ok := response.Answers[expectKey(i+1)]
-			if ok && answer.Noul != nil && *answer.Noul < a.cfg.ReviewMatch {
+			// A field more likely wrong than right is told to the model; there is no tunable cutoff.
+			if ok && answer.Noul != nil && *answer.Noul < likely {
 				result.Failed = append(result.Failed, exp)
 			}
 		}

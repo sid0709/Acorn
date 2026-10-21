@@ -172,12 +172,12 @@ export function renderReport(results: Results, baseline?: Results): string {
     );
   }
   const sent = results.attempts.filter((a) => a.outcome === OUTCOME.sent);
-  if (sent.length) {
+  if (sent.length && results.agent.stopBeforeSubmit) {
     lines.push("");
     lines.push(`## ⚠️ ${sent.length} application${sent.length === 1 ? " was" : "s were"} SENT`);
     lines.push("");
     lines.push(
-      "The runner holds every run before Submit; a sent application means the guard was passed. Rows:",
+      "The agent was set to hold every run before Submit; a sent application means the guard was passed. Rows:",
     );
     for (const a of sent) lines.push(`- line ${a.line}, attempt ${a.attempt}: ${a.url}`);
   }
@@ -211,7 +211,7 @@ export function renderReport(results: Results, baseline?: Results): string {
         linkLabel(a.url),
         a.system,
         String(a.attempt),
-        a.outcome === OUTCOME.sent ? "**SENT**" : a.outcome,
+        a.outcome === OUTCOME.sent && results.agent.stopBeforeSubmit ? "**SENT**" : a.outcome,
         [a.kind, a.stopReason].filter(Boolean).join(" / ") || "–",
         a.expect ?? "–",
         a.matched === undefined ? "–" : a.matched ? "yes" : "**no**",

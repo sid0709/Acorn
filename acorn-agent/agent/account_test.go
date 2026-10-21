@@ -8,15 +8,15 @@ import (
 	"github.com/sid0709/acorn/acorn-agent/applicant"
 )
 
-func TestAControlThatSignsInThroughAnotherServiceIsBlocked(t *testing.T) {
+func TestAControlThatSignsInThroughAnotherServiceIsHintedNotBlocked(t *testing.T) {
 	for p, want := range map[float64]bool{0.05: false, 0.49: false, 0.5: true, 0.95: true} {
 		a, id := vetAgent(t, &fixedDecider{signOn: p})
 		verdict, err := a.Vet(context.Background(), id, VetTarget{Kind: VetControl, Tag: "button", Text: "Continue with an account"})
-		if err != nil || verdict.Blocked != want {
-			t.Fatalf("p=%.2f: %+v err=%v, want blocked=%v", p, verdict, err, want)
+		if err != nil || verdict.Blocked || (verdict.Hint != "") != want {
+			t.Fatalf("p=%.2f: %+v err=%v, want hint=%v and never blocked", p, verdict, err, want)
 		}
-		if want && (verdict.Cause != CauseSingleSignOn || !strings.Contains(verdict.Reason, "another service")) {
-			t.Fatalf("p=%.2f: the refusal does not say why: %+v", p, verdict)
+		if want && (verdict.Cause != CauseSingleSignOn || !strings.Contains(verdict.Hint, "another service")) {
+			t.Fatalf("p=%.2f: the hint does not say why: %+v", p, verdict)
 		}
 	}
 }
@@ -32,7 +32,7 @@ func TestAWindowThatSignsInThroughAnotherServiceIsBlockedToo(t *testing.T) {
 func TestAnOnlineFileSourceKeepsItsOwnCauseWhenBothQuestionsSayYes(t *testing.T) {
 	a, id := vetAgent(t, &fixedDecider{online: 0.9, signOn: 0.9})
 	verdict, err := a.Vet(context.Background(), id, VetTarget{Kind: VetControl, Tag: "button", Text: "Pick from a drive"})
-	if err != nil || !verdict.Blocked || verdict.Cause != CauseOnlineSource {
+	if err != nil || verdict.Blocked || verdict.Cause != CauseOnlineSource || verdict.Hint == "" {
 		t.Fatalf("verdict = %+v err = %v", verdict, err)
 	}
 }

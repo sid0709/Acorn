@@ -91,16 +91,7 @@ func TestAZonePhotoThatComesTwiceIsReviewedOnce(t *testing.T) {
 	}
 }
 
-func TestReviewsAreOnlyForFastFillAndCanBeTurnedOff(t *testing.T) {
-	cfg := DefaultConfig()
-	cfg.ReviewMatch = 0
-	screen := &fakeScreen{}
-	a, _, id := runUntilReviewed(t, screen, cfg)
-	_ = a.ReceiveShot(context.Background(), id, ShotUpload{Kind: ShotZone, Zone: 1, Screenshot: shot(t, 70)})
-	stepOK(t, a, id, observation(shot(t, 140)))
-	if screen.reviewRequests != 0 {
-		t.Fatal("ReviewMatch 0 did not turn the review off")
-	}
+func TestReviewsAreOnlyForFastFill(t *testing.T) {
 	off := &fakeScreen{}
 	model := &scriptedModel{replies: []string{fastPlan(), plan("next", nil, click(5, 5, nil))}}
 	b := newAgentWithScreen(t, model, &fixedDecider{}, off, DefaultConfig())

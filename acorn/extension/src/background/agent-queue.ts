@@ -118,7 +118,9 @@ async function workOn(job: QueueItem): Promise<void> {
 
   if (tabId == null) {
     await patch(job.id, { status: QUEUE_ITEM.opening, note: undefined, tabId: undefined });
-    const tab = await chrome.tabs.create({ url: job.url, active: false }).catch(() => null);
+    // The tab is opened in front: a tab that is not shown may never paint, and a Run reads the page from
+    // screenshots, so its first look would hang on a blank frame.
+    const tab = await chrome.tabs.create({ url: job.url, active: true }).catch(() => null);
     if (tab?.id == null) return block(job.id, NOT_OPENED_NOTE, undefined);
     tabId = tab.id;
     await patch(job.id, { tabId });

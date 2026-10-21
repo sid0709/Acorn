@@ -120,10 +120,20 @@ async function glideTo(ctx: ExecutorContext, x: number, y: number): Promise<void
   await ctx.overlay.moveTo(x, y);
 }
 
-/** Throws, so the click never happens, when the guard says the control is an online file source. */
-async function refuseIfBlocked(verdict: Promise<GuardVerdict> | undefined): Promise<void> {
+/**
+ * What the guard has to say about the control before the click: a doubt to tell the model with the
+ * result (the click goes ahead), or, were a control ever blocked, the refusal.
+ */
+async function guardHint(verdict: Promise<GuardVerdict> | undefined): Promise<string | undefined> {
   const answer = await verdict;
   if (answer?.blocked) throw new Error(blockedMessage(answer.cause));
+  return answer?.hint;
+}
+
+/** A result with the guard's doubt added to what it says. */
+function withHint(done: Done, hint: string | undefined): Done {
+  if (!hint) return done;
+  return { ...done, detail: [done.detail, hint].filter(Boolean).join("; ") };
 }
 
 type Done = { detail?: string; opened?: ActionOpened };
@@ -167,18 +177,18 @@ async function perform(ctx: ExecutorContext, action: AgentAction, watch: Stopwat
       ctx.progress?.(action, ACTION_PROGRESS.aimed, { x, y });
       const verdict = ctx.guard?.(x, y);
       await watch.time("glide", () => glideTo(ctx, x, y));
-      await watch.time("guard", () => refuseIfBlocked(verdict));
+      const hint = await watch.time("guard", () => guardHint(verdict));
       void ctx.overlay.click();
       const count = action.kind === "double_click" ? 2 : action.kind === "triple_click" ? 3 : 1;
-      return clickWatchingForPicker(
-        ctx,
-        x,
-        y,
-        {
-          button: action.kind === "right_click" ? "right" : "left",
-          count,
-        },
-        watch,
+      return withHint(
+        await clickWatchingForPicker(
+          ctx,
+          x,
+          y,
+          { button: action.kind === "right_click" ? "right" : "left", count },
+          watch,
+        ),
+        hint,
       );
     }
     case "hover": {
@@ -232,14 +242,17 @@ async function perform(ctx: ExecutorContext, action: AgentAction, watch: Stopwat
       ctx.progress?.(action, ACTION_PROGRESS.aimed, { x, y });
       const verdict = ctx.guard?.(x, y);
       await watch.time("glide", () => glideTo(ctx, x, y));
-      await watch.time("guard", () => refuseIfBlocked(verdict));
+      const hint = await watch.time("guard", () => guardHint(verdict));
       void ctx.overlay.click();
       const done = await watch.time("upload", () =>
         uploadAt(cdp, x, y, file, ctx.fileChooserWaitMs),
       );
       await watch.time("uploadProcessing", () => waitForUploadProcessing(cdp, ctx.sleep));
       await watch.time("settle", () => settle(ctx, SETTLE_MS));
-      return { detail: `${done.fileName}, ${done.bytes} bytes, through the ${done.via}` };
+      return withHint(
+        { detail: `${done.fileName}, ${done.bytes} bytes, through the ${done.via}` },
+        hint,
+      );
     }
     case "snap": {
       if (!ctx.snap) throw new Error("the extension cannot take a picture here");

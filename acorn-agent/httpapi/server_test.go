@@ -244,8 +244,8 @@ func TestVetAnswersForARunAndRefusesAnUnknownOne(t *testing.T) {
 		_ = json.Unmarshal(body, &verdict)
 		return response.StatusCode, verdict
 	}
-	// The stand-in decision model gives no answer, so only a control in a file component is refused.
-	if status, verdict := vet(started.SessionID, agent.VetTarget{Kind: agent.VetControl, Tag: "button", Text: "Attach", InFileComponent: true}); status != 200 || !verdict.Blocked {
+	// The stand-in decision model gives no answer: nothing is refused on a check that could not be made.
+	if status, verdict := vet(started.SessionID, agent.VetTarget{Kind: agent.VetControl, Tag: "button", Text: "Attach", InFileComponent: true}); status != 200 || verdict.Blocked {
 		t.Fatalf("file component = %d %+v", status, verdict)
 	}
 	if status, verdict := vet(started.SessionID, agent.VetTarget{Kind: agent.VetControl, Tag: "button", Text: "Next"}); status != 200 || verdict.Blocked {

@@ -1,15 +1,21 @@
 // Runs every link of a file through the real extension in a real Chrome with the real agent and the real
 // models, the way the Agent tab does: the links go into the Agent Mode queue and the queue works them one
-// at a time. The agent is started with ACORN_AGENT_STOP_BEFORE_SUBMIT=true and the runner refuses to go on
-// unless the health route says so, so no application is ever sent. It writes results.json and report.md
-// to compare one change of the agent against another.
+// at a time. Whether applications are sent follows the agent's own setting (ACORN_AGENT_STOP_BEFORE_SUBMIT
+// in acorn-agent/.env): with it on, every run stops at the control that sends and a "sent" outcome is a
+// passed guard, flagged loudly; with it off, the agent sends applications and "sent" is the result hoped
+// for. The health route says which, and the runner prints it before the first link. It writes results.json
+// and report.md to compare one change of the agent against another.
 //
-//   bun run e2e:live -- --links test-link.txt [--repeat 2] [--only workday] [--baseline logs/live/<earlier>/results.json] [--out logs/live/<name>]
+//   bun run e2e:live -- --links test-link.txt [--repeat 2] [--only workday] [--baseline logs/live/<earlier>/results.json] [--out logs/live/<name>] [--profile logs/live/chrome-profile]
 //
-// The link file: one URL per line, `#` starts a comment, and `expect=<outcome>` after a URL says how the run
-// there should end (ready, unavailable, need_person, stuck, step_limit, error). The agent reads its
-// settings and the OpenRouter key from acorn-agent/.env, which is never printed or written; the applicant
-// is the local profile.json and résumés (acorn-agent/data unless ACORN_AGENT_DATA_DIR says otherwise).
+// The link file is the Agent tab's own format: one URL per line, only the text before the first space is
+// the link, `#` starts a comment line, and `expect=<outcome>` after a URL says how the run there should end
+// (ready, unavailable, need_person, stuck, step_limit, error). The agent reads its settings and the
+// OpenRouter key from acorn-agent/.env, which is never printed or written. The applicant is whatever
+// that file names: the signed-in person's account when ACORN_AGENT_BACKEND_URL is set (then the extension
+// in the test Chrome must be signed in: the runner waits for you to do it, and `--profile <dir>` keeps the
+// Chrome profile so one sign-in lasts), else the local profile.json and résumés (acorn-agent/data unless
+// ACORN_AGENT_DATA_DIR says otherwise).
 import { mkdir, mkdtemp, readdir, readFile, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join, relative, resolve } from "node:path";
@@ -17,6 +23,8 @@ import { join, relative, resolve } from "node:path";
 import { QUEUE_ACTION } from "../../../acorn/extension/src/agent-queue/actions";
 import { QUEUE_ITEM, QUEUE_MODE } from "../../../acorn/extension/src/agent-queue/model";
 import { AGENT_QUEUE_STORAGE_KEY } from "../../../acorn/extension/src/agent-queue/store";
+import { STORAGE_KEYS } from "../../../acorn/extension/src/auth/storage-keys";
+import { TAB_PIPELINES_STORAGE_KEY } from "../../../acorn/extension/src/tab-pipeline-session";
 import { MSG } from "../../../acorn/extension/src/types";
 import { AGENT_STOP_REASON } from "../../../acorn/packages/shared/agent-contract";
 import { RUN_FAILURE_REASON, RUN_OUTCOME } from "../../../acorn/packages/shared/run-types";
@@ -59,6 +67,9 @@ const QUEUE_POLL_MS = 500;
 const TRACE_START_SLACK_MS = 5_000;
 /** The agent's trace folder, under --out. */
 const TRACES_DIR_NAME = "traces";
+/** How long the runner waits for you to sign the extension in, when the agent reads the applicant's account. */
+const SIGN_IN_TIMEOUT_MS = 10 * 60_000;
+const SIGN_IN_POLL_MS = 2_000;
 /** The queue statuses an attempt is over at. */
 const TERMINAL: ReadonlySet<string> = new Set([
   QUEUE_ITEM.done,
@@ -67,11 +78,19 @@ const TERMINAL: ReadonlySet<string> = new Set([
   QUEUE_ITEM.skipped,
 ]);
 
-type Args = { links: string; repeat: number; only?: string; baseline?: string; out?: string };
+type Args = {
+  links: string;
+  repeat: number;
+  only?: string;
+  baseline?: string;
+  out?: string;
+  /** A Chrome profile folder kept between runs, so a sign-in to Acorn lasts. */
+  profile?: string;
+};
 
 function usage(message: string): never {
   console.error(
-    `${message}\n\nusage: bun tests/e2e/live/run.ts --links <file> [--repeat <n>] [--only <host part>] [--baseline <results.json>] [--out <dir>]`,
+    `${message}\n\nusage: bun tests/e2e/live/run.ts --links <file> [--repeat <n>] [--only <host part>] [--baseline <results.json>] [--out <dir>] [--profile <chrome profile dir>]`,
   );
   process.exit(2);
 }
@@ -103,6 +122,9 @@ function parseArgs(argv: string[]): Args {
         break;
       case "--out":
         args.out = value;
+        break;
+      case "--profile":
+        args.profile = value;
         break;
       default:
         usage(`unknown option ${flag}`);
@@ -275,13 +297,15 @@ const outDir = resolve(args.out ?? join(DEFAULT_OUT_ROOT, stamp(startedAt)));
 const tracesDir = join(outDir, TRACES_DIR_NAME);
 await mkdir(tracesDir, { recursive: true });
 
-// The applicant is the local files: the test browser is not signed in to Acorn, so the agent cannot read
-// a person's account for it. The folder must hold a profile, or every run would fail the same way.
+// The applicant comes from where acorn-agent/.env says: the signed-in person's account (ACORN_AGENT_BACKEND_URL)
+// or the local files, which must then hold a profile, or every run would fail the same way.
+const backendUrl =
+  process.env.ACORN_AGENT_BACKEND_URL ?? (await envFileSetting("ACORN_AGENT_BACKEND_URL")) ?? "";
 const dataDir = resolve(
   AGENT_DIR,
   process.env.ACORN_AGENT_DATA_DIR ?? (await envFileSetting("ACORN_AGENT_DATA_DIR")) ?? "data",
 );
-if (!(await Bun.file(join(dataDir, "profile.json")).exists())) {
+if (!backendUrl && !(await Bun.file(join(dataDir, "profile.json")).exists())) {
   console.error(`no applicant: ${join(dataDir, "profile.json")} does not exist`);
   process.exit(2);
 }
@@ -292,26 +316,21 @@ console.log("Building the extension and the agent…");
 const extensionDir = await buildExtension(AGENT_URL);
 const binary = join(await mkdtemp(join(tmpdir(), "acorn-live-agent-")), "agent");
 buildAgent(binary);
-// The agent reads acorn-agent/.env from its working directory (the key, the models, the settings); what is
-// set here wins over the file. The backend is never used: the applicant is the local files.
+// The agent reads acorn-agent/.env from its working directory (the key, the models, the settings, where the
+// applicant comes from); what is set here wins over the file.
 const agent = await startAgent(
   binary,
   AGENT_URL,
   {
-    ACORN_AGENT_STOP_BEFORE_SUBMIT: "true",
     ACORN_AGENT_TRACE: "true",
     ACORN_AGENT_TRACE_DIR: tracesDir,
     ACORN_AGENT_DATA_DIR: dataDir,
-    ACORN_AGENT_BACKEND_URL: "",
   },
   AGENT_DIR,
 );
 const health = await agentHealth(AGENT_URL);
-if (health.stopBeforeSubmit !== true) {
-  agent.kill();
-  console.error("REFUSING TO RUN: the agent's health route does not report stop-before-submit on.");
-  process.exit(2);
-}
+/** Whether the agent holds every run before Submit (its own .env setting); a "sent" then means the guard was passed. */
+const holdsSubmit = health.stopBeforeSubmit === true;
 if (!health.hasKey) {
   agent.kill();
   console.error(
@@ -319,19 +338,23 @@ if (!health.hasKey) {
   );
   process.exit(2);
 }
-if (health.source !== "files") {
-  agent.kill();
-  console.error(
-    `REFUSING TO RUN: the agent reads the applicant from ${health.source}, not local files.`,
-  );
-  process.exit(2);
-}
-console.log(`Agent ready (model ${health.model}, stop before submit on). Opening Chrome…`);
+console.log(
+  `Agent ready (model ${health.model}, applicant from ${health.source}). ${
+    holdsSubmit
+      ? "Stop before submit is ON: no application will be sent."
+      : "Stop before submit is OFF (ACORN_AGENT_STOP_BEFORE_SUBMIT in acorn-agent/.env): APPLICATIONS WILL BE SENT."
+  } Opening Chrome…`,
+);
 
-const browser = await launchChrome(extensionDir, false);
+const profileDir = args.profile ? resolve(args.profile) : undefined;
+if (profileDir) await mkdir(profileDir, { recursive: true });
+const browser = await launchChrome(extensionDir, false, profileDir);
 const attempts: AttemptResult[] = [];
 let control: Page | null = null;
-try {
+
+/** The extension's own page, reopened when Chrome closed or navigated the one in use. */
+async function controlPage(): Promise<Page> {
+  if (control && !control.isClosed() && !control.mainFrame().detached) return control;
   control = (await openControlPage(browser)).control;
   // Every tab's progress, as the sidebar gets it, kept by tab so a job's last report can be read.
   await control.evaluate((type) => {
@@ -344,33 +367,93 @@ try {
       },
     );
   }, MSG.PIPELINE_PROGRESS);
-  const page = control;
+  return control;
+}
+
+/** Runs a read or a command on the control page, once more on a fresh page when the page went away. */
+async function onControl<T>(work: (page: Page) => Promise<T>): Promise<T> {
+  try {
+    return await work(await controlPage());
+  } catch (err) {
+    const text = err instanceof Error ? err.message : String(err);
+    if (!/detached|Target closed|Session closed|destroyed/i.test(text)) throw err;
+    control = null;
+    return work(await controlPage());
+  }
+}
+
+try {
+  await controlPage();
+  if (health.source === "backend") {
+    // The agent reads the signed-in person's profile: the extension in this Chrome must be signed in,
+    // and only the person types their password. The sign-in lasts across runs with --profile.
+    const signedIn = () =>
+      onControl((page) =>
+        page.evaluate(
+          async (key) =>
+            Boolean(
+              ((await chrome.storage.local.get(key))[key] as { accessToken?: string } | undefined)
+                ?.accessToken,
+            ),
+          STORAGE_KEYS.session,
+        ),
+      );
+    if (!(await signedIn())) {
+      console.log(
+        `The agent reads the applicant from Acorn (${health.source}): sign in to Acorn in the Chrome window that just opened (the Acorn Sidebar tab). Waiting up to ${SIGN_IN_TIMEOUT_MS / 60_000} minutes…`,
+      );
+      const waitedFrom = Date.now();
+      while (!(await signedIn())) {
+        if (Date.now() - waitedFrom > SIGN_IN_TIMEOUT_MS) {
+          throw new Error("not signed in to Acorn in time");
+        }
+        await pause(SIGN_IN_POLL_MS);
+      }
+      console.log("Signed in.");
+    }
+  }
+  // A job's last progress: what the control page heard for its tab, else what the extension keeps for it.
   const lastProgress = (tabId: number | undefined): Promise<PipelineProgress | undefined> =>
     tabId == null
       ? Promise.resolve(undefined)
-      : page.evaluate(
-          (id) =>
-            (
-              window as unknown as { __liveProgress: Record<string, PipelineProgress[]> }
-            ).__liveProgress[String(id)]?.at(-1),
-          tabId,
+      : onControl((page) =>
+          page.evaluate(
+            async (id, key) => {
+              const heard = (
+                window as unknown as { __liveProgress?: Record<string, PipelineProgress[]> }
+              ).__liveProgress?.[String(id)]?.at(-1);
+              if (heard) return heard;
+              const stored = (await chrome.storage.session.get(key))[key] as
+                { pipelines?: Record<string, PipelineProgress> } | undefined;
+              return stored?.pipelines?.[String(id)];
+            },
+            tabId,
+            TAB_PIPELINES_STORAGE_KEY,
+          ),
         );
   const queueCommand = (action: string, rest: Record<string, unknown> = {}) =>
-    page.evaluate(
-      (type, command) => chrome.runtime.sendMessage({ type, ...command }),
-      MSG.AGENT_QUEUE,
-      { action, ...rest },
-    ) as Promise<{ ok?: boolean; error?: string; added?: number }>;
+    onControl(
+      (page) =>
+        page.evaluate(
+          (type, command) => chrome.runtime.sendMessage({ type, ...command }),
+          MSG.AGENT_QUEUE,
+          { action, ...rest },
+        ) as Promise<{ ok?: boolean; error?: string; added?: number }>,
+    );
   const readQueue = () =>
-    page.evaluate(
-      async (key) => ((await chrome.storage.local.get(key))[key] ?? null) as QueueState | null,
-      AGENT_QUEUE_STORAGE_KEY,
+    onControl((page) =>
+      page.evaluate(
+        async (key) => ((await chrome.storage.local.get(key))[key] ?? null) as QueueState | null,
+        AGENT_QUEUE_STORAGE_KEY,
+      ),
     );
 
   const claimedTraces = new Set<string>();
   const byUrl = new Map(links.map((link) => [link.url, link]));
   /** When each job's Run was first seen working, by job id, for the time limit and the trace match. */
   const running = new Map<string, number>();
+  /** The tab each job worked in, by job id: a finished job may have let go of its tab. */
+  const tabOf = new Map<string, number>();
 
   for (let round = 1; round <= args.repeat; round += 1) {
     console.log(`\nRound ${round} of ${args.repeat}: queueing ${links.length} link(s)`);
@@ -392,6 +475,7 @@ try {
       const open = queue.items.filter((item) => !TERMINAL.has(item.status));
       for (const item of queue.items) {
         if (recorded.has(item.id)) continue;
+        if (item.tabId != null) tabOf.set(item.id, item.tabId);
         if (item.status === QUEUE_ITEM.running && !running.has(item.id)) {
           running.set(item.id, Date.now());
           console.log(`  working: ${item.url}`);
@@ -419,7 +503,7 @@ try {
 
   async function record(item: QueueItem, round: number, timedOut: boolean): Promise<AttemptResult> {
     const link = byUrl.get(item.url);
-    const progress = await lastProgress(item.tabId);
+    const progress = await lastProgress(item.tabId ?? tabOf.get(item.id));
     const ended = outcomeOf(progress);
     if (timedOut) {
       ended.outcome = OUTCOME.error;
@@ -434,9 +518,9 @@ try {
     );
     if (trace) claimedTraces.add(trace.dir);
     const summary = trace ? traceSummary(trace.dir) : null;
-    if (ended.outcome === OUTCOME.sent) {
+    if (ended.outcome === OUTCOME.sent && holdsSubmit) {
       console.error(
-        `\n!!! AN APPLICATION WAS SENT: ${item.url} (round ${round}). The guard was passed. !!!\n`,
+        `\n!!! AN APPLICATION WAS SENT though the agent holds every run before Submit: ${item.url} (round ${round}). The guard was passed. !!!\n`,
       );
     }
     const result: AttemptResult = {
@@ -497,8 +581,10 @@ console.log(`\nWrote ${relative(REPO_ROOT, join(outDir, "report.md"))} and resul
 console.log(
   `${attempts.length} attempts: ready ${results.summary.outcomes.ready}, unavailable ${results.summary.outcomes.unavailable}, need_person ${results.summary.outcomes.need_person}, stuck ${results.summary.outcomes.stuck}, step_limit ${results.summary.outcomes.step_limit}, error ${results.summary.outcomes.error}, SENT ${results.summary.outcomes.sent}`,
 );
-if (results.summary.outcomes.sent > 0) {
-  console.error("!!! At least one application was SENT. See the report. !!!");
+if (results.summary.outcomes.sent > 0 && holdsSubmit) {
+  console.error(
+    "!!! At least one application was SENT though stop before submit is on. See the report. !!!",
+  );
   process.exit(1);
 }
 if (attempts.length < links.length * args.repeat) {

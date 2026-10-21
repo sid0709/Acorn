@@ -14,17 +14,19 @@ import (
 )
 
 // The applicant has not allowed online file sources (a cloud drive, a file-sharing service, a
-// sign-in to one) and a file only ever comes from this computer. The prompt says so, but a
-// model can slip, so the extension asks the server about what is about to be clicked, and about
-// a window or frame that a click opened, and the server asks the decision model. There is no
-// list of services in code: the model judges what a control or page is. A control it is unsure
-// about (a probability of VetBlock or more) is blocked, and so is any control inside a
-// file-upload component when it cannot be checked. A window or frame that cannot be checked is
-// let be, since a failed check must not close every page the application opens.
+// sign-in to one) and a file only ever comes from this computer. The prompt says so, and the model
+// that drives the run sees the screen; this check reads only a description of a control taken from
+// the page, so it never overrides that model: a control the decision model takes for such a source
+// is clicked as planned, and the model is told the doubt in the result, to judge from the screen (a
+// live run was locked out of a plain location box for seven steps when a description was misread).
+// A window or frame a click opened is another matter: it is an outcome, not a guess, so one that is
+// more likely than not an online file source or another service's sign-in is closed, and the model
+// is told. There is no list of services in code: the model judges what a control or page is, and
+// no tunable cutoff: "more likely than not" is the one reading of a yes/no answer.
 //
 // The same check keeps the run from signing in through another service's account (single sign-on
 // through a social network, an e-mail or search provider, a work platform): the applicant's own
-// e-mail and password are used, and a button or window that would start one is refused or closed.
+// e-mail and password are used, and a window that would start one is closed.
 
 const (
 	askOnlineSource = "online_source"
@@ -38,6 +40,8 @@ const (
 	VetFrame   = "frame"
 	// maxVetText bounds each piece of a description.
 	maxVetText = 240
+	// likely is the one reading of a yes/no answer: more likely than not.
+	likely = 0.5
 )
 
 // VetTarget describes what is about to be clicked (VetControl), or a window or frame a click
@@ -65,14 +69,19 @@ type VetTarget struct {
 	PageURL string `json:"pageUrl,omitempty"`
 }
 
-// VetVerdict says whether to go ahead.
+// VetVerdict says whether to go ahead. A control is never blocked: Hint carries the doubt, for the
+// model to weigh against the screen. A window or frame is blocked when it is more likely than not what
+// the applicant has not allowed.
 type VetVerdict struct {
 	Blocked     bool    `json:"blocked"`
 	Probability float64 `json:"probability"`
-	// Cause is why it was blocked: CauseOnlineSource or CauseSingleSignOn.
+	// Cause is what it looks like: CauseOnlineSource or CauseSingleSignOn.
 	Cause string `json:"cause,omitempty"`
 	// Reason is for the model and the person, in plain words, when Blocked.
 	Reason string `json:"reason,omitempty"`
+	// Hint is for the model, when a control it is about to click looks like something the applicant
+	// has not allowed: the click goes ahead, and the model judges from the screen.
+	Hint string `json:"hint,omitempty"`
 }
 
 func clipField(text string) string {
@@ -152,19 +161,13 @@ func (t VetTarget) questions() map[string]jev.Question {
 	return map[string]jev.Question{askOnlineSource: t.question(), askSingleSignOn: t.signOnQuestion()}
 }
 
-func (a *Agent) signOnBlockAbove() float64 {
-	if a.cfg.SingleSignOnBlock > 0 {
-		return a.cfg.SingleSignOnBlock
-	}
-	return 0.5
-}
-
-func (a *Agent) vetBlockAbove() float64 {
-	if a.cfg.VetBlock > 0 {
-		return a.cfg.VetBlock
-	}
-	return 0.3
-}
+// Hints for the model about a control that goes ahead though it looks like something not allowed.
+const (
+	hintOnlineSource = "a checker read this control's description as an online file source or a place to paste a document's text; " +
+		"Acorn only ever attaches a file from this computer with upload, so if the screen shows that is what it is, leave it and use the file upload instead"
+	hintSingleSignOn = "a checker read this control's description as a sign-in through another service's account, which Acorn never uses; " +
+		"if the screen shows that is what it is, close what it opened and use the employer's own e-mail and password form"
+)
 
 // Vet judges something the extension is about to click, or has just had opened.
 func (a *Agent) Vet(ctx context.Context, id string, target VetTarget) (VetVerdict, error) {
@@ -198,33 +201,36 @@ func (a *Agent) Vet(ctx context.Context, id string, target VetTarget) (VetVerdic
 		failed = "the decision model gave no answer"
 	default:
 		verdict.Probability = *answer.Noul
-		if verdict.Probability >= a.vetBlockAbove() {
-			verdict.Blocked, verdict.Cause = true, CauseOnlineSource
-		}
 	}
-	// Signing in through another service is judged by its own question; a checker that gave no
-	// answer to it leaves the control as the first question judged it.
 	signOn := 0.0
 	if failed == "" {
 		if other, ok := res.Answers[askSingleSignOn]; ok && other.Noul != nil {
 			signOn = *other.Noul
 		}
-		if !verdict.Blocked && signOn >= a.signOnBlockAbove() {
-			verdict.Blocked, verdict.Cause, verdict.Probability = true, CauseSingleSignOn, signOn
-			verdict.Reason = "it signs in through another service's account, and Acorn never does; use the employer's own e-mail and password"
+		switch {
+		case verdict.Probability >= likely:
+			verdict.Cause = CauseOnlineSource
+		case signOn >= likely:
+			verdict.Cause, verdict.Probability = CauseSingleSignOn, signOn
+		}
+		// A control goes ahead with the doubt told to the model; a window or frame that opened is closed.
+		switch {
+		case verdict.Cause == "":
+		case target.Kind == VetControl && verdict.Cause == CauseOnlineSource:
+			verdict.Hint = hintOnlineSource
+		case target.Kind == VetControl:
+			verdict.Hint = hintSingleSignOn
+		case verdict.Cause == CauseOnlineSource:
+			verdict.Blocked, verdict.Reason = true, "it looks like an online file source or a place to paste text"
+		default:
+			verdict.Blocked, verdict.Reason = true, "it signs in through another service's account, and Acorn never does; use the employer's own e-mail and password"
 		}
 	}
 	if failed != "" {
-		// Only a control in a file-upload component is blocked when it cannot be checked.
-		verdict.Blocked = target.Kind == VetControl && target.InFileComponent
-		if verdict.Blocked {
-			verdict.Cause = CauseOnlineSource
-		}
+		// Nothing is blocked on a check that could not be made: a failed check must not stop a click or
+		// close a page the application opened.
 		verdict.Reason = "could not be checked"
-		slog.Warn(runName(s.id)+": could not check a "+target.Kind+" for online file sources"+vetOutcome(verdict.Blocked)+".", plainlog.ErrorKey, failed)
-	}
-	if verdict.Blocked && verdict.Reason == "" {
-		verdict.Reason = "it looks like an online file source or a place to paste text"
+		slog.Warn(runName(s.id)+": could not check a "+target.Kind+" for online file sources, so it is let be.", plainlog.ErrorKey, failed)
 	}
 	if failed == "" {
 		if s.vetted == nil {

@@ -12,13 +12,14 @@ func vetAgent(t *testing.T, decider *fixedDecider) (*Agent, string) {
 	return a, start(t, a)
 }
 
-func TestAControlThatLooksLikeAnOnlineFileSourceIsBlocked(t *testing.T) {
+func TestAControlThatLooksLikeAnOnlineFileSourceIsHintedNotBlocked(t *testing.T) {
 	decider := &fixedDecider{online: 0.95}
 	a, id := vetAgent(t, decider)
 	verdict, err := a.Vet(context.Background(), id, VetTarget{
 		Kind: VetControl, Tag: "button", Text: "Dropbox", InFileComponent: true, PageURL: "https://jobs.example/apply",
 	})
-	if err != nil || !verdict.Blocked || verdict.Reason == "" || verdict.Probability != 0.95 {
+	// The driving model sees the screen; a description read by a checker never overrides it.
+	if err != nil || verdict.Blocked || verdict.Hint == "" || verdict.Cause != CauseOnlineSource || verdict.Probability != 0.95 {
 		t.Fatalf("verdict = %+v err = %v", verdict, err)
 	}
 	// The decision model is shown what the control says of itself, and nothing else.
@@ -30,20 +31,20 @@ func TestAControlThatLooksLikeAnOnlineFileSourceIsBlocked(t *testing.T) {
 	}
 }
 
-func TestADoubtfulControlIsBlockedAndASureOneIsNot(t *testing.T) {
-	for p, want := range map[float64]bool{0.02: false, 0.29: false, 0.3: true, 0.6: true} {
+func TestAControlIsHintedWhenMoreLikelyThanNotAndNeverBlocked(t *testing.T) {
+	for p, want := range map[float64]bool{0.02: false, 0.49: false, 0.5: true, 0.95: true} {
 		a, id := vetAgent(t, &fixedDecider{online: p})
 		verdict, err := a.Vet(context.Background(), id, VetTarget{Kind: VetControl, Tag: "button", Text: "Attach"})
-		if err != nil || verdict.Blocked != want {
-			t.Fatalf("p=%.2f: %+v err=%v, want blocked=%v", p, verdict, err, want)
+		if err != nil || verdict.Blocked || (verdict.Hint != "") != want {
+			t.Fatalf("p=%.2f: %+v err=%v, want hint=%v and never blocked", p, verdict, err, want)
 		}
 	}
 }
 
-func TestAControlThatCannotBeCheckedIsBlockedOnlyInsideAFileComponent(t *testing.T) {
+func TestAControlThatCannotBeCheckedIsLetBe(t *testing.T) {
 	a, id := vetAgent(t, &fixedDecider{onlineFail: true})
 	inside, err := a.Vet(context.Background(), id, VetTarget{Kind: VetControl, Tag: "button", Text: "Attach", InFileComponent: true})
-	if err != nil || !inside.Blocked {
+	if err != nil || inside.Blocked || inside.Hint != "" {
 		t.Fatalf("inside = %+v err = %v", inside, err)
 	}
 	outside, err := a.Vet(context.Background(), id, VetTarget{Kind: VetControl, Tag: "button", Text: "Next"})

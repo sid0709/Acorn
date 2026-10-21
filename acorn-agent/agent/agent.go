@@ -51,13 +51,6 @@ type Config struct {
 	// ProbeDropdowns makes a fast-fill run open all the dropdowns of a run of them and read their lists side by
 	// side, instead of setting them one at a time (probe.go).
 	ProbeDropdowns bool
-	// ReviewMatch is how sure the decision model must be that a field the plan filled in shows what was
-	// typed into it, or the field is told to the model as wrong (a probability, 0 to 1; 0 turns the review off).
-	ReviewMatch float64
-	// PointMatch is how sure the decision model must be that a labelled point of a fast-fill plan
-	// is on the control its label names for the point to be acted on (a probability, 0 to 1; 0
-	// turns the check off).
-	PointMatch float64
 	// FastFill makes every run a fast-fill run, whatever its start request says: the server's own
 	// switch (ACORN_AGENT_FAST_FILL), so the agent can be tried without rebuilding the extension.
 	// The answer to Start says so, and the extension follows it.
@@ -122,12 +115,6 @@ type Config struct {
 	SessionTTL time.Duration
 	// TraceDir, when set, records every step to disk.
 	TraceDir string
-	// VetBlock is the probability, from the decision model, at which a control, window or frame
-	// is blocked as an online file source (0 means 0.3).
-	VetBlock float64
-	// SingleSignOnBlock is the probability, from the decision model, at which a control, window
-	// or frame is blocked as a sign-in through another service's account (0 means 0.5).
-	SingleSignOnBlock float64
 	// AccountAttempts is how many steps may type the account password, across sign-in, sign-up
 	// and password reset, before the run ends as rejected by the site (0 means 8).
 	AccountAttempts int
@@ -149,8 +136,6 @@ func DefaultConfig() Config {
 		UncheckedActions:   6,
 		ChunkActions:       6,
 		FastFillActions:    60,
-		PointMatch:         0.7,
-		ReviewMatch:        0.8,
 		ProbeDropdowns:     true,
 		CheckMatch:         0.9,
 		CheckBlocked:       0.2,
@@ -166,7 +151,6 @@ func DefaultConfig() Config {
 		UnavailableConfirm: 0.8,
 		DonePasses:         2,
 		DoneConfirm:        0.7,
-		SingleSignOnBlock:  0.5,
 		AccountAttempts:    8,
 		KeepTurns:          8,
 		KeepImages:         0,

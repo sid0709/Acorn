@@ -5,20 +5,22 @@ import { median, summarize, type AttemptResult } from "./report";
 import { siteSystem } from "./site-system";
 
 describe("the link file", () => {
-  it("reads one link per line, with comments and an expected outcome", () => {
+  it("reads the link before each line's first space, as the Agent tab does, with an expected outcome", () => {
     const links = parseLinkFile(
       [
         "# jobs to measure",
         "https://acme.myworkdayjobs.com/en-US/jobs/1  expect=ready",
         "",
-        "https://boards.greenhouse.io/acme/jobs/2 # closed last week",
-        "https://example.com/careers expect=unavailable  # home page",
+        "https://boards.greenhouse.io/acme/jobs/2 | Job Application for C# Developer at Acme",
+        "https://example.com/careers expect=unavailable  home page, closed last week",
+        "https://jobs.lever.co/acme/3 | Staff Engineer | Careers at Acme expect=ready",
       ].join("\n"),
     );
     expect(links.map((l) => [l.line, l.host, l.expect])).toEqual([
       [2, "acme.myworkdayjobs.com", "ready"],
       [4, "boards.greenhouse.io", undefined],
       [5, "example.com", "unavailable"],
+      [6, "jobs.lever.co", "ready"],
     ]);
   });
 
@@ -26,8 +28,10 @@ describe("the link file", () => {
     expect(() => parseLinkFile("https://a.example/1\nnot a link")).toThrow(
       new LinkFileError(2, '"not" is not an http or https link').message,
     );
-    expect(() => parseLinkFile("https://a.example/1 expect=sent")).toThrow(/line 1: expect=sent/);
-    expect(() => parseLinkFile("https://a.example/1 tries=3")).toThrow(/line 1: unknown option/);
+    expect(() => parseLinkFile("https://a.example/1 expect=mailed")).toThrow(
+      /line 1: expect=mailed/,
+    );
+    expect(parseLinkFile("https://a.example/1 tries=3 | a title")[0].expect).toBeUndefined();
     expect(() => parseLinkFile("https://a.example/1\n\nhttps://a.example/1")).toThrow(
       /line 3: repeats the link of line 1/,
     );

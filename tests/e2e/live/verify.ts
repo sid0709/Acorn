@@ -135,6 +135,9 @@ try {
         OPENROUTER_BASE_URL: `http://127.0.0.1:${model.port}`,
         ACORN_AGENT_DECISIONS_URL: `http://127.0.0.1:${decisions.port}/`,
         ACORN_AGENT_DATA_DIR: dataDir,
+        // The applicant is the test's own files, and every run is held before Submit, whatever acorn-agent/.env names.
+        ACORN_AGENT_BACKEND_URL: "",
+        ACORN_AGENT_STOP_BEFORE_SUBMIT: "true",
         DEFAULT_FALLBACK_RESUME: "Backend",
         ACORN_AGENT_REASONING: "none",
       },
@@ -206,6 +209,9 @@ try {
         OPENROUTER_BASE_URL: `http://127.0.0.1:${model.port}`,
         ACORN_AGENT_DECISIONS_URL: `http://127.0.0.1:${decisions.port}/`,
         ACORN_AGENT_DATA_DIR: dataDir,
+        // The applicant is the test's own files, and every run is held before Submit, whatever acorn-agent/.env names.
+        ACORN_AGENT_BACKEND_URL: "",
+        ACORN_AGENT_STOP_BEFORE_SUBMIT: "true",
         DEFAULT_FALLBACK_RESUME: "Backend",
         ACORN_AGENT_REASONING: "none",
       },

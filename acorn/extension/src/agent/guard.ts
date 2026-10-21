@@ -1,18 +1,19 @@
 /**
  * The guard that keeps files coming from this computer only. The applicant has not allowed an
- * online file source (a cloud drive, a file-sharing service, signing in to one), so no click may
- * reach one. The prompt says so, but a model can slip; so, before each click, the control under
- * the pointer is read from the page (what it says of itself, nothing more) and the server's
- * decision model judges it. And after a click, a window or a cross-origin frame that opened is
- * judged the same way and closed if it is one. There is no list of services here: the model
- * says what a control or page is.
+ * online file source (a cloud drive, a file-sharing service, signing in to one). The prompt says
+ * so, and the model that drives the run sees the screen; before each click the control under the
+ * pointer is read from the page (what it says of itself, nothing more) and the server's decision
+ * model judges the description, but that judgment never overrides the model: the click goes
+ * ahead, and a control that looks like such a source is told to the model with the click's result
+ * (a live run was locked out of a plain location box when a description was misread). After a
+ * click, a window or a cross-origin frame that opened is an outcome, not a guess: it is judged the
+ * same way and closed if it is more likely than not such a source. There is no list of services
+ * here: the model says what a control or page is.
  *
  * The same judgment keeps the run from signing in through another service's account (single
- * sign-on): the applicant's own e-mail and password are used, so a control or window that starts
- * one is refused or closed.
- *
- * A control the model is unsure about is blocked, and so is a control inside a file-upload
- * component when it cannot be checked. A window or frame that cannot be checked is let be.
+ * sign-on): the applicant's own e-mail and password are used, so a window that starts one is
+ * closed, and a control that looks like one is told to the model. Nothing that cannot be checked
+ * is blocked.
  */
 
 import {
@@ -141,6 +142,8 @@ export interface GuardVerdict {
   blocked: boolean;
   reason?: string;
   cause?: VetCause;
+  /** The doubt about a control that goes ahead, for the model. */
+  hint?: string;
 }
 
 export interface ClickGuardDeps {
@@ -170,15 +173,14 @@ export function createClickGuard(
         verdict = deps
           .vet({ kind: "control", ...rest, pageUrl: deps.pageUrl() })
           .then((answer): GuardVerdict => ({
-            blocked: answer.blocked,
+            // A control is never refused on a description; the server says so, and this holds it to that.
+            blocked: false,
             reason: answer.reason,
             cause: answer.cause,
+            hint: answer.hint,
           }))
-          // The server could not be asked: only a control in a file-upload component is refused.
-          .catch((): GuardVerdict => ({
-            blocked: Boolean(rest.inFileComponent),
-            reason: "could not be checked",
-          }));
+          // The server could not be asked: the click goes ahead.
+          .catch((): GuardVerdict => ({ blocked: false, reason: "could not be checked" }));
         judged.set(key, verdict);
       }
       return await verdict;

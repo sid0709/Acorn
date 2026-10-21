@@ -27,7 +27,7 @@ func TestASwitchReadFromTheEnvironmentFallsBackWhenUnset(t *testing.T) {
 	}
 	t.Setenv(envStopBeforeSubmit, "true")
 	if !envSwitch(envStopBeforeSubmit, defaultStopBeforeSubmit) {
-		t.Fatal("ACORN_AGENT_STOP_BEFORE_SUBMIT=true must turn it on")
+		t.Fatal("ACORN_AGENT_STOP_BEFORE_SUBMIT=false must turn it on")
 	}
 }
 

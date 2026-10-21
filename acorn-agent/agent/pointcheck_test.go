@@ -51,22 +51,17 @@ func TestEveryLabelledPointIsCheckedOnItsScreenAndTheScreensAreCheckedSideBySide
 	}
 }
 
-func TestAPointThatIsNotOnItsControlIsNotActedOnNorIsWhatWasTypedIntoIt(t *testing.T) {
+func TestAPointTheCheckerDoubtsIsStillActedOnAndTheModelIsTold(t *testing.T) {
 	step, _, a, id := runPointCheck(t, DefaultConfig(), &fakeScreen{wrongPoints: []string{"Last Name"}})
-	var got []string
-	for _, action := range step.Actions {
-		got = append(got, action.Kind+":"+action.Text)
-	}
-	want := []string{"click:", "type:Ada", "click:", "click:", "type:555"}
-	if strings.Join(got, " ") != strings.Join(want, " ") {
-		t.Fatalf("actions = %v, want %v (the wrong click and its typing gone, the rest kept)", got, want)
+	if len(step.Actions) != 7 {
+		t.Fatalf("%d actions went out (%s), want the whole plan: a checker's doubt never overrides the model", len(step.Actions), kinds(step.Actions))
 	}
 	if !step.Survey {
-		t.Fatal("the model is not shown the page again to plan the missing field")
+		t.Fatal("the model is not shown the page again to check what the doubted point filled")
 	}
 	s, _ := a.sessions.get(id)
-	if len(s.notes) == 0 || !strings.Contains(s.notes[len(s.notes)-1], `"Last Name" on screen 1`) {
-		t.Fatalf("the model is not told which point was not carried out: %v", s.notes)
+	if len(s.notes) == 0 || !strings.Contains(s.notes[len(s.notes)-1], `"Last Name" on screen 1`) || !strings.Contains(s.notes[len(s.notes)-1], "doubts") {
+		t.Fatalf("the model is not told which point was doubted: %v", s.notes)
 	}
 	if s.usage.Checks < 3 {
 		t.Fatalf("the point checks were not counted: %d", s.usage.Checks)
@@ -98,12 +93,6 @@ func TestThePointCheckIsOnlyForFastFillAndCanBeTurnedOff(t *testing.T) {
 	if screen.pointRequests != 0 || len(step.Actions) == 0 {
 		t.Fatalf("a run without fast fill was point-checked: %d checks", screen.pointRequests)
 	}
-	cfg := DefaultConfig()
-	cfg.PointMatch = 0
-	step, screen, _, _ = runPointCheck(t, cfg, &fakeScreen{wrongPoints: []string{"First Name"}})
-	if screen.pointRequests != 0 || len(step.Actions) != 7 {
-		t.Fatalf("PointMatch 0 did not turn the check off: %d checks, %d actions", screen.pointRequests, len(step.Actions))
-	}
 }
 
 func TestTheSchemaGivesEveryPointALabelInASurvey(t *testing.T) {
@@ -128,21 +117,23 @@ func commitClick(screen int, x, y float64, label, commit string) map[string]any 
 }
 
 func TestTheClickThatSendsThePageIsHeldBackWhenPartOfThePlanWasRefused(t *testing.T) {
+	// An action the server refuses (nothing to type) is the plan losing a part; a checker's doubt about a
+	// point is not, since the point is acted on anyway.
 	reply := plan("filling", nil,
 		labelled(1, 100, 100, "First Name"), typeAction("Ada", nil),
-		labelled(1, 100, 200, "Sponsorship"), typeAction("No", nil),
+		labelled(1, 100, 200, "Sponsorship"), map[string]any{"kind": "type"},
 		committing(3, 900, 700, "Submit application"),
 	)
 	model := &scriptedModel{replies: []string{reply}}
-	a := newAgentWithScreen(t, model, &fixedDecider{}, &fakeScreen{wrongPoints: []string{"Sponsorship"}}, DefaultConfig())
+	a := newAgentWithScreen(t, model, &fixedDecider{}, &fakeScreen{}, DefaultConfig())
 	id := startFast(t, a, true)
 	step := stepOK(t, a, id, surveyObservation(t))
 	var got []string
 	for _, action := range step.Actions {
 		got = append(got, action.Kind+":"+action.Text)
 	}
-	if want := "click: type:Ada"; strings.Join(got, " ") != want {
-		t.Fatalf("actions = %v, want %q: the refused field, its text and the click that sends the page all stay behind", got, want)
+	if want := "click: type:Ada click:"; strings.Join(got, " ") != want {
+		t.Fatalf("actions = %v, want %q: the refused typing and the click that sends the page stay behind", got, want)
 	}
 	if !step.Survey {
 		t.Fatal("the model is not shown the page again to plan what is left")
@@ -225,11 +216,11 @@ func TestTheSchemaOffersCommitOnAClickInEveryMode(t *testing.T) {
 func TestAClickThatGoesOnToTheNextPageIsHeldBackLikeASendWhenThePlanLostAPart(t *testing.T) {
 	reply := plan("filling", nil,
 		labelled(1, 100, 100, "First Name"), typeAction("Ada", nil),
-		labelled(1, 100, 200, "Sponsorship"), typeAction("No", nil),
+		labelled(1, 100, 200, "Sponsorship"), map[string]any{"kind": "type"}, // nothing to type: refused
 		commitClick(3, 900, 700, "Save and continue", CommitNext),
 	)
 	model := &scriptedModel{replies: []string{reply}}
-	a := newAgentWithScreen(t, model, &fixedDecider{}, &fakeScreen{wrongPoints: []string{"Sponsorship"}}, DefaultConfig())
+	a := newAgentWithScreen(t, model, &fixedDecider{}, &fakeScreen{}, DefaultConfig())
 	step := stepOK(t, a, startFast(t, a, true), surveyObservation(t))
 	for _, action := range step.Actions {
 		if action.Commit != "" {
@@ -281,7 +272,7 @@ func TestAPointOnTheWordsOfAQuestionIsMovedOntoItsBoxBeforeTheCheck(t *testing.T
 	}
 }
 
-func TestAPointTheCheckRefusesThoughItIsOnItsControlIsDropped(t *testing.T) {
+func TestAPointTheCheckerDoubtsThoughItIsOnItsControlStillGoesOutWithANote(t *testing.T) {
 	reply := plan("filling", nil,
 		labelled(1, 500, 280, "Sponsorship"), typeAction("No", nil),
 		committing(3, 900, 700, "Submit application"),
@@ -290,10 +281,8 @@ func TestAPointTheCheckRefusesThoughItIsOnItsControlIsDropped(t *testing.T) {
 	a := newAgentWithScreen(t, model, &fixedDecider{}, &fakeScreen{wrongPoints: []string{"Sponsorship"}}, DefaultConfig())
 	id := startFast(t, a, true)
 	step := stepOK(t, a, id, markedSurvey(t))
-	for _, action := range step.Actions {
-		if action.Kind == KindType {
-			t.Fatalf("text was typed into a field whose point was refused: %s", kinds(step.Actions))
-		}
+	if len(step.Actions) != 3 {
+		t.Fatalf("%d actions went out (%s), want the whole plan", len(step.Actions), kinds(step.Actions))
 	}
 	s, _ := a.sessions.get(id)
 	if len(s.notes) == 0 || !strings.Contains(strings.Join(s.notes, " "), `"Sponsorship" on screen 1`) {
@@ -345,9 +334,7 @@ func TestAPointWhoseLabelDisagreesWithThePagesIsStillChecked(t *testing.T) {
 	if screen.pointRequests != 1 {
 		t.Fatalf("%d checks: a point the page calls something else must be checked", screen.pointRequests)
 	}
-	for _, action := range step.Actions {
-		if action.Kind == KindClick || action.Kind == KindType {
-			t.Fatalf("actions %s: the refused point and its text must not go out", kinds(step.Actions))
-		}
+	if len(step.Actions) != 2 {
+		t.Fatalf("actions %s: the doubted point and its text still go out; the model is told", kinds(step.Actions))
 	}
 }

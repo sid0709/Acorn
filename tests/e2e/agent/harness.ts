@@ -105,9 +105,14 @@ export async function agentHealth(agentUrl: string): Promise<AgentHealth> {
  * device pixels to a CSS pixel, as on the machine the agent runs on, so a screenshot taken at the page's
  * own size comes out twice as large as the viewport it is reported with, which the extension must handle.
  */
-export function launchChrome(extensionDir: string, headless: boolean): Promise<Browser> {
+export function launchChrome(
+  extensionDir: string,
+  headless: boolean,
+  userDataDir?: string,
+): Promise<Browser> {
   return puppeteer.launch({
     headless,
+    userDataDir,
     args: [
       `--disable-extensions-except=${extensionDir}`,
       `--load-extension=${extensionDir}`,

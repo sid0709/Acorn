@@ -42,7 +42,7 @@ const (
 	// defaultFastFill makes every run plan a whole page from one look. ACORN_AGENT_FAST_FILL=off
 	// goes back to step by step.
 	defaultFastFill = true
-	// defaultStopBeforeSubmit is off: a run sends the application. ACORN_AGENT_STOP_BEFORE_SUBMIT=true
+	// defaultStopBeforeSubmit is off: a run sends the application. ACORN_AGENT_STOP_BEFORE_SUBMIT=false
 	// holds every run at the control that sends it (a test server; on a hosted server, every person's runs).
 	defaultStopBeforeSubmit = false
 	shutdownTimeout         = 10 * time.Second
@@ -72,8 +72,6 @@ const (
 	// envUnavailableSure is how sure the decision model must be that a posting page shows the job cannot be
 	// applied to online for the driving model to be asked at once (navigation.go).
 	envUnavailableSure = "ACORN_AGENT_UNAVAILABLE_PERCENT"
-	envPointMatch      = "ACORN_AGENT_POINT_MATCH_PERCENT"
-	envReviewMatch     = "ACORN_AGENT_REVIEW_MATCH_PERCENT"
 	envProbe           = "ACORN_AGENT_PROBE_DROPDOWNS"
 	envChecks          = "ACORN_AGENT_CHECKS"
 	envScreenModel     = "ACORN_AGENT_SCREEN_MODEL"
@@ -82,8 +80,6 @@ const (
 	// job description was found, when the applicant is a local folder.
 	envFallbackResume = "DEFAULT_FALLBACK_RESUME"
 	envChunkActions   = "ACORN_AGENT_CHUNK_ACTIONS"
-	envVetBlock       = "ACORN_AGENT_VET_BLOCK_PERCENT"
-	envSignOnBlock    = "ACORN_AGENT_SSO_BLOCK_PERCENT"
 	envAccountTries   = "ACORN_AGENT_ACCOUNT_ATTEMPTS"
 	// envBackendURL is where acorn-backend is. When set, the applicant is the signed-in person's
 	// own profile and Library there (the person's session comes with each run); otherwise it is the
@@ -165,16 +161,12 @@ func run() error {
 	cfg.FastFill = envSwitch(envFastFill, defaultFastFill)
 	cfg.StopBeforeSubmit = envSwitch(envStopBeforeSubmit, defaultStopBeforeSubmit)
 	cfg.UnavailableConfirm = percent(envUnavailableSure, cfg.UnavailableConfirm)
-	cfg.PointMatch = percent(envPointMatch, cfg.PointMatch)
-	cfg.ReviewMatch = percent(envReviewMatch, cfg.ReviewMatch)
 	cfg.ProbeDropdowns = !isOff(config.Env(envProbe, ""))
 	cfg.CheckMatch = percent(envCheckMatch, cfg.CheckMatch)
 	cfg.CheckBlocked = percent(envCheckBlocked, cfg.CheckBlocked)
 	cfg.CheckLoading = percent(envCheckLoading, cfg.CheckLoading)
 	cfg.OptionMatch = percent(envOptionMatch, cfg.OptionMatch)
 	cfg.OptionAccept = percent(envOptionAccept, cfg.OptionAccept)
-	cfg.VetBlock = percent(envVetBlock, 0.3)
-	cfg.SingleSignOnBlock = percent(envSignOnBlock, 0.5)
 	cfg.AccountAttempts = config.EnvInt(envAccountTries, cfg.AccountAttempts)
 	cfg.KeepTurns = config.EnvInt(envKeepTurns, cfg.KeepTurns)
 	cfg.KeepImages = config.EnvInt(envKeepImages, cfg.KeepImages)
