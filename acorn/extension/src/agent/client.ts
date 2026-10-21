@@ -28,6 +28,8 @@ import {
   type AgentVetTarget,
   type AgentLocate,
   type AgentLocated,
+  type AgentAction,
+  type AgentShotAnswer,
   type AgentShotUpload,
   type AgentVetVerdict,
 } from "@acorn/shared/agent-contract";
@@ -431,9 +433,9 @@ export async function sendShot(
   signal: AbortSignal,
   onTiming?: CallOptions["onTiming"],
   priority: LanePriority = "urgent",
-): Promise<void> {
+): Promise<AgentAction[]> {
   const transport = transportOf(sessionId);
-  const sending = (async () => {
+  const sending = (async (): Promise<AgentAction[]> => {
     const hashes = await imageHashes(packableShot(upload));
     for (let attempt = 0; ; attempt += 1) {
       const refs = transport.can.blobs === true && attempt === 0;
@@ -444,7 +446,7 @@ export async function sendShot(
         refs,
       );
       try {
-        await transport.lane.run(priority, () =>
+        const answer = await transport.lane.run(priority, () =>
           call(base, AGENT_ROUTES.shots(sessionId), {
             method: "POST",
             body: packed.body,
@@ -455,7 +457,7 @@ export async function sendShot(
           }),
         );
         if (transport.can.blobs) for (const hash of hashes) transport.held.add(hash);
-        return;
+        return parseJson<AgentShotAnswer>(answer).then ?? [];
       } catch (err) {
         if (!namesMissingPictures(err) || attempt > 0) throw err;
         for (const hash of err.missing) transport.held.delete(hash);
@@ -463,7 +465,7 @@ export async function sendShot(
     }
   })();
   trackPending(transport, upload.screenshot, sending);
-  await sending;
+  return sending;
 }
 
 /**

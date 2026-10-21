@@ -266,11 +266,13 @@ func (s *Server) shots(w http.ResponseWriter, r *http.Request) {
 		writeMissing(w, missing)
 		return
 	}
-	if err := s.agent.ReceiveShot(r.Context(), id, upload); err != nil {
+	then, err := s.agent.ReceiveShot(r.Context(), id, upload)
+	if err != nil {
 		writeError(w, err)
 		return
 	}
-	writeJSON(w, http.StatusOK, map[string]any{"ok": true, "hash": blobHash(upload.Screenshot)})
+	// A snap of a dropdown being set in one pass is answered with what to do while its list is open.
+	writeJSON(w, http.StatusOK, map[string]any{"ok": true, "hash": blobHash(upload.Screenshot), "then": then})
 }
 
 // keepBlobs takes pictures ahead of the look that will refer to them (a survey's screens, sent as each is

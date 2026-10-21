@@ -164,6 +164,10 @@ type ActionResult struct {
 	Detail string `json:"detail,omitempty"`
 	// Opened names something the action set off that a screenshot cannot show (OpenedFilePicker).
 	Opened string `json:"opened,omitempty"`
+	// Unreached is an action that reached no control (typing or keys with nothing focused, or what was meant
+	// for that control and skipped with it): the rest of the batch went on, so the plan is not given up for
+	// it. The field it was for stays empty on the to-do list and is filled from the next survey.
+	Unreached bool `json:"unreached,omitempty"`
 }
 
 // Observation is what the extension sees on one step.

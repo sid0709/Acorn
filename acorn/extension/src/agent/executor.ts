@@ -36,6 +36,11 @@ export const SCROLL_SETTLE_MS = 500;
  * chooser, which the browser announces a moment after it, and the announcement is what says the click did.
  */
 export const CLICK_SETTLE_FLOOR_MS = 150;
+/**
+ * The longest a click waits for the guard's verdict on the control under it (guard.ts). The verdict is a doubt
+ * told to the model, or the refusal of an autofill from another service; past this the click goes ahead.
+ */
+export const GUARD_WAIT_MAX_MS = 800;
 
 /**
  * Pauses after an action that changes the page: at most `ms`, and less where the run can tell the page has
@@ -81,7 +86,11 @@ export interface ExecutorContext {
   /** The run's scrolling: the settled parts it keeps out of, and where it tells what it did. */
   scroll?: ScrollContext;
   /** Takes a picture of the page now and sends it to the agent for a `snap` action, which waits for it to arrive. */
-  snap?: (action: AgentAction) => Promise<void>;
+  /**
+   * Takes the picture of an opened dropdown and sends it; resolves to what the agent says to do at once while
+   * the list is open (click the option, type and take another picture, close it).
+   */
+  snap?: (action: AgentAction) => Promise<AgentAction[]>;
   /** Finds an action's target again on a page that changed shape: its point in screenshot pixels, or null. */
   locate?: (action: AgentAction) => Promise<{ x: number; y: number } | null>;
   /** Finds it again by the control the point was bound to when it was planned, which the page can say the place of. */
@@ -125,7 +134,13 @@ async function glideTo(ctx: ExecutorContext, x: number, y: number): Promise<void
  * result (the click goes ahead), or the refusal of an autofill from a saved profile or another service.
  */
 async function guardHint(verdict: Promise<GuardVerdict> | undefined): Promise<string | undefined> {
-  const answer = await verdict;
+  if (!verdict) return undefined;
+  // The click waits for the verdict a moment, not for as long as the decision model takes: a recorded run
+  // spent four seconds a click waiting on it. A verdict that comes later is not a refusal.
+  const answer = await Promise.race([
+    verdict,
+    new Promise<undefined>((resolve) => setTimeout(() => resolve(undefined), GUARD_WAIT_MAX_MS)),
+  ]);
   if (answer?.blocked) throw new Error(blockedMessage(answer.cause));
   return answer?.hint;
 }
@@ -136,7 +151,8 @@ function withHint(done: Done, hint: string | undefined): Done {
   return { ...done, detail: [done.detail, hint].filter(Boolean).join("; ") };
 }
 
-type Done = { detail?: string; opened?: ActionOpened };
+/** What an action did; `then` are actions to carry out next, before the rest of the batch (a snap's answer). */
+type Done = { detail?: string; opened?: ActionOpened; then?: AgentAction[] };
 
 /**
  * Clicks, and says whether the click opened a file picker. The session intercepts pickers so no
@@ -261,8 +277,8 @@ async function perform(ctx: ExecutorContext, action: AgentAction, watch: Stopwat
     case "snap": {
       if (!ctx.snap) throw new Error("the extension cannot take a picture here");
       const snap = ctx.snap;
-      await watch.time("snap", () => snap(action));
-      return {};
+      const then = await watch.time("snap", () => snap(action));
+      return { then };
     }
     case "wait": {
       const ms = action.ms ?? 1000;
@@ -328,8 +344,11 @@ export async function runActions(
   let failed = false;
   // Set while what was meant for a control that was not reached is being skipped.
   let unreached = false;
-  // A step that types is looked at only once the page has answered what the typing asked of it.
-  const typing = actions.some((action) => action.kind === "type" || action.kind === "key");
+  // A step that types is looked at only once the page has answered what the typing asked of it. A dropdown's
+  // picture may be answered with typing too.
+  const typing = actions.some(
+    (action) => action.kind === "type" || action.kind === "key" || action.kind === "snap",
+  );
   const effects = typing ? await batch.time("watchInput", () => watchInputEffects(ctx.cdp)) : null;
   let zone: number | undefined;
   // The zone of the last action, as that action itself has it: an action the agent made (a dropdown being
@@ -338,13 +357,17 @@ export async function runActions(
   // After a résumé is attached the page reads it and moves its fields for a moment: the next click waits
   // until the form stops moving, so it lands where the field is, not where it was.
   let afterUpload = false;
-  for (const action of actions) {
+  // A snap's answer is carried out next, before the rest of the batch: the queue grows as the batch runs.
+  const queue = [...actions];
+  for (let index = 0; index < queue.length; index += 1) {
+    const action = queue[index];
     if (unreached && reachesAControl(action)) unreached = false;
     if (failed || unreached) {
       results.push({
         id: action.id,
         ok: false,
         error: SKIPPED_ERROR,
+        ...(failed ? {} : { unreached: true }),
       });
       ctx.progress?.(action, ACTION_PROGRESS.skipped);
       continue;
@@ -363,6 +386,7 @@ export async function runActions(
     try {
       const done = await perform(ctx, action, watch);
       if (action.kind === "upload") afterUpload = true;
+      if (done.then?.length) queue.splice(index + 1, 0, ...done.then);
       results.push({
         id: action.id,
         ok: true,
@@ -380,6 +404,7 @@ export async function runActions(
         id: action.id,
         ok: false,
         error,
+        ...(error === NO_FOCUS_MESSAGE ? { unreached: true } : {}),
         ...timing(),
       });
       ctx.progress?.(action, ACTION_PROGRESS.failed);

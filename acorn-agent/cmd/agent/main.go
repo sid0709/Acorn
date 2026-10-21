@@ -245,8 +245,13 @@ func run() error {
 
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
-	go decide.Warm(ctx, decisionsURL)
-	go decide.Warm(ctx, openAIDecisionsURL)
+	warm := func(ctx context.Context) {
+		go llm.Warm(ctx, baseURL)
+		go decide.Warm(ctx, decisionsURL)
+		decide.Warm(ctx, openAIDecisionsURL)
+	}
+	a.SetWarm(warm)
+	go warm(ctx)
 	failed := make(chan error, 1)
 	go func() {
 		slog.Info(listeningStory(httpConfig.Addr, model, screenModel, newScreen != nil, source.Kind(), location, defaultKey != "", cfg.TraceDir, cfg.StopBeforeSubmit))

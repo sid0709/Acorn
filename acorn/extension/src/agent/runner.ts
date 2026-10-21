@@ -111,6 +111,9 @@ import type { PipelineProgress } from "@acorn/shared/pipeline-types";
 import type { CompletedRunRecord } from "@acorn/shared/runs";
 
 /** The most times one step is sent again when the model is busy or briefly down. */
+/** The key that closes a dropdown's list when its picture could not reach the agent. */
+const SNAP_CLOSE_KEY = "Escape";
+
 export const STEP_RETRY_LIMIT = 3;
 /** Waits between those retries, in order. */
 export const STEP_RETRY_BACKOFF_MS = [2_000, 6_000, 15_000] as const;
@@ -685,8 +688,9 @@ export async function runAgent(args: AgentRunArgs): Promise<RunReport> {
           readFocus(here.cdp),
           readOpenList(here.cdp, photo.scale),
         ]);
-        // A picture that did not get through is not an error: the dropdown goes back to being set one at a time.
-        await sendShot(
+        // The agent answers with what to do while the list is open. A picture that did not get through is not
+        // an error: the list is closed, and the dropdown is set one at a time when the plan is done.
+        return await sendShot(
           args.agentUrl,
           must(sessionId),
           {
@@ -699,8 +703,9 @@ export async function runAgent(args: AgentRunArgs): Promise<RunReport> {
           },
           signal,
           onHttp,
-        ).catch((err: unknown) => {
+        ).catch((err: unknown): AgentAction[] => {
           if (signal.aborted) throw err;
+          return [{ id: `${action.id}esc`, kind: "key", keys: SNAP_CLOSE_KEY }];
         });
       } finally {
         await here.overlay.hideForCapture(false);

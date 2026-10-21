@@ -153,6 +153,7 @@ func (a *Agent) holdForList(s *session, planned *[]Action, dropped *[]string, ob
 	}
 	s.listHold.count++
 	*planned = kept
+	s.heldSend = &heldSend{url: url, actions: held}
 	*dropped = append(*dropped, fmt.Sprintf("the click that sends the page or goes on was held back (%s with it): the to-do list still has %s empty",
 		plainlog.Count(len(held)-1, "later action"), plainlog.Count(len(left), "field")))
 	s.notes = append(s.notes, listHoldNote(left))

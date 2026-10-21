@@ -34,6 +34,19 @@ type OpenRouter struct {
 // sharedHTTP is one pool for every client, since a client is built per session key.
 var sharedHTTP = llmhttp.NewClient(requestTimeout)
 
+// Warm opens the shared connection to the provider at baseURL, so a run's first call does not pay the TLS
+// handshake (a recorded first call spent 8.7 s connecting). It needs no key and ignores the answer.
+func Warm(ctx context.Context, baseURL string) {
+	request, err := http.NewRequestWithContext(ctx, http.MethodHead, strings.TrimRight(baseURL, "/")+"/models", nil)
+	if err != nil {
+		return
+	}
+	if response, err := sharedHTTP.Do(request); err == nil {
+		_, _ = io.Copy(io.Discard, response.Body)
+		response.Body.Close()
+	}
+}
+
 // NewOpenRouter is a client for model on baseURL. reasoning is the effort sent to the
 // provider ("none", "low", "medium", "high"); empty sends none of it.
 func NewOpenRouter(apiKey, model, baseURL, reasoning string) *OpenRouter {

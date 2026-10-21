@@ -32,7 +32,7 @@ const (
 
 // expectation is what a field of the plan should show once the plan has been carried out: the field is
 // known by its label, as the model wrote it. Pick is that the value is chosen in a dropdown: the photo that
-// shows it is the one taken after the picks of its zone, not the one after the typing.
+// shows it is set in the same pass as the zone's typing, so the zone's photo shows both.
 type expectation struct {
 	Label string
 	Value string
@@ -44,6 +44,8 @@ type expectation struct {
 // reviewResult is the review of one zone.
 type reviewResult struct {
 	Zone int
+	// PlanGen is the plan whose zone it reviewed.
+	PlanGen int
 	// Asked are the fields the review asked about, and Failed those it found not showing what was planned.
 	Asked  []expectation
 	Failed []expectation
@@ -57,12 +59,9 @@ type reviewState struct {
 	mu   sync.Mutex
 	wg   sync.WaitGroup
 	done []reviewResult
-	// started holds the zones of the plan being carried out that have a review (by plan and zone, and the
-	// picks of a zone apart), so a photo that comes twice (mid-batch and again with the look) is reviewed once.
+	// started holds the zones of the plan being carried out that have a review (by plan and zone), so a photo
+	// that comes twice (mid-batch and again with the look) is reviewed once.
 	started map[string]bool
-	// picked holds the zones of the plan whose dropdowns were picked in (by plan and zone): the next photo of
-	// such a zone shows the picks.
-	picked map[string]bool
 	// calls are the reviews as model calls, for the trace of the next entry.
 	calls []modelCall
 }
@@ -97,14 +96,6 @@ func expectationsOf(planned []Action, obs Observation) map[int][]expectation {
 	return out
 }
 
-// notePicked records that the dropdowns of a zone of the plan are being picked in. The session is locked.
-func (s *session) notePicked(zone int) {
-	if s.reviews.picked == nil {
-		s.reviews.picked = map[string]bool{}
-	}
-	s.reviews.picked[fmt.Sprintf("%d/%d", s.planGen, zone)] = true
-}
-
 // expectQuestion asks whether the field with a label shows a value.
 func expectQuestion(label, value string) decide.Question {
 	return decide.YesNo(fmt.Sprintf("Does the field labelled %q show %q as its value? A dropdown shows the option chosen. "+
@@ -118,23 +109,15 @@ func (a *Agent) reviewsOn(s *session) bool {
 	return s.start.FastFill && a.checksOn(s)
 }
 
-// startReview starts the review of a zone's photo on the side, unless it has one. A photo taken once the
-// zone's dropdowns were picked in is reviewed for the picks; any other for what was typed. The session is locked.
+// startReview starts the review of a zone's photo on the side, unless it has one: the fields typed into and
+// the dropdowns set in that zone, which are set in the same pass (probe.go), so its photo shows both. The
+// session is locked.
 func (a *Agent) startReview(s *session, shot ZoneShot) {
 	if !a.reviewsOn(s) {
 		return
 	}
 	key := fmt.Sprintf("%d/%d", s.planGen, shot.Zone)
-	picks := s.reviews.picked[key]
-	if picks {
-		key += "/pick"
-	}
-	var exps []expectation
-	for _, exp := range s.expect[shot.Zone] {
-		if exp.Pick == picks {
-			exps = append(exps, exp)
-		}
-	}
+	exps := s.expect[shot.Zone]
 	if len(exps) == 0 || s.reviews.started[key] {
 		return
 	}
@@ -143,11 +126,11 @@ func (a *Agent) startReview(s *session, shot ZoneShot) {
 	}
 	s.reviews.started[key] = true
 	s.reviews.wg.Add(1)
-	go a.reviewZone(s, shot, exps)
+	go a.reviewZone(s, shot, exps, s.planGen)
 }
 
 // reviewZone asks the decision model about every field of a zone, in one call, and keeps the answer.
-func (a *Agent) reviewZone(s *session, shot ZoneShot, exps []expectation) {
+func (a *Agent) reviewZone(s *session, shot ZoneShot, exps []expectation, planGen int) {
 	defer s.reviews.wg.Done()
 	ctx, cancel := context.WithTimeout(context.Background(), reviewTimeout)
 	defer cancel()
@@ -161,7 +144,7 @@ func (a *Agent) reviewZone(s *session, shot ZoneShot, exps []expectation) {
 	}
 	started := time.Now()
 	response, err := a.newScreen(s.keys()).Decide(ctx, decide.Request{State: state, Questions: questions})
-	result := reviewResult{Zone: shot.Zone, Asked: exps, Err: err, Cost: response.Usage.Cost}
+	result := reviewResult{Zone: shot.Zone, PlanGen: planGen, Asked: exps, Err: err, Cost: response.Usage.Cost}
 	result.Call = verdict{response: response, prompt: fmt.Sprintf("what zone %d shows: %s", shot.Zone, expectLabels(exps))}.call(err)
 	if result.Call.LatencyMs == 0 {
 		result.Call.LatencyMs = time.Since(started).Milliseconds()
@@ -213,6 +196,9 @@ func (a *Agent) collectReviews(s *session) {
 		s.usage.CheckCost += result.Cost
 		s.usage.Cost += result.Cost
 		s.reviews.calls = append(s.reviews.calls, result.Call)
+		if result.PlanGen == s.planGen {
+			s.reviewed[result.Zone] = result.Err == nil && len(result.Failed) == 0
+		}
 		if result.Err != nil {
 			slog.Warn(fmt.Sprintf("%s: could not review zone %d, so it is left to the survey that follows.", runName(s.id), result.Zone), plainlog.ErrorKey, result.Err)
 			continue

@@ -220,6 +220,11 @@ export interface AgentActionResult {
   error?: string;
   detail?: string;
   opened?: ActionOpened;
+  /**
+   * The action reached no control: typing or keys with nothing focused, or what was meant for that control and
+   * skipped with it. The rest of the batch went on; the agent does not count it as the batch failing.
+   */
+  unreached?: boolean;
 }
 
 /**
@@ -240,6 +245,17 @@ export interface AgentShotUpload {
   focus?: AgentFocus | null;
   /** The list open on the page when the photo was taken, as the page names its options; null when it names none. */
   list?: AgentOpenList | null;
+}
+
+/**
+ * The agent's answer to a picture sent mid-batch. For the photo of a dropdown being set in one pass, `then` is
+ * what to do at once while its list is open (click the option; type and take another picture; close it),
+ * carried out before the rest of the batch.
+ */
+export interface AgentShotAnswer {
+  ok: boolean;
+  hash?: string;
+  then?: AgentAction[] | null;
 }
 
 /** Pictures sent ahead of the look that will refer to them (a survey's screens, as each is taken). */

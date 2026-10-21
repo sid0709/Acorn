@@ -173,7 +173,14 @@ type Agent struct {
 	sessions  *store
 	trace     *tracer
 	now       func() time.Time
+	// warm opens the connections to the model providers, so a run's first calls do not pay the handshake;
+	// nil does nothing (SetWarm).
+	warm func(ctx context.Context)
 }
+
+// SetWarm sets what a run's start does to open the connections to the model providers. It is done in the
+// background while the run looks at the page, which takes longer than a handshake.
+func (a *Agent) SetWarm(warm func(ctx context.Context)) { a.warm = warm }
 
 // New is an agent over the applicant's data. newModel builds the model that drives a run,
 // newDecider the model that chooses among existing things, and newScreen the decision model
@@ -218,6 +225,9 @@ func (a *Agent) Start(ctx context.Context, key string, auth applicant.Auth, star
 		return Started{}, llm.ErrNoKey
 	}
 	now := a.now()
+	if a.warm != nil {
+		go a.warm(context.WithoutCancel(ctx))
+	}
 	// A fast-fill run plans a page from a survey of it, so surveys are on for it.
 	start.FastFill = start.FastFill || a.cfg.FastFill
 	start.Survey = start.Survey || start.FastFill
@@ -421,6 +431,9 @@ func (a *Agent) step(ctx context.Context, id string, obs Observation) (Step, err
 	// runs of one plan.
 	results := withoutChoose(append(append([]ActionResult(nil), s.carried...), obs.Results...))
 	s.noteCommitResults(obs.Results)
+	// Whether the click that sends the application went through on the batch just carried out; the refusal
+	// check below may clear what is known of it.
+	justSent := s.commit.done && s.commit.send
 	a.noteRefusedSend(ctx, s, obs)
 	s.notes = append(s.notes, unreachedNotes(obs.Results, s.byID, s.marks, obs)...)
 	s.noteUnreachedFields(obs.Results)
@@ -462,6 +475,13 @@ func (a *Agent) step(ctx context.Context, id string, obs Observation) (Step, err
 		}), nil
 	}
 
+	// The page just sent: the decision model reads whether it shows the application received, and the run ends
+	// there without asking the driving model (autosend.go).
+	if justSent && !s.sendRefused {
+		if step, ok := a.confirmSent(ctx, s, obs); ok {
+			return step, nil
+		}
+	}
 	if step, ok := a.handlePicker(ctx, s, obs, results, sig); ok {
 		return step, nil
 	}
@@ -475,6 +495,12 @@ func (a *Agent) step(ctx context.Context, id string, obs Observation) (Step, err
 		return step, nil
 	}
 	if step, ok := a.tryNavigate(ctx, s, obs, len(screens), results, sig, stale); ok {
+		return step, nil
+	}
+
+	// The plan's fields are all confirmed from the photos: the click it held is pressed without asking the
+	// driving model (autosend.go).
+	if step, ok := a.pressHeldSend(s, obs, results, sig); ok {
 		return step, nil
 	}
 
@@ -595,6 +621,8 @@ func (a *Agent) step(ctx context.Context, id string, obs Observation) (Step, err
 	lost += checkable - len(planned)
 	calls = append(calls, pointCalls...)
 	entry.Usage = s.usage
+	// A send held from an earlier plan is the model's again: it has planned anew.
+	s.heldSend = nil
 	if held := a.holdCommits(s, &planned, lost); len(held) > 0 {
 		dropped = append(dropped, fmt.Sprintf("the click that sends the page was held back: the plan lost %s", plainlog.Count(lost, "action")))
 	}
@@ -612,6 +640,10 @@ func (a *Agent) step(ctx context.Context, id string, obs Observation) (Step, err
 	s.setFence(planned, obs)
 	// What this plan fills in, by zone, for the reviews of its zones.
 	s.planGen++
+	s.reviewed, s.probeUnsure = map[int]bool{}, false
+	if s.heldSend != nil {
+		s.heldSend.planGen = s.planGen
+	}
 	s.expect, s.expectURL = expectationsOf(planned, obs), withoutFragment(obs.URL)
 	s.planScrollY = obs.Viewport.ScrollY
 	status := answer.Status

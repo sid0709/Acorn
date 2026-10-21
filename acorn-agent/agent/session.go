@@ -159,6 +159,12 @@ type session struct {
 	listHold listHold
 	// alreadyApplied is that the done check read the page as saying the application was sent before.
 	alreadyApplied bool
+	// heldSend is the click that sends the page or goes on, held from a plan while the to-do list still had
+	// empty fields; reviewed is, by zone, whether the photo of each zone of the plan being carried out showed
+	// every field as planned; probeUnsure is that a dropdown of it showed no sure option (autosend.go).
+	heldSend    *heldSend
+	reviewed    map[int]bool
+	probeUnsure bool
 	// retry holds the fields whose fill did not verify since the model last looked (focus.go); planScrollY
 	// is where the page was scrolled when the plan being carried out was made.
 	retry       []focusTarget

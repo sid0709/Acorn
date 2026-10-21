@@ -297,11 +297,12 @@ func (s *session) changedLittle(results []ActionResult) bool {
 	return false
 }
 
-// failedResults names the actions that failed, or is empty.
+// failedResults names the actions that failed, or is empty. An action that only reached no control is not a
+// failure of the batch: the batch went on past it (ActionResult.Unreached).
 func failedResults(results []ActionResult) string {
 	var failed []string
 	for _, result := range results {
-		if !result.OK {
+		if !result.OK && !result.Unreached {
 			failed = append(failed, strings.TrimSpace(result.ID+" "+result.Error))
 		}
 	}
@@ -343,9 +344,10 @@ func (a *Agent) uncheckedLimit(s *session) int {
 // while a run of dropdowns is half done. sent are the actions going out now; s.plan is what is left of
 // the plan after them.
 func (a *Agent) surveyNext(s *session, sent []Action, asked bool) bool {
-	// Dropdowns being probed or set go on to their next batch without the model, which looks at nothing in
-	// between: the survey is for the end of the run (probeStep asks for it there).
-	if s.probe != nil || s.script != nil {
+	// Dropdowns being set one at a time by the script go on to their next batch without the model: the survey
+	// is for the end of the run. A plan whose dropdowns are set in one pass (probe.go) is one batch, and the
+	// look after it is a survey like any plan's.
+	if s.script != nil {
 		return false
 	}
 	if (asked || s.surveyAgain) && s.start.Survey {

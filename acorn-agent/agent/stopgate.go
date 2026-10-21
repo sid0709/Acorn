@@ -56,6 +56,8 @@ type commitState struct {
 	id   string
 	url  string
 	done bool
+	// send is that the click sends the application (CommitSend), not that it goes on to the next page.
+	send bool
 }
 
 // fieldHold is a stop sent back for the required fields the page reported empty: the page it was on and
@@ -69,7 +71,7 @@ type fieldHold struct {
 func (s *session) noteCommitPlanned(planned []Action, obs Observation) {
 	for _, action := range planned {
 		if action.Commit != "" {
-			s.commit = commitState{id: action.ID, url: withoutFragment(obs.URL)}
+			s.commit = commitState{id: action.ID, url: withoutFragment(obs.URL), send: action.Commit == CommitSend}
 			return
 		}
 	}

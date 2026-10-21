@@ -5,7 +5,6 @@ import (
 	"fmt"
 	"log/slog"
 	"math"
-	"sort"
 	"strconv"
 	"strings"
 
@@ -31,8 +30,8 @@ import (
 // options of a list the browser draws itself (a native select) are the one thing read as text: no picture
 // ever shows that popup. The extension only ever receives a click, some typing and keys.
 //
-// Several dropdowns in one plan are set from the bottom of the screen up: a choice can add or
-// remove a message under its control, which moves everything below it but nothing above.
+// Several dropdowns in one plan are set in the plan's own order, top to bottom: a choice that adds or
+// removes a message under its control moves what is below it, and each point follows its control.
 
 const (
 	// askOption is the decision model's question about an open list in a picture.
@@ -130,35 +129,6 @@ func hasChoose(actions []Action) bool {
 	return false
 }
 
-// pageTop is where a point action aims on the page, from its top: the screen of the survey it was
-// measured on, and its place on that screen. Two points on different screens are only ordered by this.
-func pageTop(action Action) float64 {
-	top := 0.0
-	if action.ScrollTo != nil {
-		top = *action.ScrollTo
-	}
-	return top + *action.Y
-}
-
-// bottomUp orders each run of consecutive chooses from the bottom of the page to the top.
-func bottomUp(actions []Action) []Action {
-	out := append([]Action(nil), actions...)
-	for i := 0; i < len(out); {
-		if out[i].Kind != KindChoose {
-			i++
-			continue
-		}
-		j := i
-		for j < len(out) && out[j].Kind == KindChoose {
-			j++
-		}
-		run := out[i:j]
-		sort.SliceStable(run, func(a, b int) bool { return pageTop(run[a]) > pageTop(run[b]) })
-		i = j
-	}
-	return out
-}
-
 // plainChoose is a choose as plain input, for a run with no decision model to read the list:
 // click the control, type the answer, press Enter.
 func plainChoose(action Action) []Action {
@@ -189,7 +159,7 @@ func (a *Agent) startScript(s *session, actions []Action) []Action {
 		}
 		return out
 	}
-	s.script = &script{queue: bottomUp(actions)}
+	s.script = &script{queue: actions}
 	return a.dispatch(s, nil)
 }
 
