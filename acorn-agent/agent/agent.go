@@ -483,8 +483,11 @@ func (a *Agent) step(ctx context.Context, id string, obs Observation) (Step, err
 		images = badgedImages(obs)
 	}
 	body := observationText(number, s.stepLimit, obs, results, notes, stale)
-	messages := append([]llm.Message{{Role: llm.RoleSystem, Text: s.system}},
+	messages := append([]llm.Message{{Role: llm.RoleSystem, Text: s.system, Cache: true}},
 		s.history(a.cfg.KeepTurns, a.cfg.KeepImages, a.cfg.HistoryTokens)...)
+	// The prompt grows only at its end: the system prompt and the history are what the next step sends
+	// again word for word, so the provider is told to cache up to the end of the history (llm.Message.Cache).
+	messages[len(messages)-1].Cache = true
 	text := currentText(body, s.memo, s.job)
 	messages = append(messages, llm.Message{Role: llm.RoleUser, Text: text, Images: images})
 

@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"log/slog"
+	"strings"
 	"sync"
 
 	"github.com/sid0709/acorn/acorn-backend/plainlog"
@@ -32,13 +33,30 @@ import (
 //     back to the script, which has ways of its own (clicking again a little lower, clearing what was
 //     typed, telling the model).
 //
-// Nothing checks a pick afterwards: that is the survey that follows the plan.
+// Before any of that, the picture's own report is read: a box whose value is already the answer is set,
+// and nothing more is done to it. The model may give the point of an option in a list the survey caught
+// open (a recorded run typed into a box and left its list open; the next look's point was on the option),
+// and the click that was meant to open the list picks that option instead. The report says so, and a
+// probe that read only the picture would see a closed list, type the answer into the gap below the box,
+// click lower four times, and tell the model the list was open: a recorded run spent six looks on a box
+// that was right after the first. The same report keeps a nudge honest: a click that gave focus to another
+// field that already holds a value (the model's point was on the gap, and lower is the next field) missed,
+// and is not typed into.
+//
+// Nothing else checks a pick afterwards: that is the survey that follows the plan.
 
 const (
 	// probeOpenWaitMs is how long an opened list is given to draw before its picture is taken.
 	probeOpenWaitMs = 500
 	// probeTypedWaitMs is how long a list is given to narrow, or to load from a server, after the answer is typed.
 	probeTypedWaitMs = 800
+	// probeTypedRetryWaitMs is how long it is given the one time more it is typed into after a list that showed
+	// nothing: a list fetched from a server over a slow line (a recorded run's came after the first wait).
+	probeTypedRetryWaitMs = 2500
+	// typedMinChars is the least a first part of the answer must have to be typed on its own: a list that
+	// searches as one types is narrowed by the start of the answer ("Fresno"), not the whole of it
+	// ("Fresno, California, United States"), which a search may not match as a whole.
+	typedMinChars = 3
 	// probeSelectWaitMs is how long a list is given to draw before the keys that pick from it.
 	probeSelectWaitMs = 250
 	// directMaxPosition is the furthest down an unnarrowed list an option is picked by its place in a
@@ -60,20 +78,33 @@ const (
 type probeItem struct {
 	choose Action
 	// snapID is the snap action whose picture is this dropdown's; typed is that the picture is of the list
-	// after the answer was typed.
-	snapID string
-	typed  bool
-	// nudged is that the dropdown was opened again a little lower, after a click that reached nothing.
+	// after the answer was typed, typedText what was typed (typedAnswer), and retried that it was typed
+	// once more with a longer wait, after a list that showed nothing.
+	snapID    string
+	typed     bool
+	typedText string
+	retried   bool
+	// nudged is that the dropdown was opened again a little lower, after a click that reached nothing;
+	// nudges are the tries, one per nudge offset, all in one batch: each its point and the snap of it.
 	nudged bool
+	nudges []probeNudge
 	// What the reading decided: a place in the list, the text of an option of a native list, that the click
 	// reached nothing (closed: click again, lower), or that the list needs the answer typed (the rest zero);
-	// or that no option answered (unsure), with the options the page named (listed), for the driving model.
+	// or that no option answered (unsure), with the options the page named (listed), for the driving model;
+	// or that the box already holds the answer (done), and nothing more is done to it.
 	pick   int
 	native string
 	closed bool
 	needs  bool
 	unsure bool
+	done   bool
 	listed []string
+}
+
+// probeNudge is one try at opening a dropdown a little above or below the model's point.
+type probeNudge struct {
+	y      float64
+	snapID string
 }
 
 // probeRun is the run of the model's actions with dropdowns in it, being carried out.
@@ -166,32 +197,118 @@ func (a *Agent) probeOpen(s *session, item *probeItem) []Action {
 func (a *Agent) probeTyped(s *session, item *probeItem) []Action {
 	pr := s.probe
 	seq := s.seq
-	item.typed, item.snapID = true, pr.nextID(seq)
+	wait := probeTypedWaitMs
+	if item.typed {
+		// Typed before and the list showed nothing: once more, with time for a list that comes from a server.
+		item.retried, wait = true, probeTypedRetryWaitMs
+	}
+	item.typed, item.typedText, item.snapID = true, typedAnswer(item.choose.Text), pr.nextID(seq)
 	return []Action{
 		a.helper(s, item.choose, pr.nextID(seq), KindClick),
-		{ID: pr.nextID(seq), Kind: KindType, Text: item.choose.Text},
-		{ID: pr.nextID(seq), Kind: KindWait, Ms: probeTypedWaitMs},
+		{ID: pr.nextID(seq), Kind: KindType, Text: item.typedText},
+		{ID: pr.nextID(seq), Kind: KindWait, Ms: wait},
 		{ID: item.snapID, Kind: KindSnap},
 		{ID: pr.nextID(seq), Kind: KindKey, Keys: probeEscape},
 	}
 }
 
-// probeNudged opens a dropdown again a little lower, after a click that reached nothing (the point was on
-// the question's words above the box, and a person would move down onto it), and takes its picture. The
-// dropdown's point moves with it, so the pick that follows clicks where the list opened.
+// typedAnswer is what is typed to narrow a list: the first part of the answer when it has several
+// ("Fresno" of "Fresno, California, United States"), else the whole answer. The option is still matched
+// against the whole answer once the list shows.
+func typedAnswer(answer string) string {
+	first, _, found := strings.Cut(answer, ",")
+	first = strings.TrimSpace(first)
+	if !found || len([]rune(first)) < typedMinChars {
+		return strings.TrimSpace(answer)
+	}
+	return first
+}
+
+// probeNudged opens a dropdown again a little above and below the model's point, after a click that
+// reached nothing (the point was on the question's words above the box, or in the gap round it, and a
+// person would move onto it), and takes a picture at each try, all in one batch: every try is a look
+// fewer than one try a look, and the reading takes the first try that reached the box (readNudges). The
+// dropdown's point moves to that try, so the pick that follows clicks where the list opened.
 func (a *Agent) probeNudged(s *session, item *probeItem) []Action {
 	pr := s.probe
 	seq := s.seq
-	lower := item.choose
-	y := *item.choose.Y + nudgeOffsets[0]
-	lower.Y = &y
-	item.choose, item.nudged, item.closed, item.snapID = lower, true, false, pr.nextID(seq)
-	return []Action{
-		a.helper(s, item.choose, pr.nextID(seq), KindClick),
-		{ID: pr.nextID(seq), Kind: KindWait, Ms: probeOpenWaitMs},
-		{ID: item.snapID, Kind: KindSnap},
-		{ID: pr.nextID(seq), Kind: KindKey, Keys: probeEscape},
+	item.nudged, item.closed, item.nudges = true, false, nil
+	var batch []Action
+	for _, offset := range nudgeOffsets {
+		moved := item.choose
+		y := *item.choose.Y + offset
+		moved.Y = &y
+		try := probeNudge{y: y, snapID: pr.nextID(seq)}
+		item.nudges = append(item.nudges, try)
+		batch = append(batch,
+			a.helper(s, moved, pr.nextID(seq), KindClick),
+			Action{ID: pr.nextID(seq), Kind: KindWait, Ms: probeOpenWaitMs},
+			Action{ID: try.snapID, Kind: KindSnap},
+			Action{ID: pr.nextID(seq), Kind: KindKey, Keys: probeEscape},
+		)
 	}
+	item.snapID = item.nudges[0].snapID
+	return batch
+}
+
+// readNudges takes the snaps of a nudged dropdown's tries and keeps the first that reached the box (a
+// list open, or a control with focus that is not another field): the dropdown's point becomes that try's,
+// and its snap is the one read. When none reached it, the first try stands, and the reading goes on as
+// before (not reached, nudged: the answer is typed there). The other snaps are forgotten.
+func (s *session) readNudges(item *probeItem) ShotUpload {
+	chosen := -1
+	snaps := make([]ShotUpload, len(item.nudges))
+	for i, try := range item.nudges {
+		snaps[i] = s.snaps[try.snapID]
+		delete(s.snaps, try.snapID)
+		if chosen >= 0 || snaps[i].Screenshot == "" {
+			continue
+		}
+		listed := snaps[i].List != nil && len(snaps[i].List.Options) > 0
+		if listed || (snaps[i].Focus != nil && !s.focusElsewhere(item, snaps[i].Focus)) {
+			chosen = i
+		}
+	}
+	if chosen < 0 {
+		chosen = 0
+	}
+	moved := item.choose
+	y := item.nudges[chosen].y
+	moved.Y = &y
+	item.choose, item.snapID = moved, item.nudges[chosen].snapID
+	return snaps[chosen]
+}
+
+// holdsAnswer is whether the box of a dropdown already shows the answer, by the page's own report of
+// what has focus: the click meant to open its list picked the option instead (the list was open already),
+// or the box was set before. The report after the answer was typed says nothing: the box then shows what
+// was typed, chosen or not.
+func (item *probeItem) holdsAnswer(focus *Focus) bool {
+	if focus == nil || item.typed {
+		return false
+	}
+	return sameText(focus.Value, item.choose.Text)
+}
+
+// sameText is whether two texts are the same answer, letter case and the space round them aside.
+func sameText(a, b string) bool {
+	a, b = strings.TrimSpace(a), strings.TrimSpace(b)
+	return a != "" && strings.EqualFold(a, b)
+}
+
+// focusElsewhere is whether the click for a dropdown gave focus to another field: one the page labels
+// otherwise than the control the dropdown's point was bound to, and that already holds a value. A box with
+// no value, or one whose label the page does not give, is taken to be the dropdown's own (a search box may
+// be labelled by its placeholder while the model named the question).
+func (s *session) focusElsewhere(item *probeItem, focus *Focus) bool {
+	if focus == nil || strings.TrimSpace(focus.Value) == "" || strings.TrimSpace(focus.Label) == "" {
+		return false
+	}
+	bound, ok := s.marks[item.choose.ID]
+	if !ok || strings.TrimSpace(bound.Label) == "" {
+		return false
+	}
+	return !labelsAgree(focus.Label, bound.Label)
 }
 
 // probeSelect picks the answer in a dropdown that was resolved: the same keys the script would send.
@@ -206,9 +323,14 @@ func (a *Agent) probeSelect(s *session, item *probeItem) []Action {
 			{ID: pr.nextID(seq), Kind: KindType, Text: item.native},
 			{ID: pr.nextID(seq), Kind: KindKey, Keys: "Enter"}}
 	case item.typed:
+		// The same text as narrowed the list that was read, so the pick lands on the same option.
+		wait := probeTypedWaitMs
+		if item.retried {
+			wait = probeTypedRetryWaitMs
+		}
 		return []Action{open,
-			{ID: pr.nextID(seq), Kind: KindType, Text: item.choose.Text},
-			{ID: pr.nextID(seq), Kind: KindWait, Ms: probeTypedWaitMs},
+			{ID: pr.nextID(seq), Kind: KindType, Text: item.typedText},
+			{ID: pr.nextID(seq), Kind: KindWait, Ms: wait},
 			{ID: pr.nextID(seq), Kind: KindKey, Keys: optionKeys(item.pick)}}
 	}
 	return []Action{open,
@@ -264,13 +386,31 @@ func (a *Agent) readPictured(ctx context.Context, s *session, item *probeItem, s
 		// Not a short list that can be counted: a search box (no list until the answer is typed),
 		// a list that has not drawn, or one too long. Type the answer in this batch and look again.
 		item.needs = true
+	case !listOpen && !item.retried:
+		// Typed, and still no list in the picture: once more, with time for a list that loads.
+		item.needs = true
 	}
 	return out
 }
 
-// readOne reads one dropdown's snap: a native list's options, the options the page names, or the picture.
+// readOne reads one dropdown's snap: the page's report that the box is set already, a native list's
+// options, the options the page names, or the picture.
 func (a *Agent) readOne(ctx context.Context, s *session, item *probeItem, snap ShotUpload) reading {
 	answer := item.choose.Text
+	if item.holdsAnswer(snap.Focus) {
+		item.done = true
+		return reading{}
+	}
+	if s.focusElsewhere(item, snap.Focus) {
+		// The click landed on another field. Before anything was typed it is made again, a little off the
+		// point; after, the driving model looks, so nothing is typed into that field.
+		if !item.nudged && !item.typed {
+			item.closed = true
+		} else {
+			item.unsure = true
+		}
+		return reading{}
+	}
 	if options := nativeList(snap.Focus); options != nil && !item.typed {
 		index, check, asked, err := a.decideListed(ctx, s, answer, options, focusLabel(snap.Focus))
 		if index >= 0 && err == nil {
@@ -290,8 +430,11 @@ func (a *Agent) readOne(ctx context.Context, s *session, item *probeItem, snap S
 			// The page says a list is open with nothing in it: a box that searches as one types. Type the
 			// answer in this batch and read the list again.
 			item.needs = true
+		case !item.retried:
+			// Typed, and the page still names nothing: once more, with time for a list that loads from a server.
+			item.needs = true
 		default:
-			// Typed, and the page still names nothing: the driving model looks.
+			// Typed twice, and the page still names nothing: the driving model looks.
 			item.unsure = true
 		}
 		return reading{}
@@ -306,6 +449,13 @@ func (a *Agent) readProbes(ctx context.Context, s *session) []modelCall {
 	readings := make([]reading, len(pr.items))
 	snaps := make([]ShotUpload, len(pr.items))
 	for i, item := range pr.items {
+		// What the last reading asked for was done in this batch; this reading decides afresh.
+		item.closed, item.needs = false, false
+		if len(item.nudges) > 0 {
+			snaps[i] = s.readNudges(item)
+			item.nudges = nil
+			continue
+		}
 		snaps[i] = s.snaps[item.snapID]
 		delete(s.snaps, item.snapID)
 	}
@@ -367,9 +517,11 @@ func (a *Agent) continueProbe(ctx context.Context, s *session, obs Observation, 
 	var again, asking []*probeItem
 	for _, item := range pr.items {
 		switch {
+		case item.done:
+			slog.Info(fmt.Sprintf("%s: a dropdown already shows its answer (%s), so nothing more is done to it.", runName(s.id), chooseLabel(item.choose, nil)))
 		case item.resolved():
 			batch = append(batch, a.probeSelect(s, item)...)
-		case item.closed || (item.needs && !item.typed):
+		case item.closed || item.needs:
 			again = append(again, item)
 		case item.unsure:
 			asking = append(asking, item)

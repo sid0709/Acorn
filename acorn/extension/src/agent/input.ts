@@ -9,6 +9,24 @@ import type { Cdp } from "./cdp";
 
 /** Text up to this long is typed one key at a time, so a page that listens to keys hears them. */
 export const KEYSTROKE_TEXT_MAX_CHARS = 240;
+/**
+ * The pause between one key and the next while typing, in ms: the least, and the most. A person's keys
+ * come tens of milliseconds apart; keys with no gap at all are one of the things a page's spam filter
+ * weighs (a recorded application was refused as possible spam after forty characters went in at once).
+ * The gap varies between the two bounds, as a person's does.
+ */
+export const KEY_INTERVAL_MIN_MS = 30;
+export const KEY_INTERVAL_MAX_MS = 90;
+
+/** A pause between keys, somewhere between the bounds. */
+function keyInterval(): number {
+  return KEY_INTERVAL_MIN_MS + Math.random() * (KEY_INTERVAL_MAX_MS - KEY_INTERVAL_MIN_MS);
+}
+
+/** Waits for a time; what typeText uses unless the caller brings its own (one that stops with the run). */
+function pause(ms: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
 /** The most one wheel event scrolls; a longer scroll is sent as several. */
 export const WHEEL_STEP_PX = 600;
 /** The mouse buttons the agent uses. */
@@ -84,14 +102,19 @@ export async function pressKeys(cdp: Cdp, keys: string): Promise<void> {
 }
 
 /**
- * Types text into the control that has focus. Short text goes in one key at a time, so
- * the page sees key, input, and key-up events as it does from a person (a search that
- * waits for typing, a masked field). Long text, and characters with no key of their own,
- * are inserted whole.
+ * Types text into the control that has focus. Short text goes in one key at a time, with a person's
+ * pause between keys, so the page sees key, input, and key-up events as it does from a person (a
+ * search that waits for typing, a masked field). Long text, and characters with no key of their own,
+ * are inserted whole. `sleep` is the run's own wait, which ends when the person presses Stop.
  */
-export async function typeText(cdp: Cdp, text: string): Promise<void> {
+export async function typeText(
+  cdp: Cdp,
+  text: string,
+  sleep: (ms: number) => Promise<void> = pause,
+): Promise<void> {
   const typeable = [...text].length <= KEYSTROKE_TEXT_MAX_CHARS;
   let pending = "";
+  let typedOne = false;
   const flush = async () => {
     if (pending) await cdp.send("Input.insertText", { text: pending });
     pending = "";
@@ -99,6 +122,8 @@ export async function typeText(cdp: Cdp, text: string): Promise<void> {
   for (const char of text) {
     if (typeable && /^[\x20-\x7e]$/.test(char)) {
       await flush();
+      if (typedOne) await sleep(keyInterval());
+      typedOne = true;
       const info = charKey(char);
       const common = {
         key: info.key,

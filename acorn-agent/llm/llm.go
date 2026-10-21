@@ -23,6 +23,10 @@ type Message struct {
 	Role   string
 	Text   string
 	Images []string
+	// Cache marks the end of a part of the prompt that the next request repeats word for word (the
+	// system prompt, the history so far): a provider that caches only where it is told to is told
+	// here, and one that caches every repeated prefix on its own ignores it.
+	Cache bool
 }
 
 // Request is one model call. Schema, when set, makes the model answer with a JSON

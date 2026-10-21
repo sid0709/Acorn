@@ -113,6 +113,10 @@ export function launchChrome(
   return puppeteer.launch({
     headless,
     userDataDir,
+    // Puppeteer's own default flags announce automation to the page (navigator.webdriver): a person's
+    // Chrome, where the extension runs, does not, and a recorded application was refused as possible
+    // spam in the test Chrome. The tests run the extension in the Chrome a person would have.
+    ignoreDefaultArgs: ["--enable-automation"],
     args: [
       `--disable-extensions-except=${extensionDir}`,
       `--load-extension=${extensionDir}`,

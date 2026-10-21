@@ -121,8 +121,9 @@ async function glideTo(ctx: ExecutorContext, x: number, y: number): Promise<void
 }
 
 /**
- * What the guard has to say about the control before the click: a doubt to tell the model with the
- * result (the click goes ahead), or, were a control ever blocked, the refusal.
+ * What the guard has to say about the control: a doubt to tell the model with the result (the click
+ * goes ahead, and does not wait for this), or, were a control ever blocked, the refusal. An upload still
+ * waits for it before the file goes in.
  */
 async function guardHint(verdict: Promise<GuardVerdict> | undefined): Promise<string | undefined> {
   const answer = await verdict;
@@ -175,21 +176,22 @@ async function perform(ctx: ExecutorContext, action: AgentAction, watch: Stopwat
         scrollForAction(cdp, action, ctx.scale(), ctx),
       );
       ctx.progress?.(action, ACTION_PROGRESS.aimed, { x, y });
+      // The guard's judgment never holds a click back (guard.ts): it is a doubt told to the model with the
+      // result. So the click does not wait for it; the judgment is collected once the click has settled. A
+      // recorded run waited three to six seconds before every click for a verdict that changed nothing.
       const verdict = ctx.guard?.(x, y);
       await watch.time("glide", () => glideTo(ctx, x, y));
-      const hint = await watch.time("guard", () => guardHint(verdict));
       void ctx.overlay.click();
       const count = action.kind === "double_click" ? 2 : action.kind === "triple_click" ? 3 : 1;
-      return withHint(
-        await clickWatchingForPicker(
-          ctx,
-          x,
-          y,
-          { button: action.kind === "right_click" ? "right" : "left", count },
-          watch,
-        ),
-        hint,
+      const done = await clickWatchingForPicker(
+        ctx,
+        x,
+        y,
+        { button: action.kind === "right_click" ? "right" : "left", count },
+        watch,
       );
+      const hint = await watch.time("guard", () => guardHint(verdict));
+      return withHint(done, hint);
     }
     case "hover": {
       const { x, y } = await watch.time("scroll", () =>
@@ -207,7 +209,7 @@ async function perform(ctx: ExecutorContext, action: AgentAction, watch: Stopwat
       if (await watch.time("focusCheck", () => nothingHasFocus(cdp)))
         throw new Error(NO_FOCUS_MESSAGE);
       const text = action.text;
-      await watch.time("type", () => typeText(cdp, text));
+      await watch.time("type", () => typeText(cdp, text, ctx.sleep));
       await watch.time("settle", () => settle(ctx, SETTLE_MS / 2));
       return { detail: `${[...action.text].length} characters` };
     }
