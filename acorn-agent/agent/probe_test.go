@@ -491,7 +491,7 @@ func TestADropdownNoOptionOfWhichAnswersIsLeftToTheModelWithItsOptionsAndTheSend
 		if action.Kind == KindType && action.Text != "555" {
 			t.Fatalf("the answer was typed into the list: %s", kinds(second.Actions))
 		}
-		if action.Commit || (action.Kind == KindClick && action.ScrollTo != nil && *action.ScrollTo == 1360) {
+		if action.Commit != "" || (action.Kind == KindClick && action.ScrollTo != nil && *action.ScrollTo == 1360) {
 			t.Fatalf("the click that sends the page went out with a dropdown unset: %s", kinds(second.Actions))
 		}
 	}

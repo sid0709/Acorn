@@ -110,8 +110,9 @@ func TestAnActionCarriesOnlyTheFieldsItsKindUses(t *testing.T) {
 		kind           string
 		want           []string
 	}{
-		{false, true, KindClick, []string{"kind", "x", "y", "check"}},
-		{false, false, KindClick, []string{"kind", "x", "y"}},
+		// A click names what it does beyond the click in every mode (next, send, or null).
+		{false, true, KindClick, []string{"kind", "x", "y", "commit", "check"}},
+		{false, false, KindClick, []string{"kind", "x", "y", "commit"}},
 		{true, true, KindChoose, []string{"kind", "screen", "x", "y", "label", "text", "check"}},
 		{true, true, KindClick, []string{"kind", "screen", "x", "y", "label", "commit", "check"}},
 		{true, false, KindUpload, []string{"kind", "screen", "x", "y", "label", "resume"}},

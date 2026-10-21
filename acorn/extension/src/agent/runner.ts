@@ -1175,15 +1175,16 @@ export async function runAgent(args: AgentRunArgs): Promise<RunReport> {
         log.decision(
           `agent:${step.status}`,
           step.message,
-          { step: step.number },
+          { step: step.number, readyToSubmit: step.readyToSubmit === true },
           step.status === AGENT_STATUS.done ? undefined : "warn",
         );
         // A run that ends may first scroll what the person must act on into view.
         if (actions.length > 0) await runActions(executor, actions);
         if (step.status === AGENT_STATUS.done) {
-          return finish(
-            report(stopBeforeSubmit ? RUN_OUTCOME.readyToSubmit : RUN_OUTCOME.completed),
-          );
+          // The agent says when a done stopped before sending (the server may hold every run before the
+          // control that sends, whatever this run asked for); an older agent leaves it to what was asked.
+          const ready = step.readyToSubmit === true || stopBeforeSubmit;
+          return finish(report(ready ? RUN_OUTCOME.readyToSubmit : RUN_OUTCOME.completed));
         }
         return finish(
           report(RUN_OUTCOME.failed, failureFromStatus(step.status, step.message, step.stop)),

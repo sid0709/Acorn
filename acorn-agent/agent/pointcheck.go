@@ -216,13 +216,13 @@ func wrongPointsNote(planned []Action, wrong map[string]pointVerdict) string {
 		plainlog.Count(len(lines), "action"), strings.Join(lines, "; "))
 }
 
-// withoutCommits is the plan without the clicks the model named as the one that sends the page (and what
-// follows each up to the next point), and those clicks.
+// withoutCommits is the plan without the clicks the model named as the one that sends the page or goes on
+// to the next (and what follows each up to the next point), and those clicks.
 func withoutCommits(planned []Action) (kept, held []Action) {
 	dropping := false
 	for _, action := range planned {
 		if isPointAction(action) {
-			dropping = action.Commit
+			dropping = action.Commit != ""
 			if dropping {
 				held = append(held, action)
 			}

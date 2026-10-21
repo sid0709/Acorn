@@ -1,5 +1,6 @@
+import { AGENT_STOP_REASON } from "@acorn/shared/agent-contract";
 import { RUN_OUTCOME, type RunReport } from "@acorn/shared/run-types";
-import { describeRunFailure } from "@acorn/shared/user-messages";
+import { READY_TO_SUBMIT, describeRunFailure } from "@acorn/shared/user-messages";
 
 import { QUEUE_ACTION } from "../agent-queue/actions";
 import { parseJobLinks } from "../agent-queue/links";
@@ -154,6 +155,29 @@ async function workOn(job: QueueItem): Promise<void> {
     await patch(job.id, {
       status: QUEUE_ITEM.done,
       note: undefined,
+      tabId: undefined,
+      endedAt: Date.now(),
+    });
+    if (after.closeDone) await closeTab(tabId);
+    return;
+  }
+  if (report?.outcome === RUN_OUTCOME.readyToSubmit) {
+    // The person reviews and sends: the tab stays open, whatever the close setting says, and the
+    // queue goes on to the next job.
+    await patch(job.id, {
+      status: QUEUE_ITEM.ready,
+      note: READY_TO_SUBMIT.detail,
+      tabId,
+      endedAt: Date.now(),
+    });
+    return;
+  }
+  if (report?.failure?.agentStop?.reason === AGENT_STOP_REASON.jobUnavailable) {
+    // Nothing to fill here: the job is finished with the reason, and the queue goes on.
+    const said = describeRunFailure(report.failure);
+    await patch(job.id, {
+      status: QUEUE_ITEM.unavailable,
+      note: [said.title, said.detail].filter(Boolean).join(". "),
       tabId: undefined,
       endedAt: Date.now(),
     });

@@ -34,7 +34,8 @@ const (
 const (
 	// StatusWorking: carry out the actions and send the next screenshot.
 	StatusWorking = "working"
-	// StatusDone: the application was sent, or the run reached the point it was asked to stop at.
+	// StatusDone: the application was sent, or the run reached the point it was asked to stop at (a
+	// run asked to stop before sending ends done with Step.ReadyToSubmit set).
 	StatusDone = "done"
 	// StatusNeedPerson: something only the person can do (a CAPTCHA, a code, a decision).
 	StatusNeedPerson = "need_person"
@@ -46,7 +47,7 @@ const (
 )
 
 // Why a run ended without being done: what the page needs from the person, or why the
-// agent could not go on. The model names the first eight; the agent itself the last two.
+// agent could not go on. The model names the first nine; the agent itself the next two.
 const (
 	StopCaptcha      = "captcha"
 	StopVerification = "verification"
@@ -59,11 +60,33 @@ const (
 	StopAccountRejected = "account_rejected"
 	StopPageProblem     = "page_problem"
 	StopOther           = "other"
-	StopNoChange        = "no_change"
-	StopStepLimit       = "step_limit"
+	// StopJobUnavailable: the page shows there is no online application to make for this job; StopInfo.Kind
+	// says how (closed or filled, apply only by email or phone, not a job posting). The model judges it from
+	// the screen, the address and the title; the run ends at once, with nothing for the applicant to finish.
+	StopJobUnavailable = "job_unavailable"
+	StopNoChange       = "no_change"
+	StopStepLimit      = "step_limit"
 	// StopResumeChoice: no job description was found, so the agent could not choose a résumé,
 	// and the person chose to pick one themselves.
 	StopResumeChoice = "resume_choice"
+)
+
+// How a job is unavailable (StopInfo.Kind with StopJobUnavailable), in the model's judgment.
+const (
+	// UnavailableExpired: the posting is closed or filled, or the link led to a careers home page or a search.
+	UnavailableExpired = "expired"
+	// UnavailableNoOnlineApply: applications are taken only by email, phone, post or in person.
+	UnavailableNoOnlineApply = "no_online_apply"
+	// UnavailableNotAJob: the page is not a job posting or an application at all.
+	UnavailableNotAJob = "not_a_job"
+)
+
+// What a click the model marks does beyond the click (Action.Commit): it goes on to another page of the
+// form, or it sends the application to the employer. The model judges which from the screen; a run asked
+// to stop before sending holds back every CommitSend (sendgate.go).
+const (
+	CommitNext = "next"
+	CommitSend = "send"
 )
 
 // The answers to the question the agent asks when it cannot choose a résumé.
@@ -87,9 +110,11 @@ type Ask struct {
 }
 
 // StopInfo says, for the person, why the run ended without being done: Reason is one of the
-// Stop* values, Problem what the page needs or what went wrong, Action what to do about it.
+// Stop* values, Problem what the page needs or what went wrong, Action what to do about it. Kind is
+// set with StopJobUnavailable only: one of the Unavailable* values.
 type StopInfo struct {
 	Reason  string `json:"reason"`
+	Kind    string `json:"kind,omitempty"`
 	Problem string `json:"problem"`
 	Action  string `json:"action"`
 }
@@ -324,9 +349,11 @@ type Action struct {
 	// Label is what the model called the control at the point, as the page names it. It stays on
 	// the agent: the point is checked against it before the action is carried out.
 	Label string `json:"-"`
-	// Commit is that the model named this click as the one that sends the page or goes on to the next.
-	// It stays on the agent: the click is held back when part of the plan could not be carried out.
-	Commit bool `json:"-"`
+	// Commit is what the model said this click does beyond the click: CommitNext goes on to another page
+	// of the form, CommitSend sends the application to the employer; "" is an ordinary click. It stays on
+	// the agent: either is held back when part of the plan could not be carried out (pointcheck.go), and
+	// a run asked to stop before sending never sends a CommitSend (sendgate.go).
+	Commit string `json:"-"`
 	// Check is what the screen should show once this action has run, as the model expected.
 	// It stays on the agent: the extension never sees it.
 	Check string `json:"-"`
@@ -340,6 +367,10 @@ type Step struct {
 	Message string `json:"message"`
 	// Stop says why the run ended, when it ended as need_person or stuck.
 	Stop *StopInfo `json:"stop,omitempty"`
+	// ReadyToSubmit is set on the done step of a run asked to stop before sending (Start.StopBeforeSubmit,
+	// or the server's own switch): every field is filled and the control that sends the application was
+	// not pressed. A done step without it is an application the page confirmed as sent.
+	ReadyToSubmit bool `json:"readyToSubmit,omitempty"`
 	// Ask is the question the run waits on, when Status is StatusAsk.
 	Ask *Ask `json:"ask,omitempty"`
 	// Survey asks the extension to make its next look a survey of the whole page.

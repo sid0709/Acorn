@@ -26,6 +26,9 @@ type fakeScreen struct {
 	fileSure float64
 	// formReady is the probability returned for the navigation form-ready question; nil means sure (1.0).
 	formReady *float64
+	// unavailable is the probability returned, in the same decision, that the page shows the job cannot be
+	// applied to online; nil gives no answer to that question.
+	unavailable *float64
 	// options are the answers to the next option questions about an open dropdown, in order;
 	// once they run out the answer is none.
 	options []optionVerdict
@@ -229,9 +232,13 @@ func (f *fakeScreen) Decide(_ context.Context, req decide.Request) (decide.Respo
 			p = *f.formReady
 		}
 		noul := func(prob float64) decide.Answer { return decide.Answer{Type: decide.TypeNoul, Noul: &prob} }
+		answers := map[string]decide.Answer{askFormReady: noul(p)}
+		if f.unavailable != nil {
+			answers[askUnavailable] = noul(*f.unavailable)
+		}
 		return decide.Response{
 			Model:   "fake-screen-1",
-			Answers: map[string]decide.Answer{askFormReady: noul(p)},
+			Answers: answers,
 			Usage:   decide.Usage{InputTokens: 800, Cost: 0.0001},
 			Latency: 5 * time.Millisecond,
 		}, nil

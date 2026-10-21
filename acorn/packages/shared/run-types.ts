@@ -63,6 +63,8 @@ export const RUN_FAILURE_REASON = {
   noForwardControl: "no_forward_control",
   /** The AI could not answer (no key, no credits, rate limit, provider down): see RunFailure.code. */
   aiUnavailable: "ai_unavailable",
+  /** The page shows there is no online application to make for this job (agentStop.kind says how). */
+  jobUnavailable: "job_unavailable",
 } as const;
 
 /** Why a run could not finish, in the decision model's words (mirrors the backend's reasons). */
@@ -77,9 +79,9 @@ export interface RunFailure {
   /**
    * Set when the agent ended the run itself: why (an AGENT_STOP_REASON), what the page
    * needs or what went wrong, and what the person should do. The sidebar shows it as a
-   * "needs you" or "couldn't finish" notice.
+   * "needs you" or "couldn't finish" notice. `kind` comes with `job_unavailable` only.
    */
-  agentStop?: { reason: string; problem: string; action: string };
+  agentStop?: { reason: string; kind?: string; problem: string; action: string };
 }
 
 export interface RunReport {

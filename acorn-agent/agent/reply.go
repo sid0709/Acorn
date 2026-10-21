@@ -33,7 +33,7 @@ type modelAction struct {
 	Resume *string  `json:"resume"`
 	Check  *string  `json:"check"`
 	Label  *string  `json:"label"`
-	Commit *bool    `json:"commit"`
+	Commit *string  `json:"commit"`
 }
 
 // parseReply reads the model's JSON answer. It reads the first JSON object and ignores what
@@ -95,10 +95,23 @@ func checkActions(step int, raw []modelAction, vp Viewport, maxActions int, scre
 		if in.Label != nil {
 			action.Label = clipText(strings.TrimSpace(*in.Label), maxLabelChars)
 		}
-		action.Commit = in.Commit != nil && *in.Commit && isClick(in.Kind)
+		action.Commit = commitOf(in)
 		valid = append(valid, action)
 	}
 	return valid, dropped
+}
+
+// commitOf is what the model said a click does beyond the click: CommitNext or CommitSend, or "" when it
+// said nothing, said something else, or the action is not a click (a hover goes nowhere).
+func commitOf(in modelAction) string {
+	if in.Commit == nil || !isClick(in.Kind) {
+		return ""
+	}
+	switch commit := strings.TrimSpace(*in.Commit); commit {
+	case CommitNext, CommitSend:
+		return commit
+	}
+	return ""
 }
 
 // isClick is whether a kind of action is a press of the mouse button.

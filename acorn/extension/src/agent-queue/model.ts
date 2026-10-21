@@ -9,7 +9,15 @@ export const QUEUE_ITEM = {
   running: "running",
   /** The Run could not go on without the person (or was stopped); Continue takes it back up. */
   blocked: "blocked",
+  /** The application was sent. */
   done: "done",
+  /**
+   * The Run stopped at the control that sends the application without pressing it: the person reviews
+   * and sends it themselves, so its tab stays open. Finished, as far as the queue goes.
+   */
+  ready: "ready",
+  /** The page showed there is no online application to make for this job; `note` says how. Finished. */
+  unavailable: "unavailable",
   skipped: "skipped",
 } as const;
 export type QueueItemStatus = (typeof QUEUE_ITEM)[keyof typeof QUEUE_ITEM];
@@ -50,7 +58,12 @@ export interface QueueState {
 export const EMPTY_QUEUE: QueueState = { mode: QUEUE_MODE.idle, items: [], closeDone: true };
 
 /** Statuses that count as finished: they leave the line and can be cleared. */
-const FINISHED: ReadonlySet<QueueItemStatus> = new Set([QUEUE_ITEM.done, QUEUE_ITEM.skipped]);
+const FINISHED: ReadonlySet<QueueItemStatus> = new Set([
+  QUEUE_ITEM.done,
+  QUEUE_ITEM.ready,
+  QUEUE_ITEM.unavailable,
+  QUEUE_ITEM.skipped,
+]);
 
 /** Statuses with a Run (or its tab) in flight. */
 const IN_FLIGHT: ReadonlySet<QueueItemStatus> = new Set([QUEUE_ITEM.opening, QUEUE_ITEM.running]);
@@ -110,11 +123,16 @@ export function clearFinished(state: QueueState): QueueState {
 export interface QueueTally {
   total: number;
   queued: number;
+  /** Applications sent. */
   done: number;
+  /** Runs that stopped at the control that sends, for the person to review and send. */
+  ready: number;
+  /** Jobs that could not be applied to online. */
+  unavailable: number;
   skipped: number;
   blocked: number;
   inFlight: number;
-  /** Jobs that still have to be worked on: not done and not skipped. */
+  /** Jobs that still have to be worked on: not finished (sent, ready, unavailable or skipped). */
   open: number;
 }
 
@@ -122,15 +140,19 @@ export function tally(state: QueueState): QueueTally {
   const count = (status: QueueItemStatus) =>
     state.items.filter((item) => item.status === status).length;
   const done = count(QUEUE_ITEM.done);
+  const ready = count(QUEUE_ITEM.ready);
+  const unavailable = count(QUEUE_ITEM.unavailable);
   const skipped = count(QUEUE_ITEM.skipped);
   return {
     total: state.items.length,
     queued: count(QUEUE_ITEM.queued),
     done,
+    ready,
+    unavailable,
     skipped,
     blocked: count(QUEUE_ITEM.blocked),
     inFlight: state.items.filter(isInFlight).length,
-    open: state.items.length - done - skipped,
+    open: state.items.length - done - ready - unavailable - skipped,
   };
 }
 

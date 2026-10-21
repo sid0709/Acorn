@@ -5,6 +5,7 @@ import (
 	"context"
 	"encoding/base64"
 	"encoding/json"
+	"fmt"
 	"image"
 	"image/jpeg"
 	"net/http"
@@ -340,6 +341,19 @@ func TestThePreflightAllowsTheAuthorizationHeaderForTheExtension(t *testing.T) {
 	response, _ := send(t, http.MethodOptions, ts.URL+BasePath+"/sessions", nil, map[string]string{"Origin": "chrome-extension://abc"})
 	if allowed := response.Header.Get("Access-Control-Allow-Headers"); !strings.Contains(allowed, "Authorization") {
 		t.Fatalf("allowed headers = %q", allowed)
+	}
+}
+
+func TestHealthSaysWhetherEveryRunStopsBeforeSending(t *testing.T) {
+	a := agent.New(agent.DefaultConfig(), &tokenSource{},
+		func(string) llm.Model { return fakeModel{} }, func(string) agent.Decider { return noDecider{} }, nil)
+	for _, on := range []bool{false, true} {
+		ts := httptest.NewServer(New(a, Options{StopBeforeSubmit: on}).Handler())
+		_, body := send(t, http.MethodGet, ts.URL+BasePath+"/health", nil, nil)
+		ts.Close()
+		if want := fmt.Sprintf(`"stopBeforeSubmit":%v`, on); !strings.Contains(string(body), want) {
+			t.Fatalf("health = %s, want %s", body, want)
+		}
 	}
 }
 

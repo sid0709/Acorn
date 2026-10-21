@@ -8,6 +8,8 @@ import {
   QUEUE_MODE,
   clearFinished,
   enqueue,
+  isFinished,
+  isInFlight,
   nextItem,
   patchItem,
   queueFromStored,
@@ -56,24 +58,61 @@ describe("the queue", () => {
     assert.equal(enqueue(state, ["https://b.example.com"], 1, newId).added, 0);
   });
 
-  it("tallies what is open: everything not sent and not skipped", () => {
+  it("tallies what is open: everything not sent, ready, unavailable or skipped", () => {
     let state = queueOf([
       "https://a.example.com/1",
       "https://a.example.com/2",
       "https://a.example.com/3",
+      "https://a.example.com/4",
+      "https://a.example.com/5",
     ]);
     state = patchItem(state, state.items[0].id, { status: QUEUE_ITEM.done });
     state = patchItem(state, state.items[1].id, { status: QUEUE_ITEM.skipped });
+    state = patchItem(state, state.items[2].id, { status: QUEUE_ITEM.ready, tabId: 9 });
+    state = patchItem(state, state.items[3].id, { status: QUEUE_ITEM.unavailable });
     assert.deepEqual(tally(state), {
-      total: 3,
+      total: 5,
       queued: 1,
       done: 1,
+      ready: 1,
+      unavailable: 1,
       skipped: 1,
       blocked: 0,
       inFlight: 0,
       open: 1,
     });
     assert.equal(clearFinished(state).items.length, 1);
+  });
+
+  it("moves on past a job that is ready to submit or unavailable, as past a sent one", () => {
+    let state = queueOf(["https://a.example.com/1", "https://a.example.com/2"]);
+    state = patchItem(state, state.items[0].id, { status: QUEUE_ITEM.ready, tabId: 3 });
+    assert.equal(nextItem(state)?.url, "https://a.example.com/2");
+    state = patchItem(state, state.items[1].id, { status: QUEUE_ITEM.unavailable });
+    assert.equal(nextItem(state), undefined);
+    assert.ok(state.items.every(isFinished));
+    assert.ok(!state.items.some(isInFlight));
+  });
+
+  it("reads a stored ready or unavailable job back", () => {
+    const state = queueFromStored({
+      mode: "idle",
+      items: [
+        {
+          id: "1",
+          url: "https://a.example.com",
+          status: "ready",
+          addedAt: 1,
+          attempts: 1,
+          tabId: 4,
+        },
+        { id: "2", url: "https://b.example.com", status: "unavailable", addedAt: 1, attempts: 1 },
+      ],
+    });
+    assert.deepEqual(
+      state.items.map((item) => item.status),
+      [QUEUE_ITEM.ready, QUEUE_ITEM.unavailable],
+    );
   });
 });
 

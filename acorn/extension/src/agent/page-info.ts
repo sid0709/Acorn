@@ -144,7 +144,15 @@ async function deeperText(cdp: Cdp, have: string): Promise<string> {
       if (text.length < 3 || have.includes(text)) continue;
       let hidden = false;
       let beyondScript = false;
-      for (let up = nodes.get(node.parentId ?? -1), depth = 0; up && depth < 40; depth += 1) {
+      let parentId = node.parentId;
+      for (let depth = 0; parentId != null && depth < 40; depth += 1) {
+        const up = nodes.get(parentId);
+        if (!up) {
+          // A parent this view does not list is a shadow root: Chrome 154 lists the nodes inside a
+          // closed root but not the root itself, so the chain ends here, beyond what a script reads.
+          beyondScript = true;
+          break;
+        }
         if (FLAT_SKIP.has(up.nodeName)) {
           hidden = true;
           break;
@@ -152,7 +160,7 @@ async function deeperText(cdp: Cdp, have: string): Promise<string> {
         if (up.shadowRootType === "closed" || (up.nodeType === 9 && up.parentId != null)) {
           beyondScript = true;
         }
-        up = nodes.get(up.parentId ?? -1);
+        parentId = up.parentId;
       }
       if (hidden || !beyondScript) continue;
       extra.push(text);

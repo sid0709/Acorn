@@ -115,10 +115,15 @@ func TestTheSchemaGivesEveryPointALabelInASurvey(t *testing.T) {
 	}
 }
 
-// committing is a click the model named as the one that sends the page.
+// committing is a click the model named as the one that sends the application.
 func committing(screen int, x, y float64, label string) map[string]any {
+	return commitClick(screen, x, y, label, CommitSend)
+}
+
+// commitClick is a click the model marked with what it does beyond the click: CommitNext or CommitSend.
+func commitClick(screen int, x, y float64, label, commit string) map[string]any {
 	action := labelled(screen, x, y, label)
-	action["commit"] = true
+	action["commit"] = commit
 	return action
 }
 
@@ -175,21 +180,64 @@ func TestTheClickThatSendsThePageIsHeldBackWhenAnActionWasInvalid(t *testing.T) 
 	a := newAgentWithScreen(t, model, &fixedDecider{}, &fakeScreen{}, DefaultConfig())
 	step := stepOK(t, a, startFast(t, a, true), surveyObservation(t))
 	for _, action := range step.Actions {
-		if action.Commit || (action.Kind == KindClick && action.ScrollTo != nil && *action.ScrollTo == 1360) {
+		if action.Commit != "" || (action.Kind == KindClick && action.ScrollTo != nil && *action.ScrollTo == 1360) {
 			t.Fatalf("the click that sends the page went with a plan that lost an action: %s", kinds(step.Actions))
 		}
 	}
 }
 
 func TestOnlyAClickCanBeTheOneThatSendsThePage(t *testing.T) {
-	yes := true
 	valid, _ := checkActions(1, []modelAction{
-		{Kind: KindClick, X: ptr(10.0), Y: ptr(10.0), Commit: &yes},
-		{Kind: KindHover, X: ptr(10.0), Y: ptr(10.0), Commit: &yes},
+		{Kind: KindClick, X: ptr(10.0), Y: ptr(10.0), Commit: ptr(CommitSend)},
+		{Kind: KindHover, X: ptr(10.0), Y: ptr(10.0), Commit: ptr(CommitSend)},
 		{Kind: KindClick, X: ptr(10.0), Y: ptr(10.0)},
 	}, Viewport{Width: 1280, Height: 800}, 10, nil)
-	if len(valid) != 3 || !valid[0].Commit || valid[1].Commit || valid[2].Commit {
-		t.Fatalf("commit flags = %v %v %v, want only the click that was named", valid[0].Commit, valid[1].Commit, valid[2].Commit)
+	if len(valid) != 3 || valid[0].Commit != CommitSend || valid[1].Commit != "" || valid[2].Commit != "" {
+		t.Fatalf("commit flags = %q %q %q, want only the click that was named", valid[0].Commit, valid[1].Commit, valid[2].Commit)
+	}
+}
+
+func TestACommitIsNextOrSendAndAnythingElseIsAPlainClick(t *testing.T) {
+	valid, _ := checkActions(1, []modelAction{
+		{Kind: KindClick, X: ptr(10.0), Y: ptr(10.0), Commit: ptr(CommitNext)},
+		{Kind: KindClick, X: ptr(10.0), Y: ptr(10.0), Commit: ptr(" send ")},
+		{Kind: KindDoubleClick, X: ptr(10.0), Y: ptr(10.0), Commit: ptr("true")},
+		{Kind: KindClick, X: ptr(10.0), Y: ptr(10.0), Commit: ptr("")},
+	}, Viewport{Width: 1280, Height: 800}, 10, nil)
+	got := []string{valid[0].Commit, valid[1].Commit, valid[2].Commit, valid[3].Commit}
+	if want := []string{CommitNext, CommitSend, "", ""}; strings.Join(got, ",") != strings.Join(want, ",") {
+		t.Fatalf("commits = %q, want %q", got, want)
+	}
+}
+
+func TestTheSchemaOffersCommitOnAClickInEveryMode(t *testing.T) {
+	for _, survey := range []bool{false, true} {
+		schema := string(replySchemaFor(survey, true))
+		if !strings.Contains(schema, `"commit": {"anyOf": [{"type": "null"}, {"type": "string", "enum": ["next", "send"]}]}`) {
+			t.Fatalf("survey=%v: the click shape does not offer next/send:\n%s", survey, schema)
+		}
+		if n := strings.Count(schema, `"commit": {`); n != 1 {
+			t.Fatalf("survey=%v: commit is defined %d times, want once (the click shape only)", survey, n)
+		}
+	}
+}
+
+func TestAClickThatGoesOnToTheNextPageIsHeldBackLikeASendWhenThePlanLostAPart(t *testing.T) {
+	reply := plan("filling", nil,
+		labelled(1, 100, 100, "First Name"), typeAction("Ada", nil),
+		labelled(1, 100, 200, "Sponsorship"), typeAction("No", nil),
+		commitClick(3, 900, 700, "Save and continue", CommitNext),
+	)
+	model := &scriptedModel{replies: []string{reply}}
+	a := newAgentWithScreen(t, model, &fixedDecider{}, &fakeScreen{wrongPoints: []string{"Sponsorship"}}, DefaultConfig())
+	step := stepOK(t, a, startFast(t, a, true), surveyObservation(t))
+	for _, action := range step.Actions {
+		if action.Commit != "" {
+			t.Fatalf("the click that goes on to the next page went with a plan that lost an action: %s", kinds(step.Actions))
+		}
+	}
+	if !strings.Contains(strings.Join(step.Dropped, " "), "held back") {
+		t.Fatalf("dropped = %v", step.Dropped)
 	}
 }
 

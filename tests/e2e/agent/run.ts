@@ -10,9 +10,11 @@ import { mkdtemp, mkdir, readdir, readFile, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
-import puppeteer, { TargetType, type Page } from "puppeteer";
+import { type Page } from "puppeteer";
 
 import { jpegSize } from "../../../acorn/extension/src/agent/capture";
+import { QUEUE_ACTION } from "../../../acorn/extension/src/agent-queue/actions";
+import { AGENT_QUEUE_STORAGE_KEY } from "../../../acorn/extension/src/agent-queue/store";
 import { MSG } from "../../../acorn/extension/src/types";
 
 import {
@@ -24,6 +26,7 @@ import {
   requests,
   startFakeDecisions,
   startFakeModel,
+  commit,
   typeInto,
   upload,
   type Point,
@@ -31,25 +34,25 @@ import {
   type Survey,
   type Script,
 } from "./fake-model";
+import {
+  agentHealth,
+  buildAgent,
+  buildExtension,
+  freePort,
+  launchChrome,
+  openControlPage,
+  pause,
+  startAgent,
+  type AgentProcess,
+} from "./harness";
 import { startAgentSite, startFrameSite } from "./site";
-
-const AGENT_DIR = join(import.meta.dir, "../../../acorn-agent");
-const EXTENSION_SRC = join(import.meta.dir, "../../../acorn/extension");
-
-/** A port nothing is listening on, found by asking the system for one. */
-function freePort(): number {
-  const probe = Bun.serve({ port: 0, hostname: "127.0.0.1", fetch: () => new Response("") });
-  const port = probe.port ?? 0;
-  void probe.stop(true);
-  return port;
-}
 
 // The test brings its own agent server and its own build of the extension that talks to it,
 // so it never touches a server you are running or the extension you have loaded.
 const AGENT_URL = `http://127.0.0.1:${freePort()}`;
-const VIEWPORT = { width: 1280, height: 800 };
 const RUN_TIMEOUT_MS = 90_000;
-const pause = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
+/** How long the queue gets to work through its jobs in the Agent Mode test. */
+const QUEUE_TIMEOUT_MS = 120_000;
 
 const failures: string[] = [];
 function check(passed: boolean, what: string, detail?: unknown) {
@@ -62,18 +65,7 @@ function check(passed: boolean, what: string, detail?: unknown) {
 // ── The applicant ────────────────────────────────────────────────────────────────────
 const dataDir = await mkdtemp(join(tmpdir(), "acorn-agent-e2e-data-"));
 const traceDir = await mkdtemp(join(tmpdir(), "acorn-agent-e2e-trace-"));
-const extensionDir = await mkdtemp(join(tmpdir(), "acorn-agent-e2e-extension-"));
-const extensionBuild = Bun.spawnSync(
-  ["bunx", "vite", "build", "--outDir", extensionDir, "--emptyOutDir"],
-  {
-    cwd: EXTENSION_SRC,
-    env: { ...process.env, VITE_ACORN_AGENT_URL: AGENT_URL },
-    stderr: "pipe",
-    stdout: "pipe",
-  },
-);
-if (extensionBuild.exitCode !== 0)
-  throw new Error(`extension build failed: ${extensionBuild.stderr.toString()}`);
+const extensionDir = await buildExtension(AGENT_URL);
 await mkdir(join(dataDir, "resumes", "Backend"), { recursive: true });
 await writeFile(
   join(dataDir, "profile.json"),
@@ -97,60 +89,28 @@ const model = startFakeModel(
 
 let verdict = { matches: 0.98, blocked: 0.01, loading: 0.01 };
 const decisions = startFakeDecisions(() => verdict);
-/** The screen checker's requests (a state of parts and a screenshot); Jev's questions about controls and pages are not them. */
-const screenRequests = () => decisionRequests.filter((r) => Array.isArray(r.state));
+/**
+ * The screen checker's requests about a plan's run (a state of parts and a screenshot, asking whether the
+ * screen matches); Jev's questions about controls and pages, and the done gate's question, are not them.
+ */
+const screenRequests = () =>
+  decisionRequests.filter((r) => Array.isArray(r.state) && "matches" in r.questions);
 
 const binary = join(dataDir, "agent");
-const build = Bun.spawnSync(["go", "build", "-o", binary, "./cmd/agent"], {
-  cwd: AGENT_DIR,
-  stderr: "pipe",
-});
-if (build.exitCode !== 0) throw new Error(`go build failed: ${build.stderr.toString()}`);
-const agent = Bun.spawn([binary], {
-  cwd: dataDir,
-  env: {
-    ...process.env,
-    HTTP_ADDR: new URL(AGENT_URL).host,
-    OPENROUTER_API_KEY: "e2e-not-a-real-key",
-    OPENROUTER_BASE_URL: `http://127.0.0.1:${model.port}`,
-    ACORN_AGENT_DECISIONS_URL: `http://127.0.0.1:${decisions.port}/`,
-    DEFAULT_FALLBACK_RESUME: "Backend",
-    ACORN_AGENT_DATA_DIR: dataDir,
-    ACORN_AGENT_TRACE_DIR: traceDir,
-    ACORN_AGENT_REASONING: "none",
-  },
-  stdout: "pipe",
-  stderr: "pipe",
-});
+buildAgent(binary);
+/** The environment the agent is started with; a test may restart it with a switch added. */
+const agentEnv = {
+  OPENROUTER_API_KEY: "e2e-not-a-real-key",
+  OPENROUTER_BASE_URL: `http://127.0.0.1:${model.port}`,
+  ACORN_AGENT_DECISIONS_URL: `http://127.0.0.1:${decisions.port}/`,
+  DEFAULT_FALLBACK_RESUME: "Backend",
+  ACORN_AGENT_DATA_DIR: dataDir,
+  ACORN_AGENT_TRACE_DIR: traceDir,
+  ACORN_AGENT_REASONING: "none",
+};
+let agent: AgentProcess = await startAgent(binary, AGENT_URL, agentEnv, dataDir);
 
-async function waitForAgent() {
-  for (let i = 0; i < 50; i += 1) {
-    if (agent.exitCode !== null) throw new Error("the agent server stopped at start");
-    try {
-      if ((await fetch(`${AGENT_URL}/agent/v1/health`)).ok) return;
-    } catch {
-      /* not up yet */
-    }
-    await pause(100);
-  }
-  throw new Error("the agent server did not start");
-}
-
-const browser = await puppeteer.launch({
-  headless: true,
-  // The window itself is the size of the page, as it is for a person: an emulated size
-  // would give the page one size and the agent's own screenshot another.
-  args: [
-    `--disable-extensions-except=${extensionDir}`,
-    `--load-extension=${extensionDir}`,
-    `--window-size=${VIEWPORT.width},${VIEWPORT.height}`,
-    // A Retina screen: two device pixels to a CSS pixel, as on the machine the agent runs on.
-    // A screenshot taken at the page's own size would then come out twice as large as the
-    // viewport it is reported with.
-    "--force-device-scale-factor=2",
-  ],
-  defaultViewport: null,
-});
+const browser = await launchChrome(extensionDir, true);
 
 type Progress = {
   phase: string;
@@ -165,13 +125,22 @@ type Progress = {
       failure?: {
         reason: string;
         label: string;
-        agentStop?: { reason: string; problem: string; action: string };
+        agentStop?: { reason: string; kind?: string; problem: string; action: string };
       };
     };
   };
 };
 
+/** A job of the Agent tab's queue, as it is kept in storage. */
+type QueueJob = { url: string; status: string; note?: string; tabId?: number };
+type QueueStored = { mode: string; items: QueueJob[] };
+
 let formPage: Page | null = null;
+/** Closes the form tab a test opened, so a tab the queue opens is the only one at its address. */
+async function closeForm(): Promise<void> {
+  await formPage?.close();
+  formPage = null;
+}
 async function newForm(query = ""): Promise<{ page: Page; tabId: number }> {
   // One form tab at a time, so the extension's lookup by address finds the right one.
   await formPage?.close();
@@ -193,6 +162,17 @@ async function newForm(query = ""): Promise<{ page: Page; tabId: number }> {
     agree: await at("#agree"),
     upload: await at("#upload"),
     submit: await at("#submit"),
+    // The review page's Submit sits where the form is now; it is measured as the page will show it.
+    send: await page.evaluate(() => {
+      const form = document.getElementById("form")!;
+      const review = document.getElementById("review")!;
+      form.hidden = true;
+      review.hidden = false;
+      const r = document.getElementById("send")!.getBoundingClientRect();
+      form.hidden = false;
+      review.hidden = true;
+      return { x: Math.round(r.x + r.width / 2), y: Math.round(r.y + r.height / 2) };
+    }),
   };
   const tabId = await control.evaluate(async (url) => {
     const [tab] = await chrome.tabs.query({ url: `${url}*` });
@@ -269,7 +249,9 @@ async function run(
       clearInterval(watcher);
       return seen;
     }
-    if (hook && seen.length >= 3) {
+    // The hook runs once the run is under way: a few progress messages in, or as soon as it waits on
+    // the person (a run that asks at its first step sends fewer messages before it stops to wait).
+    if (hook && (seen.length >= 3 || last?.run?.ask)) {
       const once = hook;
       hook = undefined;
       await once();
@@ -282,13 +264,7 @@ async function run(
 
 let control!: Page;
 try {
-  await waitForAgent();
-  const worker = await browser.waitForTarget(
-    (t) => t.type() === TargetType.SERVICE_WORKER && t.url().startsWith("chrome-extension://"),
-  );
-  const extensionId = new URL(worker.url()).host;
-  control = await browser.newPage();
-  await control.goto(`chrome-extension://${extensionId}/sidebar.html`);
+  control = (await openControlPage(browser)).control;
 
   // 1. A whole application, from the first click to the confirmation.
   script = (step, at) => {
@@ -499,8 +475,10 @@ try {
     "the model was called for the plan and the last look, not for every run",
     requests.length - modelCallsBefore,
   );
+  // The two typed fields before the upload share one check (19.4a); the upload and the last click are
+  // checked on their own, so the plan runs in three parts with two checks between them.
   check(
-    screenRequests().length === 3,
+    screenRequests().length === 2,
     "each checked run was checked once",
     screenRequests().length,
   );
@@ -516,7 +494,7 @@ try {
     ? (lastLook.find((p) => p.type === "text")?.text ?? "")
     : String(lastLook);
   check(
-    lastLookText.includes("ran in 4 parts") && /- s1a9 done/.test(lastLookText),
+    lastLookText.includes("ran in 3 parts") && /- s1a9 done/.test(lastLookText),
     "the model's last look says how its plan went",
     lastLookText,
   );
@@ -875,6 +853,197 @@ try {
     (await second2.page.$eval("#name", (el) => (el as HTMLInputElement).value)) === "Ada",
     "Stop leaves the page as it was",
   );
+
+  // 4. Stop before Submit, from the server's own switch: the agent is restarted with
+  // ACORN_AGENT_STOP_BEFORE_SUBMIT=true, as the live runner starts it. The form's button goes on to a
+  // review page (a "next" click, made as usual); the review page's Submit is the "send", which is never
+  // clicked though the model plans it, and the run ends ready to submit with nothing sent.
+  agent.kill();
+  await agent.exited;
+  agent = await startAgent(
+    binary,
+    AGENT_URL,
+    { ...agentEnv, ACORN_AGENT_STOP_BEFORE_SUBMIT: "true" },
+    dataDir,
+  );
+  check(
+    (await agentHealth(AGENT_URL)).stopBeforeSubmit === true,
+    "the health route says every run stops before the application is sent",
+  );
+  const fillThenSend: Script = (step, at) => {
+    switch (step) {
+      case 1:
+        return answer({
+          status: "working",
+          message: "Filling the form",
+          actions: [
+            click(at.name),
+            typeInto("Ada Lovelace"),
+            click(at.email),
+            typeInto("ada@example.com"),
+            click(at.auth),
+            typeInto("Yes"),
+            click(at.agree),
+            upload(at.upload),
+          ],
+        });
+      case 2:
+        return answer({
+          status: "working",
+          message: "Saving and going on to the review page",
+          actions: [commit(at.submit, "next")],
+        });
+      case 3:
+        return answer({
+          status: "working",
+          message: "Sending the application",
+          actions: [commit(at.send as Point, "send")],
+        });
+      default:
+        return answer({ status: "done", message: "The application was received" });
+    }
+  };
+  script = fillThenSend;
+  const beforeReady = requests.length;
+  const reviewing = await newForm("?review=1&jd=1");
+  const readyRun = await run(reviewing.tabId);
+  const readyEnd = readyRun.at(-1);
+  check(
+    readyEnd?.run?.report?.outcome === "ready_to_submit",
+    "with stop before submit on, the run ends ready to submit",
+    readyEnd,
+  );
+  const reviewShown = await reviewing.page.evaluate(
+    () => (window as unknown as { __reviewing?: boolean }).__reviewing === true,
+  );
+  check(
+    reviewShown && (await received(reviewing.page)) === null,
+    "the Next click was made (the review page is shown) and Submit was never pressed: nothing was sent",
+    { reviewShown, received: await received(reviewing.page) },
+  );
+  check(
+    requests.length - beforeReady === 3,
+    "the run ended at the planned Submit, with no further model call",
+    requests.length - beforeReady,
+  );
+  const readySessions = (await readdir(traceDir)).sort(
+    (a, b) =>
+      Bun.file(join(traceDir, b, "timeline.txt")).lastModified -
+      Bun.file(join(traceDir, a, "timeline.txt")).lastModified,
+  );
+  const readyFolder = join(traceDir, readySessions[0]);
+  const readyEntries = (await readdir(readyFolder)).filter((f) => /^\d{3}\.json$/.test(f)).sort();
+  const lastEntry = JSON.parse(await readFile(join(readyFolder, readyEntries.at(-1)!), "utf8")) as {
+    status: string;
+    readyToSubmit?: boolean;
+    dropped?: string[];
+  };
+  const timeline = await readFile(join(readyFolder, "timeline.txt"), "utf8");
+  check(
+    lastEntry.status === "done" &&
+      lastEntry.readyToSubmit === true &&
+      (lastEntry.dropped ?? []).some((d) => d.includes("stops before sending")) &&
+      timeline.includes("done:ready"),
+    "the trace tells a ready run from a sent one and says the send was held back",
+    { last: lastEntry, timeline: timeline.split("\n").at(-2) },
+  );
+
+  // 5. Agent Mode: the queue with a job nobody can apply to first, then a real form. The expired page
+  // ends with job_unavailable at the model's first look, the queue does not pause for it, goes on to the
+  // form, and that job ends ready to submit; the queue is idle with both finished.
+  await closeForm();
+  const expiredUrl = `${siteUrl}expired`;
+  const formUrl = `${siteUrl}?review=1&jd=1`;
+  const beforeQueue = requests.length;
+  script = (step, at, survey, look) => {
+    if (look?.url.includes("/expired")) {
+      return answer({
+        status: "stuck",
+        message: "This job is closed",
+        stop: {
+          reason: "job_unavailable",
+          kind: "expired",
+          problem: "The posting says this position has been filled.",
+          action: "Try another job.",
+        },
+      });
+    }
+    return fillThenSend(step, at, survey, look);
+  };
+  const queueReply = (await control.evaluate(
+    (type, action, text) => chrome.runtime.sendMessage({ type, action, text }),
+    MSG.AGENT_QUEUE,
+    QUEUE_ACTION.add,
+    `${expiredUrl}\n${formUrl}`,
+  )) as { added?: number };
+  check(queueReply.added === 2, "both links are queued", queueReply);
+  await control.evaluate(
+    (type, action) => chrome.runtime.sendMessage({ type, action }),
+    MSG.AGENT_QUEUE,
+    QUEUE_ACTION.start,
+  );
+  const readQueue = () =>
+    control.evaluate(
+      async (key) =>
+        ((await chrome.storage.local.get(key))[key] ?? { mode: "idle", items: [] }) as QueueStored,
+      AGENT_QUEUE_STORAGE_KEY,
+    );
+  const queueStarted = Date.now();
+  let queue = await readQueue();
+  let pausedSeen = false;
+  while (
+    queue.mode !== "idle" ||
+    queue.items.some((item) => !["ready", "done", "unavailable", "skipped"].includes(item.status))
+  ) {
+    if (queue.mode === "paused") pausedSeen = true;
+    if (Date.now() - queueStarted > QUEUE_TIMEOUT_MS) break;
+    await pause(250);
+    queue = await readQueue();
+  }
+  const expiredJob = queue.items.find((item) => item.url === expiredUrl);
+  const formJob = queue.items.find((item) => item.url === formUrl);
+  check(
+    expiredJob?.status === "unavailable" && (expiredJob.note ?? "").includes("no longer open"),
+    "the expired job ends as unavailable, with the reason in the person's words",
+    expiredJob,
+  );
+  check(
+    !pausedSeen && formJob?.status === "ready" && queue.mode === "idle",
+    "the queue moves on past the unavailable job without pausing, and the next job ends ready to submit",
+    { pausedSeen, formJob, mode: queue.mode },
+  );
+  check(
+    formJob?.tabId != null &&
+      (await control.evaluate(
+        (id) =>
+          chrome.tabs.get(id).then(
+            () => true,
+            () => false,
+          ),
+        formJob?.tabId ?? -1,
+      )),
+    "a job ready to submit keeps its tab open for the person to review and send",
+    formJob,
+  );
+  const expiredLooks = requests.slice(beforeQueue).filter((r) => {
+    const last = r.messages.at(-1)?.content;
+    const text = Array.isArray(last)
+      ? (last.find((p) => p.type === "text")?.text ?? "")
+      : String(last);
+    return text.includes("/expired");
+  });
+  check(
+    expiredLooks.length === 1,
+    "the expired page costs one model call: the stop is not sent back to finish the page",
+    expiredLooks.length,
+  );
+  const formSent = await (async () => {
+    for (const page of await browser.pages()) {
+      if (page.url() === formUrl) return received(page);
+    }
+    return "no page";
+  })();
+  check(formSent === null, "the queued form was not sent either", formSent);
 
   // 3. The agent not running is said plainly.
   agent.kill();

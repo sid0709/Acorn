@@ -77,7 +77,7 @@ type fieldHold struct {
 // the page had then: a control that appears once that click went through is the applicant's to fill.
 func (s *session) noteCommitPlanned(planned []Action, obs Observation) {
 	for _, action := range planned {
-		if !action.Commit {
+		if action.Commit == "" {
 			continue
 		}
 		controls := make(map[string]bool, len(obs.Marks))
@@ -263,6 +263,12 @@ func captchaHoldNote(sure float64) string {
 // calls made to judge it, if any were.
 func (a *Agent) holdStop(ctx context.Context, s *session, status string, answer reply, obs Observation) (string, bool, []modelCall) {
 	if a.cfg.StopPasses <= 0 || (status != StatusNeedPerson && status != StatusStuck) {
+		return "", false, nil
+	}
+	// A job that cannot be applied to has nothing on its page for the run to finish: the stop ends the run
+	// at once, so a queue of jobs goes on to the next (sendgate.go says how the model is told to judge it).
+	if answer.Stop != nil && strings.TrimSpace(answer.Stop.Reason) == StopJobUnavailable {
+		slog.Info(runName(s.id) + ": the stop stands at once: the model reports the job cannot be applied to online.")
 		return "", false, nil
 	}
 	if s.nothingLeftToFill(obs) {

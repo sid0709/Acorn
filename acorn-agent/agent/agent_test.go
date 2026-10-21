@@ -509,9 +509,21 @@ func TestHistoryOnlyGrowsAtTheEndAndSendsOnlyTheCurrentScreenshot(t *testing.T) 
 	}
 }
 
+// systemTokens is the estimated size of the standing prompt a test run is given, as budgetUsed counts it.
+func systemTokens(t *testing.T) int {
+	t.Helper()
+	a := newTestAgent(t, &scriptedModel{}, &fixedDecider{}, DefaultConfig())
+	s, ok := a.sessions.get(start(t, a))
+	if !ok {
+		t.Fatal("no session")
+	}
+	return len(s.system) / 4
+}
+
 func TestHistoryIsCompactedOnceItPassesTheBudgetThenGrowsAgain(t *testing.T) {
 	cfg := DefaultConfig()
-	cfg.KeepTurns, cfg.HistoryTokens = 4, 4800
+	// The budget leaves room for a few turns beside the standing prompt, however long the prompt grows.
+	cfg.KeepTurns, cfg.HistoryTokens = 4, systemTokens(t)+950
 	model := runWaitSteps(t, cfg, 14)
 
 	compactions := 0

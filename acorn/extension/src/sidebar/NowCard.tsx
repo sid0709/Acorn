@@ -5,9 +5,20 @@ import {
   isRunMap,
   type RunMap,
 } from "@acorn/shared/run-types";
-import { describeRunFailure } from "@acorn/shared/user-messages";
+import { READY_TO_SUBMIT, describeRunFailure } from "@acorn/shared/user-messages";
 import { useMemo } from "react";
-import { Badge, Button, Card, Glyph, HStack, ProgressBar, StatusDot, Text, VStack } from "sid-ui";
+import {
+  Badge,
+  Banner,
+  Button,
+  Card,
+  Glyph,
+  HStack,
+  ProgressBar,
+  StatusDot,
+  Text,
+  VStack,
+} from "sid-ui";
 
 import { AgentAsk } from "./AgentAsk";
 import { AgentStopNotice } from "./AgentStopNotice";
@@ -141,11 +152,14 @@ function RunStatus({
     return <RunCelebration key={run.runId} run={run} />;
   }
   if (run.report?.outcome === RUN_OUTCOME.readyToSubmit) {
+    // Neither sent nor failed: the person reviews the page and sends it themselves.
     return (
-      <HStack gap={2} align="center">
-        <Badge variant="green" label="Ready to submit" />
-        <Text type="supporting">Every step is filled; review it and submit.</Text>
-      </HStack>
+      <Banner
+        status="info"
+        icon={<Glyph name="eye" />}
+        title={READY_TO_SUBMIT.title}
+        description={READY_TO_SUBMIT.detail}
+      />
     );
   }
   return null;

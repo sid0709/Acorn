@@ -83,12 +83,26 @@ export const AGENT_STOP_REASON = {
   accountRejected: "account_rejected",
   pageProblem: "page_problem",
   other: "other",
+  /** The page shows there is no online application to make for this job; `AgentStop.kind` says how. */
+  jobUnavailable: "job_unavailable",
   noChange: "no_change",
   stepLimit: "step_limit",
   /** No job description was found, so no résumé was chosen, and the person chose to pick one. */
   resumeChoice: "resume_choice",
 } as const;
 export type AgentStopReason = (typeof AGENT_STOP_REASON)[keyof typeof AGENT_STOP_REASON];
+
+/** How a job is unavailable (`AgentStop.kind` with `job_unavailable`), in the model's judgment from the page. */
+export const AGENT_UNAVAILABLE_KIND = {
+  /** The posting is closed or filled, or the link led to a careers home page or a search of jobs. */
+  expired: "expired",
+  /** Applications are taken only by email, phone, post or in person. */
+  noOnlineApply: "no_online_apply",
+  /** The page is not a job posting or an application at all. */
+  notAJob: "not_a_job",
+} as const;
+export type AgentUnavailableKind =
+  (typeof AGENT_UNAVAILABLE_KIND)[keyof typeof AGENT_UNAVAILABLE_KIND];
 
 /** One answer the person may give to a question the agent asks. */
 export interface AgentAskOption {
@@ -106,6 +120,8 @@ export interface AgentAsk {
 /** What the person is told when a run ends as need_person or stuck. */
 export interface AgentStop {
   reason: AgentStopReason;
+  /** With `job_unavailable` only: how the job is unavailable. */
+  kind?: AgentUnavailableKind;
   /** What the page needs, or what went wrong, in plain words. */
   problem: string;
   /** What the person should do about it. */
@@ -421,6 +437,12 @@ export interface AgentStep {
   message: string;
   /** Set when the run ended as need_person or stuck. */
   stop?: AgentStop;
+  /**
+   * Set on the `done` step of a run that was asked to stop before sending (by its start, or by the
+   * server's own switch): every field is filled and the control that sends the application was not
+   * pressed. A `done` without it is an application the page confirmed as sent.
+   */
+  readyToSubmit?: boolean;
   /** Set when the status is "ask": the question to put to the person. */
   ask?: AgentAsk;
   /** Make the next look a survey of the whole page. */
@@ -512,6 +534,19 @@ export interface AgentContinued {
   number: number;
   usage: AgentUsage;
   transport?: AgentTransport;
+}
+
+/** What `GET /agent/v1/health` answers; never the key itself. */
+export interface AgentHealth {
+  ok: boolean;
+  model: string;
+  sessions: number;
+  hasKey: boolean;
+  /** Where the applicant is read from: "files" (this computer) or "backend" (the signed-in person's account). */
+  source: string;
+  blobBytes?: number;
+  /** Whether the server holds every run before the application is sent (ACORN_AGENT_STOP_BEFORE_SUBMIT). */
+  stopBeforeSubmit?: boolean;
 }
 
 /** The server's stable codes beside an error (acorn-agent/httpapi and llm). */

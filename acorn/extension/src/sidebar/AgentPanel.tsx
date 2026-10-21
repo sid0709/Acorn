@@ -46,8 +46,23 @@ const STATUS_LOOK: Record<QueueItemStatus, { label: string; dot: StatusDotVarian
   running: { label: "Working", dot: "accent" },
   blocked: { label: "Needs you", dot: "warning" },
   done: { label: "Sent", dot: "success" },
+  ready: { label: "Ready to submit", dot: "accent" },
+  unavailable: { label: "Unavailable", dot: "neutral" },
   skipped: { label: "Skipped", dot: "neutral" },
 };
+
+/** The parts of "the queue is done": how the jobs that were worked through ended, non-zero counts only. */
+function endedLine(counts: ReturnType<typeof tally>): string {
+  const plural = (n: number, one: string, many: string) => `${n} ${n === 1 ? one : many}`;
+  return [
+    counts.done ? `${plural(counts.done, "application", "applications")} sent` : "",
+    counts.ready ? `${counts.ready} ready to submit` : "",
+    counts.unavailable ? `${counts.unavailable} unavailable` : "",
+    counts.skipped ? `${counts.skipped} skipped` : "",
+  ]
+    .filter(Boolean)
+    .join(", ");
+}
 
 /** The line under a job: the Run's own words while it works, else why it stopped or what it did. */
 function itemLine(item: QueueItem, live: PipelineProgress | undefined): string {
@@ -74,6 +89,8 @@ function QueueRow({
   const waiting =
     item.status === QUEUE_ITEM.running && live?.run?.map?.phase === RUN_MAP_PHASE.waiting;
   const finished = isFinished(item);
+  // A job ready to submit keeps its tab: the person goes there to review and send.
+  const showTab = item.tabId != null && (!finished || item.status === QUEUE_ITEM.ready);
   return (
     <Card padding={3} elevation="none">
       <HStack gap={2} align="center">
@@ -92,7 +109,7 @@ function QueueRow({
             </Text>
           </Stack>
         </StackItem>
-        {item.tabId != null && !finished ? (
+        {showTab ? (
           <IconButton
             label="Show its tab"
             icon={<Glyph name="eye" />}
@@ -148,6 +165,8 @@ export function AgentPanel({
   const blocked = queue.items.find((item) => item.status === QUEUE_ITEM.blocked);
   const running = queue.mode === QUEUE_MODE.running;
   const worked = counts.total - counts.skipped;
+  /** Jobs worked through to an end: sent, ready to submit, or unavailable. */
+  const through = counts.done + counts.ready + counts.unavailable;
   const finishedAll = counts.total > 0 && counts.open === 0;
 
   const add = async () => {
@@ -201,7 +220,7 @@ export function AgentPanel({
                   blocked
                     ? "Needs you"
                     : running
-                      ? `Working · ${counts.done} of ${worked}`
+                      ? `Working · ${through} of ${worked}`
                       : finishedAll
                         ? "All done"
                         : "Ready"
@@ -261,14 +280,14 @@ export function AgentPanel({
             <Banner
               status="success"
               title="The queue is done"
-              description={`${counts.done} application${counts.done === 1 ? "" : "s"} sent${counts.skipped ? `, ${counts.skipped} skipped` : ""}.`}
+              description={`${endedLine(counts)}.`}
             />
           ) : null}
 
           <ProgressBar
             label="Jobs done"
             isLabelHidden
-            value={counts.done}
+            value={through}
             max={Math.max(1, worked)}
             hasValueLabel
           />
@@ -317,7 +336,7 @@ export function AgentPanel({
               value={queue.closeDone}
               onChange={(value) => void agent.setCloseDone(value)}
             />
-            {counts.done + counts.skipped > 0 ? (
+            {through + counts.skipped > 0 ? (
               <Button
                 label="Clear finished"
                 variant="ghost"

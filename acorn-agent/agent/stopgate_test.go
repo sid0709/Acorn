@@ -38,7 +38,7 @@ func sentForm(t *testing.T, after []ControlMark, stop string) (Step, *scriptedMo
 	first := surveyObservation(t)
 	first.Marks = formMarks()
 	sent := stepOK(t, a, id, first)
-	if len(sent.Actions) != 1 || !sent.Actions[0].Commit {
+	if len(sent.Actions) != 1 || sent.Actions[0].Commit != CommitSend {
 		t.Fatalf("the click that sends the page did not go out: %s", kinds(sent.Actions))
 	}
 	look := observation(shot(t, 90))
