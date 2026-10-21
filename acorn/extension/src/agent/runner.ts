@@ -43,6 +43,7 @@ import {
   fetchResumeFile,
   isRetryable,
   locateTarget,
+  preloadImage,
   sendShot,
   sendStep,
   startSession,
@@ -92,13 +93,14 @@ import {
   AGENT_RESTORED_MESSAGE,
   AGENT_STARTING_MESSAGE,
 } from "./progress";
+import { RunShotsKeeper } from "./run-shots";
 import { waitForScrollRest } from "./scroll-rest";
 import { scrollToTop } from "./scroll-top";
-import { AGENT_FAST_FILL, AGENT_SURVEY } from "./settings";
+import { AGENT_FAST_FILL, AGENT_SURVEY, AGENT_TRACE_IMAGES } from "./settings";
 import { SurveyKeeper } from "./survey";
 import { openAgentTab, type AgentTab } from "./tab-session";
 import { Stopwatch, httpSummary, type HttpTiming } from "./timing";
-import { recordAgentTrace } from "./trace-log";
+import { recordAgentTrace, type AgentLook } from "./trace-log";
 import { toBase64, type ResumeFile } from "./upload";
 
 import type { Cdp } from "./cdp";
@@ -306,6 +308,30 @@ function phaseAfter(step: AgentStep): RunMapPhase {
   return step.status === AGENT_STATUS.working ? RUN_MAP_PHASE.acting : RUN_MAP_PHASE.waiting;
 }
 
+/** The pictures of a look for the run's log: only a build that keeps pictures (AGENT_TRACE_IMAGES) logs them. */
+function lookForLog(
+  step: AgentStep,
+  shot: Shot,
+  survey: AgentSurveyScreen[] | null,
+  zones: AgentZoneShot[],
+): AgentLook | undefined {
+  if (!AGENT_TRACE_IMAGES) return undefined;
+  return {
+    seq: step.trace?.seq ?? step.number,
+    screenshot: shot.dataUrl,
+    survey: survey ?? undefined,
+    zones,
+  };
+}
+
+/** Starts fetching each résumé a plan uploads, so the file is there by the time the upload is reached. */
+function prefetchUploads(actions: AgentAction[], resume: ExecutorContext["resume"]): void {
+  for (const action of actions) {
+    if (action.kind === "upload" && action.resume)
+      void resume(action.resume, action.fileName ?? action.resume).catch(() => undefined);
+  }
+}
+
 /** A run surveys when it was set to, or the server says it does (fast fill, which the server may turn on for all runs). */
 function followServerSurvey(surveyOn: boolean, started: AgentStarted): boolean {
   return surveyOn || started.survey === true;
@@ -387,6 +413,8 @@ export async function runAgent(args: AgentRunArgs): Promise<RunReport> {
     sweep: async () => {},
   };
   const files = new Map<string, Promise<ResumeFile>>();
+  /** How long each résumé on offer is, so a slow line is given time to bring it. */
+  const resumeSizes = new Map<string, number>();
   const vet = (target: Parameters<typeof vetTarget>[2]) =>
     vetTarget(args.agentUrl, must(sessionId), target, signal, onHttp);
   const clickGuard = createClickGuard({
@@ -413,6 +441,10 @@ export async function runAgent(args: AgentRunArgs): Promise<RunReport> {
   const emit = (progress: PipelineProgress) => args.emit(tabs, progress);
   // The page the run is on, for the sidebar's minimap, and the line the card shows beside it.
   const pageMap = new PageMapKeeper();
+  // The pictures the model was sent with each look, made small for the card's filmstrip beside the run.
+  const runShots = new RunShotsKeeper(runId, (err) =>
+    log.event("agent-shots:failed", { message: err instanceof Error ? err.message : String(err) }),
+  );
   // What the survey has taken and what the model settled, which the run's scrolling keeps out of.
   const surveys = new SurveyKeeper();
   // The page's controls and where each sits, kept current in the page: a move of them places the blue stretches
@@ -582,6 +614,7 @@ export async function runAgent(args: AgentRunArgs): Promise<RunReport> {
           signal,
           toBase64,
           onHttp,
+          resumeSizes.get(id),
         );
         files.set(id, file);
         file.then(
@@ -671,14 +704,16 @@ export async function runAgent(args: AgentRunArgs): Promise<RunReport> {
       try {
         const photo = await captureShot(here.cdp);
         zoneShots.push({ zone, screenshot: photo.dataUrl, scrollY: photo.viewport.scrollY });
-        // The agent reviews the zone while the next one is carried out; the look after the plan carries the
-        // same photo as well, for a photo that did not get through.
+        // The agent reviews the zone while the next one is carried out, behind whatever an action waits
+        // on; the look after the plan names the photo again (as a reference once it got through, as
+        // bytes for one that did not).
         void sendShot(
           args.agentUrl,
           must(sessionId),
           { kind: "zone", zone, screenshot: photo.dataUrl, scrollY: photo.viewport.scrollY },
           signal,
           onHttp,
+          "background",
         ).catch(() => undefined);
         showMap(photo.viewport.scrollY / photo.scale);
       } finally {
@@ -836,6 +871,7 @@ export async function runAgent(args: AgentRunArgs): Promise<RunReport> {
           title: tab.title ?? "",
           stopBeforeSubmit,
           trace: true,
+          traceImages: AGENT_TRACE_IMAGES,
           survey: surveyOn,
           fastFill: fastFillOn,
           ...(restoredMemory ? { memory: restoredMemory } : {}),
@@ -850,6 +886,7 @@ export async function runAgent(args: AgentRunArgs): Promise<RunReport> {
       serverFastFill = started.fastFill === true;
       spent.start = Date.now() - sessionStartedAt;
       log.event("agent-session", { resumes: started.resumes.length, ms: spent.start });
+      started.resumes.forEach((resume) => resumeSizes.set(resume.id, resume.size));
       recordAgentTrace(log, started.trace);
     }
 
@@ -911,6 +948,9 @@ export async function runAgent(args: AgentRunArgs): Promise<RunReport> {
                   scroll: scrolls,
                   // A screen's edge cuts no control with its field: the plan's points are aimed at whole controls.
                   controls: () => marks.marks.map((mark) => mark.box ?? mark),
+                  // Each screen goes to the agent as it is taken, so the look that follows refers to it.
+                  preload: (dataUrl) =>
+                    preloadImage(args.agentUrl, must(sessionId), dataUrl, signal, onHttp),
                 },
                 first,
                 zoneShots,
@@ -935,6 +975,7 @@ export async function runAgent(args: AgentRunArgs): Promise<RunReport> {
         });
       }
       pageMap.survey(survey, surveys.fresh, shot.viewport.height);
+      void runShots.publish(tabs, shot, survey, surveys.fresh, [...zoneShots]);
       pageMap.phase(RUN_MAP_PHASE.thinking);
       showRun();
       const [focus, text, list] = await look.time("pageRead", () =>
@@ -988,16 +1029,15 @@ export async function runAgent(args: AgentRunArgs): Promise<RunReport> {
       surveys.noteLayout(marks.moves());
       pageMap.setMoves(marks.moves());
       const actions = step.actions ?? [];
+      // A résumé the plan uploads is fetched now, while the actions before the upload run.
+      prefetchUploads(actions, executor.resume);
       pageMap.plan(actions, shot);
       pageMap.phase(phaseAfter(step));
       if (step.survey) surveyNext = true;
       log.step = step.number;
-      recordAgentTrace(log, step.trace, {
-        seq: step.trace?.seq ?? step.number,
-        screenshot: shot.dataUrl,
-        survey: survey ?? undefined,
-        zones: zoneShots.splice(0),
-      });
+      // The zone photos go to the log with this look's pictures, when pictures are kept; either way the
+      // next look starts without them.
+      recordAgentTrace(log, step.trace, lookForLog(step, shot, survey, zoneShots.splice(0)));
       log.event("agent-step", {
         number: step.number,
         status: step.status,

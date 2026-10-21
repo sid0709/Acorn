@@ -33,6 +33,14 @@ export const AGENT_SURVEY = switchOn(import.meta.env.VITE_ACORN_AGENT_SURVEY);
  */
 export const AGENT_FAST_FILL = switchOn(import.meta.env.VITE_ACORN_AGENT_FAST_FILL);
 
+/**
+ * Whether a run's log keeps the pictures of its trace: the screenshots the extension took, and the server's
+ * copies with each action drawn on them, which then come back over the person's line (hundreds of
+ * kilobytes a step). Off, the trace is text alone, a few kilobytes gzipped, and the log holds no pictures.
+ * The server's own trace folder (ACORN_AGENT_TRACE) is not affected.
+ */
+export const AGENT_TRACE_IMAGES = switchOn(import.meta.env.VITE_ACORN_AGENT_TRACE_IMAGES);
+
 export function getAgentUrl(): string {
   return DEFAULT_AGENT_URL;
 }

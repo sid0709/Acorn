@@ -107,8 +107,10 @@ type session struct {
 	navScrolls int
 	// wantTrace is set when the run asked for its trace in the answers, and pendingTrace is what was
 	// recorded since the last answer.
-	wantTrace    bool
-	pendingTrace *Trace
+	wantTrace bool
+	// wantTraceImages is set when the run asked for the trace's pictures as well as its text.
+	wantTraceImages bool
+	pendingTrace    *Trace
 	// donePasses counts the "done" answers sent back because the screen did not confirm a sent application.
 	donePasses int
 	// accountSteps counts the steps that typed the account password (sign-in, sign-up, reset).

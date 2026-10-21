@@ -39,6 +39,8 @@ export const MARK_WIDTH_TOLERANCE_PX = 24;
 export const ENTRY_MIN_HEIGHT_PX = 8;
 /** The longest label a mark carries. */
 export const MARK_LABEL_MAX_CHARS = 60;
+/** The longest value a mark carries: enough for the person to recognise an answer in the sidebar. */
+export const MARK_VALUE_MAX_CHARS = 40;
 /**
  * How many ancestors up a control drawn without a size (the input of a dropdown the page draws itself,
  * sized by what is typed into it: nothing, so nothing) is given the box of: the first ancestor that has one
@@ -56,6 +58,10 @@ export type Box = { x: number; y: number; w: number; h: number };
  * field round it (the largest box that holds no other control), what the page calls it, its entry (the part
  * of its own box that is not its label, when the label is printed inside the box), and what the page says of
  * its state (`empty` is left out when the page cannot tell). Moving a mark changes only its place.
+ *
+ * The rest is for the person, not the agent (`marksForAgent` leaves it out): what the control shows now
+ * (`value`, never a password), whether a check is ticked, and the question a radio button or a check box
+ * of a shared name answers with the others of its `group`.
  */
 export type ControlMark = Box & {
   id: string;
@@ -66,6 +72,10 @@ export type ControlMark = Box & {
   required?: boolean;
   empty?: boolean;
   invalid?: boolean;
+  value?: string;
+  checked?: boolean;
+  group?: string;
+  question?: string;
 };
 
 /**
@@ -270,7 +280,19 @@ function cleanMark(mark: ControlMark): ControlMark {
   if (mark.required === true) out.required = true;
   if (typeof mark.empty === "boolean") out.empty = mark.empty;
   if (mark.invalid === true) out.invalid = true;
+  if (typeof mark.value === "string" && mark.value !== "") {
+    out.value = mark.value.slice(0, MARK_VALUE_MAX_CHARS);
+  }
+  if (typeof mark.checked === "boolean") out.checked = mark.checked;
+  if (typeof mark.group === "string" && mark.group !== "") out.group = mark.group;
+  if (typeof mark.question === "string" && mark.question !== "") out.question = mark.question;
   return out;
+}
+
+/** A mark without what only the person reads (the sidebar's questions): the agent sees the page in its pictures. */
+function agentFields(mark: ControlMark): ControlMark {
+  const { value: _value, checked: _checked, group: _group, question: _question, ...seen } = mark;
+  return seen;
 }
 
 /** The list as the agent is told it: in the screenshot's pixels. */
@@ -282,7 +304,7 @@ export function marksForAgent(marks: ControlMark[], scale: number): ControlMark[
     h: box.h * scale,
   });
   return marks.map((mark) => ({
-    ...mark,
+    ...agentFields(mark),
     ...scaled(mark),
     ...(mark.box ? { box: scaled(mark.box) } : {}),
     ...(mark.entry ? { entry: scaled(mark.entry) } : {}),

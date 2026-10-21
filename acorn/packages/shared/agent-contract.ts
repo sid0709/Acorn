@@ -18,7 +18,17 @@ export const AGENT_ROUTES = {
   memory: (sessionId: string) => `/agent/v1/sessions/${encodeURIComponent(sessionId)}/memory`,
   locate: (sessionId: string) => `/agent/v1/sessions/${encodeURIComponent(sessionId)}/locate`,
   shots: (sessionId: string) => `/agent/v1/sessions/${encodeURIComponent(sessionId)}/shots`,
+  blobs: (sessionId: string) => `/agent/v1/sessions/${encodeURIComponent(sessionId)}/blobs`,
 } as const;
+
+/**
+ * A picture the server already holds for the run is named instead of sent again: this prefix and the
+ * SHA-256 (hex) of its data URL, in any field that takes a screenshot. The server swaps it back before
+ * the agent sees the request, and answers `missing_blobs` (with `missing`) for a hash it no longer holds.
+ */
+export const AGENT_BLOB_REF_PREFIX = "ref:sha256:";
+/** The one content encoding the server speaks, for request bodies and JSON answers alike. */
+export const AGENT_GZIP_ENCODING = "gzip";
 
 /** Header that carries the person's OpenRouter key when the extension has one. */
 export const AGENT_KEY_HEADER = "X-OpenRouter-Key";
@@ -203,6 +213,27 @@ export interface AgentShotUpload {
   focus?: AgentFocus | null;
   /** The list open on the page when the photo was taken, as the page names its options; null when it names none. */
   list?: AgentOpenList | null;
+}
+
+/** Pictures sent ahead of the look that will refer to them (a survey's screens, as each is taken). */
+export interface AgentBlobsUpload {
+  images: string[];
+}
+
+/** The hash of each picture sent, in the order they came. */
+export interface AgentBlobsKept {
+  hashes: string[];
+}
+
+/**
+ * What the server does to spare the person's line, told when a run starts or continues: it unpacks
+ * gzipped request bodies and packs its JSON answers (`gzip`), and it keeps the run's pictures by hash so
+ * one sent before goes again as a reference (`blobs`). An older server says nothing, and everything is
+ * then sent as bytes.
+ */
+export interface AgentTransport {
+  gzip?: boolean;
+  blobs?: boolean;
 }
 
 /**
@@ -426,6 +457,11 @@ export interface AgentStart {
   stopBeforeSubmit: boolean;
   /** Return the run's trace in the answers, for the extension to keep in its own log. */
   trace?: boolean;
+  /**
+   * Return the trace's pictures too (the screen with each action drawn on it): hundreds of kilobytes a
+   * step over the person's line, so only a build made for debugging asks. Without it the trace is text.
+   */
+  traceImages?: boolean;
   /** Let the run survey a long page (several screenshots from top to bottom). Off: it sees the current screen only. */
   survey?: boolean;
   /**
@@ -465,12 +501,14 @@ export interface AgentStarted {
   /** What the run really uses: the server may turn them on for every run, and a fast-fill run surveys. */
   fastFill?: boolean;
   survey?: boolean;
+  transport?: AgentTransport;
 }
 
 /** A stopped run taken back up: the step it was at and what it has spent, so the counters go on. */
 export interface AgentContinued {
   number: number;
   usage: AgentUsage;
+  transport?: AgentTransport;
 }
 
 /** The server's stable codes beside an error (acorn-agent/httpapi and llm). */
@@ -494,10 +532,13 @@ export const AGENT_ERROR_CODE = {
   /** acorn-backend could not be reached from the agent. */
   backendUnreachable: "backend_unreachable",
   badFallbackResume: "bad_fallback_resume",
+  /** A request named pictures the server no longer holds; `missing` lists their hashes. */
+  missingBlobs: "missing_blobs",
 } as const;
 
 /** The error body every failing route sends. */
 export interface AgentErrorBody {
   error: string;
   code: string;
+  missing?: string[];
 }

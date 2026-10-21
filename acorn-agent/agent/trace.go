@@ -176,12 +176,14 @@ type traceEntryFile struct {
 	image bool
 }
 
-// bundle is the part of files that goes back to the extension.
-func bundle(files []traceEntryFile, timeline string) *Trace {
+// bundle is the part of files that goes back to the extension: its text, and its pictures only when
+// the run asked for them (images), since a picture is hundreds of kilobytes over the person's line.
+func bundle(files []traceEntryFile, timeline string, images bool) *Trace {
 	out := &Trace{Files: []TraceFile{}, Timeline: timeline}
 	for _, file := range files {
 		switch {
 		case !file.ship:
+		case file.image && !images:
 		case file.image:
 			out.Files = append(out.Files, TraceFile{Name: file.name, Data: base64.StdEncoding.EncodeToString(file.data)})
 		default:
@@ -239,7 +241,7 @@ func (t *tracer) recordSession(sessionID, system string, info sessionTrace, want
 	if !want {
 		return nil, failure
 	}
-	return bundle(files, ""), failure
+	return bundle(files, "", false), failure
 }
 
 // entryFiles is every file of one entry: what the page reported and the model decided, every model
@@ -298,9 +300,9 @@ func entryFiles(entry stepTrace, screenshot string, calls []modelCall) ([]traceE
 }
 
 // record writes one entry to the trace folder when there is one, and returns it for the extension
-// when the run asked for the trace (want). A write that fails is returned for the caller to log;
-// it never stops the run.
-func (t *tracer) record(sessionID string, entry stepTrace, screenshot string, calls []modelCall, want bool) (*Trace, error) {
+// when the run asked for the trace (want), with its pictures when it asked for those too (images). A
+// write that fails is returned for the caller to log; it never stops the run.
+func (t *tracer) record(sessionID string, entry stepTrace, screenshot string, calls []modelCall, want, images bool) (*Trace, error) {
 	if !t.enabled() && !want {
 		return nil, nil
 	}
@@ -321,7 +323,7 @@ func (t *tracer) record(sessionID string, entry stepTrace, screenshot string, ca
 	if !want {
 		return nil, failure
 	}
-	return bundle(files, line+"\n"), failure
+	return bundle(files, line+"\n", images), failure
 }
 
 func hasPoint(actions []Action) bool {

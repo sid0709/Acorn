@@ -1,0 +1,449 @@
+/* Jobs tab, the Now card's board (RunBoard.tsx): the map of the page (PageMap.tsx, an SVG) beside the
+   list of its questions, the pictures the model last saw, and the key to the map. The map's marks are
+   painted here in the design system's tokens, and the key draws the same marks with the same classes,
+   so the key and the map always agree. Acorn-only sizes are named custom properties beside their rules. */
+
+.acorn-board {
+  --acorn-board-map-width: clamp(84px, 28%, 128px);
+  --acorn-board-min-height: 168px;
+  --acorn-board-max-height: 360px;
+  display: grid;
+  grid-template-columns: var(--acorn-board-map-width) minmax(0, 1fr);
+  gap: var(--spacing-3);
+  min-height: var(--acorn-board-min-height);
+}
+
+.acorn-board-map {
+  position: relative;
+  min-width: 0;
+}
+
+/* The map lies over its column: its height follows the list beside it and never pushes it. */
+.acorn-board-map > .acorn-map {
+  position: absolute;
+  top: 0;
+  left: 0;
+}
+
+.acorn-board-empty {
+  align-items: center;
+}
+
+/* Before the first run: an empty sheet with faint lines where the page will be. */
+.acorn-board-sheet {
+  --acorn-sheet-rule: var(--spacing-3);
+  height: var(--acorn-board-min-height);
+  margin-inline: var(--spacing-1-5) var(--spacing-2);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-inner);
+  background: repeating-linear-gradient(
+      to bottom,
+      transparent 0 var(--acorn-sheet-rule),
+      var(--color-border) var(--acorn-sheet-rule) calc(var(--acorn-sheet-rule) + 1px)
+    )
+    var(--color-background-surface);
+  box-shadow: var(--shadow-low);
+}
+
+/* ── The map ─────────────────────────────────────────────────────────── */
+
+.acorn-map {
+  display: block;
+  overflow: visible;
+}
+
+.acorn-map[data-pickable] {
+  cursor: pointer;
+}
+
+.acorn-map-paper {
+  fill: var(--color-background-surface);
+  stroke: var(--color-border);
+  stroke-width: 1;
+  filter: drop-shadow(0 1px 1px var(--color-shadow));
+}
+
+/* A fold: the page cut where nothing is, with how much was folded away. */
+.acorn-map-fold > rect {
+  fill: var(--color-background-card);
+}
+
+.acorn-map-fold-edge {
+  fill: none;
+  stroke: var(--color-border-emphasized);
+  stroke-width: 1;
+  stroke-linejoin: round;
+}
+
+.acorn-map-fold-label {
+  fill: var(--color-text-secondary);
+  font-family: var(--font-family-body);
+  font-size: var(--font-size-2xs);
+  font-variant-numeric: tabular-nums;
+}
+
+.acorn-map-settled {
+  fill: var(--color-accent);
+  fill-opacity: 0.12;
+}
+
+.acorn-map-settled-edge {
+  fill: var(--color-accent);
+}
+
+.acorn-map-hatch-line {
+  stroke: var(--color-data-yellow-4);
+  stroke-width: 1.5;
+}
+
+.acorn-map-fence {
+  --acorn-map-dash: 3 3;
+  stroke: var(--color-text-secondary);
+  stroke-width: 1;
+  stroke-dasharray: var(--acorn-map-dash);
+}
+
+/* A field, colored by what became of its question; a button in grey. */
+.acorn-map-mark {
+  fill: var(--color-border-emphasized);
+  transition:
+    fill var(--duration-medium) var(--ease-standard),
+    opacity var(--duration-fast) var(--ease-standard);
+}
+
+.acorn-map-mark[data-status="answered"] {
+  fill: var(--color-data-categorical-green);
+}
+
+.acorn-map-mark[data-status="doing"] {
+  fill: var(--color-accent);
+}
+
+.acorn-map-mark[data-status="next"] {
+  fill: var(--color-data-blue-2);
+}
+
+.acorn-map-mark[data-status="problem"] {
+  fill: var(--color-data-categorical-red);
+}
+
+.acorn-map-mark[data-status="open"] {
+  fill: var(--color-text-secondary);
+}
+
+/* Once no run works on the page, a required field still empty waits on the person. */
+.acorn-map[data-ended] .acorn-map-mark[data-status="open"] {
+  fill: var(--color-data-categorical-orange);
+}
+
+.acorn-map-mark[data-status="button"] {
+  fill-opacity: 0.45;
+}
+
+.acorn-map-mark[data-lit] {
+  stroke: var(--color-accent);
+  stroke-width: 1.5;
+  paint-order: stroke;
+}
+
+.acorn-map[data-focus="question"] .acorn-map-mark:not([data-lit]),
+.acorn-map[data-focus="question"] .acorn-map-point {
+  opacity: 0.35;
+}
+
+/* The points of the plan: a ring to do, a dot being done, done or failed, a faint ring skipped. */
+.acorn-map-dot {
+  stroke-width: 1.25;
+  fill: var(--color-background-surface);
+  stroke: var(--color-text-primary);
+}
+
+.acorn-map-point[data-state="current"] .acorn-map-dot {
+  fill: var(--color-accent);
+  stroke: var(--color-background-surface);
+}
+
+.acorn-map-point[data-state="done"] .acorn-map-dot {
+  fill: var(--color-data-categorical-green);
+  stroke: var(--color-background-surface);
+}
+
+.acorn-map-point[data-state="failed"] .acorn-map-dot {
+  fill: var(--color-data-categorical-red);
+  stroke: var(--color-background-surface);
+}
+
+.acorn-map-point[data-state="skipped"] .acorn-map-dot {
+  fill: none;
+  stroke: var(--color-text-disabled);
+}
+
+/* A point that followed its control, or was found again by its picture. */
+.acorn-map-point-moved {
+  fill: none;
+  stroke: var(--color-data-yellow-4);
+  stroke-width: 1;
+}
+
+/* The point being acted on sends out a ring. */
+.acorn-map-pulse {
+  fill: none;
+  stroke: var(--color-accent);
+  stroke-width: 1.5;
+  transform-box: fill-box;
+  transform-origin: center;
+  pointer-events: none;
+  animation: acorn-map-pulse calc(var(--duration-slow) * 1.6) var(--ease-standard) infinite;
+}
+
+@keyframes acorn-map-pulse {
+  from {
+    transform: scale(1);
+    opacity: 0.9;
+  }
+  to {
+    transform: scale(4);
+    opacity: 0;
+  }
+}
+
+/* What the person points at: a line across at a question, the part of the page a picture shows. */
+.acorn-map-guide {
+  --acorn-map-dash: 2 2;
+  stroke: var(--color-accent);
+  stroke-width: 1;
+  stroke-dasharray: var(--acorn-map-dash);
+  pointer-events: none;
+}
+
+.acorn-map-shot {
+  --acorn-map-dash: 3 2;
+  fill: var(--color-accent);
+  fill-opacity: 0.08;
+  stroke: var(--color-accent);
+  stroke-width: 1.5;
+  stroke-dasharray: var(--acorn-map-dash);
+  pointer-events: none;
+}
+
+/* The screens of the last survey, at the right: photographed for it, or reused. */
+.acorn-map-screen {
+  fill: var(--color-accent);
+}
+
+.acorn-map-screen[data-reused] {
+  fill: var(--color-border-emphasized);
+}
+
+/* The window: a lens that glides as the page scrolls. */
+.acorn-map-lens {
+  pointer-events: none;
+  transition: transform var(--duration-medium) var(--ease-standard);
+}
+
+.acorn-map-lens rect {
+  fill: var(--color-accent);
+  fill-opacity: 0.07;
+  stroke: var(--color-accent);
+  stroke-width: 1.5;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .acorn-map-lens,
+  .acorn-map-mark {
+    transition: none;
+  }
+
+  .acorn-map-pulse {
+    animation: none;
+  }
+}
+
+/* ── The key ─────────────────────────────────────────────────────────── */
+
+.acorn-map-key {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: var(--spacing-1) var(--spacing-3);
+  margin: var(--spacing-2) 0 0;
+  padding: 0;
+  list-style: none;
+}
+
+.acorn-map-key li {
+  display: flex;
+  align-items: center;
+  gap: var(--spacing-2);
+  min-width: 0;
+}
+
+.acorn-map-swatch {
+  flex: none;
+}
+
+/* ── The questions ───────────────────────────────────────────────────── */
+
+.acorn-questions {
+  position: relative;
+  min-width: 0;
+  max-height: var(--acorn-board-max-height);
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  scrollbar-width: thin;
+}
+
+/* A question's mark: a tick answered, a spinner being filled, "!" flagged, a ring to do, a dash left empty. */
+.acorn-qmark {
+  --acorn-qmark-size: 18px;
+  --acorn-qmark-ring: 2px;
+  display: inline-grid;
+  flex: none;
+  place-items: center;
+  width: var(--acorn-qmark-size);
+  height: var(--acorn-qmark-size);
+  border-radius: var(--radius-full);
+  color: var(--color-text-disabled);
+  font-size: var(--font-size-xs);
+  font-weight: var(--font-weight-bold);
+  line-height: 1;
+  transition: background-color var(--duration-medium) var(--ease-standard);
+}
+
+.acorn-qmark[data-status="answered"] {
+  background: var(--color-data-categorical-green);
+  color: var(--color-on-dark);
+}
+
+.acorn-qmark[data-status="problem"] {
+  background: var(--color-data-categorical-red);
+  color: var(--color-on-dark);
+}
+
+.acorn-qmark[data-status="doing"] {
+  color: var(--color-accent);
+}
+
+.acorn-qmark[data-status="next"] {
+  box-shadow: inset 0 0 0 var(--acorn-qmark-ring) var(--color-accent);
+}
+
+.acorn-qmark[data-status="open"] {
+  box-shadow: inset 0 0 0 var(--acorn-qmark-ring) var(--color-text-secondary);
+}
+
+.acorn-questions[data-ended] .acorn-qmark[data-status="open"] {
+  box-shadow: inset 0 0 0 var(--acorn-qmark-ring) var(--color-data-categorical-orange);
+}
+
+.acorn-qmark[data-status="unknown"]::after {
+  content: "";
+  width: var(--spacing-1);
+  height: var(--spacing-1);
+  border-radius: var(--radius-full);
+  background: currentColor;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .acorn-qmark {
+    transition: none;
+  }
+}
+
+/* ── What the model saw ──────────────────────────────────────────────── */
+
+.acorn-shots {
+  --acorn-shot-width: 104px;
+  display: flex;
+  gap: var(--spacing-2);
+  margin: 0;
+  padding: var(--spacing-0-5) var(--spacing-0-5) var(--spacing-1);
+  overflow-x: auto;
+  list-style: none;
+  scroll-snap-type: x proximity;
+  scrollbar-width: thin;
+}
+
+.acorn-shot-cell {
+  flex: none;
+  width: var(--acorn-shot-width);
+  scroll-snap-align: start;
+}
+
+.acorn-shot {
+  position: relative;
+  overflow: hidden;
+}
+
+.acorn-shot[data-lit] {
+  outline: var(--spacing-0-5) solid var(--color-accent);
+  outline-offset: 1px;
+}
+
+.acorn-shot-image {
+  display: block;
+  width: 100%;
+  height: auto;
+}
+
+.acorn-shot[data-reused] .acorn-shot-image {
+  opacity: 0.6;
+}
+
+.acorn-shot-dot {
+  --acorn-shot-dot: 6px;
+  position: absolute;
+  width: var(--acorn-shot-dot);
+  height: var(--acorn-shot-dot);
+  margin: calc(var(--acorn-shot-dot) / -2) 0 0 calc(var(--acorn-shot-dot) / -2);
+  border-radius: var(--radius-full);
+  background: var(--color-text-primary);
+  box-shadow: 0 0 0 1px var(--color-on-dark);
+  pointer-events: none;
+}
+
+.acorn-shot-dot[data-state="current"] {
+  background: var(--color-accent);
+}
+
+.acorn-shot-dot[data-state="done"] {
+  background: var(--color-data-categorical-green);
+}
+
+.acorn-shot-dot[data-state="failed"] {
+  background: var(--color-data-categorical-red);
+}
+
+.acorn-shot-dot[data-state="skipped"] {
+  background: var(--color-text-disabled);
+}
+
+.acorn-shot-number {
+  position: absolute;
+  bottom: var(--spacing-1);
+  left: var(--spacing-1);
+  padding: 0 var(--spacing-1);
+  border-radius: var(--radius-full);
+  background: var(--color-overlay);
+  color: var(--color-on-dark);
+  font-size: var(--font-size-2xs);
+  font-variant-numeric: tabular-nums;
+  line-height: 1.6;
+  pointer-events: none;
+}
+
+/* ── The run's numbers ───────────────────────────────────────────────── */
+
+/* What the run does now gives way (it is cut short) before the count of answers wraps. */
+.acorn-run-line {
+  flex: 1 1 auto;
+  min-width: 0;
+}
+
+.acorn-run-count {
+  flex: none;
+  white-space: nowrap;
+}
+
+.acorn-run-footer {
+  color: var(--color-text-secondary);
+}

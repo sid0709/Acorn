@@ -122,6 +122,8 @@ export interface SurveyDeps {
   scroll?: ScrollContext;
   /** The page's controls with their fields (CSS pixels), so no screen's edge cuts one. */
   controls?: () => SurveyBox[];
+  /** Told each picture as it is taken, so it can go to the agent ahead of the look while the next is taken. */
+  preload?: (dataUrl: string) => void;
 }
 
 /** What the last survey saw: its screens and how tall the page was (screenshot pixels). */
@@ -198,6 +200,8 @@ export async function captureSurvey(
     deps.controls?.() ?? [],
   );
   if (positions.length < 2) return null;
+  // The look's own picture is the survey's first screen: it goes ahead while the others are taken.
+  deps.preload?.(first.dataUrl);
   const original = first.viewport.scrollY / scale;
   const sameHeight =
     reuse?.previous != null &&
@@ -242,6 +246,7 @@ export async function captureSurvey(
     // A page that did not move shows nothing new at its place: only a scroll has something to load.
     if (landed.moved) await deps.sleep(SURVEY_SETTLE_MS);
     const shot = await captureShot(deps.cdp);
+    deps.preload?.(shot.dataUrl);
     taken.set(y, { screenshot: shot.dataUrl, scrollY: shot.viewport.scrollY });
     fresh.push(shot.viewport.scrollY);
   }

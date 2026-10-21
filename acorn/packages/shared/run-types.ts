@@ -186,13 +186,31 @@ export const RUN_POINT_STATE = {
 } as const;
 export type RunPointState = (typeof RUN_POINT_STATE)[keyof typeof RUN_POINT_STATE];
 
-/** A control of the page as the page reports it (an input, a dropdown, a button, a check, a file field, a link), CSS pixels from the page's top left. */
+/**
+ * A control of the page as the page reports it (an input, a dropdown, a button, a check, a file field), CSS
+ * pixels from the page's top left, and what the page says of it. `id` is the page's own name for the control,
+ * the same while it stays. Radio buttons, and check boxes that share a name, answer one question: they share
+ * `group`, and `question` is what the page calls that question. `value` is what the control shows now (a
+ * typed answer, a chosen option, a file's name) for the person to read in the sidebar: never a password or
+ * a secret the run typed, and left out of the progress relayed to acorn-backend.
+ */
 export interface RunMapControl {
+  id: string;
   kind: string;
   x: number;
   y: number;
   w: number;
   h: number;
+  label?: string;
+  group?: string;
+  question?: string;
+  required?: boolean;
+  /** A text box, a text area or a native list says whether it is empty; left out when the page cannot tell. */
+  empty?: boolean;
+  /** A check or a radio button says whether it is ticked. */
+  checked?: boolean;
+  invalid?: boolean;
+  value?: string;
 }
 
 /** A point of the plan: where it aims on the page (CSS pixels) and what became of it. */
@@ -204,6 +222,8 @@ export interface RunMapPoint {
   state: RunPointState;
   /** The point was acted on somewhere else than it was planned: it followed its control, or was found again by its picture. */
   moved?: boolean;
+  /** The control the point acts on, by its id: the one the plan bound it to, else the one it lands on. */
+  control?: string;
 }
 
 /** A screen of the last survey (CSS pixels): photographed for it, or reused from an earlier look. */
@@ -239,6 +259,24 @@ export interface RunMap {
   points: RunMapPoint[];
   screens: RunMapScreen[];
   moves: RunMapMove[];
+}
+
+/**
+ * Whether a value is a map of this build's shape: one that was made by another build (a tab's run state
+ * kept in the browser outlives the code that wrote it) is not, and is shown as no map rather than read.
+ */
+export function isRunMap(value: unknown): value is RunMap {
+  if (!value || typeof value !== "object") return false;
+  const map = value as Partial<RunMap>;
+  return (
+    typeof map.phase === "string" &&
+    [map.pageWidth, map.pageHeight, map.viewTop, map.viewHeight].every(
+      (n) => typeof n === "number" && Number.isFinite(n),
+    ) &&
+    [map.settled, map.controls, map.points, map.screens, map.moves].every(Array.isArray) &&
+    // Controls named by the page (1.97.0): an older map's controls were boxes alone.
+    (map.controls ?? []).every((control) => typeof control?.id === "string")
+  );
 }
 
 export interface RunProgress {

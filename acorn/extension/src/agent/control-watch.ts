@@ -85,13 +85,22 @@ export async function waitForQuiet(
   }
 }
 
-/** Two lists say the same: the same controls in the same places. */
+/** Two lists say the same: the same controls in the same places, showing the same (the sidebar reads that). */
 function sameMarks(a: ControlMark[], b: ControlMark[]): boolean {
   return (
     a.length === b.length &&
     a.every((mark, i) => {
       const other = b[i];
-      return other && mark.id === other.id && mark.x === other.x && mark.y === other.y;
+      return (
+        other &&
+        mark.id === other.id &&
+        mark.x === other.x &&
+        mark.y === other.y &&
+        mark.value === other.value &&
+        mark.checked === other.checked &&
+        mark.empty === other.empty &&
+        mark.invalid === other.invalid
+      );
     })
   );
 }

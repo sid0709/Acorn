@@ -1,9 +1,10 @@
 /**
- * The map of the page a Run is on, for the sidebar's map card: the page as a column, the parts the model
- * settled, the page's controls, the points of the plan being carried out and what became of each, the
- * screens of the last survey, where the form moved, and the window. This keeps what the card draws from, in
- * the page's CSS pixels; the picture is the sidebar's own (`sidebar/page-minimap.ts`), not drawn on the page
- * the person is reading. A run has a map from the moment it has a page, and keeps it when it ends.
+ * The map of the page a Run is on, for the sidebar's Now card: the page as a column, the parts the model
+ * settled, the page's controls with what each shows, the points of the plan being carried out and what
+ * became of each, the screens of the last survey, where the form moved, and the window. This keeps what the
+ * card draws and lists from, in the page's CSS pixels; the picture is the sidebar's own
+ * (`sidebar/PageMap.tsx`), not drawn on the page the person is reading. A run has a map from the moment it
+ * has a page, and keeps it when it ends.
  */
 
 import {
@@ -23,6 +24,7 @@ import type { ControlMark, LayoutMove } from "./control-marks";
 import type { PageState } from "./page-scroll";
 import type { SettledMap } from "./survey";
 import type { AgentAction, AgentSurveyScreen } from "@acorn/shared/agent-contract";
+import type { PipelineProgress } from "@acorn/shared/pipeline-types";
 
 /** The kinds of action that aim at a point of the page. A scroll has a point too, but it is where the wheel turns, not a target. */
 const POINT_KINDS: ReadonlySet<string> = new Set([
@@ -35,8 +37,48 @@ const POINT_KINDS: ReadonlySet<string> = new Set([
 ]);
 /** A point acted on further than this (CSS pixels) from where it was planned followed its control, or was found again. */
 export const POINT_MOVED_PX = 3;
+/** How far (CSS pixels) outside a control's box a point the plan bound to no control may land and still be on it. */
+export const POINT_ON_CONTROL_PX = 6;
 
 type PageSize = Pick<RunMap, "pageWidth" | "pageHeight" | "viewTop" | "viewHeight">;
+
+/**
+ * A control as the map keeps it: the page's name for it, its place, and what it says of itself. `secret`
+ * says the run typed a secret into it (a password, a code), so what it shows is not kept.
+ */
+function mapControl(mark: ControlMark, secret: boolean): RunMapControl {
+  const out: RunMapControl = {
+    id: mark.id,
+    kind: mark.kind,
+    x: mark.x,
+    y: mark.y,
+    w: mark.w,
+    h: mark.h,
+  };
+  if (mark.label) out.label = mark.label;
+  if (mark.group) out.group = mark.group;
+  if (mark.question) out.question = mark.question;
+  if (mark.required) out.required = true;
+  if (mark.empty !== undefined) out.empty = mark.empty;
+  if (mark.checked !== undefined) out.checked = mark.checked;
+  if (mark.invalid) out.invalid = true;
+  if (mark.value && !secret) out.value = mark.value;
+  return out;
+}
+
+/**
+ * The progress as it is relayed to acorn-backend over the socket: what the page's controls show (typed
+ * answers) stays in this browser. The sidebar reads the progress from the browser's own copy.
+ */
+export function relayedProgress(progress: PipelineProgress): PipelineProgress {
+  const run = progress.run;
+  const map = run?.map;
+  if (!run || !map || !map.controls.some((control) => control.value !== undefined)) {
+    return progress;
+  }
+  const controls = map.controls.map(({ value: _value, ...control }) => control);
+  return { ...progress, run: { ...run, map: { ...map, controls } } };
+}
 
 /**
  * Which page a look is of: its address without the place on it the address names. An Apply button that
@@ -55,7 +97,12 @@ export class PageMapKeeper {
   private scale = 1;
   /** What the page reports between looks, kept for a map that is not there yet. */
   private controls: RunMapControl[] = [];
+  private marks: ControlMark[] = [];
   private moves: RunMapMove[] = [];
+  /** The controls the run typed a secret into on this page: what they show is not kept. */
+  private secrets = new Set<string>();
+  /** The control the last point aimed at: what is typed next goes into it. */
+  private aimed: string | undefined;
 
   /** The map for the sidebar, or undefined before the run has a page. */
   get current(): RunMap | undefined {
@@ -98,15 +145,17 @@ export class PageMapKeeper {
     if (this.map) this.map = { ...this.map, phase };
   }
 
-  /** The page's controls, as the page reports them (CSS pixels). */
+  /**
+   * The page's controls, as the page reports them (CSS pixels). A link is left out: a page has many, they
+   * are not questions, and a plan rarely aims at one.
+   */
   setControls(marks: ControlMark[]): void {
-    this.controls = marks.map((mark) => ({
-      kind: mark.kind,
-      x: mark.x,
-      y: mark.y,
-      w: mark.w,
-      h: mark.h,
-    }));
+    this.marks = marks.filter((mark) => mark.kind !== "link");
+    this.placeControls();
+  }
+
+  private placeControls(): void {
+    this.controls = this.marks.map((mark) => mapControl(mark, this.secrets.has(mark.id)));
     if (this.map) this.map = { ...this.map, controls: this.controls };
   }
 
@@ -146,22 +195,48 @@ export class PageMapKeeper {
 
   /**
    * The plan the agent sent: every point it aims at, measured on the survey screen the action names (or
-   * the look's own screen), all pending. An action without a point (typing, keys, a wait) is not a point.
+   * the look's own screen), all pending, each with the control it acts on. An action without a point
+   * (typing, keys, a wait) is not a point; secret typing hides what the control it goes into shows.
    */
   plan(actions: AgentAction[], shot: Shot): void {
     const points: RunMapPoint[] = [];
+    let hidden = false;
     for (const action of actions) {
+      if (action.kind === "type" && action.secret && this.aimed && !this.secrets.has(this.aimed)) {
+        this.secrets.add(this.aimed);
+        hidden = true;
+      }
       if (!POINT_KINDS.has(action.kind) || action.x == null || action.y == null) continue;
       const top = action.scrollTo ?? shot.viewport.scrollY;
+      const x = (shot.viewport.scrollX + action.x) / shot.scale;
+      const y = (top + action.y) / shot.scale;
+      const control = action.mark?.id ?? this.controlAt(x, y);
+      this.aimed = control;
       points.push({
         id: action.id,
         kind: action.kind,
-        x: (shot.viewport.scrollX + action.x) / shot.scale,
-        y: (top + action.y) / shot.scale,
+        x,
+        y,
         state: RUN_POINT_STATE.pending,
+        ...(control ? { control } : {}),
       });
     }
+    if (hidden) this.placeControls();
     if (this.map) this.map = { ...this.map, points };
+  }
+
+  /** The control a point lands on: the smallest whose box holds it, give or take POINT_ON_CONTROL_PX. */
+  private controlAt(x: number, y: number): string | undefined {
+    let best: RunMapControl | undefined;
+    for (const control of this.controls) {
+      const near =
+        x >= control.x - POINT_ON_CONTROL_PX &&
+        x <= control.x + control.w + POINT_ON_CONTROL_PX &&
+        y >= control.y - POINT_ON_CONTROL_PX &&
+        y <= control.y + control.h + POINT_ON_CONTROL_PX;
+      if (near && (!best || control.w * control.h < best.w * best.h)) best = control;
+    }
+    return best?.id;
   }
 
   /** What became of a point. `at` is where it was acted on (page CSS pixels), when that is known. */
@@ -186,7 +261,10 @@ export class PageMapKeeper {
   clear(): void {
     this.map = undefined;
     this.controls = [];
+    this.marks = [];
     this.moves = [];
+    this.secrets.clear();
+    this.aimed = undefined;
   }
 
   /** A map with nothing known of the page but its size and what the page has reported since. */

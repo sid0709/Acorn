@@ -199,6 +199,7 @@ func run() error {
 			ModelName:     model,
 			Source:        source.Kind(),
 			MaxModelCalls: config.EnvInt(envMaxModelCalls, defaultMaxModelCalls),
+			SessionTTL:    cfg.SessionTTL,
 		}).Handler(),
 		ReadHeaderTimeout: 10 * time.Second,
 	}

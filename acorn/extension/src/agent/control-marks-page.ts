@@ -10,10 +10,13 @@
  * scroll position, so it says nothing of where the form is and is left out.
  */
 
+import { EXTENSION_BUILD } from "../build-version";
+
 import {
   ENTRY_MIN_HEIGHT_PX,
   FIELD_MAX_HEIGHT_PX,
   MARK_LABEL_MAX_CHARS,
+  MARK_VALUE_MAX_CHARS,
   MAX_CONTROL_MARKS,
   SIZELESS_ANCESTORS,
 } from "./control-marks";
@@ -21,7 +24,7 @@ import {
 /** The property the page keeps the latest list on. */
 export const CONTROL_MARKS_KEY = "__acornControlMarks";
 /** Names the script a page holds: a page that has an older build has it taken off and this one put on. */
-const CONTROL_MARKS_BUILD = import.meta.env?.VITE_ACORN_VERSION ?? "dev";
+const CONTROL_MARKS_BUILD = EXTENSION_BUILD;
 /** How long after a change the page collects its list again: a burst of changes is one collection. */
 const COLLECT_DELAY_MS = 60;
 /** What the page's controls are. */
@@ -31,7 +34,9 @@ const CONTROL_SELECTOR =
 /**
  * Installs the observers once per document and returns the list's version. MutationObserver sees nodes
  * appear (a code block) and change; ResizeObserver sees a field pushed down without a new node (a warning
- * under it). Both schedule one collection a moment later; `flush` collects at once.
+ * under it). Both schedule one collection a moment later; `flush` collects at once. Typing changes a value
+ * and nothing the observers see, so an `input` or `change` event collects the list again too (what the
+ * sidebar shows keeps up) without counting as activity: the run's waits for a quiet page are as before.
  */
 function installBody(): string {
   return `(() => {
@@ -45,6 +50,7 @@ function installBody(): string {
     const FIELD_MAX_H = ${FIELD_MAX_HEIGHT_PX};
     const ENTRY_MIN_H = ${ENTRY_MIN_HEIGHT_PX};
     const LABEL_MAX = ${MARK_LABEL_MAX_CHARS};
+    const VALUE_MAX = ${MARK_VALUE_MAX_CHARS};
     const SIZELESS_UP = ${SIZELESS_ANCESTORS};
     const state = {
       installed: true, build, version: Math.floor(Math.random() * 1e9), marks: [], els: new Map(), idOf: new WeakMap(),
@@ -114,6 +120,65 @@ function installBody(): string {
       if (el.isContentEditable) return collapse(el.textContent, 1) === "";
       return undefined;
     };
+    // What a control shows now, for the person to read in the sidebar: a typed answer, the option a native
+    // list shows, a chosen file's name. A password or a card number is never read; a dropdown the page draws
+    // itself is not either (its text may be its own prompt), and a check says it with \`checked\`.
+    const VALUELESS_TYPES = new Set(["password", "hidden", "checkbox", "radio", "button", "submit", "reset", "image"]);
+    const valueOf = (el, tag, type) => {
+      if (/(^|\\s)cc-/.test((el.getAttribute("autocomplete") || "").toLowerCase())) return "";
+      if (tag === "textarea") return collapse(el.value, VALUE_MAX);
+      if (tag === "select") {
+        if (el.value === "") return "";
+        const chosen = Array.from(el.selectedOptions || [], (option) => collapse(option.textContent, VALUE_MAX));
+        return collapse(chosen.filter(Boolean).join(", "), VALUE_MAX);
+      }
+      if (tag === "input") {
+        if (VALUELESS_TYPES.has(type)) return "";
+        if (type === "file") return collapse(Array.from(el.files || [], (file) => file.name).join(", "), VALUE_MAX);
+        return collapse(el.value, VALUE_MAX);
+      }
+      if (el.isContentEditable) return collapse(el.textContent, VALUE_MAX);
+      return "";
+    };
+    const checkedOf = (el, tag, type) => {
+      if (tag === "input" && (type === "checkbox" || type === "radio")) return el.checked === true;
+      const role = el.getAttribute("role");
+      if (role === "checkbox" || role === "radio") return el.getAttribute("aria-checked") === "true";
+      return undefined;
+    };
+    // What the page calls a box of controls: its aria-label, or the element its aria-labelledby names.
+    const ariaNameOf = (el) => {
+      const aria = el.getAttribute("aria-label");
+      if (aria) return collapse(aria, LABEL_MAX);
+      const by = el.getAttribute("aria-labelledby");
+      const named = by ? document.getElementById(by.split(" ")[0]) : null;
+      return named ? collapse(named.textContent, LABEL_MAX) : "";
+    };
+    // The question a group of radio buttons or check boxes answers: its fieldset's legend, or the name of
+    // the group the page drew round them.
+    const questionOf = (el) => {
+      const set = el.closest("fieldset");
+      const legend = set ? set.querySelector("legend") : null;
+      if (legend) return collapse(legend.textContent, LABEL_MAX);
+      const box = el.closest("[role=radiogroup], [role=group]");
+      return box ? ariaNameOf(box) : "";
+    };
+    // Radio buttons answer one question together, and so do check boxes that share a name: the key the
+    // sidebar joins them by, with what the page calls the question. \`names\` counts the check boxes of each
+    // name; \`boxes\` numbers the radio groups the page drew itself, in the page's order.
+    const groupOf = (el, tag, type, names, boxes) => {
+      const name = el.getAttribute("name");
+      let key = "";
+      if (tag === "input" && type === "radio" && name) key = "radio:" + name;
+      else if (tag === "input" && type === "checkbox" && name && (names.get(name) || 0) > 1) key = "checkbox:" + name;
+      else if (el.getAttribute("role") === "radio") {
+        const box = el.closest("[role=radiogroup]");
+        if (!box) return null;
+        if (!boxes.has(box)) boxes.set(box, "radiogroup:" + (box.id || String(boxes.size + 1)));
+        key = boxes.get(box);
+      } else return null;
+      return { key, question: questionOf(el) };
+    };
     const kindOf = (el, tag, type) => {
       const role = el.getAttribute("role");
       if (type === "file") return "file";
@@ -170,9 +235,13 @@ function installBody(): string {
         entries.push({ el, signature, type, tag, rect });
       }
       const under = new Map();
+      const names = new Map();
       for (const entry of entries) {
         for (let node = entry.el.parentElement; node; node = node.parentElement) under.set(node, (under.get(node) || 0) + 1);
+        const name = entry.tag === "input" && entry.type === "checkbox" ? entry.el.getAttribute("name") : null;
+        if (name) names.set(name, (names.get(name) || 0) + 1);
       }
+      const boxes = new Map();
       const seen = new Map();
       const marks = [];
       const els = new Map();
@@ -193,6 +262,15 @@ function installBody(): string {
         const empty = emptyOf(entry.el, entry.tag, entry.type);
         if (typeof empty === "boolean") mark.empty = empty;
         if (entry.el.getAttribute("aria-invalid") === "true") mark.invalid = true;
+        const value = valueOf(entry.el, entry.tag, entry.type);
+        if (value) mark.value = value;
+        const checked = checkedOf(entry.el, entry.tag, entry.type);
+        if (typeof checked === "boolean") mark.checked = checked;
+        const group = groupOf(entry.el, entry.tag, entry.type, names, boxes);
+        if (group) {
+          mark.group = group.key;
+          if (group.question) mark.question = group.question;
+        }
         marks.push(mark);
         els.set(id, new WeakRef(entry.el));
         idOf.set(entry.el, id);
@@ -202,17 +280,27 @@ function installBody(): string {
       state.idOf = idOf;
       state.version += 1;
     };
-    const schedule = () => {
-      state.lastActivity = performance.now();
+    const queue = () => {
       if (scheduled) return;
       scheduled = true;
       setTimeout(() => requestAnimationFrame(collect), ${COLLECT_DELAY_MS});
+    };
+    const schedule = () => {
+      state.lastActivity = performance.now();
+      queue();
     };
     const mutations = new MutationObserver(schedule);
     mutations.observe(document.documentElement, { childList: true, subtree: true, attributes: true, characterData: true });
     const sizes = window.ResizeObserver ? new ResizeObserver(schedule) : null;
     if (sizes) sizes.observe(document.documentElement);
-    state.stop = () => { mutations.disconnect(); if (sizes) sizes.disconnect(); };
+    document.addEventListener("input", queue, true);
+    document.addEventListener("change", queue, true);
+    state.stop = () => {
+      mutations.disconnect();
+      if (sizes) sizes.disconnect();
+      document.removeEventListener("input", queue, true);
+      document.removeEventListener("change", queue, true);
+    };
     const live = (id) => {
       const ref = state.els.get(id);
       const el = ref ? ref.deref() : null;

@@ -368,6 +368,10 @@ type Start struct {
 	// model was sent and answered, how long each call took) come back with each step, for the
 	// extension to keep in its own log. The server writes and keeps nothing for it.
 	Trace bool `json:"trace,omitempty"`
+	// TraceImages asks for the trace's pictures too (the screenshot with each action drawn on it, a
+	// survey screen's likewise): hundreds of kilobytes a step, so only a build made for debugging asks.
+	// Without it the trace that comes back is text alone, which is a few kilobytes gzipped.
+	TraceImages bool `json:"traceImages,omitempty"`
 	// Survey lets the run look at a whole long page as several screenshots from top to bottom
 	// (the extension scrolls the page to take them). Off by default: the model then sees only the
 	// current screen, as a person does, and is not told surveys exist.

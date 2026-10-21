@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { HStack, Text } from "sid-ui";
+import { Text } from "sid-ui";
 
 const MS_PER_HOUR = 3_600_000;
 const MS_PER_MINUTE = 60_000;
@@ -31,10 +31,10 @@ export function formatRunDuration(ms: number): string {
 }
 
 /**
- * The Run's clock: counts up from 00:00:00:000 while the run works, then holds the
- * run's final time. Only this component re-renders on each frame.
+ * The Run's clock, in a line of text: counts up from 00:00:00:000 while the run works, then
+ * holds the run's final time. Only this component re-renders on each frame.
  */
-export function RunTimer({ startedAt, endedAt }: { startedAt: number; endedAt?: number }) {
+export function RunClock({ startedAt, endedAt }: { startedAt: number; endedAt?: number }) {
   const [now, setNow] = useState(() => Date.now());
   useEffect(() => {
     if (endedAt != null) return;
@@ -46,11 +46,8 @@ export function RunTimer({ startedAt, endedAt }: { startedAt: number; endedAt?: 
   }, [endedAt]);
 
   return (
-    <HStack gap={2} align="center" justify="between">
-      <Text type="supporting">{endedAt != null ? "Run time" : "Running for"}</Text>
-      <Text type="large" weight="semibold" hasTabularNumbers>
-        {formatRunClock((endedAt ?? now) - startedAt)}
-      </Text>
-    </HStack>
+    <Text type="supporting" weight="semibold" hasTabularNumbers>
+      {formatRunClock((endedAt ?? now) - startedAt)}
+    </Text>
   );
 }

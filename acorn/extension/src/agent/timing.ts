@@ -44,8 +44,12 @@ export interface HttpTiming {
   /** From sending to the answer's headers arriving, and from there to its body being read. */
   headersMs: number;
   bodyMs: number;
+  /** The bytes on the wire each way: a packed body counts packed. */
   requestBytes: number;
   responseBytes: number;
+  /** The bytes before packing (the request) and after unpacking (the answer), when they differ. */
+  rawRequestBytes?: number;
+  rawResponseBytes?: number;
   /** The server's own time (its `X-Agent-Handler-Ms`); absent when the server did not say. */
   serverMs?: number;
   /** The rest of the request: sending it, the wire both ways and reading the answer. */
@@ -61,6 +65,24 @@ export interface HttpTiming {
 /** Where a request's time went: what the log's `agent-step` carries beside the request itself. */
 export function httpSummary(timing: HttpTiming | undefined): Partial<HttpTiming> {
   if (!timing) return {};
-  const { serverMs, networkMs, requestBytes, responseBytes, headersMs, bodyMs } = timing;
-  return { serverMs, networkMs, requestBytes, responseBytes, headersMs, bodyMs };
+  const {
+    serverMs,
+    networkMs,
+    requestBytes,
+    responseBytes,
+    rawRequestBytes,
+    rawResponseBytes,
+    headersMs,
+    bodyMs,
+  } = timing;
+  return {
+    serverMs,
+    networkMs,
+    requestBytes,
+    responseBytes,
+    rawRequestBytes,
+    rawResponseBytes,
+    headersMs,
+    bodyMs,
+  };
 }

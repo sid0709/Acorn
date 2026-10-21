@@ -190,6 +190,12 @@ func New(cfg Config, applicants applicant.Source, newModel func(key string) llm.
 // Sessions is how many runs are live.
 func (a *Agent) Sessions() int { return a.sessions.len() }
 
+// Has is whether a run with this id is live.
+func (a *Agent) Has(id string) bool {
+	_, ok := a.sessions.get(id)
+	return ok
+}
+
 // Start opens a run on the page the person is looking at. key is their OpenRouter key, and auth
 // is whose profile and files the run reads (the person's Acorn session when they live in the
 // backend).
@@ -231,7 +237,7 @@ func (a *Agent) Start(ctx context.Context, key string, auth applicant.Auth, star
 	}
 	fresh := &session{
 		id: id, key: key, auth: auth, start: start, snap: snap, system: system, maxActions: maxActions, checks: checks, fallback: fallback,
-		created: now, touched: now, wantTrace: start.Trace, stepLimit: a.cfg.MaxSteps,
+		created: now, touched: now, wantTrace: start.Trace, wantTraceImages: start.Trace && start.TraceImages, stepLimit: a.cfg.MaxSteps,
 	}
 	fresh.remember(start.Memory)
 	a.sessions.add(fresh)
@@ -634,7 +640,7 @@ func (a *Agent) record(s *session, entry stepTrace, screenshot string, calls []m
 	entry.DurationMs = entry.EndedAt.Sub(entry.StartedAt).Milliseconds()
 	level, line := storyOf(s.id, s.created, entry, calls)
 	slog.Log(context.Background(), level, line)
-	trace, err := a.trace.record(s.id, entry, screenshot, calls, s.wantTrace)
+	trace, err := a.trace.record(s.id, entry, screenshot, calls, s.wantTrace, s.wantTraceImages)
 	if err != nil {
 		slog.Warn("The trace of this step could not be saved: "+runName(s.id)+", step "+fmt.Sprint(entry.Step)+".", plainlog.ErrorKey, err)
 	}

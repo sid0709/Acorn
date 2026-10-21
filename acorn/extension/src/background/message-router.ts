@@ -9,6 +9,7 @@ import {
   handleSocketStatus,
 } from "./messages/auth";
 import { handleAnswerRun, handleStartRun, handleStopRun } from "./messages/run";
+import { handleShowOnPage } from "./messages/show-on-page";
 import { handleSubmitSupportClaim } from "./messages/support-claim";
 import { handleSupportHandoff } from "./messages/support-session";
 import { refreshTabUsage } from "./tab-usage-store";
@@ -66,6 +67,11 @@ export function routeMessage(
   if (message.type === MSG.STOP_RUN) {
     handleStopRun(message, sender, sendResponse);
     return false;
+  }
+
+  if (message.type === MSG.SHOW_ON_PAGE) {
+    handleShowOnPage(message, sender, sendResponse);
+    return true;
   }
 
   if (message.type === MSG.SUPPORT_HANDOFF) {

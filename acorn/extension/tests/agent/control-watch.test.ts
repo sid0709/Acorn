@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 
+import { marksForAgent } from "../../src/agent/control-marks.ts";
 import { ControlWatch, waitForQuiet } from "../../src/agent/control-watch.ts";
 
 import { FakeElement, FakePage } from "./fake-page.ts";
@@ -132,6 +133,86 @@ describe("the page's list of controls", () => {
     assert.equal(back?.empty, undefined, "a button holds no value");
     assert.equal(submit?.label, "Submit application");
     assert.equal(name?.entry, undefined, "a label above the box leaves the whole box as the entry");
+  });
+
+  it("tells the person what each control shows and which choices answer one question, and the agent none of it", async () => {
+    const page = new FakePage();
+    const add = (tag: string, y: number, attributes: Record<string, string>, parent = page.body) =>
+      parent.add(tag, { x: 10, y, w: 300, h: 30 }, attributes);
+    add("input", 100, { type: "text", name: "name" }).value = "Ada   Lovelace ";
+    add("input", 140, { type: "password", name: "pw" }).value = "hunter2";
+    add("input", 180, { type: "text", name: "card", autocomplete: "billing cc-number" }).value =
+      "4111111111111111";
+    const country = add("select", 220, { name: "country" });
+    country.value = "nz";
+    const chosen = new FakeElement(page, "option", { x: 0, y: 0, w: 1, h: 1 });
+    chosen.textContent = "New Zealand";
+    country.selectedOptions = [chosen];
+    add("select", 260, { name: "state" }).selectedOptions = [chosen];
+    add("input", 300, { type: "file", name: "resume" }).files = [{ name: "resume.pdf" }];
+    const set = page.body.add("fieldset", { x: 0, y: 340, w: 400, h: 100 });
+    add("legend", 340, {}, set).textContent = "Are you authorized to work here?";
+    add("input", 370, { type: "radio", name: "auth", "aria-label": "Yes" }, set).checked = true;
+    add("input", 400, { type: "radio", name: "auth", "aria-label": "No" }, set);
+    add("input", 460, { type: "checkbox", name: "days", "aria-label": "Mon" }).checked = true;
+    add("input", 490, { type: "checkbox", name: "days", "aria-label": "Tue" });
+    add("input", 520, { type: "checkbox", name: "agree", "aria-label": "I agree" });
+    const shift = page.body.add("div", { x: 0, y: 560, w: 400, h: 80 }, { role: "radiogroup" });
+    shift.attributes["aria-label"] = "Preferred shift";
+    add("div", 570, { role: "radio", "aria-label": "Day", "aria-checked": "true" }, shift);
+    add("div", 600, { role: "radio", "aria-label": "Night", "aria-checked": "false" }, shift);
+
+    const watch = new ControlWatch();
+    await watch.read(page.cdp());
+    const mark = (id: string) => watch.marks.find((one) => one.id === id);
+    assert.equal(mark("input:text:name:")?.value, "Ada Lovelace");
+    assert.equal(mark("input:password:pw:")?.value, undefined, "a password is never read");
+    assert.equal(mark("input:text:card:")?.value, undefined, "nor a card's number");
+    assert.equal(mark("select::country:")?.value, "New Zealand");
+    assert.equal(mark("select::state:")?.value, undefined, "a list on its empty prompt shows none");
+    assert.equal(mark("input:file:resume:")?.value, "resume.pdf");
+    assert.deepEqual(
+      ["input:radio:auth:Yes", "input:radio:auth:No"].map((id) => {
+        const one = mark(id);
+        return [one?.group, one?.question, one?.checked];
+      }),
+      [
+        ["radio:auth", "Are you authorized to work here?", true],
+        ["radio:auth", "Are you authorized to work here?", false],
+      ],
+    );
+    assert.equal(mark("input:checkbox:days:Mon")?.group, "checkbox:days");
+    assert.equal(mark("input:checkbox:agree:I agree")?.group, undefined, "a check box alone");
+    assert.equal(mark("input:checkbox:agree:I agree")?.checked, false);
+    assert.deepEqual(
+      [mark("div:::Day")?.group, mark("div:::Day")?.question, mark("div:::Day")?.checked],
+      ["radiogroup:1", "Preferred shift", true],
+    );
+    assert.equal(mark("div:::Night")?.checked, false);
+    for (const told of marksForAgent(watch.marks, 2)) {
+      assert.deepEqual(
+        [told.value, told.checked, told.group, told.question],
+        [undefined, undefined, undefined, undefined],
+        "the agent reads the page from its pictures",
+      );
+    }
+  });
+
+  it("collects the list again as the person types, which the observers do not see", async () => {
+    const page = new FakePage();
+    const name = page.body.add(
+      "input",
+      { x: 10, y: 100, w: 300, h: 30 },
+      { type: "text", name: "name" },
+    );
+    const cdp = page.cdp();
+    const watch = new ControlWatch();
+    await watch.read(cdp);
+    name.value = "Ada";
+    page.dispatch("input");
+    await new Promise((resolve) => setTimeout(resolve, 150));
+    assert.equal(await watch.read(cdp), true);
+    assert.equal(watch.marks[0]?.value, "Ada");
   });
 
   it("gives a control whose label is printed inside its box the line under the words as its entry", async () => {
@@ -361,6 +442,18 @@ describe("waiting for the page to go quiet", () => {
     const waited = Date.now() - began;
     assert.equal(done, true);
     assert.ok(waited >= 230 && waited < 600, `waited ${waited} ms`);
+  });
+
+  it("does not count typing as the page being busy", async () => {
+    const { page } = form();
+    const cdp = page.cdp();
+    await new ControlWatch().read(cdp);
+    const typing = setInterval(() => page.dispatch("input"), 20);
+    const began = Date.now();
+    const done = await waitForQuiet(cdp, 1000, 0);
+    clearInterval(typing);
+    assert.equal(done, true);
+    assert.ok(Date.now() - began < 600, "the wait is the quiet page's, not the longest");
   });
 
   it("waits for an animation of the page to end, but not for the cursor's own or one that never ends", async () => {

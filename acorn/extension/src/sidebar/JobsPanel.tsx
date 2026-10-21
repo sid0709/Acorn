@@ -1,19 +1,16 @@
 import { AutoFocusSwitch } from "./AutoFocusSwitch";
-import { RunMapCard } from "./RunMapCard";
 
 import type { AcornMainTab } from "./SidebarNav";
-import type { PipelineProgress } from "@acorn/shared/pipeline-types";
 import type { ReactNode } from "react";
 
 interface Props {
   mainTab: AcornMainTab;
+  /** The active tab's card: its run, the map of its page with the page's questions, and the Run actions. */
   nowCard: ReactNode;
-  /** The run on the active tab, as the Now card and the map show it. */
-  progress: PipelineProgress;
 }
 
-/** The Jobs tab: the Auto-Focus switch, the active tab's run and its actions, and the map of the page the run is on. */
-export function JobsPanel({ mainTab, nowCard, progress }: Props) {
+/** The Jobs tab: the Auto-Focus switch, and the active tab's run with the map of the page it is on. */
+export function JobsPanel({ mainTab, nowCard }: Props) {
   return (
     <section
       id="acorn-panel-fill"
@@ -23,7 +20,6 @@ export function JobsPanel({ mainTab, nowCard, progress }: Props) {
     >
       <AutoFocusSwitch />
       {nowCard}
-      <RunMapCard progress={progress} />
     </section>
   );
 }

@@ -29,6 +29,7 @@ import {
   tabsWithRunContext,
 } from "./tab-log-session";
 import { clearTabPipeline, rekeyTabPipeline } from "./tab-pipeline-session";
+import { clearTabRunShots, rekeyTabRunShots } from "./tab-run-shots";
 import { rekeyUsageTab } from "./tab-usage-key";
 import { MSG, ACORN_SIDEBAR_PORT } from "./types";
 
@@ -106,6 +107,7 @@ chrome.runtime.onInstalled.addListener(enableSidePanelOnActionClick);
 chrome.tabs.onRemoved.addListener((tabId) => {
   void endKeptRunOfTab(tabId);
   void clearTabPipeline(tabId);
+  void clearTabRunShots(tabId);
   void clearTabLog(tabId);
 });
 
@@ -119,6 +121,7 @@ chrome.tabs.onReplaced.addListener((addedTabId, removedTabId) => {
   void moveTabLog(removedTabId, addedTabId).catch(() => undefined);
   void rekeyUsageTab(removedTabId, addedTabId);
   void rekeyTabPipeline(removedTabId, addedTabId);
+  void rekeyTabRunShots(removedTabId, addedTabId);
   void rekeyKeptRun(removedTabId, addedTabId);
 });
 

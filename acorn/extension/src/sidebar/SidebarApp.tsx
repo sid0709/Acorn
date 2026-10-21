@@ -158,7 +158,9 @@ export default function SidebarApp() {
     }
   };
 
-  const nowCard = <NowCard progress={progress} fillBusy={fillBusy} {...nowActions} />;
+  const nowCard = (
+    <NowCard progress={progress} fillBusy={fillBusy} tabId={activeTabId} {...nowActions} />
+  );
 
   return (
     <div className={`sidebar-app${session ? " signed-in" : ""} tab-${session ? mainTab : "fill"}`}>
@@ -188,7 +190,7 @@ export default function SidebarApp() {
           </div>
 
           <main className="sidebar-scroll">
-            <JobsPanel mainTab={mainTab} nowCard={nowCard} progress={progress} />
+            <JobsPanel mainTab={mainTab} nowCard={nowCard} />
 
             <SupportPanel
               mainTab={mainTab}

@@ -43,6 +43,12 @@ export class FakeElement {
   connected = true;
   /** What a text box, a text area or a native list holds. */
   value = "";
+  /** Whether a check box or a radio button is ticked. */
+  checked = false;
+  /** The files a file field holds. */
+  files: { name: string }[] | null = null;
+  /** The options a native list shows as chosen. */
+  selectedOptions: FakeElement[] = [];
   /** Whether the page marks the control as required (the `required` attribute). */
   get required(): boolean {
     return "required" in this.attributes;
@@ -105,6 +111,16 @@ export class FakeElement {
   /** The elements inside this element that a selector list of simple selectors matches, in the order they were added. */
   querySelectorAll(selector: string): FakeElement[] {
     return this.page.matching(selector).filter((el) => el !== this && this.contains(el));
+  }
+
+  querySelector(selector: string): FakeElement | null {
+    return this.querySelectorAll(selector)[0] ?? null;
+  }
+
+  /** This element or the nearest one round it that a selector list of simple selectors matches. */
+  closest(selector: string): FakeElement | null {
+    if (parseSelector(selector).some((simple) => this.matches(simple))) return this;
+    return this.parentElement?.closest(selector) ?? null;
   }
 
   /** Whether one simple selector matches this element. */
@@ -173,6 +189,8 @@ export class FakePage {
   hitAt: (x: number, y: number) => FakeElement | null = () => null;
   /** The element that has focus; the body when none does. */
   activeElement: FakeElement | null = null;
+  /** The listeners scripts put on the document, by event type. */
+  listeners = new Map<string, Set<() => void>>();
   readonly all: FakeElement[] = [];
   readonly html: FakeElement;
   readonly body: FakeElement;
@@ -208,6 +226,14 @@ export class FakePage {
       getElementById: (id: string) => this.all.find((el) => el.id === id) ?? null,
       elementFromPoint: (x: number, y: number) => this.hitAt(x, y),
       getAnimations: () => this.animations,
+      addEventListener: (type: string, listener: () => void) => {
+        const set = this.listeners.get(type) ?? new Set();
+        set.add(listener);
+        this.listeners.set(type, set);
+      },
+      removeEventListener: (type: string, listener: () => void) => {
+        this.listeners.get(type)?.delete(listener);
+      },
     };
     Object.defineProperty(this.document, "visibilityState", { get: () => this.visibilityState });
     Object.defineProperty(this.document, "activeElement", {
@@ -231,6 +257,11 @@ export class FakePage {
   /** Something in the page changed: its observers are told. */
   mutated(): void {
     for (const observer of [...this.observers]) observer.callback();
+  }
+
+  /** An event reaches the document (`input` as a person types): its listeners are told. */
+  dispatch(type: string): void {
+    for (const listener of [...(this.listeners.get(type) ?? [])]) listener();
   }
 
   /** Runs an expression in the page as the debugger would, and gives its value as the debugger would. */

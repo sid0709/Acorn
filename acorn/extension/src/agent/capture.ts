@@ -100,8 +100,13 @@ function toBase64(bytes: Uint8Array): string {
   return btoa(binary);
 }
 
-/** A JPEG (base64) drawn again at another size, with the browser's own scaler. */
-async function resizeJpeg(base64: string, width: number, height: number): Promise<string> {
+/** A JPEG (base64) drawn again at another size, with the browser's own scaler, at `quality` (0 to 100). */
+export async function resizeJpeg(
+  base64: string,
+  width: number,
+  height: number,
+  quality = SHOT_QUALITY,
+): Promise<string> {
   const source = Uint8Array.from(atob(base64), (char) => char.charCodeAt(0));
   const bitmap = await createImageBitmap(new Blob([source], { type: "image/jpeg" }));
   try {
@@ -110,7 +115,7 @@ async function resizeJpeg(base64: string, width: number, height: number): Promis
     if (!context) throw new Error("no canvas to resize the screenshot on");
     context.imageSmoothingQuality = "high";
     context.drawImage(bitmap, 0, 0, width, height);
-    const blob = await canvas.convertToBlob({ type: "image/jpeg", quality: SHOT_QUALITY / 100 });
+    const blob = await canvas.convertToBlob({ type: "image/jpeg", quality: quality / 100 });
     return toBase64(new Uint8Array(await blob.arrayBuffer()));
   } finally {
     bitmap.close();
