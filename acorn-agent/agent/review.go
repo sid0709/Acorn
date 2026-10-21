@@ -37,6 +37,8 @@ type expectation struct {
 	Label string
 	Value string
 	Pick  bool
+	// Y is where the plan's point for the field lies on the page (screenshot pixels from its top).
+	Y float64
 }
 
 // reviewResult is the review of one zone.
@@ -68,7 +70,7 @@ type reviewState struct {
 // expectationsOf is what the plan fills in, by zone: a field the plan clicked on (the point has a label)
 // and typed into, and a dropdown it chose in. A secret is not asked about. A field the plan fills more than
 // once is asked about for the last value only: that is what it should show.
-func expectationsOf(planned []Action) map[int][]expectation {
+func expectationsOf(planned []Action, obs Observation) map[int][]expectation {
 	out := map[int][]expectation{}
 	put := func(zone int, exp expectation) {
 		for i, had := range out[zone] {
@@ -79,16 +81,16 @@ func expectationsOf(planned []Action) map[int][]expectation {
 		}
 		out[zone] = append(out[zone], exp)
 	}
-	label := ""
+	label, y := "", 0.0
 	for _, action := range planned {
 		switch {
 		case action.Kind == KindChoose && action.Zone > 0 && strings.TrimSpace(action.Label) != "" && strings.TrimSpace(action.Text) != "":
-			put(action.Zone, expectation{Label: strings.TrimSpace(action.Label), Value: clipText(strings.TrimSpace(action.Text), maxExpectChars), Pick: true})
+			put(action.Zone, expectation{Label: strings.TrimSpace(action.Label), Value: clipText(strings.TrimSpace(action.Text), maxExpectChars), Pick: true, Y: pageY(action, obs)})
 			label = ""
 		case isPointAction(action):
-			label = strings.TrimSpace(action.Label)
+			label, y = strings.TrimSpace(action.Label), pageY(action, obs)
 		case action.Kind == KindType && !action.Secret && action.Zone > 0 && label != "" && strings.TrimSpace(action.Text) != "":
-			put(action.Zone, expectation{Label: label, Value: clipText(strings.TrimSpace(action.Text), maxExpectChars)})
+			put(action.Zone, expectation{Label: label, Value: clipText(strings.TrimSpace(action.Text), maxExpectChars), Y: y})
 			label = ""
 		}
 	}
@@ -218,6 +220,7 @@ func (a *Agent) collectReviews(s *session) {
 		for _, exp := range result.Failed {
 			wrong = append(wrong, fmt.Sprintf("%q does not show %q (screen %d)", exp.Label, exp.Value, result.Zone))
 			s.setField(exp.Label, FieldEmpty)
+			s.unverified(exp.Label, exp.Y)
 		}
 		// What the zone's review did not fault, it confirmed: those fields are ticked off the to-do list
 		// (fields.go) and settle their rows (settled.go).
@@ -239,7 +242,7 @@ func (a *Agent) collectReviews(s *session) {
 		return
 	}
 	s.notes = append(s.notes, fmt.Sprintf("Acorn looked at each part of the page right after it was filled in and found %s: %s. "+
-		"Put them right in one answer; the survey you are given shows the page as it is.",
+		"Put them right in one answer; the screenshots you are given show the page as it is.",
 		plainlog.Count(len(wrong), "field"), strings.Join(wrong, "; ")))
 	s.surveyAgain = true
 	slog.Warn(fmt.Sprintf("%s: the review of the filled-in fields found %s that do not show what was typed.", runName(s.id), plainlog.Count(len(wrong), "field")))

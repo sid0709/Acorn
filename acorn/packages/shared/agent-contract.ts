@@ -480,10 +480,14 @@ export interface AgentStep {
   trace?: AgentTrace;
 }
 
-/** What the model says of a field of the form: answered, to answer, or the applicant's own to give. */
+/**
+ * What the model says of a field of the form: answered, required and still to answer, optional and left
+ * blank, or the applicant's own to give.
+ */
 export const FIELD_STATE = {
   filled: "filled",
   empty: "empty",
+  optional: "optional",
   needsPerson: "needs_person",
 } as const;
 export type FieldState = (typeof FIELD_STATE)[keyof typeof FIELD_STATE];

@@ -26,7 +26,7 @@ type reply struct {
 }
 
 // modelField is one question of the form as the model reads it: its label, where it is on the survey, and
-// its state (FieldFilled, FieldEmpty, FieldNeedsPerson).
+// its state (FieldFilled, FieldEmpty, FieldOptional, FieldNeedsPerson).
 type modelField struct {
 	Label  string   `json:"label"`
 	Screen *int     `json:"screen"`

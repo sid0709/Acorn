@@ -271,8 +271,10 @@ func (s *session) markSettled(obs Observation, screens []int, planned []Action, 
 			continue
 		}
 		from := obs.Survey[n-1].ScrollY
-		// The screen with the key on it is never settled: the run comes back to it.
-		if key.within(from, from+float64(obs.Viewport.Height)) {
+		// The screen with the key on it is never settled, nor one with a field the to-do list has empty: the
+		// run comes back to them. A recorded run settled the only screen that showed a required box whole,
+		// and then aimed at it four times where it was cut off at a screen's edge.
+		if key.within(from, from+float64(obs.Viewport.Height)) || s.emptyFieldNear(obs.URL, from, from+float64(obs.Viewport.Height)) {
 			continue
 		}
 		added = append(added, Span{From: from, To: from + float64(obs.Viewport.Height)})
@@ -459,4 +461,40 @@ func (s *session) inSettled(y, height float64) bool {
 		}
 	}
 	return false
+}
+
+// unsettle takes a stretch of the page out of what is settled: the run goes back there.
+func (s *session) unsettle(from, to float64) {
+	if len(s.settled.Spans) == 0 {
+		return
+	}
+	var kept []Span
+	for _, span := range s.settled.Spans {
+		if span.To <= from || span.From >= to {
+			kept = append(kept, span)
+			continue
+		}
+		if span.From < from {
+			kept = append(kept, Span{From: span.From, To: from})
+		}
+		if span.To > to {
+			kept = append(kept, Span{From: to, To: span.To})
+		}
+	}
+	if len(kept) != len(s.settled.Spans) || !sameSpans(kept, s.settled.Spans) {
+		s.settled.Spans, s.settled.changed = kept, true
+	}
+}
+
+// sameSpans is whether two lists of stretches are the same.
+func sameSpans(a, b []Span) bool {
+	if len(a) != len(b) {
+		return false
+	}
+	for i := range a {
+		if a[i] != b[i] {
+			return false
+		}
+	}
+	return true
 }

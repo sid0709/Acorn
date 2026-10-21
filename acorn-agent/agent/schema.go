@@ -143,7 +143,7 @@ func buildReplySchema(survey, checks bool) json.RawMessage {
 		// Every question of the form as the model reads it, with its state (fields.go).
 		fields = append(fields, field{"fields", `{"type": ["array", "null"], "items": ` +
 			object(field{"label", schemaString}, field{"screen", schemaInteger}, field{"y", schemaNumber},
-				field{"state", `{"type": "string", "enum": ["` + FieldFilled + `", "` + FieldEmpty + `", "` + FieldNeedsPerson + `"]}`}) + `}`})
+				field{"state", `{"type": "string", "enum": ["` + FieldFilled + `", "` + FieldEmpty + `", "` + FieldOptional + `", "` + FieldNeedsPerson + `"]}`}) + `}`})
 	}
 	fields = append(fields, field{"actions", `{"type": "array", "items": ` + action + `}`})
 	return json.RawMessage(object(fields...))

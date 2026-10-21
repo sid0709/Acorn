@@ -419,6 +419,7 @@ func (a *Agent) step(ctx context.Context, id string, obs Observation) (Step, err
 	s.noteCommitResults(obs.Results)
 	a.noteRefusedSend(ctx, s, obs)
 	s.notes = append(s.notes, unreachedNotes(obs.Results, s.byID, s.marks, obs)...)
+	s.noteUnreachedFields(obs.Results)
 	a.learnJD(ctx, s, obs)
 	if s.pendingUpload != nil {
 		return a.answerPending(s, obs, results, sig)
@@ -470,6 +471,10 @@ func (a *Agent) step(ctx context.Context, id string, obs Observation) (Step, err
 		return step, nil
 	}
 	if step, ok := a.tryNavigate(ctx, s, obs, len(screens), results, sig, stale); ok {
+		return step, nil
+	}
+
+	if step, ok := a.focusStep(s, obs, results, sig); ok {
 		return step, nil
 	}
 
@@ -593,6 +598,8 @@ func (a *Agent) step(ctx context.Context, id string, obs Observation) (Step, err
 	if held := a.holdCommits(s, &planned, lost); len(held) > 0 {
 		dropped = append(dropped, fmt.Sprintf("the click that sends the page was held back: the plan lost %s", plainlog.Count(lost, "action")))
 	}
+	// The page is sent, or goes on, only once the to-do list has no required field empty (sendgate.go).
+	a.holdForList(s, &planned, &dropped, obs)
 	// A run asked to stop before sending never presses the click that sends the application: it and what
 	// was planned after it stay behind, and the run ends as ready to submit once nothing else is planned.
 	sendHeld := a.holdSend(s, &planned, &dropped)
@@ -605,7 +612,8 @@ func (a *Agent) step(ctx context.Context, id string, obs Observation) (Step, err
 	s.setFence(planned, obs)
 	// What this plan fills in, by zone, for the reviews of its zones.
 	s.planGen++
-	s.expect, s.expectURL = expectationsOf(planned), withoutFragment(obs.URL)
+	s.expect, s.expectURL = expectationsOf(planned, obs), withoutFragment(obs.URL)
+	s.planScrollY = obs.Viewport.ScrollY
 	status := answer.Status
 	// "Done" is the page's confirmation, not the model's word: a done the screen does not show is sent back.
 	if note, held := a.holdDone(ctx, s, obs, &answer); held {

@@ -18,10 +18,12 @@ import (
 // survey the model is shown carries the list back to it, every field with the screen of that survey it lies
 // on (the number written on the screenshot), so it sees what is left and where, and puts its reading right.
 
-// What the model says of a field's state.
+// What the model says of a field's state: answered, required and still without an answer, optional and
+// left blank (it holds nothing back), or the applicant's own to give.
 const (
 	FieldFilled      = "filled"
 	FieldEmpty       = "empty"
+	FieldOptional    = "optional"
 	FieldNeedsPerson = "needs_person"
 )
 
@@ -45,7 +47,7 @@ func (s *session) noteFields(answer reply, obs Observation) {
 			continue
 		}
 		state := f.State
-		if state != FieldFilled && state != FieldNeedsPerson {
+		if state != FieldFilled && state != FieldOptional && state != FieldNeedsPerson {
 			state = FieldEmpty
 		}
 		fields = append(fields, FieldState{Label: label, Y: obs.Survey[*f.Screen-1].ScrollY + *f.Y, State: state})

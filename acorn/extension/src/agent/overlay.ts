@@ -163,12 +163,15 @@ const OVERLAY_CSS = `
     border-radius: 999px; background: #1c1410; color: #ffffff;
     border: 1px solid rgba(255, 255, 255, 0.6);
     box-shadow: 0 0 0 1px rgba(0, 0, 0, 0.55), 0 4px 18px rgba(0, 0, 0, 0.4);
-    max-width: min(560px, calc(100vw - 40px)); pointer-events: auto;
+    max-width: min(560px, calc(100vw - 40px)); pointer-events: none;
   }
   .label { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  /* Only the Stop button takes clicks: the bar lies over the bottom of the page, and a click the run aims
+     there (a box at the window's edge) must reach the page, not the bar. A recorded run's five clicks on a
+     required box at the bottom of the window landed on the bar, and nothing was typed. */
   .stop {
     all: unset; cursor: pointer; padding: 4px 12px; border-radius: 999px; font-weight: 600;
-    background: #ffffff; color: #1c1410;
+    background: #ffffff; color: #1c1410; pointer-events: auto;
   }
   .stop:hover { background: #ffe1b0; }
   .stop:focus-visible { outline: 2px solid #ffb52e; outline-offset: 2px; }

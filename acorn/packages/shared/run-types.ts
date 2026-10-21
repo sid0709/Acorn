@@ -219,7 +219,7 @@ export interface RunMapControl {
 export interface RunMapField {
   label: string;
   y: number;
-  state: "filled" | "empty" | "needs_person";
+  state: "filled" | "empty" | "optional" | "needs_person";
 }
 
 /** A point of the plan: where it aims on the page (CSS pixels) and what became of it. */

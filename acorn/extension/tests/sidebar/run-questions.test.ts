@@ -203,3 +203,21 @@ describe("where a question was seen", () => {
     );
   });
 });
+
+describe("an optional field left blank", () => {
+  it("is not required, not counted, and does not need the person", () => {
+    const questions = questionsOf({
+      ...map([]),
+      fields: [
+        { label: "Twitter URL", y: 100, state: "optional" },
+        { label: "Visa sponsorship", y: 200, state: "empty" },
+      ],
+    });
+    const [twitter, visa] = questions;
+    assert.equal(twitter.status, QUESTION_STATUS.blank);
+    assert.equal(twitter.required, false);
+    assert.equal(needsYou(twitter), false);
+    assert.equal(visa.required, true);
+    assert.deepEqual(questionTally(questions), { answered: 0, total: 1 });
+  });
+});

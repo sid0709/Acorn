@@ -117,3 +117,53 @@ func isUnavailableKind(kind string) bool {
 	}
 	return false
 }
+
+// maxListHolds is how many times on one page the click that sends it or goes on is held for fields the
+// to-do list still has empty: a field the model cannot fill does not keep the page from being sent for ever.
+const maxListHolds = 3
+
+// listHold counts the holds of holdForList on one page.
+type listHold struct {
+	url   string
+	count int
+}
+
+// holdForList takes the clicks that send the page or go on to its next step ("commit") out of a plan while
+// the to-do list (fields.go: the model's reading of the pictures, as the photo reviews corrected it) still has
+// a required field empty on the page, even one the same plan fills: the click goes out on a later look, once
+// a survey shows the list clear. A recorded run planned the sponsorship answer and Submit together, the answer
+// missed its box, and Submit was pressed with the box empty. It says whether it held one.
+func (a *Agent) holdForList(s *session, planned *[]Action, dropped *[]string, obs Observation) bool {
+	left := s.emptyFieldsOn(obs.URL)
+	if len(left) == 0 {
+		return false
+	}
+	kept, held := withoutCommits(*planned)
+	if len(held) == 0 {
+		return false
+	}
+	url := withoutFragment(obs.URL)
+	if s.listHold.url != url {
+		s.listHold = listHold{url: url}
+	}
+	if s.listHold.count >= maxListHolds {
+		slog.Warn(fmt.Sprintf("%s: the click that sends the page goes out though the to-do list still has %s empty (%s): it was held %d times on this page.",
+			runName(s.id), plainlog.Count(len(left), "field"), quoted(left), s.listHold.count))
+		return false
+	}
+	s.listHold.count++
+	*planned = kept
+	*dropped = append(*dropped, fmt.Sprintf("the click that sends the page or goes on was held back (%s with it): the to-do list still has %s empty",
+		plainlog.Count(len(held)-1, "later action"), plainlog.Count(len(left), "field")))
+	s.notes = append(s.notes, listHoldNote(left))
+	s.surveyAgain = true
+	slog.Info(fmt.Sprintf("%s: the click that sends the page was held back: the to-do list still has %s empty (%s).",
+		runName(s.id), plainlog.Count(len(left), "field"), quoted(left)))
+	return true
+}
+
+// listHoldNote tells the model why the click that sends the page was not made.
+func listHoldNote(left []string) string {
+	return fmt.Sprintf("Acorn did not press the button that sends this page or goes on: your to-do list still has these required fields empty: %s. "+
+		"The rest of your plan ran. Look at each of them on the survey; when the list shows every required field filled, press the button, alone or after what is left.", quoted(left))
+}

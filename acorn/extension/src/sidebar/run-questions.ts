@@ -199,6 +199,7 @@ const FIELD_ROW_PX = 28;
 const FIELD_STATUS: Record<RunMapField["state"], QuestionStatus> = {
   filled: QUESTION_STATUS.answered,
   empty: QUESTION_STATUS.open,
+  optional: QUESTION_STATUS.blank,
   needs_person: QUESTION_STATUS.problem,
 };
 
@@ -228,7 +229,7 @@ function questionsOfFields(map: RunMap, fields: RunMapField[]): RunQuestion[] {
       kind: "input",
       label: field.label,
       named: true,
-      required: field.state !== "filled",
+      required: field.state === "empty" || field.state === "needs_person",
       status,
       flagged: field.state === "needs_person",
       controls,
