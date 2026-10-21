@@ -34,7 +34,8 @@ const (
 const (
 	// StatusWorking: carry out the actions and send the next screenshot.
 	StatusWorking = "working"
-	// StatusDone: the application was sent, or the run reached the point it was asked to stop at.
+	// StatusDone: the application was sent, or the run reached the point it was asked to stop at (a
+	// run asked to stop before sending ends done with Step.ReadyToSubmit set).
 	StatusDone = "done"
 	// StatusNeedPerson: something only the person can do (a CAPTCHA, a code, a decision).
 	StatusNeedPerson = "need_person"
@@ -46,7 +47,7 @@ const (
 )
 
 // Why a run ended without being done: what the page needs from the person, or why the
-// agent could not go on. The model names the first eight; the agent itself the last two.
+// agent could not go on. The model names the first nine; the agent itself the next two.
 const (
 	StopCaptcha      = "captcha"
 	StopVerification = "verification"
@@ -59,11 +60,33 @@ const (
 	StopAccountRejected = "account_rejected"
 	StopPageProblem     = "page_problem"
 	StopOther           = "other"
-	StopNoChange        = "no_change"
-	StopStepLimit       = "step_limit"
+	// StopJobUnavailable: the page shows there is no online application to make for this job; StopInfo.Kind
+	// says how (closed or filled, apply only by email or phone, not a job posting). The model judges it from
+	// the screen, the address and the title; the run ends at once, with nothing for the applicant to finish.
+	StopJobUnavailable = "job_unavailable"
+	StopNoChange       = "no_change"
+	StopStepLimit      = "step_limit"
 	// StopResumeChoice: no job description was found, so the agent could not choose a résumé,
 	// and the person chose to pick one themselves.
 	StopResumeChoice = "resume_choice"
+)
+
+// How a job is unavailable (StopInfo.Kind with StopJobUnavailable), in the model's judgment.
+const (
+	// UnavailableExpired: the posting is closed or filled, or the link led to a careers home page or a search.
+	UnavailableExpired = "expired"
+	// UnavailableNoOnlineApply: applications are taken only by email, phone, post or in person.
+	UnavailableNoOnlineApply = "no_online_apply"
+	// UnavailableNotAJob: the page is not a job posting or an application at all.
+	UnavailableNotAJob = "not_a_job"
+)
+
+// What a click the model marks does beyond the click (Action.Commit): it goes on to another page of the
+// form, or it sends the application to the employer. The model judges which from the screen; a run asked
+// to stop before sending holds back every CommitSend (sendgate.go).
+const (
+	CommitNext = "next"
+	CommitSend = "send"
 )
 
 // The answers to the question the agent asks when it cannot choose a résumé.
@@ -87,9 +110,11 @@ type Ask struct {
 }
 
 // StopInfo says, for the person, why the run ended without being done: Reason is one of the
-// Stop* values, Problem what the page needs or what went wrong, Action what to do about it.
+// Stop* values, Problem what the page needs or what went wrong, Action what to do about it. Kind is
+// set with StopJobUnavailable only: one of the Unavailable* values.
 type StopInfo struct {
 	Reason  string `json:"reason"`
+	Kind    string `json:"kind,omitempty"`
 	Problem string `json:"problem"`
 	Action  string `json:"action"`
 }
@@ -173,17 +198,28 @@ type Observation struct {
 	// Look names the look, the same on a step the extension sends again after a failure, so the move
 	// in Layout is placed once. Empty from an extension that does not name its looks.
 	Look string `json:"look,omitempty"`
-	// List is the list of choices open on the page at this look, as the page names its options
-	// (an ARIA listbox or menu); nil when the page names none. A dropdown the agent opened is read
-	// from it as text (choose.go), with no picture to count rows in.
+	// List is the list of choices open on the page at this look, as the page names and places its
+	// options (an ARIA listbox or menu); nil when the page names none. Only where its options are drawn
+	// is used: they are numbered on the picture the decision model reads (listread.go).
 	List *OpenList `json:"list,omitempty"`
 }
 
 // OpenList is a list of choices open on the page, as the page names its options, in the order they
-// are drawn (so the n-th is reached with n-1 ArrowDown from the first). Empty options is a list that
-// is open with nothing in it yet: a box that searches as one types.
+// are drawn (so the n-th is reached with n-1 ArrowDown from the first). Only the boxes are used: what
+// the options are called is read from the picture (listread.go).
 type OpenList struct {
 	Options []string `json:"options"`
+	// Boxes is where each option is drawn, one per option in the same order (screenshot pixels from the
+	// page's top left, as marks are), when the page could say: the pick is a click on the option.
+	Boxes []Rect `json:"boxes,omitempty"`
+}
+
+// optionBox is where the n-th option (from 0) is drawn, when the page said.
+func (l *OpenList) optionBox(index int) (Rect, bool) {
+	if l == nil || index < 0 || index >= len(l.Boxes) || len(l.Boxes) != len(l.Options) {
+		return Rect{}, false
+	}
+	return l.Boxes[index], l.Boxes[index].finite()
 }
 
 // Rect is a box on the page, in screenshot pixels from the page's top left.
@@ -200,8 +236,8 @@ type Rect struct {
 // Label is what the page calls it (its label, aria-label, placeholder, or a button's text). Entry is
 // the part of the control's own box that is not its label, when the label is printed inside the box
 // (a question's words inside a bordered field): the place to click or type. Required, Empty and
-// Invalid are what the page says of the control's state; Empty is nil when the page cannot tell (a
-// dropdown the page draws itself keeps its value elsewhere).
+// Invalid are what the page says of the control's state; the agent decides nothing by them (or by Kind):
+// the pictures say what a control is and holds, the page only where it is.
 type ControlMark struct {
 	ID   string `json:"id"`
 	Kind string `json:"kind"`
@@ -278,6 +314,8 @@ type SettledMap struct {
 	PageHeight float64 `json:"pageHeight"`
 	Fence      float64 `json:"fence"`
 	Spans      []Span  `json:"spans"`
+	// Key is the band round the control that sends the page or goes on (key.go), painted red; nil when none is known.
+	Key *Span `json:"key,omitempty"`
 }
 
 // ZoneShot is the screenshot taken when a zone of a plan was done: the zone's number and where the
@@ -324,9 +362,11 @@ type Action struct {
 	// Label is what the model called the control at the point, as the page names it. It stays on
 	// the agent: the point is checked against it before the action is carried out.
 	Label string `json:"-"`
-	// Commit is that the model named this click as the one that sends the page or goes on to the next.
-	// It stays on the agent: the click is held back when part of the plan could not be carried out.
-	Commit bool `json:"-"`
+	// Commit is what the model said this click does beyond the click: CommitNext goes on to another page
+	// of the form, CommitSend sends the application to the employer; "" is an ordinary click. It stays on
+	// the agent: either is held back when part of the plan could not be carried out (pointcheck.go), and
+	// a run asked to stop before sending never sends a CommitSend (sendgate.go).
+	Commit string `json:"-"`
 	// Check is what the screen should show once this action has run, as the model expected.
 	// It stays on the agent: the extension never sees it.
 	Check string `json:"-"`
@@ -340,6 +380,10 @@ type Step struct {
 	Message string `json:"message"`
 	// Stop says why the run ended, when it ended as need_person or stuck.
 	Stop *StopInfo `json:"stop,omitempty"`
+	// ReadyToSubmit is set on the done step of a run asked to stop before sending (Start.StopBeforeSubmit,
+	// or the server's own switch): every field is filled and the control that sends the application was
+	// not pressed. A done step without it is an application the page confirmed as sent.
+	ReadyToSubmit bool `json:"readyToSubmit,omitempty"`
 	// Ask is the question the run waits on, when Status is StatusAsk.
 	Ask *Ask `json:"ask,omitempty"`
 	// Survey asks the extension to make its next look a survey of the whole page.
@@ -347,6 +391,9 @@ type Step struct {
 	// Settled is the parts of the page the model will not come back to, sent when they changed: the
 	// extension does not take them again in a survey, and draws them on the minimap.
 	Settled *SettledMap `json:"settled,omitempty"`
+	// Fields is the form's to-do list as the model read it from the pictures, sent when it changed: every
+	// question, where it is (screenshot pixels from the page's top), and whether it is answered (fields.go).
+	Fields []FieldState `json:"fields,omitempty"`
 	// Actions run in order, then the extension sends a new screenshot.
 	Actions []Action `json:"actions"`
 	// Number is this step's place in the run, from 1.

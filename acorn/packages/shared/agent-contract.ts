@@ -83,12 +83,26 @@ export const AGENT_STOP_REASON = {
   accountRejected: "account_rejected",
   pageProblem: "page_problem",
   other: "other",
+  /** The page shows there is no online application to make for this job; `AgentStop.kind` says how. */
+  jobUnavailable: "job_unavailable",
   noChange: "no_change",
   stepLimit: "step_limit",
   /** No job description was found, so no résumé was chosen, and the person chose to pick one. */
   resumeChoice: "resume_choice",
 } as const;
 export type AgentStopReason = (typeof AGENT_STOP_REASON)[keyof typeof AGENT_STOP_REASON];
+
+/** How a job is unavailable (`AgentStop.kind` with `job_unavailable`), in the model's judgment from the page. */
+export const AGENT_UNAVAILABLE_KIND = {
+  /** The posting is closed or filled, or the link led to a careers home page or a search of jobs. */
+  expired: "expired",
+  /** Applications are taken only by email, phone, post or in person. */
+  noOnlineApply: "no_online_apply",
+  /** The page is not a job posting or an application at all. */
+  notAJob: "not_a_job",
+} as const;
+export type AgentUnavailableKind =
+  (typeof AGENT_UNAVAILABLE_KIND)[keyof typeof AGENT_UNAVAILABLE_KIND];
 
 /** One answer the person may give to a question the agent asks. */
 export interface AgentAskOption {
@@ -106,6 +120,8 @@ export interface AgentAsk {
 /** What the person is told when a run ends as need_person or stuck. */
 export interface AgentStop {
   reason: AgentStopReason;
+  /** With `job_unavailable` only: how the job is unavailable. */
+  kind?: AgentUnavailableKind;
   /** What the page needs, or what went wrong, in plain words. */
   problem: string;
   /** What the person should do about it. */
@@ -165,14 +181,23 @@ export interface AgentVetTarget {
 export const VET_CAUSE = {
   onlineSource: "online_source",
   singleSignOn: "single_sign_on",
+  /** An autofill from a saved profile or another service: the one cause for which a control itself is refused. */
+  otherAutofill: "other_autofill",
 } as const;
 export type VetCause = (typeof VET_CAUSE)[keyof typeof VET_CAUSE];
 
 export interface AgentVetVerdict {
+  /**
+   * A window or frame a click opened is blocked (closed) when it is what the applicant has not allowed; a
+   * control goes ahead with a hint, except one that fills the application from a saved profile or another
+   * service (`other_autofill`), which is refused before the click.
+   */
   blocked: boolean;
   probability: number;
   cause?: VetCause;
   reason?: string;
+  /** For a control that looks like something not allowed: the doubt, told to the model with the click's result. */
+  hint?: string;
 }
 
 /** What an action set off beyond itself, that a screenshot cannot show. */
@@ -266,6 +291,8 @@ export interface AgentSettledMap {
    */
   fence: number;
   spans: { from: number; to: number }[];
+  /** The band round the control that sends the page or goes on, which the model named on the page's survey; painted red. */
+  key?: { from: number; to: number };
 }
 
 /** The screenshot taken when the last action of a zone of a plan was done (fast fill, docs 19.4m). */
@@ -321,6 +348,12 @@ export interface AgentControlMark extends AgentRect {
  */
 export interface AgentOpenList {
   options: string[];
+  /**
+   * Where each option is drawn, one box per option in the same order (screenshot pixels from the page's
+   * top left, as `marks` are), so the agent can click the option it picks instead of reaching it by keys.
+   * Absent when the page could not say.
+   */
+  boxes?: AgentRect[];
 }
 
 /**
@@ -421,18 +454,50 @@ export interface AgentStep {
   message: string;
   /** Set when the run ended as need_person or stuck. */
   stop?: AgentStop;
+  /**
+   * Set on the `done` step of a run that was asked to stop before sending (by its start, or by the
+   * server's own switch): every field is filled and the control that sends the application was not
+   * pressed. A `done` without it is an application the page confirmed as sent.
+   */
+  readyToSubmit?: boolean;
   /** Set when the status is "ask": the question to put to the person. */
   ask?: AgentAsk;
   /** Make the next look a survey of the whole page. */
   survey?: boolean;
   /** The parts of the page the model will not come back to, sent when they change; an empty list means none. */
   settled?: AgentSettledMap;
+  /**
+   * The form's to-do list as the model read it from the pictures, sent when it changed: every question,
+   * where it is (screenshot pixels from the page's top) and whether it is answered. The page's own control
+   * list says where controls are, never whether they are answered.
+   */
+  fields?: AgentFieldState[];
   actions: AgentAction[] | null;
   number: number;
   usage: AgentUsage;
   dropped?: string[];
   /** The trace of what the server recorded since the last answer, when the run asked for it. */
   trace?: AgentTrace;
+}
+
+/**
+ * What the model says of a field of the form: answered, required and still to answer, optional and left
+ * blank, or the applicant's own to give.
+ */
+export const FIELD_STATE = {
+  filled: "filled",
+  empty: "empty",
+  optional: "optional",
+  needsPerson: "needs_person",
+} as const;
+export type FieldState = (typeof FIELD_STATE)[keyof typeof FIELD_STATE];
+
+/** One question of the form as the model read it on a survey. */
+export interface AgentFieldState {
+  label: string;
+  /** Screenshot pixels from the page's top. */
+  y: number;
+  state: FieldState;
 }
 
 /** One file of a run's trace the server made: text in `text`, an image as base64 in `data`. */
@@ -512,6 +577,19 @@ export interface AgentContinued {
   number: number;
   usage: AgentUsage;
   transport?: AgentTransport;
+}
+
+/** What `GET /agent/v1/health` answers; never the key itself. */
+export interface AgentHealth {
+  ok: boolean;
+  model: string;
+  sessions: number;
+  hasKey: boolean;
+  /** Where the applicant is read from: "files" (this computer) or "backend" (the signed-in person's account). */
+  source: string;
+  blobBytes?: number;
+  /** Whether the server holds every run before the application is sent (ACORN_AGENT_STOP_BEFORE_SUBMIT). */
+  stopBeforeSubmit?: boolean;
 }
 
 /** The server's stable codes beside an error (acorn-agent/httpapi and llm). */

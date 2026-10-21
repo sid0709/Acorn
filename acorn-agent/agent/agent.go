@@ -51,13 +51,6 @@ type Config struct {
 	// ProbeDropdowns makes a fast-fill run open all the dropdowns of a run of them and read their lists side by
 	// side, instead of setting them one at a time (probe.go).
 	ProbeDropdowns bool
-	// ReviewMatch is how sure the decision model must be that a field the plan filled in shows what was
-	// typed into it, or the field is told to the model as wrong (a probability, 0 to 1; 0 turns the review off).
-	ReviewMatch float64
-	// PointMatch is how sure the decision model must be that a labelled point of a fast-fill plan
-	// is on the control its label names for the point to be acted on (a probability, 0 to 1; 0
-	// turns the check off).
-	PointMatch float64
 	// FastFill makes every run a fast-fill run, whatever its start request says: the server's own
 	// switch (ACORN_AGENT_FAST_FILL), so the agent can be tried without rebuilding the extension.
 	// The answer to Start says so, and the extension follows it.
@@ -73,8 +66,8 @@ type Config struct {
 	// OptionMatch is how sure the checker must be of which option of an open dropdown answers a
 	// choose action (a probability) for the agent to pick it.
 	OptionMatch float64
-	// OptionAccept is how sure the checker must be of an option when the list's options are read as
-	// text (the page names them) and no other option has more than half its weight: a best option that
+	// OptionAccept is how sure the checker must be of an option when no other option has more than half
+	// its weight (the options numbered on a picture, or a native list's as text): a best option that
 	// is not so bad is taken, as a person would take it, rather than typing or asking the model.
 	OptionAccept float64
 	LoadWait     time.Duration
@@ -88,10 +81,24 @@ type Config struct {
 	// StopPasses is how many times a run's stop for the applicant is sent back, to finish
 	// everything that does not need them first (stopgate.go); 0 accepts every stop at once.
 	StopPasses int
-	// PersonField is how sure the decision model must be that a required field the page reports empty
+	// PersonField is how sure the decision model must be that a field the model read as empty
 	// is one only the applicant can fill (a probability) for a stop to stand with it empty; a field it is
 	// less sure of is the run's to fill, and the stop is sent back naming it (stopgate.go).
 	PersonField float64
+	// CaptchaConfirm is how sure the decision model must be that a check the applicant must pass by
+	// hand (a box to tick, a puzzle, a challenge dialog) is on screen for a stop with reason captcha to
+	// stand; below it the stop is sent back once, to press the button that sends the page first
+	// (stopgate.go). 0 takes the model's word.
+	CaptchaConfirm float64
+	// StopBeforeSubmit makes every run stop at the control that sends the application, whatever its start
+	// request says: the server's own switch (ACORN_AGENT_STOP_BEFORE_SUBMIT), so a test server never sends
+	// an application. On a hosted server it applies to every person's runs.
+	StopBeforeSubmit bool
+	// UnavailableConfirm is how sure the decision model must be, while the agent looks for the application
+	// form on a posting page, that the page shows the job cannot be applied to online, for the driving
+	// model to be asked at once with a note instead of scrolling on (navigation.go). The driving model makes
+	// the call; 0 leaves the hint unused.
+	UnavailableConfirm float64
 	// KeepTurns is how many recent steps stay in full when the history is compacted; older
 	// ones are folded into one line each.
 	KeepTurns int
@@ -108,12 +115,6 @@ type Config struct {
 	SessionTTL time.Duration
 	// TraceDir, when set, records every step to disk.
 	TraceDir string
-	// VetBlock is the probability, from the decision model, at which a control, window or frame
-	// is blocked as an online file source (0 means 0.3).
-	VetBlock float64
-	// SingleSignOnBlock is the probability, from the decision model, at which a control, window
-	// or frame is blocked as a sign-in through another service's account (0 means 0.5).
-	SingleSignOnBlock float64
 	// AccountAttempts is how many steps may type the account password, across sign-in, sign-up
 	// and password reset, before the run ends as rejected by the site (0 means 8).
 	AccountAttempts int
@@ -130,33 +131,32 @@ type Config struct {
 // DefaultConfig is the bounds a run has when nothing else is set.
 func DefaultConfig() Config {
 	return Config{
-		MaxSteps:          150,
-		MaxActions:        30,
-		UncheckedActions:  6,
-		ChunkActions:      6,
-		FastFillActions:   60,
-		PointMatch:        0.7,
-		ReviewMatch:       0.8,
-		ProbeDropdowns:    true,
-		CheckMatch:        0.9,
-		CheckBlocked:      0.2,
-		CheckLoading:      0.3,
-		CheckLoadingWait:  0.7,
-		OptionMatch:       0.7,
-		OptionAccept:      0.5,
-		LoadWait:          time.Second,
-		MaxLoadWaits:      4,
-		StopPasses:        2,
-		PersonField:       0.5,
-		DonePasses:        2,
-		DoneConfirm:       0.7,
-		SingleSignOnBlock: 0.5,
-		AccountAttempts:   8,
-		KeepTurns:         8,
-		KeepImages:        0,
-		HistoryTokens:     30_000,
-		MaxStale:          6,
-		SessionTTL:        time.Hour,
+		MaxSteps:           150,
+		MaxActions:         30,
+		UncheckedActions:   6,
+		ChunkActions:       6,
+		FastFillActions:    60,
+		ProbeDropdowns:     true,
+		CheckMatch:         0.9,
+		CheckBlocked:       0.2,
+		CheckLoading:       0.3,
+		CheckLoadingWait:   0.7,
+		OptionMatch:        0.7,
+		OptionAccept:       0.5,
+		LoadWait:           time.Second,
+		MaxLoadWaits:       4,
+		StopPasses:         2,
+		PersonField:        0.5,
+		CaptchaConfirm:     0.7,
+		UnavailableConfirm: 0.8,
+		DonePasses:         2,
+		DoneConfirm:        0.7,
+		AccountAttempts:    8,
+		KeepTurns:          8,
+		KeepImages:         0,
+		HistoryTokens:      30_000,
+		MaxStale:           6,
+		SessionTTL:         time.Hour,
 	}
 }
 
@@ -220,6 +220,8 @@ func (a *Agent) Start(ctx context.Context, key string, auth applicant.Auth, star
 	// A fast-fill run plans a page from a survey of it, so surveys are on for it.
 	start.FastFill = start.FastFill || a.cfg.FastFill
 	start.Survey = start.Survey || start.FastFill
+	// The server's own switch holds every run before the application is sent (sendgate.go).
+	start.StopBeforeSubmit = start.StopBeforeSubmit || a.cfg.StopBeforeSubmit
 	checks := a.newScreen != nil && a.cfg.ChunkActions > 0
 	maxActions := a.cfg.MaxActions
 	if !checks {
@@ -361,6 +363,7 @@ func (a *Agent) Step(ctx context.Context, id string, obs Observation) (Step, err
 		if step.Settled == nil {
 			step.Settled = s.takeSettledMap()
 		}
+		step.Fields = s.takeFields()
 		if step.Trace = s.takeTrace(); step.Trace != nil {
 			step.Trace.Seq = s.seq
 		}
@@ -409,11 +412,14 @@ func (a *Agent) step(ctx context.Context, id string, obs Observation) (Step, err
 	a.keepZoneShots(s, obs)
 	a.reviewShots(s)
 	a.collectReviews(s)
+	s.settleRows(obs)
 	// What happened to every action sent since the model last looked, which may be several
 	// runs of one plan.
 	results := withoutChoose(append(append([]ActionResult(nil), s.carried...), obs.Results...))
 	s.noteCommitResults(obs.Results)
+	a.noteRefusedSend(ctx, s, obs)
 	s.notes = append(s.notes, unreachedNotes(obs.Results, s.byID, s.marks, obs)...)
+	s.noteUnreachedFields(obs.Results)
 	a.learnJD(ctx, s, obs)
 	if s.pendingUpload != nil {
 		return a.answerPending(s, obs, results, sig)
@@ -436,6 +442,13 @@ func (a *Agent) step(ctx context.Context, id string, obs Observation) (Step, err
 	// A survey scrolls the page and comes back: the same screen again is expected, not a stall.
 	if s.step > 0 && len(screens) == 0 && unchanged(sig, s.lastSig) {
 		stale = s.stale + 1
+	}
+	if stale >= a.cfg.MaxStale {
+		// A page that stood still with its key not pressed gets one more look, sent to what is left or to the key.
+		if note, ok := s.goOnNote(obs); ok {
+			s.notes = append(s.notes, note)
+			stale = 0
+		}
 	}
 	if stale >= a.cfg.MaxStale {
 		return a.endWithTrace(s, obs, stale, StatusStuck, fmt.Sprintf("The page did not change for %d steps in a row.", stale), &StopInfo{
@@ -461,6 +474,10 @@ func (a *Agent) step(ctx context.Context, id string, obs Observation) (Step, err
 		return step, nil
 	}
 
+	if step, ok := a.focusStep(s, obs, results, sig); ok {
+		return step, nil
+	}
+
 	// The model looks now, so the form-finding gate has had its turn (the model finds its own way from here).
 	s.formReady = true
 	s.script = nil
@@ -478,11 +495,17 @@ func (a *Agent) step(ctx context.Context, id string, obs Observation) (Step, err
 		if note := s.settledNote(); note != "" {
 			notes = append(notes, note)
 		}
+		if note := s.fieldsNote(obs); note != "" {
+			notes = append(notes, note)
+		}
 		images = badgedImages(obs)
 	}
 	body := observationText(number, s.stepLimit, obs, results, notes, stale)
-	messages := append([]llm.Message{{Role: llm.RoleSystem, Text: s.system}},
+	messages := append([]llm.Message{{Role: llm.RoleSystem, Text: s.system, Cache: true}},
 		s.history(a.cfg.KeepTurns, a.cfg.KeepImages, a.cfg.HistoryTokens)...)
+	// The prompt grows only at its end: the system prompt and the history are what the next step sends
+	// again word for word, so the provider is told to cache up to the end of the history (llm.Message.Cache).
+	messages[len(messages)-1].Cache = true
 	text := currentText(body, s.memo, s.job)
 	messages = append(messages, llm.Message{Role: llm.RoleUser, Text: text, Images: images})
 
@@ -516,6 +539,8 @@ func (a *Agent) step(ctx context.Context, id string, obs Observation) (Step, err
 		}
 	}
 	s.message = strings.TrimSpace(answer.Message)
+	s.noteKey(answer, obs)
+	s.noteFields(answer, obs)
 
 	planned, dropped := checkActions(number, answer.Actions, obs.Viewport, s.maxActions, screens)
 	// lost counts the actions of the plan that could not be carried out: the click that sends the page waits for them.
@@ -573,6 +598,13 @@ func (a *Agent) step(ctx context.Context, id string, obs Observation) (Step, err
 	if held := a.holdCommits(s, &planned, lost); len(held) > 0 {
 		dropped = append(dropped, fmt.Sprintf("the click that sends the page was held back: the plan lost %s", plainlog.Count(lost, "action")))
 	}
+	// The page is sent, or goes on, only once the to-do list has no required field empty (sendgate.go).
+	a.holdForList(s, &planned, &dropped, obs)
+	// A run asked to stop before sending never presses the click that sends the application: it and what
+	// was planned after it stay behind, and the run ends as ready to submit once nothing else is planned.
+	sendHeld := a.holdSend(s, &planned, &dropped)
+	a.holdRefusedSend(s, &planned, &dropped)
+	s.notePressed(planned, obs)
 	s.noteCommitPlanned(planned, obs)
 	if settled := s.markSettled(obs, answer.Settled, planned, claimed); settled > 0 {
 		slog.Info(settledLine(s.id, settled, s.settled.Spans))
@@ -580,13 +612,29 @@ func (a *Agent) step(ctx context.Context, id string, obs Observation) (Step, err
 	s.setFence(planned, obs)
 	// What this plan fills in, by zone, for the reviews of its zones.
 	s.planGen++
-	s.expect = expectationsOf(planned)
+	s.expect, s.expectURL = expectationsOf(planned, obs), withoutFragment(obs.URL)
+	s.planScrollY = obs.Viewport.ScrollY
 	status := answer.Status
 	// "Done" is the page's confirmation, not the model's word: a done the screen does not show is sent back.
 	if note, held := a.holdDone(ctx, s, obs, &answer); held {
 		answer.Status, answer.Message = StatusWorking, donePassMessage
 		planned = []Action{{ID: fmt.Sprintf("s%da1", number), Kind: KindWait, Ms: stopPassWaitMs}}
 		s.notes = append(s.notes, note)
+	}
+	// A run asked to stop before sending is ready to submit when the model says done, or when the plan held
+	// nothing but the click that sends; first the page must report no required field empty (sendgate.go).
+	ready := false
+	if s.start.StopBeforeSubmit && (answer.Status == StatusDone || (sendHeld && len(planned) == 0 && answer.Status == StatusWorking)) {
+		if note, held := a.holdReady(s, obs); held {
+			answer.Status, answer.Message = StatusWorking, readyPassMessage
+			planned = []Action{{ID: fmt.Sprintf("s%da1", number), Kind: KindWait, Ms: stopPassWaitMs}}
+			s.notes = append(s.notes, note)
+		} else {
+			ready = true
+			if answer.Status != StatusDone {
+				answer.Status, answer.Message = StatusDone, readyMessage
+			}
+		}
 	}
 	status = answer.Status
 	// The applicant is asked last: a stop is first sent back to finish everything else on the page.
@@ -608,6 +656,9 @@ func (a *Agent) step(ctx context.Context, id string, obs Observation) (Step, err
 		// A working run with nothing valid to do waits and looks again; the repeat check
 		// ends it if the page never changes.
 		dropped = append(dropped, "no usable action; waiting before the next look")
+		if note, ok := s.goOnNote(obs); ok {
+			s.notes = append(s.notes, note)
+		}
 		planned = []Action{{ID: fmt.Sprintf("s%da1", number), Kind: KindWait, Ms: 1000}}
 		fallthrough
 	default:
@@ -625,11 +676,11 @@ func (a *Agent) step(ctx context.Context, id string, obs Observation) (Step, err
 	step := Step{
 		Status: status, Message: strings.TrimSpace(answer.Message), Stop: stopFor(status, answer), Actions: actions,
 		Number: number, Usage: s.usage, Dropped: dropped, Survey: status == StatusWorking && a.surveyNext(s, actions, surveyAsked),
-		Settled: s.takeSettledMap(),
+		Settled: s.takeSettledMap(), ReadyToSubmit: ready,
 	}
 	entry.Observation, entry.Memo, entry.Job = answer.Observation, s.memo, s.job
 	entry.Status, entry.Message, entry.Actions, entry.Dropped = status, step.Message, actions, dropped
-	entry.Stop = step.Stop
+	entry.Stop, entry.ReadyToSubmit = step.Stop, ready
 	entry.Marks, entry.Bound = len(obs.Marks), boundLines(planned, s.marks)
 	a.record(s, entry, obs.Screenshot, calls)
 	if status != StatusWorking {
@@ -676,13 +727,18 @@ func stopFor(status string, answer reply) *StopInfo {
 	stop := StopInfo{Reason: StopOther, Problem: strings.TrimSpace(answer.Message)}
 	if answer.Stop != nil {
 		stop.Reason = strings.TrimSpace(answer.Stop.Reason)
+		stop.Kind = strings.TrimSpace(answer.Stop.Kind)
 		stop.Problem = strings.TrimSpace(answer.Stop.Problem)
 		stop.Action = strings.TrimSpace(answer.Stop.Action)
 	}
 	switch stop.Reason {
-	case StopCaptcha, StopVerification, StopVerificationLink, StopIdentity, StopDocument, StopSignIn, StopAccountRejected, StopPageProblem, StopOther:
+	case StopCaptcha, StopVerification, StopVerificationLink, StopIdentity, StopDocument, StopSignIn, StopAccountRejected, StopPageProblem, StopOther, StopJobUnavailable:
 	default:
 		stop.Reason = StopOther
+	}
+	// The kind goes with a job that cannot be applied to, and is one of the three the model may name.
+	if stop.Reason != StopJobUnavailable || !isUnavailableKind(stop.Kind) {
+		stop.Kind = ""
 	}
 	if stop.Problem == "" {
 		stop.Problem = strings.TrimSpace(answer.Message)

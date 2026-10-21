@@ -23,7 +23,7 @@ import type { Shot } from "./capture";
 import type { ControlMark, LayoutMove } from "./control-marks";
 import type { PageState } from "./page-scroll";
 import type { SettledMap } from "./survey";
-import type { AgentAction, AgentSurveyScreen } from "@acorn/shared/agent-contract";
+import type { AgentAction, AgentFieldState, AgentSurveyScreen } from "@acorn/shared/agent-contract";
 import type { PipelineProgress } from "@acorn/shared/pipeline-types";
 
 /** The kinds of action that aim at a point of the page. A scroll has a point too, but it is where the wheel turns, not a target. */
@@ -137,6 +137,9 @@ export class PageMapKeeper {
       phase: RUN_MAP_PHASE.looking,
       settled: this.spans(settled),
       fence: this.fenceOf(settled),
+      // The key stays where the agent last put it: a look's own settled map (what still holds on the
+      // page) carries the stretches, not the key, and is null while nothing is settled.
+      key: this.keyOf(settled) ?? this.map?.key,
     };
   }
 
@@ -165,10 +168,28 @@ export class PageMapKeeper {
     if (this.map) this.map = { ...this.map, moves: this.moves };
   }
 
+  /** The form's to-do list as the model read it from the pictures (screenshot pixels in, CSS pixels kept). */
+  setFields(fields: AgentFieldState[]): void {
+    if (!this.map) return;
+    this.map = {
+      ...this.map,
+      fields: fields.map((field) => ({
+        label: field.label,
+        y: field.y / this.scale,
+        state: field.state,
+      })),
+    };
+  }
+
   /** The agent says what is settled now (an empty map: nothing), and where the plan first acts. */
   settle(settled: SettledMap): void {
     if (this.map) {
-      this.map = { ...this.map, settled: this.spans(settled), fence: this.fenceOf(settled) };
+      this.map = {
+        ...this.map,
+        settled: this.spans(settled),
+        fence: this.fenceOf(settled),
+        key: this.keyOf(settled),
+      };
     }
   }
 
@@ -285,6 +306,12 @@ export class PageMapKeeper {
       from: span.from / this.scale,
       to: span.to / this.scale,
     }));
+  }
+
+  /** The band round the page's key control (CSS pixels); unset until the model named one. */
+  private keyOf(settled: SettledMap | null): { from: number; to: number } | undefined {
+    if (!settled?.key) return undefined;
+    return { from: settled.key.from / this.scale, to: settled.key.to / this.scale };
   }
 
   /** Where the plan first acts (CSS pixels); unset until a plan has a point. */

@@ -74,6 +74,7 @@
     "vet:go": "go vet ./acorn-backend/... ./acorn-agent/...",
     "check:deps": "bun tools/check-single-node-modules.mjs",
     "e2e:agent": "bun run build:acorn && bun tests/e2e/agent/run.ts",
+    "e2e:live": "bun run build:acorn && bun tests/e2e/live/run.ts",
     "prepare": "husky",
     "commitlint": "commitlint"
   },

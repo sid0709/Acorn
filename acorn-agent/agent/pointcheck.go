@@ -18,12 +18,13 @@ import (
 // the applicant's name into another question. So before a fast-fill plan is carried out, each point
 // that has a label is checked against it: the survey screen is drawn with the points numbered on it,
 // and the decision model is asked, for each point, whether it is on the control that belongs to its
-// label. The screens are checked side by side, so it costs about one check. A point that is not
-// on its control is not acted on, and neither is what was typed into it; the rest of
-// the plan runs, except the click that sends the page (the plan lost something, so it is held back),
-// and the model is told which points to plan again. Before the check, each point is moved onto the entry
-// of the control it is on (aim.go), and a point on a control the page calls what the model called it
-// is not checked at all (labels.go).
+// label. The screens are checked side by side, so it costs about one check. The check never overrides
+// the model: a point the checker doubts is acted on as planned, and the model is told the doubt with its
+// next look (a survey), so it checks what the point filled and puts right what landed wrong. The driving
+// model sees the screen; the checker only hurries its correction. Before the check, each point is moved
+// onto the entry of the control it is on (aim.go). Every labelled point is checked against the picture:
+// what the page calls the control under a point is not taken for an answer (it lies for a control the
+// page draws itself).
 
 // askPointPrefix starts the key of the question about a numbered point: "p1", "p2", ...
 const askPointPrefix = "p"
@@ -45,10 +46,9 @@ func pointQuestion(n int, label string) decide.Question {
 }
 
 // checkedPoints are the point actions of a plan that can be checked, by zone: they have a label and
-// an anchor (the survey screen they were measured on is readable). A point bound to a control the page
-// calls what the model called it is not checked: the page has answered (labels.go). Zones come in the
-// order of their first action; trusted counts the points the page answered for.
-func (s *session) checkedPoints(planned []Action) (zones []int, byZone map[int][]Action, trusted int) {
+// an anchor (the survey screen they were measured on is readable). Zones come in the order of their
+// first action.
+func (s *session) checkedPoints(planned []Action) (zones []int, byZone map[int][]Action) {
 	byZone = map[int][]Action{}
 	for _, action := range planned {
 		if !isPointAction(action) || strings.TrimSpace(action.Label) == "" {
@@ -57,16 +57,12 @@ func (s *session) checkedPoints(planned []Action) (zones []int, byZone map[int][
 		if _, ok := s.anchors[action.ID]; !ok {
 			continue
 		}
-		if ref, bound := s.marks[action.ID]; bound && labelsAgree(action.Label, ref.Label) {
-			trusted++
-			continue
-		}
 		if _, seen := byZone[action.Zone]; !seen {
 			zones = append(zones, action.Zone)
 		}
 		byZone[action.Zone] = append(byZone[action.Zone], action)
 	}
-	return zones, byZone, trusted
+	return zones, byZone
 }
 
 // zoneImage is the survey screen of a zone (the single screenshot when there is no survey).
@@ -78,18 +74,14 @@ func zoneImage(obs Observation, zone int) string {
 }
 
 // checkPlanPoints checks every labelled point of a fast-fill plan against the screen the model said
-// it is on, and returns the plan without the points that are not on their controls (and what was
-// typed into them) and the checks as model calls for the trace. A check that cannot be made leaves
-// its points as they are: the plan is not held up by a checker that is down.
+// it is on. The plan is returned whole; the points the checker doubts are told to the model with its
+// next look, and the checks come back as model calls for the trace. A check that cannot be made says
+// nothing: the plan is not held up by a checker that is down.
 func (a *Agent) checkPlanPoints(ctx context.Context, s *session, planned []Action, obs Observation) ([]Action, []modelCall) {
-	if !s.start.FastFill || !a.checksOn(s) || a.cfg.PointMatch <= 0 {
+	if !s.start.FastFill || !a.checksOn(s) {
 		return planned, nil
 	}
-	zones, byZone, trusted := s.checkedPoints(planned)
-	if trusted > 0 {
-		slog.Info(fmt.Sprintf("%s: %s of the plan %s on a control the page calls what the model called it, and %s not checked against a picture.",
-			runName(s.id), plainlog.Count(trusted, "point"), isOrAre(trusted), isOrAre(trusted)))
-	}
+	zones, byZone := s.checkedPoints(planned)
 	if len(zones) == 0 {
 		return planned, nil
 	}
@@ -115,7 +107,7 @@ func (a *Agent) checkPlanPoints(ctx context.Context, s *session, planned []Actio
 		calls = append(calls, one.call)
 		cost += one.call.Usage.Cost
 		for _, verdict := range one.verdicts {
-			if verdict.Matches < a.cfg.PointMatch {
+			if verdict.Matches < likely {
 				wrong[verdict.Action.ID] = verdict
 			}
 		}
@@ -126,12 +118,11 @@ func (a *Agent) checkPlanPoints(ctx context.Context, s *session, planned []Actio
 	if len(wrong) == 0 {
 		return planned, calls
 	}
-	kept := withoutWrongPoints(planned, wrong)
-	s.notes = append(s.notes, wrongPointsNote(planned, wrong))
+	s.notes = append(s.notes, doubtfulPointsNote(planned, wrong))
 	s.surveyAgain = true
-	slog.Warn(fmt.Sprintf("%s: %s of the plan were not on the control they name, so they were not carried out (%d of %d actions kept).",
-		runName(s.id), plainlog.Count(len(wrong), "point"), len(kept), len(planned)))
-	return kept, calls
+	slog.Info(fmt.Sprintf("%s: a checker doubts %s of the plan %s on the control named; the plan runs and the model is told.",
+		runName(s.id), plainlog.Count(len(wrong), "point"), isOrAre(len(wrong))))
+	return planned, calls
 }
 
 // checkZonePoints asks the decision model about the labelled points on one survey screen.
@@ -182,27 +173,9 @@ func pointLabels(actions []Action) string {
 	return strings.Join(labels, ", ")
 }
 
-// withoutWrongPoints is the plan without the points that failed and what follows each of them up to
-// the next point (the text typed into it, the keys pressed there): those were meant for a control
-// that was not the one aimed at.
-func withoutWrongPoints(planned []Action, wrong map[string]pointVerdict) []Action {
-	var kept []Action
-	dropping := false
-	for _, action := range planned {
-		if isPointAction(action) {
-			_, dropping = wrong[action.ID]
-		}
-		if dropping {
-			continue
-		}
-		kept = append(kept, action)
-	}
-	return kept
-}
-
-// wrongPointsNote tells the model which points were not carried out, in its own words, so it plans
-// them again on the next survey.
-func wrongPointsNote(planned []Action, wrong map[string]pointVerdict) string {
+// doubtfulPointsNote tells the model which points a checker doubted, in its own words, so it checks
+// what they filled on the survey that follows and puts right what landed wrong.
+func doubtfulPointsNote(planned []Action, wrong map[string]pointVerdict) string {
 	var lines []string
 	for _, action := range planned {
 		if _, bad := wrong[action.ID]; !bad {
@@ -210,19 +183,18 @@ func wrongPointsNote(planned []Action, wrong map[string]pointVerdict) string {
 		}
 		lines = append(lines, fmt.Sprintf("%q on screen %d", action.Label, action.Zone))
 	}
-	return fmt.Sprintf("Acorn did not carry out %s because the point was not on the control with that label: %s. The rest of your plan ran. "+
-		"Look at the screens again, find where each of them really is by its label, and plan them again with the right screen number. "+
-		"A box with no dropdown arrow is a text box: click it and type, do not choose it.",
-		plainlog.Count(len(lines), "action"), strings.Join(lines, "; "))
+	return fmt.Sprintf("Your plan ran in full, but a checker doubts that %s %s on the control named: %s. "+
+		"Look at the screens: if what you typed landed in another field, clear it and fill the right field by its label, with the right screen number.",
+		plainlog.Count(len(lines), "point"), isOrAre(len(lines)), strings.Join(lines, "; "))
 }
 
-// withoutCommits is the plan without the clicks the model named as the one that sends the page (and what
-// follows each up to the next point), and those clicks.
+// withoutCommits is the plan without the clicks the model named as the one that sends the page or goes on
+// to the next (and what follows each up to the next point), and those clicks.
 func withoutCommits(planned []Action) (kept, held []Action) {
 	dropping := false
 	for _, action := range planned {
 		if isPointAction(action) {
-			dropping = action.Commit
+			dropping = action.Commit != ""
 			if dropping {
 				held = append(held, action)
 			}

@@ -63,6 +63,8 @@ export const RUN_FAILURE_REASON = {
   noForwardControl: "no_forward_control",
   /** The AI could not answer (no key, no credits, rate limit, provider down): see RunFailure.code. */
   aiUnavailable: "ai_unavailable",
+  /** The page shows there is no online application to make for this job (agentStop.kind says how). */
+  jobUnavailable: "job_unavailable",
 } as const;
 
 /** Why a run could not finish, in the decision model's words (mirrors the backend's reasons). */
@@ -77,9 +79,9 @@ export interface RunFailure {
   /**
    * Set when the agent ended the run itself: why (an AGENT_STOP_REASON), what the page
    * needs or what went wrong, and what the person should do. The sidebar shows it as a
-   * "needs you" or "couldn't finish" notice.
+   * "needs you" or "couldn't finish" notice. `kind` comes with `job_unavailable` only.
    */
-  agentStop?: { reason: string; problem: string; action: string };
+  agentStop?: { reason: string; kind?: string; problem: string; action: string };
 }
 
 export interface RunReport {
@@ -213,6 +215,13 @@ export interface RunMapControl {
   value?: string;
 }
 
+/** One question of the form as the model read it: its label, where it is (CSS pixels) and its state. */
+export interface RunMapField {
+  label: string;
+  y: number;
+  state: "filled" | "empty" | "optional" | "needs_person";
+}
+
 /** A point of the plan: where it aims on the page (CSS pixels) and what became of it. */
 export interface RunMapPoint {
   id: string;
@@ -255,6 +264,13 @@ export interface RunMap {
   settled: { from: number; to: number }[];
   /** How far down the page the plan being carried out first acts: nothing above it changes. Unset until a plan. */
   fence?: number;
+  /** The band round the control that sends the page or goes on, painted red. Unset until the model named one. */
+  key?: { from: number; to: number };
+  /**
+   * The form's to-do list as the model read it from the pictures (CSS pixels): the questions the sidebar
+   * lists and ticks off. Unset until the model's first survey; `controls` then only says where things are.
+   */
+  fields?: RunMapField[];
   controls: RunMapControl[];
   points: RunMapPoint[];
   screens: RunMapScreen[];

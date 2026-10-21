@@ -5,6 +5,7 @@
  * nothing here is for a developer.
  */
 
+import { AGENT_UNAVAILABLE_KIND } from "./agent-contract";
 import { RUN_FAILURE_REASON, type RunFailure } from "./run-types";
 
 /** The codes the backend sends beside an error (acornapi/errcode.go). */
@@ -239,6 +240,35 @@ export function describeError(
   return pick(LOCAL_ERROR_CODE.unknown);
 }
 
+/**
+ * A run that stopped at the control that sends the application without pressing it. Shown on the Now card
+ * and in the Agent queue, as neither a success nor a failure: the person reviews and sends.
+ */
+export const READY_TO_SUBMIT = {
+  title: "Ready to submit",
+  detail: "Review the application on the page and press Submit yourself. Acorn did not send it.",
+} as const;
+
+/** The title for each way a job can be unavailable (the agent's `kind` with `job_unavailable`). */
+const JOB_UNAVAILABLE_TITLE: Record<string, string> = {
+  [AGENT_UNAVAILABLE_KIND.expired]: "This job is no longer open",
+  [AGENT_UNAVAILABLE_KIND.noOnlineApply]:
+    "This job only takes applications by email, phone or in person",
+  [AGENT_UNAVAILABLE_KIND.notAJob]: "This link isn't a job application",
+};
+const JOB_UNAVAILABLE_FALLBACK_TITLE = "This job can't be applied to online";
+
+/** The title and what the page said for a job that cannot be applied to online, by the agent's kind. */
+export function describeJobUnavailable(
+  kind: string | undefined,
+  problem: string,
+): { title: string; detail: string } {
+  return {
+    title: (kind && JOB_UNAVAILABLE_TITLE[kind]) || JOB_UNAVAILABLE_FALLBACK_TITLE,
+    detail: problem.trim(),
+  };
+}
+
 /** What to do next for each reason the run names itself; the label and detail say what happened. */
 const FAILURE_NEXT_STEP: Record<string, string> = {
   [RUN_FAILURE_REASON.resumeNotChosen]: "Add or pick a résumé for this job, then run again.",
@@ -258,6 +288,7 @@ const FAILURE_NEXT_STEP: Record<string, string> = {
   [RUN_FAILURE_REASON.noForwardControl]:
     "Click the button that moves the application forward yourself, then press Continue.",
   [RUN_FAILURE_REASON.tabClosed]: "Open the application again and run once more.",
+  [RUN_FAILURE_REASON.jobUnavailable]: "Nothing to fill here: move on to another job.",
 };
 
 /** A run's failure for the person: its title, what happened, and what to do. */
@@ -266,6 +297,18 @@ export function describeRunFailure(failure: RunFailure): UserMessage & { technic
   if (failure.code && MESSAGES[failure.code]) {
     const base = MESSAGES[failure.code];
     return { ...base, technical };
+  }
+  if (failure.reason === RUN_FAILURE_REASON.jobUnavailable) {
+    const said = describeJobUnavailable(
+      failure.agentStop?.kind,
+      failure.agentStop?.problem || failure.detail,
+    );
+    return {
+      title: said.title,
+      detail: [said.detail, FAILURE_NEXT_STEP[failure.reason]].filter(Boolean).join(" "),
+      severity: "info",
+      technical,
+    };
   }
   const next = FAILURE_NEXT_STEP[failure.reason];
   const detail = [

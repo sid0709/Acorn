@@ -73,6 +73,9 @@ type Options struct {
 	MaxModelCalls int
 	// SessionTTL is how long the agent keeps an idle run; the run's pictures (blobs.go) are kept as long.
 	SessionTTL time.Duration
+	// StopBeforeSubmit is whether the server holds every run before the application is sent (the agent's
+	// own switch), reported by the health route so a test runner can refuse a server that would send.
+	StopBeforeSubmit bool
 }
 
 // transport is what the server can do to spare the person's line, told to the extension when a run
@@ -146,7 +149,7 @@ type errorBody struct {
 func (s *Server) health(w http.ResponseWriter, _ *http.Request) {
 	writeJSON(w, http.StatusOK, map[string]any{
 		"ok": true, "model": s.opts.ModelName, "sessions": s.agent.Sessions(), "hasKey": s.opts.DefaultKey != "",
-		"source": s.opts.Source, "blobBytes": s.blobs.bytes(),
+		"source": s.opts.Source, "blobBytes": s.blobs.bytes(), "stopBeforeSubmit": s.opts.StopBeforeSubmit,
 	})
 }
 

@@ -15,6 +15,7 @@ import {
   needsYou,
   questionTally,
   questionsOf,
+  seenAt,
 } from "../../src/sidebar/run-questions.ts";
 
 function control(id: string, y: number, rest: Partial<RunMapControl> = {}): RunMapControl {
@@ -41,43 +42,73 @@ function map(controls: RunMapControl[], points: RunMapPoint[] = []): RunMap {
 }
 
 describe("the questions of the form", () => {
-  it("are the page's fields top to bottom, with what each shows and what became of it", () => {
-    const questions = questionsOf(
-      map(
+  it("are the model's own list once it has read the page: label, place and state from the pictures", () => {
+    const withFields: RunMap = {
+      ...map(
         [
-          control("email", 200, { label: "Email", empty: false, value: "ada@example.com" }),
           control("first", 100, { label: "First name", empty: true, required: true }),
           control("phone", 300, { label: "Phone", empty: true }),
-          control("next", 900, { kind: "button", label: "Next" }),
           control("country", 400, { kind: "select", label: "Country" }),
-          control("ssn", 500, { label: "Tax number", empty: false, invalid: true }),
         ],
         [
           point("a1", "phone", RUN_POINT_STATE.current),
           point("a2", "country", RUN_POINT_STATE.pending),
         ],
       ),
-    );
-    assert.deepEqual(
-      questions.map((question) => [question.label, question.status, question.value]),
-      [
-        ["First name", QUESTION_STATUS.open, undefined],
-        ["Email", QUESTION_STATUS.answered, "ada@example.com"],
-        ["Phone", QUESTION_STATUS.doing, undefined],
-        ["Country", QUESTION_STATUS.next, undefined],
-        ["Tax number", QUESTION_STATUS.problem, undefined],
+      fields: [
+        { label: "First name", y: 120, state: "empty" },
+        { label: "Email", y: 220, state: "filled" },
+        { label: "Phone", y: 320, state: "empty" },
+        { label: "Country", y: 420, state: "empty" },
+        { label: "Tax number", y: 520, state: "needs_person" },
       ],
-      "a button asks nothing",
+    };
+    const questions = questionsOf(withFields);
+    assert.deepEqual(
+      questions.map((question) => [question.label, question.status]),
+      [
+        ["First name", QUESTION_STATUS.open],
+        ["Email", QUESTION_STATUS.answered],
+        ["Phone", QUESTION_STATUS.doing],
+        ["Country", QUESTION_STATUS.next],
+        ["Tax number", QUESTION_STATUS.problem],
+      ],
+      "the page's own `empty` is not read: the model's state is, and the plan's points say what is being done",
     );
     assert.deepEqual(questionTally(questions), { answered: 1, total: 5 });
     assert.deepEqual(
       questions.filter(needsYou).map((question) => question.label),
       ["First name", "Tax number"],
     );
+    assert.deepEqual(questions[2]?.controls, ["phone"], "a question knows the control on its row");
   });
 
-  it("joins radio buttons into the one question they answer, answered by the ticked one", () => {
-    const [choice] = questionsOf(
+  it("lists the page's controls before the model has read it, saying where they are but not whether they are answered", () => {
+    const questions = questionsOf(
+      map(
+        [
+          control("email", 200, { label: "Email", empty: false, value: "ada@example.com" }),
+          control("first", 100, { label: "First name", empty: true, required: true }),
+          control("next", 900, { kind: "button", label: "Next" }),
+          control("ssn", 500, { label: "Tax number", empty: false, invalid: true }),
+        ],
+        [point("a1", "email", RUN_POINT_STATE.done)],
+      ),
+    );
+    assert.deepEqual(
+      questions.map((question) => [question.label, question.status]),
+      [
+        ["First name", QUESTION_STATUS.unknown],
+        ["Email", QUESTION_STATUS.unknown],
+        ["Tax number", QUESTION_STATUS.unknown],
+      ],
+      "a button asks nothing; what the page says of a control's state, or a finished action, settles nothing",
+    );
+    assert.deepEqual(questionTally(questions), { answered: 0, total: 0 });
+  });
+
+  it("joins radio buttons into the one question they answer, and names a group the page did not name by its options", () => {
+    const questions = questionsOf(
       map([
         control("yes", 100, {
           kind: "check",
@@ -87,52 +118,19 @@ describe("the questions of the form", () => {
           checked: true,
         }),
         control("no", 130, { kind: "check", label: "No", group: "radio:auth", checked: false }),
+        control("a", 200, { kind: "check", label: "Day", group: "radiogroup:1", checked: false }),
+        control("b", 230, { kind: "check", label: "Night", group: "radiogroup:1", checked: false }),
+        control("c", 300, { kind: "select" }),
       ]),
     );
+    const [choice, days, dropdown] = questions;
     assert.equal(choice?.kind, "choice");
     assert.equal(choice?.label, "Authorized to work?");
     assert.equal(choice?.value, "Yes");
-    assert.equal(choice?.status, QUESTION_STATUS.answered);
     assert.deepEqual(choice?.controls, ["yes", "no"]);
     assert.deepEqual(choice?.box, { x: 100, y: 100, w: 300, h: 70 });
-  });
-
-  it("names a group the page did not name by its options, and a field by its kind", () => {
-    const questions = questionsOf(
-      map([
-        control("a", 100, { kind: "check", label: "Day", group: "radiogroup:1", checked: false }),
-        control("b", 130, { kind: "check", label: "Night", group: "radiogroup:1", checked: false }),
-        control("c", 200, { kind: "select" }),
-      ]),
-    );
-    assert.deepEqual(
-      questions.map((question) => [question.label, question.named, question.status]),
-      [
-        ["Day / Night", true, QUESTION_STATUS.blank],
-        ["Dropdown", false, QUESTION_STATUS.unknown],
-      ],
-    );
-    assert.deepEqual(questionTally(questions), { answered: 0, total: 0 }, "neither counts");
-  });
-
-  it("takes a dropdown the page draws itself as answered once the run's action on it is done", () => {
-    const [dropdown] = questionsOf(
-      map(
-        [control("c", 200, { kind: "select", label: "Country" })],
-        [point("a1", "c", RUN_POINT_STATE.done)],
-      ),
-    );
-    assert.equal(dropdown?.status, QUESTION_STATUS.answered);
-  });
-
-  it("believes the page over the plan: a field still empty after its action is not answered", () => {
-    const [field] = questionsOf(
-      map(
-        [control("f", 200, { label: "City", empty: true })],
-        [point("a1", "f", RUN_POINT_STATE.done)],
-      ),
-    );
-    assert.equal(field?.status, QUESTION_STATUS.blank);
+    assert.deepEqual([days?.label, days?.named], ["Day / Night", true]);
+    assert.deepEqual([dropdown?.label, dropdown?.named], ["Dropdown", false]);
   });
 });
 
@@ -157,5 +155,69 @@ describe("the line that says what the run is doing", () => {
       "Asking the model what to do next",
     );
     assert.equal(actionLine({ ...map(controls), phase: RUN_MAP_PHASE.ended }, []), "");
+  });
+});
+
+describe("where a question was seen", () => {
+  const surveyed: RunMap = {
+    ...map([]),
+    screens: [
+      { top: 900, height: 800, reused: false },
+      { top: 1670, height: 800, reused: true },
+    ],
+    settled: [{ from: 0, to: 900 }],
+  };
+
+  it("is the survey screen it lies on, numbered as the pictures are", () => {
+    assert.deepEqual(seenAt(surveyed, 1000), { screen: 1 });
+    assert.deepEqual(seenAt(surveyed, 2400), { screen: 2 });
+  });
+
+  it("is the screen it lies most inside of where two screens overlap", () => {
+    assert.deepEqual(seenAt(surveyed, 1680), { screen: 1 });
+    assert.deepEqual(seenAt(surveyed, 1690), { screen: 2 });
+    assert.deepEqual(seenAt(surveyed, 1660), { screen: 1 });
+  });
+
+  it("is a settled part when no screen of the survey holds it, and nothing when neither does", () => {
+    assert.deepEqual(seenAt(surveyed, 400), { settled: true });
+    assert.equal(seenAt(surveyed, 2600), undefined);
+  });
+
+  it("goes with each question of the model's list", () => {
+    const questions = questionsOf({
+      ...surveyed,
+      fields: [
+        { label: "Visa sponsorship", y: 1100, state: "empty" },
+        { label: "Race", y: 2300, state: "filled" },
+        { label: "First name", y: 300, state: "filled" },
+      ],
+    });
+    assert.deepEqual(
+      questions.map((question) => [question.label, question.seen]),
+      [
+        ["Visa sponsorship", { screen: 1 }],
+        ["Race", { screen: 2 }],
+        ["First name", { settled: true }],
+      ],
+    );
+  });
+});
+
+describe("an optional field left blank", () => {
+  it("is not required, not counted, and does not need the person", () => {
+    const questions = questionsOf({
+      ...map([]),
+      fields: [
+        { label: "Twitter URL", y: 100, state: "optional" },
+        { label: "Visa sponsorship", y: 200, state: "empty" },
+      ],
+    });
+    const [twitter, visa] = questions;
+    assert.equal(twitter.status, QUESTION_STATUS.blank);
+    assert.equal(twitter.required, false);
+    assert.equal(needsYou(twitter), false);
+    assert.equal(visa.required, true);
+    assert.deepEqual(questionTally(questions), { answered: 0, total: 1 });
   });
 });

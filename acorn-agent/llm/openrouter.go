@@ -74,7 +74,17 @@ type contentPart struct {
 	Type     string    `json:"type"`
 	Text     string    `json:"text,omitempty"`
 	ImageURL *imageURL `json:"image_url,omitempty"`
+	// CacheControl asks the provider to cache the prompt up to this part (Message.Cache).
+	CacheControl *cacheControl `json:"cache_control,omitempty"`
 }
+
+// cacheControl is the provider's marker for a prompt prefix worth caching.
+type cacheControl struct {
+	Type string `json:"type"`
+}
+
+// cacheEphemeral is the one kind of cache marker the providers take.
+const cacheEphemeral = "ephemeral"
 
 type imageURL struct {
 	URL string `json:"url"`
@@ -115,15 +125,20 @@ type chatResponse struct {
 	} `json:"error"`
 }
 
-// body builds the provider request. A message with images sends its content as parts.
+// body builds the provider request. A message with images, or one that ends a cached part of the
+// prompt, sends its content as parts; the cache marker sits on its text.
 func (c *OpenRouter) body(req Request) ([]byte, error) {
 	out := chatRequest{Model: c.model, Usage: usageOption{Include: true}}
 	for _, message := range req.Messages {
-		if len(message.Images) == 0 {
+		if len(message.Images) == 0 && !message.Cache {
 			out.Messages = append(out.Messages, chatMessage{Role: message.Role, Content: message.Text})
 			continue
 		}
-		parts := []contentPart{{Type: "text", Text: message.Text}}
+		text := contentPart{Type: "text", Text: message.Text}
+		if message.Cache {
+			text.CacheControl = &cacheControl{Type: cacheEphemeral}
+		}
+		parts := []contentPart{text}
 		for _, image := range message.Images {
 			parts = append(parts, contentPart{Type: "image_url", ImageURL: &imageURL{URL: image}})
 		}

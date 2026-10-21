@@ -1,11 +1,14 @@
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 
+import { AGENT_STOP_REASON, AGENT_UNAVAILABLE_KIND } from "./agent-contract.ts";
 import { RUN_FAILURE_REASON, RUN_STAGE } from "./run-types.ts";
 import {
   ERROR_CODE,
   LOCAL_ERROR_CODE,
+  READY_TO_SUBMIT,
   describeError,
+  describeJobUnavailable,
   describeRunFailure,
 } from "./user-messages.ts";
 
@@ -97,5 +100,40 @@ describe("describeRunFailure", () => {
     const message = describeRunFailure(failure("other", "The site wants a phone call", "Call us"));
     assert.equal(message.title, "The site wants a phone call");
     assert.equal(message.detail, "Call us");
+  });
+
+  it("names how a job is unavailable by the agent's kind, with what the page said", () => {
+    const stop = (kind: string | undefined) => ({
+      ...failure(RUN_FAILURE_REASON.jobUnavailable, "closed"),
+      agentStop: {
+        reason: AGENT_STOP_REASON.jobUnavailable,
+        ...(kind ? { kind } : {}),
+        problem: "The posting says this position has been filled.",
+        action: "",
+      },
+    });
+    const expired = describeRunFailure(stop(AGENT_UNAVAILABLE_KIND.expired));
+    assert.equal(expired.title, "This job is no longer open");
+    assert.match(expired.detail, /^The posting says this position has been filled\./);
+    assert.match(expired.detail, /move on to another job/);
+    assert.equal(expired.severity, "info");
+    assert.equal(
+      describeRunFailure(stop(AGENT_UNAVAILABLE_KIND.noOnlineApply)).title,
+      "This job only takes applications by email, phone or in person",
+    );
+    assert.equal(
+      describeRunFailure(stop(AGENT_UNAVAILABLE_KIND.notAJob)).title,
+      "This link isn't a job application",
+    );
+    assert.equal(describeRunFailure(stop(undefined)).title, "This job can't be applied to online");
+    assert.equal(describeJobUnavailable("haunted", " x ").detail, "x");
+  });
+});
+
+describe("READY_TO_SUBMIT", () => {
+  it("says the application was not sent and who sends it", () => {
+    assert.equal(READY_TO_SUBMIT.title, "Ready to submit");
+    assert.match(READY_TO_SUBMIT.detail, /press Submit yourself/);
+    assert.match(READY_TO_SUBMIT.detail, /did not send/);
   });
 });

@@ -1,5 +1,7 @@
 // A one-page application form with the controls an agent meets: text fields, a native
 // list, a checkbox, and a file input behind a styled button. It reports what it received.
+// With `?review=1` the form's button saves and goes on to a review page with its own Submit, as
+// a multi-page application does; `/expired` is a posting nobody can apply to any more.
 export const SITE_HTML = `<!doctype html>
 <html lang="en">
 <head>
@@ -35,17 +37,34 @@ export const SITE_HTML = `<!doctype html>
     <input id="file" type="file" hidden>
   </div>
   <span id="fileName"></span><!--GAP-->
-  <p><button id="submit" type="submit">Submit application</button></p>
+  <p><button id="submit" type="submit"><!--BUTTON--></button></p>
   <p id="problem" class="error" hidden></p>
 </form>
+<div id="review" hidden>
+  <h1>Review your application</h1>
+  <p>Check your answers, then send them to the employer.</p>
+  <dl id="answers"></dl>
+  <p><button id="send" type="button">Submit application</button></p>
+</div>
 <div id="done" hidden><h1>Thanks, your application was received.</h1></div>
 <!--GROW-->
 <script>
   const $ = (id) => document.getElementById(id);
+  const review = <!--REVIEW-->;
   $("upload").addEventListener("click", () => $("file").click());
   $("file").addEventListener("change", () => {
     $("fileName").textContent = $("file").files[0] ? $("file").files[0].name : "";
   });
+  const answers = () => ({
+    name: $("name").value, email: $("email").value, auth: $("auth").value,
+    file: $("file").files[0].name, size: $("file").files[0].size,
+  });
+  const send = () => {
+    window.__submitted = answers();
+    $("form").hidden = true;
+    $("review").hidden = true;
+    $("done").hidden = false;
+  };
   $("form").addEventListener("submit", (event) => {
     event.preventDefault();
     const missing = [];
@@ -57,13 +76,15 @@ export const SITE_HTML = `<!doctype html>
     $("problem").hidden = missing.length === 0;
     $("problem").textContent = "Please complete: " + missing.join(", ");
     if (missing.length) return;
-    window.__submitted = {
-      name: $("name").value, email: $("email").value, auth: $("auth").value,
-      file: $("file").files[0].name, size: $("file").files[0].size,
-    };
+    if (!review) return send();
+    // The review page: the answers as the employer would get them, and the button that really sends.
+    const given = answers();
+    $("answers").innerHTML = Object.entries(given).map(([k, v]) => "<dt>" + k + "</dt><dd>" + v + "</dd>").join("");
+    window.__reviewing = true;
     $("form").hidden = true;
-    $("done").hidden = false;
+    $("review").hidden = false;
   });
+  $("send").addEventListener("click", send);
 </script>
 </body>
 </html>`;
@@ -73,6 +94,12 @@ export const JOB_DESCRIPTION =
   "We are hiring a Data Engineer to build and run our data pipelines in Python. You will design batch and streaming jobs, own their quality, and work with analysts and product teams across the company. Requirements: five years of Python, strong SQL, experience with cloud data warehouses, and a habit of writing tests. We offer remote work, health cover and a learning budget.";
 
 const jdPage = `<!doctype html><html><head><meta charset="utf-8"><title>Job description</title></head><body><h2>Data Engineer</h2><p>${JOB_DESCRIPTION}</p></body></html>`;
+
+/** A posting nobody can apply to any more: no form, no Apply, only the notice that it closed. */
+export const EXPIRED_HTML = `<!doctype html><html lang="en"><head><meta charset="utf-8"><title>Data Engineer: position filled</title>
+<style>body { font: 16px system-ui, sans-serif; margin: 0; padding: 48px; max-width: 720px; }</style></head>
+<body><h1>Data Engineer</h1><p>This position has been filled and is no longer accepting applications.</p>
+<p>Thank you for your interest. Browse our other openings on the careers page.</p></body></html>`;
 const chooserPage = `<!doctype html><html><head><meta charset="utf-8"><title>Dropbox: choose a file</title></head><body><h2>Dropbox</h2><p>Sign in to choose a file from your cloud storage.</p></body></html>`;
 
 /** A site on another host, so its frames are of another origin and process: the job description and a file chooser. */
@@ -129,6 +156,9 @@ export function startAgentSite(frameOrigin = "http://localhost:0") {
       const url = new URL(req.url);
       if (url.pathname === "/jd-frame")
         return new Response(jdPage, { headers: { "Content-Type": "text/html" } });
+      if (url.pathname === "/expired")
+        return new Response(EXPIRED_HTML, { headers: { "Content-Type": "text/html" } });
+      const review = url.searchParams.has("review");
       // `?tall=1` puts a screen of space between the fields, so each is on a screen of its own;
       // `?grow=1` makes the page 80px taller once the person types in the name field.
       const gap = url.searchParams.has("tall") ? `<div style="height:560px"></div>` : "";
@@ -137,6 +167,8 @@ export function startAgentSite(frameOrigin = "http://localhost:0") {
         : "";
       const html = SITE_HTML.replaceAll("<!--GAP-->", gap)
         .replace("<!--GROW-->", grow)
+        .replace("<!--REVIEW-->", review ? "true" : "false")
+        .replace("<!--BUTTON-->", review ? "Save and continue" : "Submit application")
         .replace("<!--JD-->", jdMarkup(url.searchParams.get("jd") ?? "", frameOrigin))
         .replace("<!--CLOUD-->", cloudMarkup(url.searchParams.get("cloud") ?? "", frameOrigin));
       return new Response(html, { headers: { "Content-Type": "text/html" } });

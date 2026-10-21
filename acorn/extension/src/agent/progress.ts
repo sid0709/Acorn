@@ -7,6 +7,7 @@
 import {
   AGENT_ERROR_CODE,
   AGENT_STATUS,
+  AGENT_STOP_REASON,
   type AgentAsk,
   type AgentStop,
   type AgentUsage,
@@ -110,10 +111,14 @@ export function failureFromStatus(
   stop?: AgentStop,
   stage: RunFailure["stage"] = RUN_STAGE.filling,
 ): RunFailure {
+  // A job that cannot be applied to is its own reason, so the queue moves on and the card says which job
+  // this is; otherwise the status says whether the person's hand is needed.
   const reason =
-    status === AGENT_STATUS.needPerson
-      ? RUN_FAILURE_REASON.waitedForPerson
-      : RUN_FAILURE_REASON.noProgress;
+    stop?.reason === AGENT_STOP_REASON.jobUnavailable
+      ? RUN_FAILURE_REASON.jobUnavailable
+      : status === AGENT_STATUS.needPerson
+        ? RUN_FAILURE_REASON.waitedForPerson
+        : RUN_FAILURE_REASON.noProgress;
   const label = stop?.problem || message || "The run stopped";
   return {
     reason,
@@ -121,7 +126,12 @@ export function failureFromStatus(
     detail: stop?.action || (message !== label ? message : ""),
     stage,
     agentStop: stop
-      ? { reason: stop.reason, problem: stop.problem || label, action: stop.action }
+      ? {
+          reason: stop.reason,
+          ...(stop.kind ? { kind: stop.kind } : {}),
+          problem: stop.problem || label,
+          action: stop.action,
+        }
       : undefined,
   };
 }

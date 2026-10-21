@@ -53,7 +53,7 @@ func storyOf(runID string, started time.Time, entry stepTrace, calls []modelCall
 		line += fmt.Sprintf(" %s set aside.", plainlog.Count(len(entry.Dropped), "planned action"))
 	}
 	if entry.Status != "" && entry.Status != StatusWorking {
-		line += " " + endStory(entry.Status, entry.Message, entry.Usage, time.Since(started))
+		line += " " + endStory(entry.Status, entry.ReadyToSubmit, entry.Usage, time.Since(started))
 	}
 	return slog.LevelInfo, line + quotedMessage(entry)
 }
@@ -120,12 +120,15 @@ func checkStory(entry stepTrace, took time.Duration) string {
 }
 
 // endStory is the sentence that closes a run: how it ended and what it cost.
-func endStory(status, message string, usage Usage, total time.Duration) string {
+func endStory(status string, ready bool, usage Usage, total time.Duration) string {
 	how := map[string]string{
 		StatusDone:       "The model reports the application is done.",
 		StatusNeedPerson: "The model needs the applicant to take over.",
 		StatusStuck:      "The model is stuck.",
 	}[status]
+	if ready {
+		how = "The run stopped before sending: the application is ready to submit."
+	}
 	if how == "" {
 		how = "The run is over."
 	}

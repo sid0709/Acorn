@@ -131,36 +131,25 @@ func scrollLine(vp Viewport) string {
 	return "The whole page fits on the screen."
 }
 
+// focusLine says which control has the keyboard, by the name the page gives it, so the model knows where
+// typing goes. What the page says of the control's kind, value or state is not told: the screenshot shows
+// that, and the page's own word lies for a control it draws itself. The options of a list the browser draws
+// are the one thing told, since no screenshot ever shows that popup.
 func focusLine(focus *Focus) string {
 	if focus == nil {
 		return "Keyboard focus: no control.\n"
 	}
-	parts := []string{focus.Tag}
-	if focus.Type != "" {
-		parts = append(parts, "type "+focus.Type)
-	}
+	name := "a control the page does not name"
 	if focus.Label != "" {
-		parts = append(parts, fmt.Sprintf("labelled %q", focus.Label))
+		name = fmt.Sprintf("the control labelled %q", focus.Label)
 	}
-	if focus.Value != "" {
-		parts = append(parts, fmt.Sprintf("value %q", focus.Value))
-	}
-	if focus.Checked != nil {
-		parts = append(parts, fmt.Sprintf("checked %t", *focus.Checked))
-	}
-	if focus.Required {
-		parts = append(parts, "required")
-	}
-	if focus.Invalid != "" {
-		parts = append(parts, fmt.Sprintf("the page says %q", focus.Invalid))
-	}
-	line := "Keyboard focus: " + strings.Join(parts, ", ") + ".\n"
-	if len(focus.Options) > 0 {
-		kind := "Its options"
+	line := "Keyboard focus: " + name + ".\n"
+	if options := nativeList(focus); options != nil {
+		kind := "It is a list the browser draws itself, which no screenshot shows. Its options"
 		if focus.Multiple {
-			kind = "Its options (several may be chosen)"
+			kind += " (several may be chosen)"
 		}
-		line += kind + ": " + strings.Join(focus.Options, " | ") + ".\n"
+		line += kind + ": " + strings.Join(options, " | ") + ".\n"
 	}
 	return line
 }

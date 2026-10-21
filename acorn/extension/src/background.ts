@@ -5,6 +5,7 @@ import {
 } from "./acorn-socket";
 import { flushCompletedRuns } from "./agent/completed-run-sync";
 import { rekeyKeptRun } from "./agent/kept-run";
+import { resumeQueueOnStart } from "./background/agent-queue";
 import { routeMessage } from "./background/message-router";
 import { endKeptRunOfTab } from "./background/messages/run";
 import { bindRunTabGrouping } from "./background/run-group";
@@ -91,6 +92,8 @@ chrome.runtime.onConnect.addListener((port) => {
 void connectSocket().catch(() => undefined);
 // Completed runs a past session could not send (offline, signed out, the backend down).
 void flushCompletedRuns().catch(() => undefined);
+// A queued job a past worker left running has no Run any more: the queue waits for Continue.
+void resumeQueueOnStart().catch(() => undefined);
 // Back online: dial now instead of waiting out socket.io's backoff.
 self.addEventListener("online", () => reconnectAcornSocketNow(socketHandlers));
 enableSidePanelOnActionClick();

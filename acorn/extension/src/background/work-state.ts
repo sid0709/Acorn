@@ -6,8 +6,16 @@ export const runTabIds = new Set<number>();
 export const KEEP_ALIVE_ALARM = "acorn-socket-keep-alive";
 export const WORK_KEEP_ALIVE_ALARM = "acorn-work-keep-alive";
 
+/** Set while the Agent tab's queue is working through its jobs, so the worker stays up between them. */
+let queueDriving = false;
+
+export function setQueueDriving(driving: boolean): void {
+  queueDriving = driving;
+  syncWorkKeepAlive();
+}
+
 export function anyTabWorking(): boolean {
-  return pipelineRunningTabIds.size > 0;
+  return pipelineRunningTabIds.size > 0 || queueDriving;
 }
 
 export function syncWorkKeepAlive(): void {

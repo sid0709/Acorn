@@ -42,7 +42,10 @@ const (
 	// defaultFastFill makes every run plan a whole page from one look. ACORN_AGENT_FAST_FILL=off
 	// goes back to step by step.
 	defaultFastFill = true
-	shutdownTimeout = 10 * time.Second
+	// defaultStopBeforeSubmit is off: a run sends the application. ACORN_AGENT_STOP_BEFORE_SUBMIT=false
+	// holds every run at the control that sends it (a test server; on a hosted server, every person's runs).
+	defaultStopBeforeSubmit = false
+	shutdownTimeout         = 10 * time.Second
 )
 
 // Environment variable names this service reads.
@@ -58,23 +61,25 @@ const (
 	envMaxSteps      = "ACORN_AGENT_MAX_STEPS"
 	envStopPasses    = "ACORN_AGENT_STOP_PASSES"
 	envPersonField   = "ACORN_AGENT_PERSON_FIELD_PERCENT"
+	envCaptchaSure   = "ACORN_AGENT_CAPTCHA_CONFIRM_PERCENT"
 	envDonePasses    = "ACORN_AGENT_DONE_PASSES"
 	envDoneConfirm   = "ACORN_AGENT_DONE_CONFIRM_PERCENT"
 	envMaxActions    = "ACORN_AGENT_MAX_ACTIONS"
 	envFastFillMax   = "ACORN_AGENT_FAST_FILL_ACTIONS"
 	envFastFill      = "ACORN_AGENT_FAST_FILL"
-	envPointMatch    = "ACORN_AGENT_POINT_MATCH_PERCENT"
-	envReviewMatch   = "ACORN_AGENT_REVIEW_MATCH_PERCENT"
-	envProbe         = "ACORN_AGENT_PROBE_DROPDOWNS"
-	envChecks        = "ACORN_AGENT_CHECKS"
-	envScreenModel   = "ACORN_AGENT_SCREEN_MODEL"
-	envDecisionsURL  = "ACORN_AGENT_DECISIONS_URL"
+	// envStopBeforeSubmit holds every run before the application is sent (sendgate.go).
+	envStopBeforeSubmit = "ACORN_AGENT_STOP_BEFORE_SUBMIT"
+	// envUnavailableSure is how sure the decision model must be that a posting page shows the job cannot be
+	// applied to online for the driving model to be asked at once (navigation.go).
+	envUnavailableSure = "ACORN_AGENT_UNAVAILABLE_PERCENT"
+	envProbe           = "ACORN_AGENT_PROBE_DROPDOWNS"
+	envChecks          = "ACORN_AGENT_CHECKS"
+	envScreenModel     = "ACORN_AGENT_SCREEN_MODEL"
+	envDecisionsURL    = "ACORN_AGENT_DECISIONS_URL"
 	// envFallbackResume names the résumé folder offered to the person when a résumé is wanted and no
 	// job description was found, when the applicant is a local folder.
 	envFallbackResume = "DEFAULT_FALLBACK_RESUME"
 	envChunkActions   = "ACORN_AGENT_CHUNK_ACTIONS"
-	envVetBlock       = "ACORN_AGENT_VET_BLOCK_PERCENT"
-	envSignOnBlock    = "ACORN_AGENT_SSO_BLOCK_PERCENT"
 	envAccountTries   = "ACORN_AGENT_ACCOUNT_ATTEMPTS"
 	// envBackendURL is where acorn-backend is. When set, the applicant is the signed-in person's
 	// own profile and Library there (the person's session comes with each run); otherwise it is the
@@ -122,6 +127,15 @@ func percent(name string, fallback float64) float64 {
 	return float64(config.EnvInt(name, int(fallback*100))) / 100
 }
 
+// envSwitch reads a switch: fallback when it is unset, else whether its value is an on word.
+func envSwitch(name string, fallback bool) bool {
+	value := config.Env(name, "")
+	if value == "" {
+		return fallback
+	}
+	return isOn(value)
+}
+
 func run() error {
 	config.LoadEnvFile()
 	port := config.Env(envAgentPort, defaultAgentPort)
@@ -138,25 +152,21 @@ func run() error {
 	cfg.MaxSteps = config.EnvInt(envMaxSteps, cfg.MaxSteps)
 	cfg.StopPasses = config.EnvInt(envStopPasses, cfg.StopPasses)
 	cfg.PersonField = percent(envPersonField, cfg.PersonField)
+	cfg.CaptchaConfirm = percent(envCaptchaSure, cfg.CaptchaConfirm)
 	cfg.DonePasses = config.EnvInt(envDonePasses, cfg.DonePasses)
 	cfg.DoneConfirm = percent(envDoneConfirm, cfg.DoneConfirm)
 	cfg.MaxActions = config.EnvInt(envMaxActions, cfg.MaxActions)
 	cfg.ChunkActions = config.EnvInt(envChunkActions, cfg.ChunkActions)
 	cfg.FastFillActions = config.EnvInt(envFastFillMax, cfg.FastFillActions)
-	cfg.FastFill = defaultFastFill
-	if value := config.Env(envFastFill, ""); value != "" {
-		cfg.FastFill = isOn(value)
-	}
-	cfg.PointMatch = percent(envPointMatch, cfg.PointMatch)
-	cfg.ReviewMatch = percent(envReviewMatch, cfg.ReviewMatch)
+	cfg.FastFill = envSwitch(envFastFill, defaultFastFill)
+	cfg.StopBeforeSubmit = envSwitch(envStopBeforeSubmit, defaultStopBeforeSubmit)
+	cfg.UnavailableConfirm = percent(envUnavailableSure, cfg.UnavailableConfirm)
 	cfg.ProbeDropdowns = !isOff(config.Env(envProbe, ""))
 	cfg.CheckMatch = percent(envCheckMatch, cfg.CheckMatch)
 	cfg.CheckBlocked = percent(envCheckBlocked, cfg.CheckBlocked)
 	cfg.CheckLoading = percent(envCheckLoading, cfg.CheckLoading)
 	cfg.OptionMatch = percent(envOptionMatch, cfg.OptionMatch)
 	cfg.OptionAccept = percent(envOptionAccept, cfg.OptionAccept)
-	cfg.VetBlock = percent(envVetBlock, 0.3)
-	cfg.SingleSignOnBlock = percent(envSignOnBlock, 0.5)
 	cfg.AccountAttempts = config.EnvInt(envAccountTries, cfg.AccountAttempts)
 	cfg.KeepTurns = config.EnvInt(envKeepTurns, cfg.KeepTurns)
 	cfg.KeepImages = config.EnvInt(envKeepImages, cfg.KeepImages)
@@ -202,12 +212,13 @@ func run() error {
 	server := &http.Server{
 		Addr: httpConfig.Addr,
 		Handler: httpapi.New(a, httpapi.Options{
-			DefaultKey:    defaultKey,
-			Origins:       httpConfig.Origins,
-			ModelName:     model,
-			Source:        source.Kind(),
-			MaxModelCalls: config.EnvInt(envMaxModelCalls, defaultMaxModelCalls),
-			SessionTTL:    cfg.SessionTTL,
+			DefaultKey:       defaultKey,
+			Origins:          httpConfig.Origins,
+			ModelName:        model,
+			Source:           source.Kind(),
+			MaxModelCalls:    config.EnvInt(envMaxModelCalls, defaultMaxModelCalls),
+			SessionTTL:       cfg.SessionTTL,
+			StopBeforeSubmit: cfg.StopBeforeSubmit,
 		}).Handler(),
 		ReadHeaderTimeout: 10 * time.Second,
 	}
@@ -220,7 +231,7 @@ func run() error {
 	}
 	failed := make(chan error, 1)
 	go func() {
-		slog.Info(listeningStory(httpConfig.Addr, model, screenModel, newScreen != nil, source.Kind(), location, defaultKey != "", cfg.TraceDir))
+		slog.Info(listeningStory(httpConfig.Addr, model, screenModel, newScreen != nil, source.Kind(), location, defaultKey != "", cfg.TraceDir, cfg.StopBeforeSubmit))
 		failed <- server.ListenAndServe()
 	}()
 	select {
@@ -249,7 +260,7 @@ func logLevel() slog.Level {
 }
 
 // listeningStory is the sentence that says the agent is ready and how it is set up.
-func listeningStory(addr, model, screenModel string, checks bool, applicantKind, from string, hasKey bool, traceDir string) string {
+func listeningStory(addr, model, screenModel string, checks bool, applicantKind, from string, hasKey bool, traceDir string, stopBeforeSubmit bool) string {
 	line := fmt.Sprintf("The agent is ready on %s. It drives the browser with %s", addr, model)
 	if checks {
 		line += " and checks the screen with " + screenModel
@@ -262,6 +273,9 @@ func listeningStory(addr, model, screenModel string, checks bool, applicantKind,
 	}
 	if traceDir != "" {
 		line += " Traces are saved in " + traceDir + "."
+	}
+	if stopBeforeSubmit {
+		line += " Every run stops before the application is sent."
 	}
 	return line
 }

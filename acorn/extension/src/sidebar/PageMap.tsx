@@ -249,6 +249,14 @@ export function PageMap(props: PageMapProps) {
             {...band(layout, Math.min(move.from, move.at), Math.max(move.from, move.at))}
           />
         ))}
+        {map.key ? (
+          <rect
+            className="acorn-map-key"
+            x={paper.left}
+            width={paper.width}
+            {...band(layout, map.key.from, map.key.to)}
+          />
+        ) : null}
         {map.fence != null ? (
           <line
             className="acorn-map-fence"

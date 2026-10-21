@@ -1,5 +1,5 @@
-import { RUN_OUTCOME } from "@acorn/shared/run-types";
-import { describeError, describeRunFailure } from "@acorn/shared/user-messages";
+import { RUN_FAILURE_REASON, RUN_OUTCOME } from "@acorn/shared/run-types";
+import { READY_TO_SUBMIT, describeError, describeRunFailure } from "@acorn/shared/user-messages";
 import { useEffect, useRef } from "react";
 
 import { pushAcornNotice } from "./acorn-notice";
@@ -21,8 +21,10 @@ function endNotice(progress: PipelineProgress): AcornNoticePayload | null {
           status: progress.errorStatus,
           message: progress.error || progress.message,
         });
+    // A job nobody can apply to is told, not reported as a failure of the run.
+    const unavailable = failure?.reason === RUN_FAILURE_REASON.jobUnavailable;
     return {
-      kind: "error",
+      kind: unavailable ? "info" : "error",
       title: said.title || (errored ? "Run stopped" : "Run couldn’t finish"),
       detail: said.detail,
     };
@@ -30,6 +32,9 @@ function endNotice(progress: PipelineProgress): AcornNoticePayload | null {
   if (progress.phase !== "done") return null;
   if (progress.run?.report?.outcome === RUN_OUTCOME.completed) {
     return { kind: "success", title: "Application sent", detail: progress.message };
+  }
+  if (progress.run?.report?.outcome === RUN_OUTCOME.readyToSubmit) {
+    return { kind: "info", title: READY_TO_SUBMIT.title, detail: READY_TO_SUBMIT.detail };
   }
   return null;
 }

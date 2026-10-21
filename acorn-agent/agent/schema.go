@@ -19,8 +19,10 @@ const replySchemaName = "agent_step"
 // change, so the model does not write them out again. An action's check is what the screen
 // should show once that action has run, null where the model must look for itself; it exists
 // only when a decision model checks the screen (checks). The "screen" and the "label" of a point
-// action, the "commit" of a click and the "survey" action exist only when the run may look at a page as
-// a survey (survey).
+// action and the "survey" action exist only when the run may look at a page as a survey (survey). A
+// click's "commit" is in every mode: it names the click that goes on to the next page ("next") or sends
+// the application ("send"), which the agent holds back when the plan lost a part of itself, and never
+// sends when the run was asked to stop before sending.
 func replySchemaFor(survey, checks bool) json.RawMessage {
 	return replySchemas[schemaIndex(survey, checks)]
 }
@@ -47,14 +49,17 @@ var replySchemas = func() [4]json.RawMessage {
 // Pieces of the schema, as ordered JSON text: the order of the properties is the order the
 // model writes them in, so they are not built from a map.
 const (
-	schemaString         = `{"type": "string"}`
-	schemaNullString     = `{"type": ["string", "null"]}`
-	schemaNumber         = `{"type": "number"}`
-	schemaNullNumber     = `{"type": ["number", "null"]}`
-	schemaNullInteger    = `{"type": ["integer", "null"]}`
-	schemaInteger        = `{"type": "integer"}`
-	schemaNullBoolean    = `{"type": ["boolean", "null"]}`
-	schemaStop           = `{"anyOf": [{"type": "null"}, {"type": "object", "additionalProperties": false, "required": ["reason", "problem", "action"], "properties": {"reason": {"type": "string", "enum": ["captcha", "verification", "verification_link", "identity", "document", "sign_in", "account_rejected", "page_problem", "other"]}, "problem": {"type": "string"}, "action": {"type": "string"}}}]}`
+	schemaString      = `{"type": "string"}`
+	schemaNullString  = `{"type": ["string", "null"]}`
+	schemaNumber      = `{"type": "number"}`
+	schemaNullNumber  = `{"type": ["number", "null"]}`
+	schemaNullInteger = `{"type": ["integer", "null"]}`
+	schemaInteger     = `{"type": "integer"}`
+	schemaNullBoolean = `{"type": ["boolean", "null"]}`
+	schemaStop        = `{"anyOf": [{"type": "null"}, {"type": "object", "additionalProperties": false, "required": ["reason", "kind", "problem", "action"], "properties": {"reason": {"type": "string", "enum": ["captcha", "verification", "verification_link", "identity", "document", "sign_in", "account_rejected", "page_problem", "other", "job_unavailable"]}, "kind": {"anyOf": [{"type": "null"}, {"type": "string", "enum": ["expired", "no_online_apply", "not_a_job"]}]}, "problem": {"type": "string"}, "action": {"type": "string"}}}]}`
+	// schemaCommit is what a click does beyond the click: "next" goes on to another page of the form,
+	// "send" sends the application, null is an ordinary click.
+	schemaCommit         = `{"anyOf": [{"type": "null"}, {"type": "string", "enum": ["next", "send"]}]}`
 	schemaStatus         = `{"type": "string", "enum": ["working", "done", "need_person", "stuck"]}`
 	schemaObjectOpening  = `{"type": "object", "additionalProperties": false, "required": [`
 	schemaPropertiesOpen = `], "properties": {`
@@ -108,12 +113,9 @@ func buildReplySchema(survey, checks bool) json.RawMessage {
 		}
 		return withScreen(append(fields, extra...)...)
 	}
-	// The click that sends the page is named, so it can be held back when the plan lost a part of itself.
-	var commit []field
-	if survey {
-		commit = []field{{"commit", schemaNullBoolean}}
-	}
-	add(point(kindField(KindClick, KindDoubleClick, KindTripleClick, KindRightClick, KindHover), commit...))
+	// The click that goes on to the next page or sends the application is named, so it can be held back
+	// when the plan lost a part of itself, and never sent when the run stops before sending.
+	add(point(kindField(KindClick, KindDoubleClick, KindTripleClick, KindRightClick, KindHover), field{"commit", schemaCommit}))
 	add(point(kindField(KindChoose), field{"text", schemaString}))
 	add(point(kindField(KindUpload), field{"resume", schemaNullString}))
 	add([]field{kindField(KindType), {"text", schemaString}, {"secret", schemaNullBoolean}})
@@ -135,6 +137,13 @@ func buildReplySchema(survey, checks bool) json.RawMessage {
 	if survey {
 		// The screens the model will not come back to: asked last of the notes, before the plan.
 		fields = append(fields, field{"settled", `{"type": ["array", "null"], "items": {"type": "integer"}}`})
+		// The control that sends the page or goes on to its next step, once per page (key.go).
+		fields = append(fields, field{"next", `{"anyOf": [{"type": "null"}, ` +
+			object(field{"screen", schemaInteger}, field{"x", schemaNumber}, field{"y", schemaNumber}, field{"label", schemaString}) + `]}`})
+		// Every question of the form as the model reads it, with its state (fields.go).
+		fields = append(fields, field{"fields", `{"type": ["array", "null"], "items": ` +
+			object(field{"label", schemaString}, field{"screen", schemaInteger}, field{"y", schemaNumber},
+				field{"state", `{"type": "string", "enum": ["` + FieldFilled + `", "` + FieldEmpty + `", "` + FieldOptional + `", "` + FieldNeedsPerson + `"]}`}) + `}`})
 	}
 	fields = append(fields, field{"actions", `{"type": "array", "items": ` + action + `}`})
 	return json.RawMessage(object(fields...))

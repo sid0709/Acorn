@@ -5,7 +5,7 @@
 
 export type Point = { x: number; y: number };
 export type Points = Record<"name" | "email" | "auth" | "agree" | "upload" | "submit", Point> &
-  Partial<Record<"dropbox" | "import", Point>>;
+  Partial<Record<"dropbox" | "import" | "send", Point>>;
 
 export type ModelRequest = {
   messages: {
@@ -18,7 +18,15 @@ export type ModelRequest = {
 /** What a look's text says of a survey: the size of a screen and where each is scrolled to. */
 export type Survey = { width: number; height: number; positions: number[] };
 
-export type Script = (step: number, points: Points, survey?: Survey) => Record<string, unknown>;
+/** The page a look is of, as its text names it: the address and the title. */
+export type Look = { url: string; title: string };
+
+export type Script = (
+  step: number,
+  points: Points,
+  survey?: Survey,
+  look?: Look,
+) => Record<string, unknown>;
 
 const NULLS = {
   x: null,
@@ -35,6 +43,8 @@ const NULLS = {
 };
 const act = (kind: string, fields: Record<string, unknown> = {}) => ({ ...NULLS, kind, ...fields });
 export const click = (p: Point) => act("click", p);
+/** A click the model marks with what it does beyond the click: "next" goes on to another page, "send" sends the application. */
+export const commit = (p: Point, what: "next" | "send") => act("click", { ...p, commit: what });
 export const typeInto = (text: string) => act("type", { text });
 export const key = (keys: string) => act("key", { keys });
 export const upload = (p: Point) => act("upload", p);
@@ -87,14 +97,15 @@ export function onSurvey(survey: Survey, page: Point): { screen: number; x: numb
 }
 
 function stepOf(request: ModelRequest): number {
-  const last = request.messages.at(-1);
-  const text =
-    typeof last?.content === "string"
-      ? last.content
-      : (last?.content.find((p) => p.type === "text")?.text ?? "");
-  const match = /^Step (\d+) of/m.exec(text);
+  const match = /^Step (\d+) of/m.exec(lastText(request));
   if (!match) throw new Error("the last message is not a step observation");
   return Number(match[1]);
+}
+
+/** The page the look is of, from the "Page: title (url)" line of its text. */
+function lookOf(request: ModelRequest): Look | undefined {
+  const match = /^Page: (.*) \((\S+)\)$/m.exec(lastText(request));
+  return match ? { title: match[1], url: match[2] } : undefined;
 }
 
 export function startFakeModel(points: () => Points, script: Script) {
@@ -106,7 +117,7 @@ export function startFakeModel(points: () => Points, script: Script) {
       requests.push(request);
       const step = stepOf(request);
       const survey = surveyOf(request);
-      const reply = script(step, points(), survey);
+      const reply = script(step, points(), survey, lookOf(request));
       return Response.json({
         model: "fake/luna",
         choices: [{ message: { content: JSON.stringify(reply) }, finish_reason: "stop" }],
@@ -116,7 +127,15 @@ export function startFakeModel(points: () => Points, script: Script) {
   });
 }
 
-export type Verdict = { matches: number; blocked: number; loading: number };
+/**
+ * What the stand-in decision model answers: the three questions of a plan's check, and `sent`, how sure it
+ * is that a screen confirms a sent application (the done gate asks it on every done; sure unless a test says).
+ */
+export type Verdict = { matches: number; blocked: number; loading: number; sent?: number };
+
+/** The done gate's question: the fake takes the model's word for a done unless the test says otherwise. */
+const SENT_QUESTION = "application_sent";
+const SENT_BY_DEFAULT = 0.95;
 export type DecisionRequest = {
   model: string;
   /** The screen checker sends parts (text and an image); Jev sends one string. */
@@ -153,6 +172,8 @@ export function startFakeDecisions(verdict: () => Verdict) {
         } else if (question.type === "choice") {
           const first = Object.keys(question.criteria ?? {})[0] ?? "";
           answers[key] = { type: "choice", choice: first, probabilities: { [first]: 0.99 } };
+        } else if (key === SENT_QUESTION) {
+          answers[key] = { type: "noul", noul: v.sent ?? SENT_BY_DEFAULT };
         } else {
           answers[key] = { type: "noul", noul: v[key as keyof Verdict] };
         }

@@ -41,7 +41,17 @@ describe("the list of choices open on the page", () => {
   it("is the options the focused control's list names, in the order they are drawn", async () => {
     const page = new FakePage();
     page.activeElement = dropdown(page, RACES);
-    assert.deepEqual(await readOpenList(page.cdp()), { options: RACES });
+    const list = await readOpenList(page.cdp());
+    assert.deepEqual(list?.options, RACES);
+  });
+
+  it("says where each option is drawn, in the screenshot's pixels, so the pick can click it", async () => {
+    const page = new FakePage();
+    page.activeElement = dropdown(page, RACES);
+    const list = await readOpenList(page.cdp(), 2);
+    assert.equal(list?.boxes?.length, RACES.length);
+    // The second option: its own box, at twice the CSS size for a screenshot of two pixels per CSS pixel.
+    assert.deepEqual(list?.boxes?.[1], { x: 496, y: (4875 + 33) * 2, w: 1080, h: 66 });
   });
 
   it("is the one drawn list when nothing says which, and leaves out what is hidden or disabled", async () => {
@@ -51,15 +61,16 @@ describe("the list of choices open on the page", () => {
     const [, east, hispanic] = page.matching("[role=option]");
     if (east) east.style.display = "none";
     if (hispanic) hispanic.attributes["aria-disabled"] = "true";
-    assert.deepEqual(await readOpenList(page.cdp()), {
-      options: ["Black or of African descent", "South Asian"],
-    });
+    assert.deepEqual((await readOpenList(page.cdp()))?.options, [
+      "Black or of African descent",
+      "South Asian",
+    ]);
   });
 
   it("is empty for a list that is open with nothing in it, and null when no list is open", async () => {
     const page = new FakePage();
     page.activeElement = dropdown(page, []);
-    assert.deepEqual(await readOpenList(page.cdp()), { options: [] });
+    assert.deepEqual((await readOpenList(page.cdp()))?.options, []);
     const closed = new FakePage();
     closed.activeElement = dropdown(closed, RACES, false);
     assert.equal(await readOpenList(closed.cdp()), null);
@@ -72,7 +83,7 @@ describe("the list of choices open on the page", () => {
     const input = dropdown(page, RACES);
     input.attributes = { role: "combobox" };
     page.activeElement = input;
-    assert.deepEqual(await readOpenList(page.cdp()), { options: RACES });
+    assert.deepEqual((await readOpenList(page.cdp()))?.options, RACES);
   });
 
   it("is null when the page cannot be asked", async () => {

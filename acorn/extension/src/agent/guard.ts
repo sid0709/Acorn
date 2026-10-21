@@ -1,18 +1,19 @@
 /**
  * The guard that keeps files coming from this computer only. The applicant has not allowed an
- * online file source (a cloud drive, a file-sharing service, signing in to one), so no click may
- * reach one. The prompt says so, but a model can slip; so, before each click, the control under
- * the pointer is read from the page (what it says of itself, nothing more) and the server's
- * decision model judges it. And after a click, a window or a cross-origin frame that opened is
- * judged the same way and closed if it is one. There is no list of services here: the model
- * says what a control or page is.
+ * online file source (a cloud drive, a file-sharing service, signing in to one). The prompt says
+ * so, and the model that drives the run sees the screen; before each click the control under the
+ * pointer is read from the page (what it says of itself, nothing more) and the server's decision
+ * model judges the description, but that judgment never overrides the model: the click goes
+ * ahead, and a control that looks like such a source is told to the model with the click's result
+ * (a live run was locked out of a plain location box when a description was misread). After a
+ * click, a window or a cross-origin frame that opened is an outcome, not a guess: it is judged the
+ * same way and closed if it is more likely than not such a source. There is no list of services
+ * here: the model says what a control or page is.
  *
  * The same judgment keeps the run from signing in through another service's account (single
- * sign-on): the applicant's own e-mail and password are used, so a control or window that starts
- * one is refused or closed.
- *
- * A control the model is unsure about is blocked, and so is a control inside a file-upload
- * component when it cannot be checked. A window or frame that cannot be checked is let be.
+ * sign-on): the applicant's own e-mail and password are used, so a window that starts one is
+ * closed, and a control that looks like one is told to the model. Nothing that cannot be checked
+ * is blocked.
  */
 
 import {
@@ -34,16 +35,24 @@ export const SIGN_ON_BLOCKED_MESSAGE =
   "blocked: that control signs in through another service's account, and Acorn never does. " +
   "Use the employer's own e-mail and password form, or continue as a guest if the page offers it.";
 
+/** What a click is told when it would fill the application from a saved profile or another service. */
+export const AUTOFILL_BLOCKED_MESSAGE =
+  "blocked: that control fills the application from a saved profile or another service, and only a résumé file from this computer may fill it. " +
+  "Fill the fields from the applicant's details instead; the résumé upload is the one autofill allowed.";
+
 /** What a window that a click opened is told when it is closed. */
 const WINDOW_CLOSED_NOTES: Record<VetCause, string> = {
   [VET_CAUSE.onlineSource]:
     "A click opened a window for an online file source or a sign-in to one, and Acorn closed it. Acorn never uses those: attach a file with upload, at the button that opens this computer's file picker.",
   [VET_CAUSE.singleSignOn]:
     "A click opened another service's sign-in, and Acorn closed it. Acorn never signs in that way: use the employer's own e-mail and password form, or continue as a guest if the page offers it.",
+  [VET_CAUSE.otherAutofill]:
+    "A click opened a page that fills the application from a saved profile or another service, and Acorn closed it. Only a résumé file from this computer may fill the form: fill the fields from the applicant's details.",
 };
 
 /** The refusal for a control, by why it was refused. */
 export function blockedMessage(cause?: VetCause): string {
+  if (cause === VET_CAUSE.otherAutofill) return AUTOFILL_BLOCKED_MESSAGE;
   return cause === VET_CAUSE.singleSignOn ? SIGN_ON_BLOCKED_MESSAGE : BLOCKED_MESSAGE;
 }
 
@@ -55,10 +64,17 @@ export function windowClosedNote(cause?: VetCause): string {
 /** The longest excerpt of a new window's text that is sent. */
 export const EXCERPT_CHARS = 400;
 
+/**
+ * The most controls (inputs, lists, buttons) the group round a file input may hold and still be that
+ * group rather than the whole form: a file component is the file input, its button and a line or two.
+ */
+export const FILE_COMPONENT_MAX_CONTROLS = 6;
+
 /** Runs in the page: describes the control at a point, looking through shadow roots and same-origin frames. */
 export function targetScript(x: number, y: number): string {
   return `((px, py) => {
     const FIELD = new Set(["text","email","tel","number","password","search","url","date","datetime-local","time","month","week","checkbox","radio","range","color"]);
+    const FILE_COMPONENT_MAX_CONTROLS = ${FILE_COMPONENT_MAX_CONTROLS};
     const clip = (t, n) => String(t == null ? "" : t).replace(/\\s+/g, " ").trim().slice(0, n || 200);
     let el = document.elementFromPoint(px, py);
     let ox = px, oy = py;
@@ -98,11 +114,17 @@ export function targetScript(x: number, y: number): string {
     for (let node = control, up = 0; node && up < 3; node = node.parentElement, up += 1) {
       tokens.push(node.id || "", node.getAttribute("class") || "", node.getAttribute("data-provider") || "", node.getAttribute("data-source") || "");
     }
-    // A file component is the small group around a file input, not the whole form that holds it.
+    // A file component is the small group around a file input, not the whole form that holds it: an
+    // ancestor that holds a file input and more than a few other controls is the form (a page built
+    // without a form element had every field of its application read as part of the résumé component,
+    // and every click on them waited on a check meant for file buttons).
     let inFile = false;
     for (let node = control, up = 0; node && up < 4; up += 1) {
       if (node.tagName === "FORM" || node.tagName === "BODY" || node.tagName === "HTML") break;
-      if (node.querySelector && node.querySelector('input[type="file"]')) { inFile = true; break; }
+      if (node.querySelector && node.querySelector('input[type="file"]')) {
+        inFile = node.querySelectorAll("input,select,textarea,button").length <= FILE_COMPONENT_MAX_CONTROLS;
+        break;
+      }
       node = node.parentElement || (node.getRootNode && node.getRootNode().host) || null;
     }
     const link = control.closest("a");
@@ -141,6 +163,8 @@ export interface GuardVerdict {
   blocked: boolean;
   reason?: string;
   cause?: VetCause;
+  /** The doubt about a control that goes ahead, for the model. */
+  hint?: string;
 }
 
 export interface ClickGuardDeps {
@@ -170,15 +194,16 @@ export function createClickGuard(
         verdict = deps
           .vet({ kind: "control", ...rest, pageUrl: deps.pageUrl() })
           .then((answer): GuardVerdict => ({
-            blocked: answer.blocked,
+            // A control is refused on its description for one cause only: an autofill from a saved
+            // profile or another service, where the click itself is the harm. Every other doubt goes
+            // ahead and is told to the model; the server says so, and this holds it to that.
+            blocked: answer.blocked === true && answer.cause === VET_CAUSE.otherAutofill,
             reason: answer.reason,
             cause: answer.cause,
+            hint: answer.hint,
           }))
-          // The server could not be asked: only a control in a file-upload component is refused.
-          .catch((): GuardVerdict => ({
-            blocked: Boolean(rest.inFileComponent),
-            reason: "could not be checked",
-          }));
+          // The server could not be asked: the click goes ahead.
+          .catch((): GuardVerdict => ({ blocked: false, reason: "could not be checked" }));
         judged.set(key, verdict);
       }
       return await verdict;
@@ -304,6 +329,9 @@ function frameClosedNote(url: string, cause?: VetCause): string {
   }
   if (cause === VET_CAUSE.singleSignOn) {
     return `A frame from ${host} offered another service's sign-in, and Acorn closed it. Acorn never signs in that way: use the employer's own e-mail and password form, or continue as a guest if the page offers it.`;
+  }
+  if (cause === VET_CAUSE.otherAutofill) {
+    return `A frame from ${host} offered to fill the application from a saved profile or another service, and Acorn closed it. Only a résumé file from this computer may fill the form: fill the fields from the applicant's details.`;
   }
   return `A frame from ${host} showed an online file source or sign-in, and Acorn closed it. Acorn never uses those: attach a file with upload.`;
 }

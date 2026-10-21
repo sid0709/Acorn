@@ -10,6 +10,7 @@ import {
   RUN_POINT_STATE,
   type RunMap,
   type RunMapControl,
+  type RunMapField,
   type RunMapPhase,
   type RunMapPoint,
   type RunPointState,
@@ -88,6 +89,40 @@ export interface RunQuestion {
   controls: string[];
   /** Its place on the page (CSS pixels), round all its controls. */
   box: { x: number; y: number; w: number; h: number };
+  /**
+   * Where the model saw it on its last survey: the number (from 1) of the screen it lies on, as written on
+   * that screenshot and on the pictures beside the map, or that it lies in a part the model settled. Unset
+   * when no survey holds it.
+   */
+  seen?: QuestionSeen;
+}
+
+/** Where a question was seen: on a screen of the last survey, or in a settled part of the page. */
+export type QuestionSeen = { screen: number } | { settled: true };
+
+/**
+ * Where a place on the page (CSS pixels from its top) was seen: the screen of the last survey it lies most
+ * inside of where screens overlap, else a settled part that holds it.
+ */
+export function seenAt(map: RunMap, y: number): QuestionSeen | undefined {
+  let best = 0;
+  let room = -1;
+  map.screens.forEach((screen, index) => {
+    if (y < screen.top || y > screen.top + screen.height) return;
+    const inside = Math.min(y - screen.top, screen.top + screen.height - y);
+    if (inside > room) {
+      best = index + 1;
+      room = inside;
+    }
+  });
+  if (best > 0) return { screen: best };
+  return map.settled.some((span) => y >= span.from && y <= span.to) ? { settled: true } : undefined;
+}
+
+/** A question with where it was seen, by the middle of its place. */
+function withSeen(map: RunMap, question: RunQuestion): RunQuestion {
+  const seen = seenAt(map, question.box.y + question.box.h / 2);
+  return seen ? { ...question, seen } : question;
 }
 
 function boxOf(controls: RunMapControl[]): RunQuestion["box"] {
@@ -135,23 +170,14 @@ function questionOf(
       .join(", ");
   else if (kind === "check") value = first.checked ? TICKED : undefined;
   else value = first.value;
-  const answered =
-    ticks.length > 0
-      ? ticked.length > 0
-      : members.some((control) => control.empty === false) ||
-        (members.every((control) => control.empty === undefined) &&
-          (Boolean(value) || was(RUN_POINT_STATE.done)));
-  const empty =
-    ticks.length > 0 ? ticked.length === 0 : members.every((control) => control.empty === true);
+  // What the page's own list says of a control's state is not read: the pictures are the source of truth
+  // (questionsOfFields). Before the model has read the page, a question's status is only what the plan is
+  // doing to it.
   const required = members.some((control) => control.required === true);
-  const flagged = members.some((control) => control.invalid === true);
   let status: QuestionStatus = QUESTION_STATUS.unknown;
   if (was(RUN_POINT_STATE.current)) status = QUESTION_STATUS.doing;
-  else if (flagged || was(RUN_POINT_STATE.failed)) status = QUESTION_STATUS.problem;
-  else if (answered) status = QUESTION_STATUS.answered;
+  else if (was(RUN_POINT_STATE.failed)) status = QUESTION_STATUS.problem;
   else if (was(RUN_POINT_STATE.pending)) status = QUESTION_STATUS.next;
-  else if (required) status = QUESTION_STATUS.open;
-  else if (empty) status = QUESTION_STATUS.blank;
   return {
     id,
     kind,
@@ -160,14 +186,65 @@ function questionOf(
     ...(value ? { value } : {}),
     required,
     status,
-    flagged,
+    flagged: false,
     controls: members.map((control) => control.id),
     box: boxOf(members),
   };
 }
 
-/** The questions of the page on the map, top to bottom and left to right. */
+/** How tall a question of the model's list is drawn on the map (CSS pixels): a row of a form. */
+const FIELD_ROW_PX = 28;
+
+/** What a field's state, as the model read it, is as a question's status. */
+const FIELD_STATUS: Record<RunMapField["state"], QuestionStatus> = {
+  filled: QUESTION_STATUS.answered,
+  empty: QUESTION_STATUS.open,
+  optional: QUESTION_STATUS.blank,
+  needs_person: QUESTION_STATUS.problem,
+};
+
+/**
+ * The questions as the model read them from the pictures: the to-do list once a survey has been answered.
+ * Each is placed by the row the model gave; a plan's point on that row says the run is acting on it.
+ */
+function questionsOfFields(map: RunMap, fields: RunMapField[]): RunQuestion[] {
+  const controlsNear = (y: number) =>
+    map.controls
+      .filter(
+        (control) =>
+          FIELD_KINDS.has(control.kind) && Math.abs(control.y + control.h / 2 - y) <= FIELD_ROW_PX,
+      )
+      .map((control) => control.id);
+  return fields.map((field, i) => {
+    const controls = controlsNear(field.y);
+    const acted = map.points.filter((point) => point.control && controls.includes(point.control));
+    const was = (state: RunPointState) => acted.some((point) => point.state === state);
+    let status = FIELD_STATUS[field.state];
+    if (was(RUN_POINT_STATE.current)) status = QUESTION_STATUS.doing;
+    else if (was(RUN_POINT_STATE.failed)) status = QUESTION_STATUS.problem;
+    else if (status !== QUESTION_STATUS.answered && was(RUN_POINT_STATE.pending))
+      status = QUESTION_STATUS.next;
+    return {
+      id: `field:${i}`,
+      kind: "input",
+      label: field.label,
+      named: true,
+      required: field.state === "empty" || field.state === "needs_person",
+      status,
+      flagged: field.state === "needs_person",
+      controls,
+      box: { x: 0, y: field.y - FIELD_ROW_PX / 2, w: map.pageWidth, h: FIELD_ROW_PX },
+    };
+  });
+}
+
+/**
+ * The questions of the page, top to bottom and left to right: the model's own list once it has read the
+ * page, else the page's controls, which say where things are but not whether they are answered.
+ */
 export function questionsOf(map: RunMap): RunQuestion[] {
+  if (map.fields && map.fields.length > 0)
+    return questionsOfFields(map, map.fields).map((question) => withSeen(map, question));
   const points = pointsByControl(map.points);
   const groups = new Map<string, RunMapControl[]>();
   for (const control of map.controls) {
@@ -176,7 +253,7 @@ export function questionsOf(map: RunMap): RunQuestion[] {
     groups.set(key, [...(groups.get(key) ?? []), control]);
   }
   return [...groups.entries()]
-    .map(([id, members]) => questionOf(id, members, points))
+    .map(([id, members]) => withSeen(map, questionOf(id, members, points)))
     .sort((a, b) => a.box.y - b.box.y || a.box.x - b.box.x);
 }
 

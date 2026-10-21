@@ -9,14 +9,37 @@ import (
 
 // reply is the model's answer as it arrives.
 type reply struct {
-	Observation string        `json:"observation"`
-	Memo        *string       `json:"memo"`
-	Job         *string       `json:"job"`
-	Status      string        `json:"status"`
-	Message     string        `json:"message"`
-	Stop        *StopInfo     `json:"stop"`
-	Settled     []int         `json:"settled"`
-	Actions     []modelAction `json:"actions"`
+	Observation string    `json:"observation"`
+	Memo        *string   `json:"memo"`
+	Job         *string   `json:"job"`
+	Status      string    `json:"status"`
+	Message     string    `json:"message"`
+	Stop        *StopInfo `json:"stop"`
+	Settled     []int     `json:"settled"`
+	// Next is the control that sends the page or goes on to its next step, as the model sees it on a
+	// survey (key.go); null when none is in view or it was given already.
+	Next *modelPoint `json:"next"`
+	// Fields is every question of the form as the model reads it on a survey, with where it is and whether
+	// it is answered (fields.go); null when the look is not a survey.
+	Fields  []modelField  `json:"fields"`
+	Actions []modelAction `json:"actions"`
+}
+
+// modelField is one question of the form as the model reads it: its label, where it is on the survey, and
+// its state (FieldFilled, FieldEmpty, FieldOptional, FieldNeedsPerson).
+type modelField struct {
+	Label  string   `json:"label"`
+	Screen *int     `json:"screen"`
+	Y      *float64 `json:"y"`
+	State  string   `json:"state"`
+}
+
+// modelPoint is a place on a survey screen the model names: a control, by its screen, point and label.
+type modelPoint struct {
+	Screen *int     `json:"screen"`
+	X      *float64 `json:"x"`
+	Y      *float64 `json:"y"`
+	Label  *string  `json:"label"`
 }
 
 type modelAction struct {
@@ -33,7 +56,7 @@ type modelAction struct {
 	Resume *string  `json:"resume"`
 	Check  *string  `json:"check"`
 	Label  *string  `json:"label"`
-	Commit *bool    `json:"commit"`
+	Commit *string  `json:"commit"`
 }
 
 // parseReply reads the model's JSON answer. It reads the first JSON object and ignores what
@@ -95,10 +118,23 @@ func checkActions(step int, raw []modelAction, vp Viewport, maxActions int, scre
 		if in.Label != nil {
 			action.Label = clipText(strings.TrimSpace(*in.Label), maxLabelChars)
 		}
-		action.Commit = in.Commit != nil && *in.Commit && isClick(in.Kind)
+		action.Commit = commitOf(in)
 		valid = append(valid, action)
 	}
 	return valid, dropped
+}
+
+// commitOf is what the model said a click does beyond the click: CommitNext or CommitSend, or "" when it
+// said nothing, said something else, or the action is not a click (a hover goes nowhere).
+func commitOf(in modelAction) string {
+	if in.Commit == nil || !isClick(in.Kind) {
+		return ""
+	}
+	switch commit := strings.TrimSpace(*in.Commit); commit {
+	case CommitNext, CommitSend:
+		return commit
+	}
+	return ""
 }
 
 // isClick is whether a kind of action is a press of the mouse button.

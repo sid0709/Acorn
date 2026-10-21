@@ -117,6 +117,9 @@ type session struct {
 	accountSteps int
 	// stopPasses counts the stops for the applicant that were sent back to finish the page first.
 	stopPasses int
+	// captchaPasses counts the stops for a human check that were sent back because the screen showed
+	// none to pass (stopgate.go); one a run.
+	captchaPasses int
 	// zones are the photos the extension took of the zones of the plan it just carried out, and
 	// anchors a crop of the survey around each target of the plan being carried out, by action id
 	// (zones.go).
@@ -150,6 +153,31 @@ type session struct {
 	commit commitState
 	// fieldHold is the last stop sent back for the required fields the page reported empty (stopgate.go).
 	fieldHold fieldHold
+	// listHold counts the sends held on this page for fields the to-do list has empty (sendgate.go).
+	listHold listHold
+	// retry holds the fields whose fill did not verify since the model last looked, and retried the fields
+	// already brought to the middle of the window once on their page (focus.go); planScrollY is where the
+	// page was scrolled when the plan being carried out was made.
+	retry       []focusTarget
+	retried     map[string]bool
+	planScrollY float64
+	// sendRefused is set when the screen showed the page refused the click that sent it: the next plan's
+	// send is held for one look (stopgate.go).
+	sendRefused bool
+	// key is the control that sends the page or goes on to its next step, as the model named it on the
+	// page's first survey (key.go); confirmed are the labels of the fields the reviews found filled as
+	// planned on confirmedURL, for the stretches settled row by row (settled.go).
+	pageKey      *keyControl
+	confirmed    []string
+	confirmedURL string
+	// expectURL is the page the plan whose fields the reviews check (expect) was made on.
+	expectURL string
+	// fields is the form's to-do list as the model read it on the page's last survey, kept up to date by
+	// the reviews (fields.go); fieldsURL the page it is of, and fieldsChanged that the extension has not
+	// been sent it since it changed.
+	fields        []FieldState
+	fieldsURL     string
+	fieldsChanged bool
 }
 
 // addTrace keeps the trace of an entry until the next answer carries it to the extension.

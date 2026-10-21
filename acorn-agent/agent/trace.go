@@ -44,6 +44,9 @@ const sourcePicker = "picker"
 // sourceAsk marks an entry where the run waited on the person's answer, or acted on it.
 const sourceAsk = "ask"
 
+// timelineReady is the status column of timeline.txt for a done entry that stopped before sending.
+const timelineReady = "done:ready"
+
 // stepTrace is one entry of the run.
 type stepTrace struct {
 	Seq  int `json:"seq"`
@@ -75,8 +78,10 @@ type stepTrace struct {
 	Status      string         `json:"status"`
 	Message     string         `json:"message"`
 	Stop        *StopInfo      `json:"stop,omitempty"`
-	Actions     []Action       `json:"actions"`
-	Dropped     []string       `json:"dropped,omitempty"`
+	// ReadyToSubmit marks the done entry of a run that stopped before sending (Step.ReadyToSubmit).
+	ReadyToSubmit bool     `json:"readyToSubmit,omitempty"`
+	Actions       []Action `json:"actions"`
+	Dropped       []string `json:"dropped,omitempty"`
 	// Marks is how many controls the page reported with the look, and Bound which control each point of
 	// the plan was bound to ("s3a1 input:text:first"), so a run can be read back without guessing.
 	Marks int      `json:"marks,omitempty"`
@@ -347,6 +352,9 @@ func timelineLine(entry stepTrace, calls []modelCall) string {
 	status := entry.Status
 	if entry.Check != nil {
 		status = "check:" + entry.Check.Outcome
+	}
+	if entry.ReadyToSubmit {
+		status = timelineReady
 	}
 	line := fmt.Sprintf("%03d step %d %-14s %5dms $%.4f", entry.Seq, entry.Step, status, latency, entry.Usage.Cost)
 	// Model time against the server's whole time for the step, and when it began.

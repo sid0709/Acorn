@@ -128,11 +128,31 @@ describe("the page's list of controls", () => {
     assert.equal(name?.empty, false, "a text box with text in it");
     assert.equal(name?.required, undefined);
     assert.equal(dropdown?.required, true);
-    assert.equal(dropdown?.empty, undefined, "a dropdown the page draws keeps its value elsewhere");
+    assert.equal(
+      dropdown?.empty,
+      true,
+      "a dropdown the page draws, with nothing chosen beside its box",
+    );
     assert.equal(back?.label, "Back");
     assert.equal(back?.empty, undefined, "a button holds no value");
     assert.equal(submit?.label, "Submit application");
     assert.equal(name?.entry, undefined, "a label above the box leaves the whole box as the entry");
+  });
+
+  it("reads a drawn dropdown's choice from the hidden input the page posts it with", async () => {
+    const { page, country } = form();
+    const shell = country.parentElement;
+    if (!shell) throw new Error("the dropdown has no row");
+    const hidden = shell.add(
+      "input",
+      { x: 0, y: 0, w: 0, h: 0 },
+      { type: "hidden", name: "country" },
+    );
+    hidden.value = "nz";
+    const watch = new ControlWatch();
+    await watch.read(page.cdp());
+    const dropdown = watch.marks.find((mark) => mark.kind === "select");
+    assert.equal(dropdown?.empty, false, "the hidden input holds the choice");
   });
 
   it("tells the person what each control shows and which choices answer one question, and the agent none of it", async () => {

@@ -5,10 +5,15 @@
 //
 //	go run ./cmd/tracesum traces/<session>...     # given folders
 //	go run ./cmd/tracesum                         # every folder under traces/
+//	go run ./cmd/tracesum -json traces/<session>  # the same numbers as JSON, one object per folder
+//
+// With -json the output is a JSON array of Summary, for a tool that reads many runs (the live test
+// runner, tests/e2e/live): how the run ended beside what it cost, so the text need not be parsed.
 package main
 
 import (
 	"encoding/json"
+	"flag"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -19,18 +24,80 @@ import (
 
 const defaultTraces = "traces"
 
+// stop is why a run ended without being done, as the agent wrote it (agent.StopInfo).
+type stop struct {
+	Reason  string `json:"reason"`
+	Kind    string `json:"kind,omitempty"`
+	Problem string `json:"problem"`
+	Action  string `json:"action"`
+}
+
 type entry struct {
 	At         time.Time `json:"at"`
 	DurationMs int64     `json:"durationMs"`
 	Source     string    `json:"source"`
 	Status     string    `json:"status"`
-	Error      string    `json:"error"`
-	Actions    []struct {
+	Message    string    `json:"message"`
+	Stop       *stop     `json:"stop"`
+	// ReadyToSubmit marks the done entry of a run that stopped before sending the application.
+	ReadyToSubmit bool   `json:"readyToSubmit"`
+	URL           string `json:"url"`
+	Error         string `json:"error"`
+	Actions       []struct {
 		Kind string `json:"kind"`
 	} `json:"actions"`
 	Check *struct {
 		Outcome string `json:"outcome"`
 	} `json:"check"`
+}
+
+// sessionFile is the run's start (session.json): when it began, where, and with which models.
+type sessionFile struct {
+	Started time.Time `json:"started"`
+	Start   struct {
+		URL              string `json:"url"`
+		StopBeforeSubmit bool   `json:"stopBeforeSubmit"`
+	} `json:"start"`
+	Model       string `json:"model"`
+	ScreenModel string `json:"screenModel"`
+}
+
+// Summary is one run's numbers, as -json prints them. Times are milliseconds, cost is dollars.
+type Summary struct {
+	Dir     string    `json:"dir"`
+	Session string    `json:"session"`
+	URL     string    `json:"url,omitempty"`
+	Started time.Time `json:"started,omitempty"`
+	Model   string    `json:"model,omitempty"`
+	// StopBeforeSubmit is whether the run was asked to stop at the control that sends the application.
+	StopBeforeSubmit bool  `json:"stopBeforeSubmit"`
+	Entries          int   `json:"entries"`
+	Actions          int   `json:"actions"`
+	FailedCalls      int   `json:"failedCalls"`
+	WallMs           int64 `json:"wallMs"`
+	// The driving model's calls: how many, how many were repairs, the tokens read (and how many the
+	// provider served from its cache), the tokens written, the cost and the time waited on it.
+	ModelCalls     int     `json:"modelCalls"`
+	Repairs        int     `json:"repairs"`
+	InputTokens    int     `json:"inputTokens"`
+	CachedTokens   int     `json:"cachedTokens"`
+	OutputTokens   int     `json:"outputTokens"`
+	ModelCost      float64 `json:"modelCost"`
+	ModelLatencyMs int64   `json:"modelLatencyMs"`
+	// The decision model's checks.
+	Checks           int     `json:"checks"`
+	CheckInputTokens int     `json:"checkInputTokens"`
+	CheckCost        float64 `json:"checkCost"`
+	CheckLatencyMs   int64   `json:"checkLatencyMs"`
+	TotalCost        float64 `json:"totalCost"`
+	// How the run ended: the last entry's status (working when it never ended), its line for the
+	// person, whether a done stopped before sending, and the stop when there was one.
+	Status        string `json:"status"`
+	Message       string `json:"message"`
+	ReadyToSubmit bool   `json:"readyToSubmit"`
+	Stop          *stop  `json:"stop,omitempty"`
+	// LastURL is the page the run ended on.
+	LastURL string `json:"lastUrl,omitempty"`
 }
 
 type call struct {
@@ -174,61 +241,98 @@ func read(path string, into any) error {
 	return json.Unmarshal(raw, into)
 }
 
-func summarize(dir string) error {
+// run is everything read from one trace folder: the tallies the text prints, and the summary.
+type run struct {
+	model, screen     tally
+	net               phases
+	driving, deciding traffic
+	server            time.Duration
+	outcomes          map[string]int
+	steps             int
+	wall, rest        time.Duration
+	summary           Summary
+}
+
+// collect reads one trace folder.
+func collect(dir string) (run, error) {
 	steps, err := filepath.Glob(filepath.Join(dir, "[0-9][0-9][0-9].json"))
 	if err != nil || len(steps) == 0 {
-		return fmt.Errorf("no steps in %s", dir)
+		return run{}, fmt.Errorf("no steps in %s", dir)
 	}
 	sort.Strings(steps)
-	var model, screen tally
-	var net phases
-	var driving, deciding traffic
-	var server time.Duration
-	outcomes := map[string]int{}
-	actions, failures := 0, 0
+	r := run{outcomes: map[string]int{}, steps: len(steps)}
+	r.summary = Summary{Dir: dir, Session: filepath.Base(dir), Entries: len(steps)}
+	var session sessionFile
+	if err := read(filepath.Join(dir, "session.json"), &session); err == nil {
+		r.summary.URL, r.summary.Started, r.summary.Model = session.Start.URL, session.Started, session.Model
+		r.summary.StopBeforeSubmit = session.Start.StopBeforeSubmit
+	}
 	var first, last time.Time
 	var lastLatency time.Duration
+	var ended entry
 	for _, path := range steps {
 		var e entry
 		if err := read(path, &e); err != nil {
-			return fmt.Errorf("read %s: %w", path, err)
+			return run{}, fmt.Errorf("read %s: %w", path, err)
 		}
 		if first.IsZero() {
 			first = e.At
 		}
 		last, lastLatency = e.At, 0
-		server += time.Duration(e.DurationMs) * time.Millisecond
-		actions += len(e.Actions)
+		r.server += time.Duration(e.DurationMs) * time.Millisecond
+		r.summary.Actions += len(e.Actions)
 		if e.Error != "" {
-			failures++
+			r.summary.FailedCalls++
 		}
 		if e.Check != nil {
-			outcomes[e.Check.Outcome]++
+			r.outcomes[e.Check.Outcome]++
+		}
+		// The last entry that answered says how the run ended; a failed step has no status.
+		if e.Error == "" && e.Status != "" {
+			ended = e
 		}
 		var calls []call
 		if err := read(strings.TrimSuffix(path, ".json")+".model.json", &calls); err != nil && !os.IsNotExist(err) {
-			return fmt.Errorf("read model calls of %s: %w", path, err)
+			return run{}, fmt.Errorf("read model calls of %s: %w", path, err)
 		}
 		for _, c := range calls {
 			if c.Kind == "decision" {
-				screen.add(c)
-				for _, r := range c.Requests {
-					deciding.add(r)
+				r.screen.add(c)
+				for _, q := range c.Requests {
+					r.deciding.add(q)
 				}
 				continue
 			}
-			for _, r := range c.Requests {
-				driving.add(r)
+			for _, q := range c.Requests {
+				r.driving.add(q)
 			}
-			model.add(c)
-			net.add(c)
+			r.model.add(c)
+			r.net.add(c)
 			lastLatency += time.Duration(c.LatencyMs) * time.Millisecond
 		}
 	}
-	wall := last.Sub(first) + lastLatency
-	rest := wall - model.latency - screen.latency
+	r.wall = last.Sub(first) + lastLatency
+	r.rest = r.wall - r.model.latency - r.screen.latency
+	s := &r.summary
+	s.WallMs = r.wall.Milliseconds()
+	s.ModelCalls, s.Repairs, s.InputTokens, s.CachedTokens, s.OutputTokens = r.model.calls, r.model.repairs, r.model.in, r.model.cached, r.model.out
+	s.ModelCost, s.ModelLatencyMs = r.model.cost, r.model.latency.Milliseconds()
+	s.Checks, s.CheckInputTokens, s.CheckCost, s.CheckLatencyMs = r.screen.calls, r.screen.in, r.screen.cost, r.screen.latency.Milliseconds()
+	s.TotalCost = r.model.cost + r.screen.cost
+	s.Status, s.Message, s.ReadyToSubmit, s.Stop, s.LastURL = ended.Status, ended.Message, ended.ReadyToSubmit, ended.Stop, ended.URL
+	return r, nil
+}
+
+func summarize(dir string) error {
+	r, err := collect(dir)
+	if err != nil {
+		return err
+	}
+	model, screen, net, driving, deciding := r.model, r.screen, r.net, r.driving, r.deciding
+	server, outcomes, steps, wall, rest := r.server, r.outcomes, r.steps, r.wall, r.rest
+	actions, failures := r.summary.Actions, r.summary.FailedCalls
 	fmt.Printf("%s\n", filepath.Base(dir))
-	fmt.Printf("  wall %s over %d entries, %d actions sent, %d failed model calls\n", wall.Round(time.Second), len(steps), actions, failures)
+	fmt.Printf("  wall %s over %d entries, %d actions sent, %d failed model calls\n", wall.Round(time.Second), steps, actions, failures)
 	fmt.Printf("  model:  %3d calls (%d repairs)  in %d (cached %d)  out %d  $%.4f  %s  (%.1fs/call, %d in/call)\n",
 		model.calls, model.repairs, model.in, model.cached, model.out, model.cost, model.latency.Round(time.Second),
 		per(model.latency.Seconds(), model.calls), perInt(model.in, model.calls))
@@ -278,13 +382,34 @@ func perInt(total, n int) int {
 }
 
 func main() {
-	dirs := os.Args[1:]
+	asJSON := flag.Bool("json", false, "print one JSON object per folder instead of the text")
+	flag.Parse()
+	dirs := flag.Args()
 	if len(dirs) == 0 {
 		found, _ := filepath.Glob(filepath.Join(defaultTraces, "*"))
 		sort.Slice(found, func(i, j int) bool { return mtime(found[i]).Before(mtime(found[j])) })
 		dirs = found
 	}
 	status := 0
+	if *asJSON {
+		summaries := []Summary{}
+		for _, dir := range dirs {
+			r, err := collect(dir)
+			if err != nil {
+				fmt.Fprintln(os.Stderr, err)
+				status = 1
+				continue
+			}
+			summaries = append(summaries, r.summary)
+		}
+		encoder := json.NewEncoder(os.Stdout)
+		encoder.SetIndent("", "  ")
+		if err := encoder.Encode(summaries); err != nil {
+			fmt.Fprintln(os.Stderr, err)
+			status = 1
+		}
+		os.Exit(status)
+	}
 	for _, dir := range dirs {
 		if err := summarize(dir); err != nil {
 			fmt.Fprintln(os.Stderr, err)

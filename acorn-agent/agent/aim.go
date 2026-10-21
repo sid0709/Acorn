@@ -3,7 +3,6 @@ package agent
 import (
 	"fmt"
 	"log/slog"
-	"strings"
 
 	"github.com/sid0709/acorn/acorn-backend/plainlog"
 )
@@ -16,25 +15,22 @@ import (
 // checked or carried out, each point that is in a control's field but not on the control's entry (its
 // box less its own label, as the page reports it) is moved onto the entry: at its own x when the entry
 // reaches it, else the entry's middle. A point on no control's field is bound by the model's own label
-// when one control near it carries that label (boundMark). A choose on a text box is typed into
-// instead of chosen: the page says what the control is, and a text box has no list to choose from.
+// when one control near it carries that label (boundMark). The page's controls say only where things
+// are: what a control is (a dropdown, a text box) is the model's reading of the picture, so a choose stays
+// a choose whatever the page calls the control under it. A recorded run's dropdown hid a text input of its
+// own under its box; the page called the point a text box, the choose was typed into, and nothing was picked.
 
-// aimed is what aiming a plan at the page's controls did.
-type aimed struct {
-	moved int
-	typed int
-}
-
-// aimAtControls moves the points of a plan onto the entries of the controls they are on, and turns a
-// choose on a text box into a click and the typed answer. A look without marks changes nothing.
-func aimAtControls(planned []Action, obs Observation) ([]Action, aimed) {
-	var did aimed
+// aimAtControls moves the points of a plan onto the entries of the controls they are on, and says how
+// many it moved. A look without marks changes nothing.
+func aimAtControls(planned []Action, obs Observation) ([]Action, int) {
+	moved := 0
 	if len(obs.Marks) == 0 {
-		return planned, did
+		return planned, moved
 	}
 	out := make([]Action, 0, len(planned))
 	for _, action := range planned {
-		if !isPointAction(action) {
+		// A point on an option of the open list is the pick itself: it stays where the model put it.
+		if !isPointAction(action) || onOpenOption(action, obs) {
 			out = append(out, action)
 			continue
 		}
@@ -43,18 +39,13 @@ func aimAtControls(planned []Action, obs Observation) ([]Action, aimed) {
 			out = append(out, action)
 			continue
 		}
-		if moved, ok := aimedAt(action, mark, obs); ok {
-			action = moved
-			did.moved++
-		}
-		if action.Kind == KindChoose && mark.Kind == MarkKindInput {
-			out = append(out, typedInstead(action)...)
-			did.typed++
-			continue
+		if aimed, ok := aimedAt(action, mark, obs); ok {
+			action = aimed
+			moved++
 		}
 		out = append(out, action)
 	}
-	return out, did
+	return out, moved
 }
 
 // aimedAt is the action with its point on the control's entry, when it was not there: at the point's
@@ -83,19 +74,13 @@ func aimedAt(action Action, mark ControlMark, obs Observation) (Action, bool) {
 	return moved, true
 }
 
-// typedInstead is a choose on a text box as a click on it and the answer typed: there is no list to
-// choose from. The click keeps the choose's id, so what is bound to it (its control, its picture) holds,
-// and its label, so the review of its zone reads the field.
-func typedInstead(choose Action) []Action {
-	click := choose
-	click.Kind, click.Text = KindClick, ""
-	return []Action{click, {ID: choose.ID + "t", Kind: KindType, Text: choose.Text, Zone: choose.Zone}}
-}
-
-// typedInsteadNote tells the model that answers were typed into boxes it took for dropdowns.
-func typedInsteadNote(typed int) string {
-	return fmt.Sprintf("%s you planned as a dropdown (choose) %s a text box, the page says, so Acorn clicked it and typed the answer instead. A box with no dropdown arrow is a text box: click it and type.",
-		plainlog.Count(typed, "box"), isOrAre(typed))
+// aimAndLog aims the plan at the page's controls and says what it did.
+func (s *session) aimAndLog(planned []Action, obs Observation) []Action {
+	planned, moved := aimAtControls(planned, obs)
+	if moved > 0 {
+		slog.Info(fmt.Sprintf("%s: %s moved onto the entry of the control it was on.", runName(s.id), plainlog.Count(moved, "point")))
+	}
+	return planned
 }
 
 func isOrAre(n int) string {
@@ -103,29 +88,4 @@ func isOrAre(n int) string {
 		return "is"
 	}
 	return "are"
-}
-
-// aimLine says what aiming did, for the run's story.
-func aimLine(id string, did aimed) string {
-	var parts []string
-	if did.moved > 0 {
-		parts = append(parts, plainlog.Count(did.moved, "point")+" moved onto the entry of the control it was on")
-	}
-	if did.typed > 0 {
-		parts = append(parts, plainlog.Count(did.typed, "answer")+" typed into a text box the model took for a dropdown")
-	}
-	return runName(id) + ": " + strings.Join(parts, "; ") + "."
-}
-
-// aimAndLog aims the plan at the page's controls, says what it did, and tells the model of an answer typed
-// in place of a choose.
-func (s *session) aimAndLog(planned []Action, obs Observation) []Action {
-	planned, did := aimAtControls(planned, obs)
-	if did.moved > 0 || did.typed > 0 {
-		slog.Info(aimLine(s.id, did))
-	}
-	if did.typed > 0 {
-		s.notes = append(s.notes, typedInsteadNote(did.typed))
-	}
-	return planned
 }

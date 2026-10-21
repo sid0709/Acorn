@@ -1,7 +1,13 @@
 import { useEffect, useRef } from "react";
-import { Glyph, List, ListItem, Spinner, Text } from "sid-ui";
+import { Badge, Glyph, List, ListItem, Spinner, Text } from "sid-ui";
 
-import { QUESTION_STATUS, needsYou, type QuestionStatus, type RunQuestion } from "./run-questions";
+import {
+  QUESTION_STATUS,
+  needsYou,
+  type QuestionSeen,
+  type QuestionStatus,
+  type RunQuestion,
+} from "./run-questions";
 
 import type { RunFocus } from "./run-focus";
 
@@ -37,6 +43,24 @@ function QuestionMark({ status }: { status: QuestionStatus }) {
       {status === QUESTION_STATUS.blank ? <Glyph name="minus" /> : null}
       {status === QUESTION_STATUS.problem ? "!" : null}
     </span>
+  );
+}
+
+/**
+ * Where the model saw a question: the number of the survey screen it lies on (the number on the pictures
+ * beside the map, and on the screenshot the model was shown), or that it lies in a part the model settled.
+ */
+function SeenBadge({ seen }: { seen: QuestionSeen }) {
+  if ("settled" in seen)
+    return (
+      <Badge variant="blue" label="Settled" aria-label="In a part of the page the model settled" />
+    );
+  return (
+    <Badge
+      variant="neutral"
+      label={`S${seen.screen}`}
+      aria-label={`On screen ${seen.screen} of the model's last look`}
+    />
   );
 }
 
@@ -91,6 +115,7 @@ export function RunQuestions(props: RunQuestionsProps) {
         label={question.label}
         description={describe(question)}
         startContent={<QuestionMark status={question.status} />}
+        endContent={question.seen ? <SeenBadge seen={question.seen} /> : undefined}
         isSelected={lit === question.id}
         onClick={() => {
           if (onShow) onShow(question);

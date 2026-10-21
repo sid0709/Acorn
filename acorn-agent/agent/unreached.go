@@ -56,11 +56,11 @@ func unreachedNote(click, failed Action, bound map[string]MarkRef, obs Observati
 		forLabel(click.Label), *click.X, *click.Y, atScreen(click), whatFailed(failed))
 	x, y := pageX(click, obs), pageY(click, obs)
 	if ref, ok := bound[click.ID]; ok {
-		fmt.Fprintf(&out, " The point is on the %s the page reports as %q, so that control may be disabled, or covered by something: look at it before you try again.", kindWords(ref.Kind), ref.Label)
+		fmt.Fprintf(&out, " The point is on the control the page names %q, so that control may be disabled, or covered by something: look at it before you try again.", ref.Label)
 		return out.String()
 	}
 	if mark, ok := markByLabel(obs.Marks, click.Label, x, y); ok {
-		fmt.Fprintf(&out, " The page's %s %q %s: aim inside its edges, at the middle of its value line.", kindWords(mark.Kind), mark.Label, fromPoint(mark.entryOf(), x, y))
+		fmt.Fprintf(&out, " The control the page names %q %s: aim inside its edges, at the middle of its value line.", mark.Label, fromPoint(mark.entryOf(), x, y))
 		return out.String()
 	}
 	near := nearestMarks(obs.Marks, x, y, nearControls)
@@ -70,7 +70,7 @@ func unreachedNote(click, failed Action, bound map[string]MarkRef, obs Observati
 	}
 	parts := make([]string, len(near))
 	for i, mark := range near {
-		parts[i] = fmt.Sprintf("%s %q %s", kindWords(mark.Kind), orUnlabelled(mark.Label), fromPoint(mark.entryOf(), x, y))
+		parts[i] = fmt.Sprintf("%q %s", orUnlabelled(mark.Label), fromPoint(mark.entryOf(), x, y))
 	}
 	fmt.Fprintf(&out, " The page's controls near that point: %s. Aim inside the edges of the one you mean.", strings.Join(parts, "; "))
 	return out.String()
@@ -129,25 +129,6 @@ func distance(box Rect, x, y float64) float64 {
 	dx := math.Max(0, math.Max(box.X-x, x-box.X-box.W))
 	dy := math.Max(0, math.Max(box.Y-y, y-box.Y-box.H))
 	return math.Hypot(dx, dy)
-}
-
-// kindWords names a kind of control for the model.
-func kindWords(kind string) string {
-	switch kind {
-	case MarkKindInput:
-		return "text box"
-	case MarkKindSelect:
-		return "dropdown"
-	case MarkKindCheck:
-		return "check"
-	case MarkKindFile:
-		return "file control"
-	case MarkKindLink:
-		return "link"
-	case MarkKindButton:
-		return "button"
-	}
-	return "control"
 }
 
 func forLabel(label string) string {

@@ -5,7 +5,7 @@
  */
 
 import type { Cdp } from "./cdp";
-import type { AgentFocus, AgentOpenList } from "@acorn/shared/agent-contract";
+import type { AgentFocus, AgentOpenList, AgentRect } from "@acorn/shared/agent-contract";
 
 /** The most options of a native list that are reported. */
 export const FOCUS_OPTIONS_MAX = 80;
@@ -144,7 +144,15 @@ async function deeperText(cdp: Cdp, have: string): Promise<string> {
       if (text.length < 3 || have.includes(text)) continue;
       let hidden = false;
       let beyondScript = false;
-      for (let up = nodes.get(node.parentId ?? -1), depth = 0; up && depth < 40; depth += 1) {
+      let parentId = node.parentId;
+      for (let depth = 0; parentId != null && depth < 40; depth += 1) {
+        const up = nodes.get(parentId);
+        if (!up) {
+          // A parent this view does not list is a shadow root: Chrome 154 lists the nodes inside a
+          // closed root but not the root itself, so the chain ends here, beyond what a script reads.
+          beyondScript = true;
+          break;
+        }
         if (FLAT_SKIP.has(up.nodeName)) {
           hidden = true;
           break;
@@ -152,7 +160,7 @@ async function deeperText(cdp: Cdp, have: string): Promise<string> {
         if (up.shadowRootType === "closed" || (up.nodeType === 9 && up.parentId != null)) {
           beyondScript = true;
         }
-        up = nodes.get(up.parentId ?? -1);
+        parentId = up.parentId;
       }
       if (hidden || !beyondScript) continue;
       extra.push(text);
@@ -364,15 +372,34 @@ export const OPEN_LIST_SCRIPT = `(() => {
   }
   const OPTION = "[role=option], [role=menuitem], [role=menuitemradio], [role=treeitem]";
   const items = Array.from(list ? list.querySelectorAll(OPTION) : document.querySelectorAll("[role=option]"))
-    .filter((el) => drawn(el) && el.getAttribute("aria-disabled") !== "true");
+    .filter((el) => drawn(el) && el.getAttribute("aria-disabled") !== "true")
+    .slice(0, MAX);
   if (!list && items.length === 0) return null;
-  return { options: items.slice(0, MAX).map((el) => clip(el.textContent)) };
+  // Where each option is drawn, in CSS pixels from the page's top left: the agent clicks the one it picks.
+  const boxOf = (el) => {
+    const rect = el.getBoundingClientRect();
+    return { x: rect.left + window.scrollX, y: rect.top + window.scrollY, w: rect.width, h: rect.height };
+  };
+  return { options: items.map((el) => clip(el.textContent)), boxes: items.map(boxOf) };
 })()`;
 
 type ListResult = { result?: { value?: AgentOpenList | null }; exceptionDetails?: unknown };
 
-/** The list of choices open on the page, as the page names its options, or null when it names none. */
-export async function readOpenList(cdp: Cdp): Promise<AgentOpenList | null> {
+/** Whether a value is a box with finite sides. */
+function isRect(value: unknown): value is AgentRect {
+  if (!value || typeof value !== "object") return false;
+  const box = value as Record<string, unknown>;
+  return ["x", "y", "w", "h"].every(
+    (key) => typeof box[key] === "number" && Number.isFinite(box[key]),
+  );
+}
+
+/**
+ * The list of choices open on the page, as the page names its options and where it draws each, or null
+ * when it names none. `scale` is screenshot pixels per CSS pixel, so the boxes come out in the
+ * screenshot's pixels like the page's control marks.
+ */
+export async function readOpenList(cdp: Cdp, scale = 1): Promise<AgentOpenList | null> {
   try {
     const answer = await cdp.send<ListResult>("Runtime.evaluate", {
       expression: OPEN_LIST_SCRIPT,
@@ -381,7 +408,18 @@ export async function readOpenList(cdp: Cdp): Promise<AgentOpenList | null> {
     if (answer.exceptionDetails) return null;
     const list = answer.result?.value;
     if (!list || !Array.isArray(list.options)) return null;
-    return { options: list.options.filter((option) => typeof option === "string") };
+    const options = list.options.filter((option) => typeof option === "string");
+    const boxes = Array.isArray(list.boxes) ? list.boxes : [];
+    if (boxes.length !== options.length || !boxes.every(isRect)) return { options };
+    return {
+      options,
+      boxes: boxes.map((box) => ({
+        x: box.x * scale,
+        y: box.y * scale,
+        w: box.w * scale,
+        h: box.h * scale,
+      })),
+    };
   } catch {
     return null;
   }

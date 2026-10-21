@@ -19,6 +19,7 @@ const KEY = [
   { mark: "button", label: "Button" },
   { mark: "point", label: "Plan’s click" },
   { mark: "settled", label: "Settled" },
+  { mark: "key", label: "Sends or goes on" },
   { mark: "lens", label: "On screen" },
   { mark: "screen", label: "Photographed" },
   { mark: "reused", label: "Photo reused" },
@@ -86,6 +87,8 @@ function Swatch({ mark }: { mark: KeyMark }) {
             <rect className="acorn-map-moved" fill={`url(#${hatch})`} {...whole} />
           </>
         );
+      case "key":
+        return <rect className="acorn-map-key" {...whole} />;
       case "fence":
         return (
           <line
