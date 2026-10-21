@@ -148,6 +148,8 @@ type session struct {
 	cover coverage
 	// commit is the click that sends the page, as the last plan kept it (stopgate.go).
 	commit commitState
+	// fieldHold is the last stop sent back for the required fields the page reported empty (stopgate.go).
+	fieldHold fieldHold
 }
 
 // addTrace keeps the trace of an entry until the next answer carries it to the extension.

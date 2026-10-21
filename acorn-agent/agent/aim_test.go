@@ -123,3 +123,17 @@ func TestLabelsAgreeWhenTheyAreTheSameWordsOrOneBeginsWithTheOther(t *testing.T)
 		}
 	}
 }
+
+func TestAPointBoundByItsLabelIsMovedOntoTheControl(t *testing.T) {
+	obs := observation("")
+	obs.Viewport.Height = 823 // the window of the recorded run: the input's middle is on the screen
+	obs.Marks = phoneMarks()
+	moved, did := aimAtControls([]Action{phoneClick("Phone")}, obs)
+	// The input's middle is at 3197 px of the page: 810 on the screen scrolled to 2387. Its own x stays, the box reaches it.
+	if did.moved != 1 || *moved[0].Y != 810 || *moved[0].X != 575 {
+		t.Fatalf("the point beside the phone box was not moved onto it: %+v %+v", did, moved[0])
+	}
+	if _, did := aimAtControls([]Action{phoneClick("Telephone number")}, obs); did.moved != 0 {
+		t.Fatal("a point whose label no control carries was moved")
+	}
+}

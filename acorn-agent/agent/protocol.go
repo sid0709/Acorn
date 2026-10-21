@@ -212,13 +212,27 @@ type ControlMark struct {
 	Required bool   `json:"required,omitempty"`
 	Empty    *bool  `json:"empty,omitempty"`
 	Invalid  bool   `json:"invalid,omitempty"`
+	// Group is the group a radio button, or a check box of a shared name, answers one question with, and
+	// Question that question as the page prints it (a fieldset's legend), when the page says. Such a
+	// control is empty while none of its group is ticked, and required when the page marks any of them so.
+	Group    string `json:"group,omitempty"`
+	Question string `json:"question,omitempty"`
 }
 
 // The kinds of control the page reports (control-marks-page.ts).
 const (
 	MarkKindInput  = "input"
 	MarkKindSelect = "select"
+	MarkKindCheck  = "check"
+	MarkKindFile   = "file"
+	MarkKindButton = "button"
+	MarkKindLink   = "link"
 )
+
+// isField is whether a kind of control is filled rather than pressed: anything but a button or a link.
+func isField(kind string) bool {
+	return kind != MarkKindButton && kind != MarkKindLink
+}
 
 // MarkRef is the control a point was bound to when it was planned, as it sat then. The extension finds
 // the same control by ID when the point is acted on, and the difference of the two places is how far

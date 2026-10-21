@@ -1,4 +1,5 @@
 import { endSession } from "../../agent/client";
+import { flushCompletedRuns, recordCompletedRun } from "../../agent/completed-run-sync";
 import { forgetKeptRunOfClosedTab, keepRun, takeKeptRun, type KeptRun } from "../../agent/kept-run";
 import { runAgent } from "../../agent/runner";
 import { getAgentUrl } from "../../agent/settings";
@@ -38,6 +39,8 @@ export function handleStartRun(
     void groupRunTab(tabId);
     syncWorkKeepAlive();
     sendResponse({ ok: true });
+    // A completed run the backend could not take earlier is sent again now.
+    void flushCompletedRuns().catch(() => undefined);
 
     try {
       // The agent plans from screenshots; it reads the person's profile and résumés from
@@ -51,6 +54,7 @@ export function handleStartRun(
         stopBeforeSubmit: stopBeforeSubmitFor(message),
         resume,
         keepRun,
+        recordCompleted: recordCompletedRun,
         accessToken: (await getAccessToken()) ?? undefined,
         emit: (tabIds, progress) => {
           for (const id of tabIds) broadcastPipelineProgress(id, progress);

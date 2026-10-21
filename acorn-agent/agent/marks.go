@@ -69,8 +69,22 @@ func (m ControlMark) entryOf() Rect {
 	return m.Rect
 }
 
+// fieldOf is the field round a control (its label, the gap round it) as the page reports it, else the
+// control's own box.
+func (m ControlMark) fieldOf() Rect {
+	if m.Box != nil {
+		return *m.Box
+	}
+	return m.Rect
+}
+
 // center is the middle of the box.
 func (r Rect) center() (x, y float64) { return r.X + r.W/2, r.Y + r.H/2 }
+
+// grown is the box with a margin of `by` on every side.
+func (r Rect) grown(by float64) Rect {
+	return Rect{X: r.X - by, Y: r.Y - by, W: r.W + 2*by, H: r.H + 2*by}
+}
 
 // pageY is the place on the page (screenshot pixels from its top) of the point of an action: it is
 // measured on the screen the page is scrolled to for it.
@@ -118,6 +132,38 @@ func smallestHolding(marks []ControlMark, boxOf func(ControlMark) *Rect, x, y fl
 	return best, found && !tied
 }
 
+// boundMark is the control a point of a plan is on: the one that holds the point (markAt), else the one
+// the plan's label names when that is the only such control and the point lies within a row of it. The box
+// a model aims at the middle of can be larger than what the page reports as the control (a phone box whose
+// input shares its wrapper with a flag button, a bordered box drawn round an input), and the model's own
+// label then says which control it meant: a recorded run clicked beside a phone box nine times.
+func boundMark(marks []ControlMark, action Action, obs Observation) (ControlMark, bool) {
+	x, y := pageX(action, obs), pageY(action, obs)
+	if mark, ok := markAt(marks, x, y); ok {
+		return mark, true
+	}
+	return markByLabel(marks, action.Label, x, y)
+}
+
+// markByLabel is the one control the page calls what the model called it (labels.go) that the point lies
+// within a row of: its field grown by its own height on every side. None when no label agrees, when two
+// do, or when the point lies further away.
+func markByLabel(marks []ControlMark, label string, x, y float64) (ControlMark, bool) {
+	var found ControlMark
+	n := 0
+	for _, mark := range marks {
+		if !labelsAgree(label, mark.Label) {
+			continue
+		}
+		field := mark.fieldOf()
+		if !field.grown(field.H).contains(x, y, markSlackPx) {
+			continue
+		}
+		found, n = mark, n+1
+	}
+	return found, n == 1
+}
+
 // bindMarks binds the point of every point action of a plan to the control it is on, by action id. A
 // look without marks (no survey) binds nothing, and a point on no control is left out.
 func bindMarks(planned []Action, obs Observation) map[string]MarkRef {
@@ -129,7 +175,7 @@ func bindMarks(planned []Action, obs Observation) map[string]MarkRef {
 		if !isPointAction(action) {
 			continue
 		}
-		if mark, ok := markAt(obs.Marks, pageX(action, obs), pageY(action, obs)); ok {
+		if mark, ok := boundMark(obs.Marks, action, obs); ok {
 			out[action.ID] = MarkRef{ID: mark.ID, Rect: mark.Rect, Label: mark.Label, Kind: mark.Kind}
 		}
 	}

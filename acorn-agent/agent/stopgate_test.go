@@ -1,6 +1,7 @@
 package agent
 
 import (
+	"context"
 	"strings"
 	"testing"
 )
@@ -109,5 +110,121 @@ func TestTheSendIsForgottenOnAnotherPage(t *testing.T) {
 	look.Marks = append(formMarks(), codeBox())
 	if step := stepOK(t, a, id, look); step.Status != StatusWorking || !strings.Contains(step.Message, "Finishing") {
 		t.Fatalf("on another page what appeared is not known to be the applicant's: %+v", step)
+	}
+}
+
+func TestASendThatLedOnToTheNextPageOfTheFormIsNotTheSendThatAsked(t *testing.T) {
+	// The form's own field is gone and another page's field is there, under the same URL: a wizard went on,
+	// and what the next page asks is the run's to fill.
+	empty := true
+	next := []ControlMark{
+		{ID: "input:text:city", Kind: MarkKindInput, Label: "City", Rect: Rect{X: 400, Y: 300, W: 300, H: 40}, Empty: &empty},
+		{ID: "button:submit", Kind: "button", Label: "Save and continue", Rect: Rect{X: 600, Y: 700, W: 180, H: 40}},
+	}
+	step, _ := sentForm(t, next, codeStop)
+	if step.Status != StatusWorking || step.Message != stopPassMessage {
+		t.Fatalf("a stop on the next page of the form stood at once: %+v", step)
+	}
+}
+
+// stepMarks are the controls of one step of an application: a question of two radio buttons, a text box,
+// the box for an identity number and the button that goes on. filled says whether the first two are answered.
+func stepMarks(filled bool) []ControlMark {
+	empty, stillEmpty := !filled, true
+	return []ControlMark{
+		{ID: "input:radio:veteran:Veteran", Kind: MarkKindCheck, Label: "Veteran", Group: "radio:veteran", Question: "Veteran status", Required: true, Empty: &empty, Rect: Rect{X: 400, Y: 300, W: 20, H: 20}},
+		{ID: "input:radio:veteran:Not a veteran", Kind: MarkKindCheck, Label: "Not a veteran", Group: "radio:veteran", Question: "Veteran status", Required: true, Empty: &empty, Rect: Rect{X: 400, Y: 330, W: 20, H: 20}},
+		{ID: "input:text:gender:Gender", Kind: MarkKindInput, Label: "Gender", Required: true, Empty: &empty, Rect: Rect{X: 400, Y: 400, W: 300, H: 40}},
+		{ID: "input:text:identifier", Kind: MarkKindInput, Label: "Please enter a unique identifier", Required: true, Empty: &stillEmpty, Rect: Rect{X: 400, Y: 500, W: 300, H: 40}},
+		{ID: "button:submit", Kind: MarkKindButton, Label: "Save and continue", Rect: Rect{X: 600, Y: 700, W: 180, H: 40}},
+	}
+}
+
+var idStop = ending("need_person", "Enter your identifier", map[string]any{"reason": "identity", "problem": "The page asks for a unique identifier that is not in your profile.", "action": "Type your identifier in the box."})
+
+var idReply = reply{Status: StatusNeedPerson, Stop: &StopInfo{Reason: StopIdentity, Problem: "The page asks for a unique identifier that is not in your profile.", Action: "Type your identifier in the box."}}
+
+func TestAStopIsSentBackNamingTheRequiredFieldsTheRunCanStillFill(t *testing.T) {
+	model := &scriptedModel{replies: []string{idStop, idStop}}
+	screen := &fakeScreen{personFields: []string{"Please enter a unique identifier"}}
+	a := newAgentWithScreen(t, model, &fixedDecider{}, screen, DefaultConfig())
+	id := startFast(t, a, true)
+	first := surveyObservation(t)
+	first.Viewport.PageHeight = 2160 // what the survey's screens cover: nothing is left unseen
+	first.Marks = stepMarks(false)
+	step := stepOK(t, a, id, first)
+	if step.Status != StatusWorking || step.Message != stopPassMessage {
+		t.Fatalf("the stop was not sent back for the fields: %+v", step)
+	}
+	second := surveyObservation(t)
+	second.Viewport.PageHeight = 2160
+	second.Marks = stepMarks(true)
+	step = stepOK(t, a, id, second)
+	messages := model.requests[1].Messages
+	text := messages[len(messages)-1].Text
+	for _, want := range []string{
+		`the page still reports these required fields empty: "Veteran status", "Gender".`,
+		`the applicant will do "Please enter a unique identifier" after`,
+	} {
+		if !strings.Contains(text, want) {
+			t.Fatalf("missing %q in:\n%s", want, text)
+		}
+	}
+	if step.Status != StatusNeedPerson || step.Stop == nil || step.Stop.Reason != StopIdentity {
+		t.Fatalf("with the fields filled and only the applicant's left, the stop must stand: %+v", step)
+	}
+	if screen.fieldRequests != 2 {
+		t.Fatalf("the screen was asked about the empty fields %d times, want 2", screen.fieldRequests)
+	}
+	if !strings.Contains(screen.requests[0].State[0].Text, "unique identifier that is not in your profile") {
+		t.Fatalf("the screen was not told why the model stops: %q", screen.requests[0].State[0].Text)
+	}
+}
+
+func TestAPassThatFilledNoneOfTheNamedFieldsIsTheLastAndAnotherPageStartsAfresh(t *testing.T) {
+	screen := &fakeScreen{personFields: []string{"Please enter a unique identifier"}}
+	a := newAgentWithScreen(t, &scriptedModel{}, &fixedDecider{}, screen, DefaultConfig())
+	s, _ := a.sessions.get(startFast(t, a, true))
+	ctx := context.Background()
+	obs := surveyObservation(t)
+	obs.Marks = stepMarks(false)
+	if _, held, calls := a.holdStop(ctx, s, StatusNeedPerson, idReply, obs); !held || len(calls) != 1 {
+		t.Fatalf("the first stop with fields to fill was not sent back: held %v, %d calls", held, len(calls))
+	}
+	// A pass that filled one of the two is progress; one that filled nothing is the last.
+	some := stepMarks(false)
+	filled := false
+	some[2].Empty = &filled
+	obs.Marks = some
+	if note, held, _ := a.holdStop(ctx, s, StatusNeedPerson, idReply, obs); !held || !strings.Contains(note, `empty: "Veteran status".`) {
+		t.Fatalf("a stop after a pass that filled some was not sent back for the rest: held %v, %q", held, note)
+	}
+	if _, held, _ := a.holdStop(ctx, s, StatusNeedPerson, idReply, obs); held {
+		t.Fatal("a stop after a pass that filled nothing was sent back again")
+	}
+	other := obs
+	other.URL = "https://jobs.example/apply/next"
+	if _, held, _ := a.holdStop(ctx, s, StatusNeedPerson, idReply, other); !held {
+		t.Fatal("on another page the fields are new, so the stop must go back")
+	}
+}
+
+func TestAStopWithOnlyTheApplicantsFieldEmptyIsNotHeldForFields(t *testing.T) {
+	screen := &fakeScreen{personFields: []string{"Please enter a unique identifier"}}
+	a := newAgentWithScreen(t, &scriptedModel{}, &fixedDecider{}, screen, DefaultConfig())
+	s, _ := a.sessions.get(startFast(t, a, true))
+	obs := surveyObservation(t)
+	obs.Marks = stepMarks(true)
+	note, held, calls := a.holdStop(context.Background(), s, StatusNeedPerson, idReply, obs)
+	if !held || len(calls) != 1 || strings.Contains(note, "reports these required fields empty") {
+		t.Fatalf("the first stop must go back once as before, not for the fields: held %v, %d calls, %q", held, len(calls), note)
+	}
+	if names := unfilledFields(stepMarks(false)); strings.Join(names, "|") != "Veteran status|Gender|Please enter a unique identifier" {
+		t.Fatalf("the page's empty required fields, named once each: %q", names)
+	}
+	unnamed := stepMarks(false)
+	unnamed[0].Question, unnamed[1].Question = "", ""
+	if names := unfilledFields(unnamed); names[0] != `the choice between "Veteran", "Not a veteran"` {
+		t.Fatalf("a group without a question is named by its choices: %q", names)
 	}
 }

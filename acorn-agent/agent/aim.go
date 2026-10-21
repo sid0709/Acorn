@@ -15,8 +15,9 @@ import (
 // refused another), and a person would click the line below the words. So before a fast-fill plan is
 // checked or carried out, each point that is in a control's field but not on the control's entry (its
 // box less its own label, as the page reports it) is moved onto the entry: at its own x when the entry
-// reaches it, else the entry's middle. A choose on a text box is typed into instead of chosen: the
-// page says what the control is, and a text box has no list to choose from.
+// reaches it, else the entry's middle. A point on no control's field is bound by the model's own label
+// when one control near it carries that label (boundMark). A choose on a text box is typed into
+// instead of chosen: the page says what the control is, and a text box has no list to choose from.
 
 // aimed is what aiming a plan at the page's controls did.
 type aimed struct {
@@ -37,7 +38,7 @@ func aimAtControls(planned []Action, obs Observation) ([]Action, aimed) {
 			out = append(out, action)
 			continue
 		}
-		mark, ok := markAt(obs.Marks, pageX(action, obs), pageY(action, obs))
+		mark, ok := boundMark(obs.Marks, action, obs)
 		if !ok {
 			out = append(out, action)
 			continue

@@ -57,6 +57,7 @@ const (
 	envTraceDir      = "ACORN_AGENT_TRACE_DIR"
 	envMaxSteps      = "ACORN_AGENT_MAX_STEPS"
 	envStopPasses    = "ACORN_AGENT_STOP_PASSES"
+	envPersonField   = "ACORN_AGENT_PERSON_FIELD_PERCENT"
 	envDonePasses    = "ACORN_AGENT_DONE_PASSES"
 	envDoneConfirm   = "ACORN_AGENT_DONE_CONFIRM_PERCENT"
 	envMaxActions    = "ACORN_AGENT_MAX_ACTIONS"
@@ -136,6 +137,7 @@ func run() error {
 	cfg := agent.DefaultConfig()
 	cfg.MaxSteps = config.EnvInt(envMaxSteps, cfg.MaxSteps)
 	cfg.StopPasses = config.EnvInt(envStopPasses, cfg.StopPasses)
+	cfg.PersonField = percent(envPersonField, cfg.PersonField)
 	cfg.DonePasses = config.EnvInt(envDonePasses, cfg.DonePasses)
 	cfg.DoneConfirm = percent(envDoneConfirm, cfg.DoneConfirm)
 	cfg.MaxActions = config.EnvInt(envMaxActions, cfg.MaxActions)

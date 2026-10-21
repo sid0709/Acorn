@@ -166,3 +166,43 @@ func TestMarksAndTheLayoutComeInFromTheWireAsTheExtensionWritesThem(t *testing.T
 		t.Fatalf("layout = %+v", obs.Layout)
 	}
 }
+
+// phoneMarks is a phone box as a page draws it: the input shares its wrapper with a flag button, and the page
+// reports no field round it, so only its own box counts; the email box above it has its own label.
+func phoneMarks() []ControlMark {
+	return []ControlMark{
+		{ID: "input:text:email:Email", Kind: MarkKindInput, Label: "Email", Rect: Rect{X: 250, Y: 3090, W: 600, H: 34}},
+		{ID: "input:tel:phone:Phone", Kind: MarkKindInput, Label: "Phone", Rect: Rect{X: 401, Y: 3180, W: 449, H: 34}},
+		{ID: "button:::+1", Kind: MarkKindButton, Label: "+1", Rect: Rect{X: 401, Y: 3180, W: 50, H: 34}},
+	}
+}
+
+// phoneClick is a click at the middle of the drawn phone box as the model measured it on the survey screen
+// scrolled to 2387 px: 9 px above the input's own box.
+func phoneClick(label string) Action {
+	x, y, scroll := 575.0, 784.0, 2387.0
+	return Action{ID: "a", Kind: KindClick, X: &x, Y: &y, ScrollTo: &scroll, Zone: 1, Label: label}
+}
+
+func TestAPointOnNoControlIsBoundByItsLabelToTheOneControlWithinARowThatCarriesIt(t *testing.T) {
+	obs := observation("")
+	obs.Marks = phoneMarks()
+	mark, ok := boundMark(obs.Marks, phoneClick("Phone"), obs)
+	if !ok || mark.ID != "input:tel:phone:Phone" {
+		t.Fatalf("the point beside the phone box was not bound to it by its label: %q %v", mark.ID, ok)
+	}
+	if mark, ok := boundMark(obs.Marks, phoneClick("Email"), obs); ok {
+		t.Fatalf("a label of a control further than a row away bound the point: %s", mark.ID)
+	}
+	if mark, ok := boundMark(obs.Marks, phoneClick(""), obs); ok {
+		t.Fatalf("a point without a label was bound by one: %s", mark.ID)
+	}
+	twice := append(phoneMarks(), ControlMark{ID: "input:tel:other:Phone", Kind: MarkKindInput, Label: "Phone", Rect: Rect{X: 401, Y: 3200, W: 449, H: 34}})
+	if mark, ok := boundMark(twice, phoneClick("Phone"), obs); ok {
+		t.Fatalf("two controls carry the label, so neither is known to be the one: %s", mark.ID)
+	}
+	bound := bindMarks([]Action{phoneClick("Phone")}, obs)
+	if ref, ok := bound["a"]; !ok || ref.ID != "input:tel:phone:Phone" || ref.Label != "Phone" || ref.Kind != MarkKindInput {
+		t.Fatalf("the plan did not bind the point by its label: %+v", bound)
+	}
+}

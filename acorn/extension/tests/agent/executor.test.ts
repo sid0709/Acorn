@@ -4,11 +4,13 @@ import { describe, it } from "node:test";
 import {
   CLICK_SETTLE_FLOOR_MS,
   SETTLE_MS,
+  SKIPPED_ERROR,
   runActions,
   type ExecutorContext,
 } from "../../src/agent/executor.ts";
+import { NO_FOCUS_MESSAGE } from "../../src/agent/focus-guard.ts";
 
-import { FakePage } from "./fake-page.ts";
+import { FakeElement, FakePage } from "./fake-page.ts";
 
 /** An executor over a fake page, noting every pause the actions ask for. */
 function context(extra: Partial<ExecutorContext> = {}) {
@@ -71,5 +73,58 @@ describe("the pause after an action that changes the page", () => {
     await runActions(ctx, [{ id: "a1", kind: "scroll", x: 10, y: 10, dx: 0, dy: 300 }]);
     assert.deepEqual(asked, []);
     assert.ok(slept.includes(500));
+  });
+});
+
+describe("a batch after an action that failed", () => {
+  it("skips what was meant for a control that was not reached, and goes on at the next control", async () => {
+    // The first click lands beside its box, so nothing has focus and the typing is refused; the key
+    // after it was for that box too. The next click reaches its box, and its typing goes in.
+    const page = new FakePage();
+    const box = new FakeElement(page, "input", { x: 10, y: 60, w: 100, h: 20 });
+    let clicks = 0;
+    const { ctx } = context({
+      cdp: page.cdp(),
+      afterClick: () => {
+        clicks += 1;
+        page.activeElement = clicks === 2 ? box : null;
+        return Promise.resolve();
+      },
+    });
+    const results = await runActions(ctx, [
+      { id: "a1", kind: "click", x: 10, y: 10 },
+      { id: "a2", kind: "type", text: "4243207354" },
+      { id: "a3", kind: "key", keys: "Tab" },
+      { id: "a4", kind: "click", x: 10, y: 70 },
+      { id: "a5", kind: "type", text: "Fresno" },
+    ]);
+    assert.deepEqual(
+      results.map((result) => [result.id, result.ok, result.error]),
+      [
+        ["a1", true, undefined],
+        ["a2", false, NO_FOCUS_MESSAGE],
+        ["a3", false, SKIPPED_ERROR],
+        ["a4", true, undefined],
+        ["a5", true, undefined],
+      ],
+    );
+  });
+
+  it("stops at any other failure, as what follows was planned for a page that failure did not leave", async () => {
+    const { ctx } = context();
+    const results = await runActions(ctx, [
+      { id: "a1", kind: "upload", x: 10, y: 10 },
+      { id: "a2", kind: "click", x: 10, y: 70 },
+      { id: "a3", kind: "type", text: "Fresno" },
+    ]);
+    assert.deepEqual(
+      results.map((result) => [result.id, result.ok]),
+      [
+        ["a1", false],
+        ["a2", false],
+        ["a3", false],
+      ],
+    );
+    assert.equal(results[1]?.error, SKIPPED_ERROR);
   });
 });

@@ -161,6 +161,15 @@ describe("the page's list of controls", () => {
     shift.attributes["aria-label"] = "Preferred shift";
     add("div", 570, { role: "radio", "aria-label": "Day", "aria-checked": "true" }, shift);
     add("div", 600, { role: "radio", "aria-label": "Night", "aria-checked": "false" }, shift);
+    const service = page.body.add("fieldset", { x: 0, y: 650, w: 400, h: 100 });
+    add("legend", 650, {}, service).textContent = "Veteran status";
+    add(
+      "input",
+      680,
+      { type: "radio", name: "veteran", "aria-label": "Veteran", required: "" },
+      service,
+    );
+    add("input", 710, { type: "radio", name: "veteran", "aria-label": "Not a veteran" }, service);
 
     const watch = new ControlWatch();
     await watch.read(page.cdp());
@@ -189,13 +198,81 @@ describe("the page's list of controls", () => {
       ["radiogroup:1", "Preferred shift", true],
     );
     assert.equal(mark("div:::Night")?.checked, false);
+    // A group answers its question together: it is empty until one of it is ticked, and required when any of it is.
+    assert.deepEqual(
+      [mark("input:radio:auth:Yes")?.empty, mark("input:radio:auth:No")?.empty],
+      [false, false],
+      "one of the pair is ticked",
+    );
+    assert.equal(mark("input:checkbox:days:Mon")?.empty, false);
+    assert.equal(
+      mark("input:checkbox:agree:I agree")?.empty,
+      undefined,
+      "a check box alone says nothing",
+    );
+    assert.equal(mark("div:::Night")?.empty, false, "the page's own radio group, with Day chosen");
+    assert.deepEqual(
+      ["input:radio:veteran:Veteran", "input:radio:veteran:Not a veteran"].map((id) => {
+        const one = mark(id);
+        return [one?.empty, one?.required, one?.question];
+      }),
+      [
+        [true, true, "Veteran status"],
+        [true, true, "Veteran status"],
+      ],
+      "nothing ticked, and one of them marked required, so the question is required and unanswered",
+    );
     for (const told of marksForAgent(watch.marks, 2)) {
       assert.deepEqual(
-        [told.value, told.checked, told.group, told.question],
-        [undefined, undefined, undefined, undefined],
-        "the agent reads the page from its pictures",
+        [told.value, told.checked],
+        [undefined, undefined],
+        "the agent reads what a control shows from its pictures",
       );
     }
+    const toldVeteran = marksForAgent(watch.marks, 2).find(
+      (one) => one.id === "input:radio:veteran:Veteran",
+    );
+    assert.deepEqual(
+      [toldVeteran?.group, toldVeteran?.question, toldVeteran?.empty, toldVeteran?.required],
+      ["radio:veteran", "Veteran status", true, true],
+      "the agent is told which question a group answers, and that it is unanswered",
+    );
+  });
+
+  it("gives a text box whose wrapper also holds a button its whole wrapper as its field", async () => {
+    // A phone box as a page draws it with a flag button in the box: the label above, the input and the
+    // button side by side in a wrapper. The field is the box a person sees, not the bare input.
+    const page = new FakePage();
+    const box = page.body.add("div", { x: 400, y: 1500, w: 450, h: 60 });
+    const words = box.add("label", { x: 400, y: 1500, w: 450, h: 26 });
+    words.textContent = "Phone";
+    const wrapper = box.add("div", { x: 400, y: 1526, w: 450, h: 34 });
+    const flag = wrapper.add("div", { x: 400, y: 1526, w: 50, h: 34 });
+    const button = flag.add("button", { x: 400, y: 1526, w: 50, h: 34 });
+    button.textContent = "+1";
+    const phone = wrapper.add(
+      "input",
+      { x: 450, y: 1526, w: 400, h: 34 },
+      { type: "tel", id: "phone" },
+    );
+    phone.labels = [words];
+    const watch = new ControlWatch();
+    await watch.read(page.cdp());
+    const mark = (id: string) => watch.marks.find((one) => one.id === id);
+    assert.deepEqual(mark("input:tel:phone:Phone")?.box, { x: 400, y: 1500, w: 450, h: 60 });
+    assert.deepEqual(
+      mark("button:::+1")?.box,
+      { x: 400, y: 1526, w: 50, h: 34 },
+      "the button's own field stops where the input comes in",
+    );
+    const cdp = page.cdp();
+    const holds = (hit: FakeElement) => {
+      page.hitAt = () => hit;
+      return watch.holds(cdp, { id: "input:tel:phone:Phone", x: 0, y: 0, w: 1, h: 1 }, 500, 1510);
+    };
+    assert.equal(await holds(words), true, "the label is the box's");
+    assert.equal(await holds(wrapper), true, "and so is the gap beside the button");
+    assert.equal(await holds(button), false, "the button itself is not");
   });
 
   it("collects the list again as the person types, which the observers do not see", async () => {

@@ -25,6 +25,7 @@ import (
 	"github.com/sid0709/acorn/acorn-backend/mailbox"
 	"github.com/sid0709/acorn/acorn-backend/profile"
 	"github.com/sid0709/acorn/acorn-backend/resume"
+	"github.com/sid0709/acorn/acorn-backend/runs"
 	"github.com/sid0709/acorn/acorn-backend/selector"
 	"github.com/sid0709/acorn/acorn-backend/support"
 	"github.com/sid0709/acorn/acorn-backend/supportaccess"
@@ -79,6 +80,7 @@ type Server struct {
 	debug          *debugtrace.Recorder
 	selector       *selector.Gateway
 	usage          *aiusage.Store
+	runs           *runs.Store
 	claims         *support.Store
 	admins         *admin.Store
 	adminCookie    string
@@ -115,6 +117,9 @@ type Options struct {
 	Selector *selector.Gateway
 	// Usage stores per-tab AI call history. Nil answers an empty list.
 	Usage *aiusage.Store
+	// Runs keeps the Runs that sent an application, for the website's daily progress. Nil uses an
+	// in-memory store.
+	Runs *runs.Store
 	// Claims stores extension support reports. Nil disables POST /acorn/support/claims.
 	Claims *support.Store
 	// Admins is the support console. Nil disables /acorn/admin routes.
@@ -135,7 +140,7 @@ func New(accounts Accounts, listings *jobs.Store, brain *acorn.Service, opts Opt
 		google: opts.Google, googleRedirect: opts.GoogleRedirectURL,
 		gmail: opts.Gmail, gmailRedirect: opts.GmailRedirectURL,
 		resumes: opts.Resumes, profiles: opts.Profiles, debug: opts.Debug,
-		selector: opts.Selector, usage: opts.Usage, claims: opts.Claims,
+		selector: opts.Selector, usage: opts.Usage, runs: opts.Runs, claims: opts.Claims,
 		admins: opts.Admins, adminCookie: opts.AdminSessionCookie,
 		supportAccess: opts.SupportAccess, webURL: strings.TrimRight(strings.TrimSpace(opts.WebURL), "/"),
 	}
@@ -147,6 +152,9 @@ func New(accounts Accounts, listings *jobs.Store, brain *acorn.Service, opts Opt
 	}
 	if s.profiles == nil {
 		s.profiles = profile.NewMemory()
+	}
+	if s.runs == nil {
+		s.runs = runs.NewMemory()
 	}
 	if s.cookie == "" {
 		s.cookie = DefaultSessionCookie
@@ -184,6 +192,9 @@ func New(accounts Accounts, listings *jobs.Store, brain *acorn.Service, opts Opt
 
 	mux.HandleFunc("GET /acorn/ai-usage", s.listAIUsage)
 	mux.HandleFunc("GET /acorn/ai-usage/{id}", s.getAIUsage)
+	mux.HandleFunc("POST /acorn/runs", s.recordRun)
+	mux.HandleFunc("GET /acorn/runs", s.listRuns)
+	mux.HandleFunc("GET /acorn/runs/daily", s.dailyRuns)
 	mux.HandleFunc("POST /acorn/support/claims", s.createSupportClaim)
 	mux.HandleFunc("GET /acorn/support/claims", s.listMyClaims)
 	mux.HandleFunc("GET /acorn/support/claims/{id}", s.getMyClaim)

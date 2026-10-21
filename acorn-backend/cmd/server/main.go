@@ -25,6 +25,7 @@ import (
 	"github.com/sid0709/acorn/acorn-backend/plainlog"
 	"github.com/sid0709/acorn/acorn-backend/profile"
 	"github.com/sid0709/acorn/acorn-backend/resume"
+	"github.com/sid0709/acorn/acorn-backend/runs"
 	"github.com/sid0709/acorn/acorn-backend/support"
 	"github.com/sid0709/acorn/acorn-backend/supportaccess"
 	"golang.org/x/sync/errgroup"
@@ -115,6 +116,7 @@ func main() {
 	profiles := profile.NewStore(p.Mongo(), db.DestDB, nil)
 	profiles.SetTrust(cacheTrust)
 	usage := aiusage.NewStore(p.Mongo(), db.DestDB)
+	completedRuns := runs.NewStore(p.Mongo(), db.DestDB)
 	claims := support.NewStore(p.Mongo(), db.DestDB)
 	supportAccess := supportaccess.NewStore(p.Mongo(), db.DestDB)
 	webURL := config.Env("ACORN_WEB_URL", defaultWebURL)
@@ -146,6 +148,7 @@ func main() {
 		{"acorn resumes", resumes},
 		{"acorn profiles", profiles},
 		{"acorn ai usage", usage},
+		{"acorn runs", completedRuns},
 		{"acorn support claims", claims},
 		{"acorn admin", adminStore},
 		{"acorn support access", supportAccess},
@@ -186,6 +189,7 @@ func main() {
 		GmailRedirectURL:   googleConfig.GmailRedirectURL,
 		Debug:              debug,
 		Usage:              usage,
+		Runs:               completedRuns,
 		Claims:             claims,
 		Admins:             adminStore,
 		AdminSessionCookie: acornapi.DefaultAdminSessionCookie,

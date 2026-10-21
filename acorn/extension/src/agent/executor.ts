@@ -273,15 +273,33 @@ async function leaveZone(
 /** What a result says of an action that was not run because one before it failed. */
 export const SKIPPED_ERROR = "skipped: an earlier action in this step failed";
 
+/** The kinds of action that reach a control of their own, at a point: what follows one of them (typing, keys) is meant for that control. */
+const REACHES_A_CONTROL: ReadonlySet<string> = new Set([
+  "click",
+  "double_click",
+  "triple_click",
+  "right_click",
+  "hover",
+  "upload",
+]);
+
+/** Whether an action reaches a control of its own. */
+function reachesAControl(action: AgentAction): boolean {
+  return REACHES_A_CONTROL.has(action.kind) && action.x != null && action.y != null;
+}
+
 /** Whether a result is of an action that was skipped, not one that failed. */
 export function wasSkipped(result: AgentActionResult): boolean {
   return !result.ok && result.error === SKIPPED_ERROR;
 }
 
 /**
- * Runs the actions in order. One that fails stops the batch: what came after it was
- * planned for a page the failed action did not leave behind, so it is reported as skipped
- * and the agent looks at the page again.
+ * Runs the actions in order. One that fails stops the batch: what came after it was planned for a page
+ * the failed action did not leave behind, so it is reported as skipped and the agent looks at the page
+ * again. The exception is typing or a key refused because nothing has focus: the click before it reached
+ * no control, and the page is as it was, so only what was meant for that control is skipped (up to the
+ * next action that reaches a control of its own) and the rest of the batch goes on. A recorded run lost
+ * eighteen planned actions, and a look, to each of nine such refusals on one phone box.
  */
 export async function runActions(
   ctx: ExecutorContext,
@@ -291,6 +309,8 @@ export async function runActions(
 ): Promise<AgentActionResult[]> {
   const results: AgentActionResult[] = [];
   let failed = false;
+  // Set while what was meant for a control that was not reached is being skipped.
+  let unreached = false;
   // A step that types is looked at only once the page has answered what the typing asked of it.
   const typing = actions.some((action) => action.kind === "type" || action.kind === "key");
   const effects = typing ? await batch.time("watchInput", () => watchInputEffects(ctx.cdp)) : null;
@@ -299,7 +319,8 @@ export async function runActions(
   // opened) has none, and a batch that ends with one ends with a list open, which is not a zone's photo.
   let lastOwnZone: number | undefined;
   for (const action of actions) {
-    if (failed) {
+    if (unreached && reachesAControl(action)) unreached = false;
+    if (failed || unreached) {
       results.push({
         id: action.id,
         ok: false,
@@ -327,11 +348,13 @@ export async function runActions(
       ctx.progress?.(action, ACTION_PROGRESS.done);
     } catch (err) {
       ctx.checkStopped();
-      failed = true;
+      const error = err instanceof Error ? err.message : String(err);
+      if (error === NO_FOCUS_MESSAGE) unreached = true;
+      else failed = true;
       results.push({
         id: action.id,
         ok: false,
-        error: err instanceof Error ? err.message : String(err),
+        error,
         ...timing(),
       });
       ctx.progress?.(action, ACTION_PROGRESS.failed);

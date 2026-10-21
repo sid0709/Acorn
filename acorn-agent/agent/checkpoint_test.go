@@ -55,6 +55,10 @@ type fakeScreen struct {
 	noListFor      string
 	// closedLooks is how many of the next looks at an open dropdown see no list open (a click that missed the control).
 	closedLooks int
+	// personFields are the names of the empty fields the screen says only the applicant can fill, and
+	// fieldRequests how many times it was asked about empty fields.
+	personFields  []string
+	fieldRequests int
 }
 
 // optionVerdict is the position the screen says answers a choose action (0 for none) and how sure it is.
@@ -115,6 +119,21 @@ func (f *fakeScreen) Decide(_ context.Context, req decide.Request) (decide.Respo
 			answers[key] = decide.Answer{Type: decide.TypeNoul, Noul: &p}
 		}
 		return decide.Response{Model: "fake-screen-1", Answers: answers, Usage: decide.Usage{InputTokens: 600, Cost: 0.0001}}, nil
+	}
+	if _, asked := req.Questions[personFieldKey(1)]; asked {
+		// The fields the page reports empty: one is the applicant's when its question names a field the test said is theirs.
+		f.fieldRequests++
+		answers := map[string]decide.Answer{}
+		for key, question := range req.Questions {
+			p := 0.05
+			for _, name := range f.personFields {
+				if strings.Contains(question.Instructions, fmt.Sprintf("%q", name)) {
+					p = 0.95
+				}
+			}
+			answers[key] = decide.Answer{Type: decide.TypeNoul, Noul: &p}
+		}
+		return decide.Response{Model: "fake-screen-1", Answers: answers, Usage: decide.Usage{InputTokens: 400, Cost: 0.0001}}, nil
 	}
 	if _, asked := req.Questions[askSent]; asked {
 		p := 1.0

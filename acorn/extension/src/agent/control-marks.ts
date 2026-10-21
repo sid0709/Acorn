@@ -55,13 +55,15 @@ export type Box = { x: number; y: number; w: number; h: number };
 
 /**
  * One control of the page: an id that is the same control wherever it sits, its kind and its place, the
- * field round it (the largest box that holds no other control), what the page calls it, its entry (the part
- * of its own box that is not its label, when the label is printed inside the box), and what the page says of
- * its state (`empty` is left out when the page cannot tell). Moving a mark changes only its place.
+ * field round it (the largest box that holds no other control that is filled: a button beside a field is
+ * part of it), what the page calls it, its entry (the part of its own box that is not its label, when the
+ * label is printed inside the box), what the page says of its state (`empty` is left out when the page
+ * cannot tell; a radio button, or a check box of a shared name, is empty while none of its group is ticked
+ * and required when any of them is), and the question such a group answers together (`group`, `question`).
+ * Moving a mark changes only its place.
  *
  * The rest is for the person, not the agent (`marksForAgent` leaves it out): what the control shows now
- * (`value`, never a password), whether a check is ticked, and the question a radio button or a check box
- * of a shared name answers with the others of its `group`.
+ * (`value`, never a password) and whether a check is ticked.
  */
 export type ControlMark = Box & {
   id: string;
@@ -289,9 +291,13 @@ function cleanMark(mark: ControlMark): ControlMark {
   return out;
 }
 
-/** A mark without what only the person reads (the sidebar's questions): the agent sees the page in its pictures. */
+/**
+ * A mark without what only the person reads (what a control shows, whether a check is ticked): the agent
+ * sees the page in its pictures. The group a radio button or a check box answers a question with, and the
+ * question, go to the agent: an empty required group is a question the page still wants answered.
+ */
 function agentFields(mark: ControlMark): ControlMark {
-  const { value: _value, checked: _checked, group: _group, question: _question, ...seen } = mark;
+  const { value: _value, checked: _checked, ...seen } = mark;
   return seen;
 }
 

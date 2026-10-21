@@ -3,6 +3,7 @@ import {
   reconnectAcornSocketNow,
   scheduleConnectAcornSocket,
 } from "./acorn-socket";
+import { flushCompletedRuns } from "./agent/completed-run-sync";
 import { rekeyKeptRun } from "./agent/kept-run";
 import { routeMessage } from "./background/message-router";
 import { endKeptRunOfTab } from "./background/messages/run";
@@ -88,6 +89,8 @@ chrome.runtime.onConnect.addListener((port) => {
 });
 
 void connectSocket().catch(() => undefined);
+// Completed runs a past session could not send (offline, signed out, the backend down).
+void flushCompletedRuns().catch(() => undefined);
 // Back online: dial now instead of waiting out socket.io's backoff.
 self.addEventListener("online", () => reconnectAcornSocketNow(socketHandlers));
 enableSidePanelOnActionClick();
@@ -126,6 +129,7 @@ chrome.tabs.onReplaced.addListener((addedTabId, removedTabId) => {
 chrome.storage.onChanged.addListener((changes) => {
   if (changes.acornApiUrl || changes.acornSession) {
     scheduleConnectAcornSocket(socketHandlers);
+    void flushCompletedRuns().catch(() => undefined);
   }
 });
 

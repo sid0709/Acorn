@@ -49,6 +49,7 @@ import {
   startSession,
   vetTarget,
 } from "./client";
+import { buildCompletedRun, carriedLegs, jobPageOf, workedMs } from "./completed-run";
 import {
   marksOfLook,
   noteLook,
@@ -106,6 +107,7 @@ import { toBase64, type ResumeFile } from "./upload";
 import type { Cdp } from "./cdp";
 import type { KeptRun } from "./kept-run";
 import type { PipelineProgress } from "@acorn/shared/pipeline-types";
+import type { CompletedRunRecord } from "@acorn/shared/runs";
 
 /** The most times one step is sent again when the model is busy or briefly down. */
 export const STEP_RETRY_LIMIT = 3;
@@ -168,6 +170,12 @@ export interface AgentRunArgs {
    * so Continue can take it back up. Without it, a run that stops is ended on the server.
    */
   keepRun?: (tabIds: number[], run: KeptRun) => Promise<void>;
+  /**
+   * Keeps a Run that ended with the application sent, so the website can count it. It resolves once
+   * the record is held, not when acorn-backend has it (completed-run-sync.ts). Without it the Run
+   * is not counted.
+   */
+  recordCompleted?: (record: CompletedRunRecord) => Promise<void>;
 }
 
 /**
@@ -367,6 +375,15 @@ export async function runAgent(args: AgentRunArgs): Promise<RunReport> {
   let tabClosed = false;
   let lastUsage: AgentUsage | null = null;
   let stepNumber = 0;
+  // What the Run is counted with if it ends with the application sent: the page it began on (a
+  // continued run keeps its first leg's), the time the legs before this one worked, and the cost
+  // they ran up that this session's counters no longer hold (the agent forgot the run).
+  const earlierLegs = carriedLegs(args.resume);
+  let jobPage = earlierLegs.job;
+  const carriedMs = earlierLegs.workMs;
+  let carriedCostUsd = 0;
+  /** The completed run's record being kept, waited for before the run is torn down. */
+  const recordings: Promise<void>[] = [];
   /** How long the last step's actions took to run, for the log. */
   let lastActionsMs = 0;
   /** Where the run's time went, summed over its steps, for the `run:end` entry's `phases` (ms). */
@@ -780,6 +797,12 @@ export async function runAgent(args: AgentRunArgs): Promise<RunReport> {
     }
   };
 
+  /** How long the run has worked over its legs, without the time it waited on the person's answers (ms). */
+  const workedSoFar = (endedAt = Date.now()) =>
+    workedMs({ carriedMs, startedAt, endedAt, waitedOnPersonMs: spent.person });
+  /** What the models have cost over the run's legs (dollars). */
+  const costSoFar = () => carriedCostUsd + (lastUsage?.cost ?? 0);
+
   const finish = (report: RunReport, resumable = false): RunReport => {
     chrome.webNavigation.onCreatedNavigationTarget.removeListener(onCreated);
     pageMap.phase(RUN_MAP_PHASE.ended);
@@ -805,6 +828,32 @@ export async function runAgent(args: AgentRunArgs): Promise<RunReport> {
         canContinue: keepSession,
       }),
     );
+    if (report.outcome === RUN_OUTCOME.completed && args.recordCompleted) {
+      // The application went in: count it. The card has its celebration already; this only keeps
+      // the record (the link, the time, the cost) until acorn-backend has it.
+      const endedAt = Date.now();
+      const record = buildCompletedRun({
+        runId,
+        job: jobPage,
+        endedAt,
+        workMs: workedSoFar(endedAt),
+        costUsd: costSoFar(),
+        steps: stepNumber,
+        usage: lastUsage,
+      });
+      log.event("run:recorded", {
+        recordId: record.recordId,
+        durationMs: record.durationMs,
+        costNanos: record.costNanos,
+      });
+      recordings.push(
+        args.recordCompleted(record).catch((err) =>
+          log.event("run:record:failed", {
+            message: err instanceof Error ? err.message : String(err),
+          }),
+        ),
+      );
+    }
     return report;
   };
 
@@ -824,6 +873,7 @@ export async function runAgent(args: AgentRunArgs): Promise<RunReport> {
       args.claimTab?.(workTabId);
     }
     const tab = await chrome.tabs.get(workTabId);
+    jobPage = jobPageOf(jobPage, tab);
     log.event("agent-start", {
       tabId: workTabId,
       url: logUrl(tab.url ?? ""),
@@ -851,6 +901,7 @@ export async function runAgent(args: AgentRunArgs): Promise<RunReport> {
         });
         sessionId = null;
         restoredMemory = args.resume.memory;
+        carriedCostUsd = earlierLegs.costUsd;
         // With the run's memory kept, the new session goes on from it as it was started; without it
         // the run starts over, as the person's settings are now.
         if (!restoredMemory) stopBeforeSubmit = args.stopBeforeSubmit;
@@ -1196,6 +1247,7 @@ export async function runAgent(args: AgentRunArgs): Promise<RunReport> {
     stopControlWatch();
     chrome.webNavigation.onCreatedNavigationTarget.removeListener(onCreated);
     frames.stop?.();
+    await Promise.all(recordings);
     if (sessionId && keepSession && args.keepRun) {
       // The agent keeps this run's memory; Continue takes it back up on the tab it stopped in.
       await keepWithMemory(args, tabs, {
@@ -1203,6 +1255,9 @@ export async function runAgent(args: AgentRunArgs): Promise<RunReport> {
         runId,
         tabId: current?.tabId ?? workTabId,
         stopBeforeSubmit,
+        job: jobPage,
+        workMs: workedSoFar(),
+        costUsd: costSoFar(),
       });
     } else if (sessionId) {
       await endSession(args.agentUrl, sessionId, onHttp);

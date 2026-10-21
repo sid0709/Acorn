@@ -203,10 +203,17 @@ function installBody(): string {
       for (const seen of trail) fixedMemo.set(seen, answer);
       return answer;
     };
-    const fieldOf = (el, own, under) => {
+    // Whether a kind of control is pressed, not filled: a button or a link.
+    const pressable = (kind) => kind === "button" || kind === "link";
+    // The field round a control: the largest of its ancestors, at most a row tall, that holds no other
+    // control that is filled. A button beside a field (a calendar, a flag, a clear cross, the arrow of a
+    // dropdown) is part of the field, not a second one, so a field's climb passes it; a button's own field
+    // holds nothing else at all. \`under\` counts the controls under each ancestor, \`fieldsUnder\` the filled ones.
+    const fieldOf = (el, own, kind, under, fieldsUnder) => {
+      const alone = pressable(kind) ? (node) => under.get(node) === 1 : (node) => fieldsUnder.get(node) === 1;
       let best = null;
       for (let node = el.parentElement; node && node !== document.body && node !== document.documentElement; node = node.parentElement) {
-        if (under.get(node) !== 1) break;
+        if (!alone(node)) break;
         const rect = node.getBoundingClientRect();
         if (rect.height > FIELD_MAX_H) break;
         best = rect;
@@ -232,16 +239,31 @@ function installBody(): string {
         if (isFixed(el)) continue;
         const signature = tag + ":" + type + ":" + (el.getAttribute("name") || el.id || "") + ":" + labelOf(el);
         signatures.set(signature, (signatures.get(signature) || 0) + 1);
-        entries.push({ el, signature, type, tag, rect });
+        entries.push({ el, signature, type, tag, rect, kind: kindOf(el, tag, type), group: null });
       }
       const under = new Map();
+      const fieldsUnder = new Map();
       const names = new Map();
       for (const entry of entries) {
-        for (let node = entry.el.parentElement; node; node = node.parentElement) under.set(node, (under.get(node) || 0) + 1);
+        for (let node = entry.el.parentElement; node; node = node.parentElement) {
+          under.set(node, (under.get(node) || 0) + 1);
+          if (!pressable(entry.kind)) fieldsUnder.set(node, (fieldsUnder.get(node) || 0) + 1);
+        }
         const name = entry.tag === "input" && entry.type === "checkbox" ? entry.el.getAttribute("name") : null;
         if (name) names.set(name, (names.get(name) || 0) + 1);
       }
+      // A group of radio buttons, or of check boxes that share a name, answers one question together: it
+      // is empty until one of them is ticked, and required when the page marks any of them so.
       const boxes = new Map();
+      const groups = new Map();
+      for (const entry of entries) {
+        entry.group = groupOf(entry.el, entry.tag, entry.type, names, boxes);
+        if (!entry.group) continue;
+        const state = groups.get(entry.group.key) || { checked: false, required: false };
+        state.checked = state.checked || checkedOf(entry.el, entry.tag, entry.type) === true;
+        state.required = state.required || entry.el.required === true || entry.el.getAttribute("aria-required") === "true";
+        groups.set(entry.group.key, state);
+      }
       const seen = new Map();
       const marks = [];
       const els = new Map();
@@ -251,8 +273,8 @@ function installBody(): string {
         const nth = (seen.get(entry.signature) || 0) + 1;
         seen.set(entry.signature, nth);
         const id = total === 1 ? entry.signature : entry.signature + "#" + nth + "/" + total;
-        const mark = { id, kind: kindOf(entry.el, entry.tag, entry.type), ...boxOf(entry.rect) };
-        const field = fieldOf(entry.el, entry.rect, under);
+        const mark = { id, kind: entry.kind, ...boxOf(entry.rect) };
+        const field = fieldOf(entry.el, entry.rect, entry.kind, under, fieldsUnder);
         if (field) mark.box = field;
         const label = labelOf(entry.el);
         if (label) mark.label = label;
@@ -266,10 +288,13 @@ function installBody(): string {
         if (value) mark.value = value;
         const checked = checkedOf(entry.el, entry.tag, entry.type);
         if (typeof checked === "boolean") mark.checked = checked;
-        const group = groupOf(entry.el, entry.tag, entry.type, names, boxes);
+        const group = entry.group;
         if (group) {
           mark.group = group.key;
           if (group.question) mark.question = group.question;
+          const state = groups.get(group.key);
+          if (state.required) mark.required = true;
+          mark.empty = !state.checked;
         }
         marks.push(mark);
         els.set(id, new WeakRef(entry.el));
@@ -323,8 +348,13 @@ function installBody(): string {
       if (!field || field === document.body || field === document.documentElement) return false;
       if (field === el) return true;
       if (field.getBoundingClientRect().height > FIELD_MAX_H) return false;
+      const kindOfEl = (one) => kindOf(one, one.tagName.toLowerCase(), (one.getAttribute("type") || "").toLowerCase());
+      const kind = kindOfEl(el);
       for (const other of field.querySelectorAll(SELECTOR)) {
-        if (other !== el && state.idOf.has(other)) return false;
+        if (other === el || !state.idOf.has(other)) continue;
+        // A button beside a field is part of the field (as fieldOf has it), unless the point is on the button itself.
+        if (!pressable(kind) && pressable(kindOfEl(other)) && !other.contains(hit)) continue;
+        return false;
       }
       return true;
     };

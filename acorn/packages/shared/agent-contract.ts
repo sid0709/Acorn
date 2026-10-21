@@ -309,6 +309,9 @@ export interface AgentControlMark extends AgentRect {
   required?: boolean;
   empty?: boolean;
   invalid?: boolean;
+  /** The group a radio button or a check box answers a question with, and the question, when the page says. */
+  group?: string;
+  question?: string;
 }
 
 /**

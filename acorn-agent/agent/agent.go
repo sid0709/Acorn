@@ -88,6 +88,10 @@ type Config struct {
 	// StopPasses is how many times a run's stop for the applicant is sent back, to finish
 	// everything that does not need them first (stopgate.go); 0 accepts every stop at once.
 	StopPasses int
+	// PersonField is how sure the decision model must be that a required field the page reports empty
+	// is one only the applicant can fill (a probability) for a stop to stand with it empty; a field it is
+	// less sure of is the run's to fill, and the stop is sent back naming it (stopgate.go).
+	PersonField float64
 	// KeepTurns is how many recent steps stay in full when the history is compacted; older
 	// ones are folded into one line each.
 	KeepTurns int
@@ -143,6 +147,7 @@ func DefaultConfig() Config {
 		LoadWait:          time.Second,
 		MaxLoadWaits:      4,
 		StopPasses:        2,
+		PersonField:       0.5,
 		DonePasses:        2,
 		DoneConfirm:       0.7,
 		SingleSignOnBlock: 0.5,
@@ -408,6 +413,7 @@ func (a *Agent) step(ctx context.Context, id string, obs Observation) (Step, err
 	// runs of one plan.
 	results := withoutChoose(append(append([]ActionResult(nil), s.carried...), obs.Results...))
 	s.noteCommitResults(obs.Results)
+	s.notes = append(s.notes, unreachedNotes(obs.Results, s.byID, s.marks, obs)...)
 	a.learnJD(ctx, s, obs)
 	if s.pendingUpload != nil {
 		return a.answerPending(s, obs, results, sig)
@@ -584,10 +590,13 @@ func (a *Agent) step(ctx context.Context, id string, obs Observation) (Step, err
 	}
 	status = answer.Status
 	// The applicant is asked last: a stop is first sent back to finish everything else on the page.
-	if note, held := a.holdStop(s, status, answer, obs); held {
+	stopNote, stopHeld, stopCalls := a.holdStop(ctx, s, status, answer, obs)
+	calls = append(calls, stopCalls...)
+	entry.Usage = s.usage
+	if stopHeld {
 		status, answer.Message = StatusWorking, stopPassMessage
 		planned = []Action{{ID: fmt.Sprintf("s%da1", number), Kind: KindWait, Ms: stopPassWaitMs}}
-		s.notes = append(s.notes, note)
+		s.notes = append(s.notes, stopNote)
 	}
 	var actions []Action
 	switch {
