@@ -14,7 +14,6 @@ import {
 } from "@acorn/shared/agent-contract";
 
 import { NO_FOCUS_MESSAGE, nothingHasFocus, scrollsAPage } from "./focus-guard";
-import { blockedMessage, type GuardVerdict } from "./guard";
 import { clickAt, moveMouse, pressKeys, typeText, wheelAt } from "./input";
 import { watchInputEffects } from "./input-settle";
 import { type ScrollContext } from "./page-scroll";
@@ -36,12 +35,6 @@ export const SCROLL_SETTLE_MS = 500;
  * chooser, which the browser announces a moment after it, and the announcement is what says the click did.
  */
 export const CLICK_SETTLE_FLOOR_MS = 150;
-/**
- * The longest a click waits for the guard's verdict on the control under it (guard.ts). The verdict is a doubt
- * told to the model, or the refusal of an autofill from another service; past this the click goes ahead.
- */
-export const GUARD_WAIT_MAX_MS = 800;
-
 /**
  * Pauses after an action that changes the page: at most `ms`, and less where the run can tell the page has
  * settled, but not less than `floorMs` there.
@@ -72,11 +65,6 @@ export interface ExecutorContext {
   sleep(ms: number): Promise<void>;
   /** Throws when the person pressed Stop. */
   checkStopped(): void;
-  /**
-   * Judges the control at a point (CSS pixels) before it is clicked: a file only ever comes from
-   * this computer, never an online source. It starts while the cursor glides, so it adds no wait.
-   */
-  guard?: (x: number, y: number) => Promise<GuardVerdict>;
   /** Runs after a click has settled: it closes a frame or window the click opened that is an online file source. */
   afterClick?: () => Promise<void>;
   /** How long an upload waits for the click to open a file picker; the default when unset. */
@@ -129,28 +117,6 @@ async function glideTo(ctx: ExecutorContext, x: number, y: number): Promise<void
   await ctx.overlay.moveTo(x, y);
 }
 
-/**
- * What the guard has to say about the control before the click: a doubt to tell the model with the
- * result (the click goes ahead), or the refusal of an autofill from a saved profile or another service.
- */
-async function guardHint(verdict: Promise<GuardVerdict> | undefined): Promise<string | undefined> {
-  if (!verdict) return undefined;
-  // The click waits for the verdict a moment, not for as long as the decision model takes: a recorded run
-  // spent four seconds a click waiting on it. A verdict that comes later is not a refusal.
-  const answer = await Promise.race([
-    verdict,
-    new Promise<undefined>((resolve) => setTimeout(() => resolve(undefined), GUARD_WAIT_MAX_MS)),
-  ]);
-  if (answer?.blocked) throw new Error(blockedMessage(answer.cause));
-  return answer?.hint;
-}
-
-/** A result with the guard's doubt added to what it says. */
-function withHint(done: Done, hint: string | undefined): Done {
-  if (!hint) return done;
-  return { ...done, detail: [done.detail, hint].filter(Boolean).join("; ") };
-}
-
 /** What an action did; `then` are actions to carry out next, before the rest of the batch (a snap's answer). */
 type Done = { detail?: string; opened?: ActionOpened; then?: AgentAction[] };
 
@@ -191,24 +157,17 @@ async function perform(ctx: ExecutorContext, action: AgentAction, watch: Stopwat
         scrollForAction(cdp, action, ctx.scale(), ctx),
       );
       ctx.progress?.(action, ACTION_PROGRESS.aimed, { x, y });
-      // The guard can refuse a click (an autofill from a saved profile or another service, guard.ts), so
-      // the click waits for it. It answers at once for a plain form field, which it does not judge, and
-      // from its memory for a control it judged before; the wait is for buttons and links on their first
-      // click. It starts while the cursor glides.
-      const verdict = ctx.guard?.(x, y);
+      // Nothing judges the control before the click: the model, which sees the screen, chose it. A window
+      // or frame the click opens is judged after the fact, in afterClick and when the run follows it.
       await watch.time("glide", () => glideTo(ctx, x, y));
-      const hint = await watch.time("guard", () => guardHint(verdict));
       void ctx.overlay.click();
       const count = action.kind === "double_click" ? 2 : action.kind === "triple_click" ? 3 : 1;
-      return withHint(
-        await clickWatchingForPicker(
-          ctx,
-          x,
-          y,
-          { button: action.kind === "right_click" ? "right" : "left", count },
-          watch,
-        ),
-        hint,
+      return clickWatchingForPicker(
+        ctx,
+        x,
+        y,
+        { button: action.kind === "right_click" ? "right" : "left", count },
+        watch,
       );
     }
     case "hover": {
@@ -260,19 +219,14 @@ async function perform(ctx: ExecutorContext, action: AgentAction, watch: Stopwat
         scrollForAction(cdp, action, ctx.scale(), ctx),
       );
       ctx.progress?.(action, ACTION_PROGRESS.aimed, { x, y });
-      const verdict = ctx.guard?.(x, y);
       await watch.time("glide", () => glideTo(ctx, x, y));
-      const hint = await watch.time("guard", () => guardHint(verdict));
       void ctx.overlay.click();
       const done = await watch.time("upload", () =>
         uploadAt(cdp, x, y, file, ctx.fileChooserWaitMs),
       );
       await watch.time("uploadProcessing", () => waitForUploadProcessing(cdp, ctx.sleep));
       await watch.time("settle", () => settle(ctx, SETTLE_MS));
-      return withHint(
-        { detail: `${done.fileName}, ${done.bytes} bytes, through the ${done.via}` },
-        hint,
-      );
+      return { detail: `${done.fileName}, ${done.bytes} bytes, through the ${done.via}` };
     }
     case "snap": {
       if (!ctx.snap) throw new Error("the extension cannot take a picture here");

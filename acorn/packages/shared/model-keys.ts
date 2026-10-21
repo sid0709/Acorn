@@ -23,9 +23,13 @@ export const MODEL_KEYS = [
   {
     id: "openrouter",
     label: "OpenRouter",
-    usedFor: "GPT-6 Luna plans each page; Jev decides about text",
+    usedFor: "GPT-6 Luna plans each page and checks the screen; Jev decides about text",
   },
-  { id: "openai", label: "OpenAI", usedFor: "Decisions about screenshots" },
+  {
+    id: "openai",
+    label: "OpenAI",
+    usedFor: "Screenshot decisions, when the agent is set to OpenAI",
+  },
 ] as const satisfies readonly { id: keyof ModelKeysStatus; label: string; usedFor: string }[];
 
 export type ModelKeyHealth = "ok" | "missing" | "invalid" | "unknown";

@@ -75,8 +75,12 @@ type session struct {
 	jd       string
 	jdSeen   map[string]bool
 	jdChecks int
-	// vetted holds what the decision model already said about a control or window, by its description.
+	// vetted holds what the decision model already said about a window or frame, by its description.
 	vetted map[string]VetVerdict
+	// failedStreak counts model steps in a row whose every action failed the same way, and lastFailure is
+	// that failure: a plan refused whole, step after step, is a loop the model cannot see out of (repeat.go).
+	failedStreak int
+	lastFailure  string
 	// fallback is the résumé folder to offer when there is no job description ("" when none is set).
 	fallback string
 	// pendingUpload is an upload held until the person says which résumé to send.

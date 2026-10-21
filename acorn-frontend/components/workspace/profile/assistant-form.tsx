@@ -46,7 +46,7 @@ function JobBid({ profile, onChange }: { profile: ApplicantProfile; onChange: Se
           type="password"
           value={profile.openaiApiKey}
           onChange={(value) => onChange("openaiApiKey", value.slice(0, SECRET_MAX))}
-          description="Used for decisions about screenshots, on OpenAI's own Decisions API."
+          description="Used for screenshot decisions when Acorn's agent is set to OpenAI's Decisions API."
         />
         <TextInput label="Model" value={AI_MODEL_LABEL} isReadOnly />
         <TextInput

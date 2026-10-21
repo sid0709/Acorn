@@ -28,10 +28,10 @@ bun run build:acorn                              # then load acorn/extension/dis
   a dropdown's list, which résumé to upload, what a frame that opened is) goes through one gateway
   (`decide.Gateway`) to the route set for its kind: questions asked of text to TypeSafe Jev
   (`typesafe/jev-1.13`, `ACORN_AGENT_DECISION_TEXT_MODEL`) on OpenRouter with the profile's OpenRouter
-  key; questions about a screenshot to GPT-6 Luna (`gpt-6-luna`, `ACORN_AGENT_DECISION_IMAGE_MODEL`) on
-  OpenAI's own Decisions API with the profile's OpenAI key (`openaiApiKey`), or to
-  `ACORN_AGENT_SCREEN_MODEL` on OpenRouter (`openai/gpt-6-luna-decisions`) when
-  `ACORN_AGENT_DECISION_IMAGE_PROVIDER=openrouter` or the profile has no OpenAI key. The driving model goes
+  key; questions about a screenshot to GPT-6 Luna Decisions (`openai/gpt-6-luna-decisions`) on
+  OpenRouter, or, with `ACORN_AGENT_DECISION_IMAGE_PROVIDER=openai`, to GPT-6 Luna (`gpt-6-luna`) on
+  OpenAI's own Decisions API with the profile's OpenAI key (`openaiApiKey`; back to OpenRouter when the
+  profile has none). `ACORN_AGENT_DECISION_IMAGE_MODEL` names the image model on either. The driving model goes
   through OpenRouter on `OPENROUTER_API_KEY` or the profile's OpenRouter key. The checks are on by default;
   `ACORN_AGENT_CHECKS=false` turns them off. A downloaded log's `summary.txt` lists each model the run
   called with its median and slowest latency, to compare them.

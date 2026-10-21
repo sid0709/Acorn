@@ -154,24 +154,14 @@ export interface AgentFocus {
 }
 
 /**
- * What the extension reads from the page about a control about to be clicked, or a window or
- * frame a click opened. The server's decision model judges it: a file only ever comes from this
- * computer, never an online service. Nothing here is a judgment.
+ * What the extension reads about a window a click opened, or a frame that appeared in the page: its
+ * address, title and the start of its text. The server's decision model judges it: a file only ever
+ * comes from this computer, and the applicant's details from their profile. Nothing here is a
+ * judgment, and no control is described before a click (2.10.0: the model, which sees the screen,
+ * chooses what to click; the prompt says it is the one check).
  */
 export interface AgentVetTarget {
-  kind: "control" | "window" | "frame";
-  tag?: string;
-  type?: string;
-  role?: string;
-  text?: string;
-  label?: string;
-  title?: string;
-  alt?: string;
-  linkHost?: string;
-  idClass?: string;
-  /** The control sits in a component that holds a file input. */
-  inFileComponent?: boolean;
-  /** A window or frame: its address, title and the start of its text. */
+  kind: "window" | "frame";
   url?: string;
   windowTitle?: string;
   excerpt?: string;
@@ -179,27 +169,21 @@ export interface AgentVetTarget {
   pageUrl?: string;
 }
 
-/** Why the agent refused a click or closed a window: the thing it reached. */
+/** Why the agent closed a window or frame: the thing it reached. */
 export const VET_CAUSE = {
   onlineSource: "online_source",
   singleSignOn: "single_sign_on",
-  /** An autofill from a saved profile or another service: the one cause for which a control itself is refused. */
+  /** A page that fills the application from a saved profile or another service. */
   otherAutofill: "other_autofill",
 } as const;
 export type VetCause = (typeof VET_CAUSE)[keyof typeof VET_CAUSE];
 
 export interface AgentVetVerdict {
-  /**
-   * A window or frame a click opened is blocked (closed) when it is what the applicant has not allowed; a
-   * control goes ahead with a hint, except one that fills the application from a saved profile or another
-   * service (`other_autofill`), which is refused before the click.
-   */
+  /** A window or frame a click opened is blocked (closed) when it is what the applicant has not allowed. */
   blocked: boolean;
   probability: number;
   cause?: VetCause;
   reason?: string;
-  /** For a control that looks like something not allowed: the doubt, told to the model with the click's result. */
-  hint?: string;
 }
 
 /** What an action set off beyond itself, that a screenshot cannot show. */

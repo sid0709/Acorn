@@ -74,9 +74,10 @@ const (
 	envProbe           = "ACORN_AGENT_PROBE_DROPDOWNS"
 	envChecks          = "ACORN_AGENT_CHECKS"
 	// The decision routes (decide.Gateway): questions asked of text go to envDecisionTextModel on OpenRouter
-	// (Jev by default); questions about a screenshot to envDecisionImageModel on envDecisionImageProvider
-	// (GPT-6 Luna on OpenAI's own Decisions API by default, on the profile's OpenAI key). envScreenModel is the
-	// image model on OpenRouter, used when the provider is OpenRouter or the profile has no OpenAI key.
+	// (Jev by default); questions about a screenshot to envDecisionImageProvider (OpenRouter by default, where
+	// GPT-6 Luna Decisions answered in about a second; "openai" for OpenAI's own Decisions API, on the profile's
+	// OpenAI key) and its model, envDecisionImageModel. envScreenModel is the older name of the image model on
+	// OpenRouter, which is also the route when the provider is OpenAI and the profile has no OpenAI key.
 	envDecisionTextModel     = "ACORN_AGENT_DECISION_TEXT_MODEL"
 	envDecisionImageModel    = "ACORN_AGENT_DECISION_IMAGE_MODEL"
 	envDecisionImageProvider = "ACORN_AGENT_DECISION_IMAGE_PROVIDER"
@@ -100,6 +101,7 @@ const (
 	envKeepTurns     = "ACORN_AGENT_KEEP_TURNS"
 	envKeepImages    = "ACORN_AGENT_KEEP_IMAGES"
 	envMaxStale      = "ACORN_AGENT_MAX_STALE"
+	envMaxFailed     = "ACORN_AGENT_MAX_FAILED_STEPS"
 	envMaxModelCalls = "ACORN_AGENT_MAX_MODEL_CALLS"
 	envAgentPort     = "ACORN_AGENT_PORT"
 )
@@ -178,6 +180,7 @@ func run() error {
 	cfg.KeepTurns = config.EnvInt(envKeepTurns, cfg.KeepTurns)
 	cfg.KeepImages = config.EnvInt(envKeepImages, cfg.KeepImages)
 	cfg.MaxStale = config.EnvInt(envMaxStale, cfg.MaxStale)
+	cfg.MaxFailedSteps = config.EnvInt(envMaxFailed, cfg.MaxFailedSteps)
 	if !isOff(config.Env(envTrace, "")) {
 		cfg.TraceDir = config.Env(envTraceDir, defaultTraceDir)
 	}
@@ -209,9 +212,9 @@ func run() error {
 	decisionsURL := config.Env(envDecisionsURL, config.OpenRouterDecisionsURL)
 	openAIDecisionsURL := config.Env(envOpenAIDecisionsURL, config.OpenAIDecisionsURL)
 	openRouterImage := decide.Route{Provider: decide.ProviderOpenRouter, Model: config.Env(envScreenModel, config.ScreenDecisionModel), URL: decisionsURL}
-	image := decide.Route{Provider: decide.ProviderOpenAI, Model: config.Env(envDecisionImageModel, config.OpenAIDecisionModel), URL: openAIDecisionsURL}
-	if config.Env(envDecisionImageProvider, decide.ProviderOpenAI) == decide.ProviderOpenRouter {
-		image = openRouterImage
+	image := decide.Route{Provider: decide.ProviderOpenRouter, Model: config.Env(envDecisionImageModel, openRouterImage.Model), URL: decisionsURL}
+	if config.Env(envDecisionImageProvider, decide.ProviderOpenRouter) == decide.ProviderOpenAI {
+		image = decide.Route{Provider: decide.ProviderOpenAI, Model: config.Env(envDecisionImageModel, config.OpenAIDecisionModel), URL: openAIDecisionsURL}
 	}
 	routes := decide.Routes{
 		Text:          decide.Route{Provider: decide.ProviderOpenRouter, Model: config.Env(envDecisionTextModel, config.JevModel), URL: decisionsURL},

@@ -70,7 +70,7 @@ export type ApplicantProfile = {
   veteranStatus: string;
   desiredSalary: string;
   openrouterApiKey: string;
-  /** The key for decisions about screenshots, sent to OpenAI's own Decisions API. */
+  /** The key for screenshot decisions when the agent is set to OpenAI's own Decisions API. */
   openaiApiKey: string;
   defaultAccountPassword: string;
   extensionPassword: string;
@@ -79,7 +79,7 @@ export type ApplicantProfile = {
 };
 
 /** The models Acorn's AI calls use. The profile stores the keys, not a choice of model. */
-export const AI_MODEL_LABEL = "GPT-6 Luna and Jev on OpenRouter; screenshot decisions on OpenAI";
+export const AI_MODEL_LABEL = "GPT-6 Luna, its decisions and Jev on OpenRouter";
 
 const choice = (labels: string[]) => labels.map((label) => ({ value: label, label }));
 

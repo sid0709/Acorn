@@ -112,6 +112,9 @@ type Config struct {
 	// MaxStale is how many steps in a row the screen may stay the same before the run is
 	// declared stuck without asking the model again.
 	MaxStale int
+	// MaxFailedSteps is how many model steps in a row may end with every action failing the same way
+	// before the run is declared stuck without asking the model again (repeat.go); 0 turns it off.
+	MaxFailedSteps int
 	// SessionTTL is how long an untouched session is kept.
 	SessionTTL time.Duration
 	// TraceDir, when set, records every step to disk.
@@ -157,6 +160,7 @@ func DefaultConfig() Config {
 		KeepImages:         0,
 		HistoryTokens:      30_000,
 		MaxStale:           6,
+		MaxFailedSteps:     3,
 		SessionTTL:         time.Hour,
 	}
 }
@@ -331,6 +335,7 @@ func (a *Agent) Continue(id string) (Continued, error) {
 	s.pendingUpload = nil
 	s.plan, s.verify, s.planned, s.sent, s.parts = nil, "", 0, 0, 0
 	s.stale, s.lastSig, s.loadWaits = 0, nil, 0
+	s.failedStreak, s.lastFailure = 0, ""
 	s.script = nil
 	s.notes = append(s.notes, note)
 	slog.Info(fmt.Sprintf("%s continues after step %d, with room for %d steps in all.", runName(s.id), s.step, s.stepLimit))
@@ -504,6 +509,19 @@ func (a *Agent) step(ctx context.Context, id string, obs Observation) (Step, err
 		return step, nil
 	}
 
+	// A plan refused whole, the same way, step after step, is a loop the model cannot see out of: the page
+	// changes a little each time (a list opens, a cursor moves), so the unchanged-screen count above never
+	// trips. The run ends before the model is asked to plan it again (repeat.go).
+	failure := firstFailure(results)
+	streak := s.failedStreakAfter(failure)
+	if a.cfg.MaxFailedSteps > 0 && streak >= a.cfg.MaxFailedSteps {
+		return a.endWithTrace(s, obs, stale, StatusStuck, fmt.Sprintf("The same action failed %d steps in a row: %s", streak, failure), &StopInfo{
+			Reason:  StopPageProblem,
+			Problem: fmt.Sprintf("Acorn tried the same step %d times and the page would not take it: %s", streak, failure),
+			Action:  "Do that part on the page yourself, then press Continue.",
+		}), nil
+	}
+
 	// The model looks now, so the form-finding gate has had its turn (the model finds its own way from here).
 	s.formReady = true
 	s.script = nil
@@ -553,6 +571,7 @@ func (a *Agent) step(ctx context.Context, id string, obs Observation) (Step, err
 	}
 	// Only a step the model answered counts: a retry of a failed call sends the same screen.
 	s.step, s.stale, s.lastSig = number, stale, sig
+	s.failedStreak, s.lastFailure = streak, failure
 	s.carried, s.notes = nil, nil
 	// A memo of null means the notes did not change.
 	if answer.Memo != nil {

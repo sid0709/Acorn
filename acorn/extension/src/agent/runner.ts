@@ -68,13 +68,7 @@ import {
   type ActionProgress,
   type ExecutorContext,
 } from "./executor";
-import {
-  createClickGuard,
-  createFrameSweep,
-  describeWindow,
-  watchFrameEvents,
-  windowClosedNote,
-} from "./guard";
+import { createFrameSweep, describeWindow, watchFrameEvents, windowClosedNote } from "./guard";
 import { afterLook, foundIn, lookLogFields, missed, startMailSearch } from "./mail-search";
 import {
   isEmailVerificationStop,
@@ -447,11 +441,6 @@ export async function runAgent(args: AgentRunArgs): Promise<RunReport> {
   const resumeSizes = new Map<string, number>();
   const vet = (target: Parameters<typeof vetTarget>[2]) =>
     vetTarget(args.agentUrl, must(sessionId), target, signal, onHttp);
-  const clickGuard = createClickGuard({
-    cdp: () => must(current).cdp,
-    vet,
-    pageUrl: () => pageUrl,
-  });
   /** Judges the frames of another origin that appear in the tab the run is in. */
   const watchFrames = (tab: AgentTab) => {
     const deps = {
@@ -667,7 +656,6 @@ export async function runAgent(args: AgentRunArgs): Promise<RunReport> {
     },
     sleep,
     checkStopped,
-    guard: clickGuard,
     afterClick: () => frames.sweep(),
     scroll: scrolls,
     marks: placeMarksFor({ tab: () => must(current), watch: marks, log, sleep }),

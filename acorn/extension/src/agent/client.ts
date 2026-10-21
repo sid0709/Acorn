@@ -378,7 +378,7 @@ export async function sendStep(
   }
 }
 
-/** Asks whether a control about to be clicked, or a window a click opened, is an online file source. */
+/** Asks whether a window a click opened, or a frame that appeared in the page, is an online file source, another service's sign-in or an autofill from elsewhere. */
 export async function vetTarget(
   base: string,
   sessionId: string,

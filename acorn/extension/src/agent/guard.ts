@@ -1,19 +1,16 @@
 /**
- * The guard that keeps files coming from this computer only. The applicant has not allowed an
- * online file source (a cloud drive, a file-sharing service, signing in to one). The prompt says
- * so, and the model that drives the run sees the screen; before each click the control under the
- * pointer is read from the page (what it says of itself, nothing more) and the server's decision
- * model judges the description, but that judgment never overrides the model: the click goes
- * ahead, and a control that looks like such a source is told to the model with the click's result
- * (a live run was locked out of a plain location box when a description was misread). After a
- * click, a window or a cross-origin frame that opened is an outcome, not a guess: it is judged the
- * same way and closed if it is more likely than not such a source. There is no list of services
- * here: the model says what a control or page is.
- *
- * The same judgment keeps the run from signing in through another service's account (single
- * sign-on): the applicant's own e-mail and password are used, so a window that starts one is
- * closed, and a control that looks like one is told to the model. Nothing that cannot be checked
- * is blocked.
+ * The guard that closes what a slip opened. The applicant has not allowed an online file source (a
+ * cloud drive, a file-sharing service, signing in to one), another service's sign-in, or an autofill
+ * from anything but a résumé file; the prompt says so, and the model that drives the run sees the
+ * screen and chooses what to click. Nothing here judges a control before it is clicked: until 2.10.0
+ * the control under the pointer was described from the page (its text, id and classes) and the
+ * server's decision model judged the description, and that misread the "Indeed", "Linkedin" and
+ * "Glassdoor" options of a "How did you learn about this job?" list as an autofill from those
+ * services; the refusal was cached for the run, one click was refused 33 times, and the fields below
+ * it were never reached. After a click, a window or a cross-origin frame that opened is an outcome,
+ * not a guess: it is judged by what it is (address, title, text) and closed if it is more likely than
+ * not such a source, sign-in or autofill, and the model is told. There is no list of services here:
+ * the decision model says what a page is, and nothing that cannot be checked is closed.
  */
 
 import {
@@ -25,21 +22,6 @@ import {
 
 import type { Cdp } from "./cdp";
 
-/** What a click is told when it is refused. */
-export const BLOCKED_MESSAGE =
-  "blocked: that control uses an online file source or a place to paste a document, and the applicant has not allowed those. " +
-  "Attach a file with upload, at the button that opens this computer's file picker.";
-
-/** What a click is told when it would sign in through another service's account. */
-export const SIGN_ON_BLOCKED_MESSAGE =
-  "blocked: that control signs in through another service's account, and Acorn never does. " +
-  "Use the employer's own e-mail and password form, or continue as a guest if the page offers it.";
-
-/** What a click is told when it would fill the application from a saved profile or another service. */
-export const AUTOFILL_BLOCKED_MESSAGE =
-  "blocked: that control fills the application from a saved profile or another service, and only a résumé file from this computer may fill it. " +
-  "Fill the fields from the applicant's details instead; the résumé upload is the one autofill allowed.";
-
 /** What a window that a click opened is told when it is closed. */
 const WINDOW_CLOSED_NOTES: Record<VetCause, string> = {
   [VET_CAUSE.onlineSource]:
@@ -50,12 +32,6 @@ const WINDOW_CLOSED_NOTES: Record<VetCause, string> = {
     "A click opened a page that fills the application from a saved profile or another service, and Acorn closed it. Only a résumé file from this computer may fill the form: fill the fields from the applicant's details.",
 };
 
-/** The refusal for a control, by why it was refused. */
-export function blockedMessage(cause?: VetCause): string {
-  if (cause === VET_CAUSE.otherAutofill) return AUTOFILL_BLOCKED_MESSAGE;
-  return cause === VET_CAUSE.singleSignOn ? SIGN_ON_BLOCKED_MESSAGE : BLOCKED_MESSAGE;
-}
-
 /** The note for the model when a window was closed, by why. */
 export function windowClosedNote(cause?: VetCause): string {
   return WINDOW_CLOSED_NOTES[cause ?? VET_CAUSE.onlineSource];
@@ -63,155 +39,6 @@ export function windowClosedNote(cause?: VetCause): string {
 
 /** The longest excerpt of a new window's text that is sent. */
 export const EXCERPT_CHARS = 400;
-
-/**
- * The most controls (inputs, lists, buttons) the group round a file input may hold and still be that
- * group rather than the whole form: a file component is the file input, its button and a line or two.
- */
-export const FILE_COMPONENT_MAX_CONTROLS = 6;
-
-/** Runs in the page: describes the control at a point, looking through shadow roots and same-origin frames. */
-export function targetScript(x: number, y: number): string {
-  return `((px, py) => {
-    const FIELD = new Set(["text","email","tel","number","password","search","url","date","datetime-local","time","month","week","checkbox","radio","range","color"]);
-    const FILE_COMPONENT_MAX_CONTROLS = ${FILE_COMPONENT_MAX_CONTROLS};
-    const clip = (t, n) => String(t == null ? "" : t).replace(/\\s+/g, " ").trim().slice(0, n || 200);
-    let el = document.elementFromPoint(px, py);
-    let ox = px, oy = py;
-    for (let depth = 0; el && depth < 8; depth += 1) {
-      if (el.shadowRoot) {
-        const inner = el.shadowRoot.elementFromPoint(ox, oy);
-        if (inner && inner !== el) { el = inner; continue; }
-      }
-      if (el.tagName === "IFRAME") {
-        try {
-          const inside = el.contentDocument;
-          if (inside) {
-            const box = el.getBoundingClientRect();
-            ox -= box.left; oy -= box.top;
-            const inner = inside.elementFromPoint(ox, oy);
-            if (inner) { el = inner; continue; }
-          }
-        } catch (error) { /* a frame of another origin: it is described as a frame */ }
-      }
-      break;
-    }
-    if (!el) return null;
-    const control = el.closest("button,a,[role=button],[role=link],[role=menuitem],[role=option],label,input,select,summary") || el;
-    const tag = control.tagName.toLowerCase();
-    const type = (control.getAttribute("type") || "").toLowerCase();
-    const named = (node) => {
-      const ids = (node.getAttribute("aria-labelledby") || "").split(/\\s+/).filter(Boolean)
-        .map((id) => (node.ownerDocument.getElementById(id) || {}).textContent).filter(Boolean).join(" ");
-      return node.getAttribute("aria-label") || ids || (node.labels && node.labels[0] && node.labels[0].textContent) || "";
-    };
-    const alts = [];
-    for (const image of [control, ...control.querySelectorAll("img[alt],svg title,[role=img][aria-label]")].slice(0, 5)) {
-      const text = image.getAttribute && (image.getAttribute("alt") || image.getAttribute("aria-label")) || (image.tagName === "title" ? image.textContent : "");
-      if (text) alts.push(text);
-    }
-    const tokens = [];
-    for (let node = control, up = 0; node && up < 3; node = node.parentElement, up += 1) {
-      tokens.push(node.id || "", node.getAttribute("class") || "", node.getAttribute("data-provider") || "", node.getAttribute("data-source") || "");
-    }
-    // A file component is the small group around a file input, not the whole form that holds it: an
-    // ancestor that holds a file input and more than a few other controls is the form (a page built
-    // without a form element had every field of its application read as part of the résumé component,
-    // and every click on them waited on a check meant for file buttons).
-    let inFile = false;
-    for (let node = control, up = 0; node && up < 4; up += 1) {
-      if (node.tagName === "FORM" || node.tagName === "BODY" || node.tagName === "HTML") break;
-      if (node.querySelector && node.querySelector('input[type="file"]')) {
-        inFile = node.querySelectorAll("input,select,textarea,button").length <= FILE_COMPONENT_MAX_CONTROLS;
-        break;
-      }
-      node = node.parentElement || (node.getRootNode && node.getRootNode().host) || null;
-    }
-    const link = control.closest("a");
-    let linkHost = "";
-    try { linkHost = link && link.href ? new URL(link.href, location.href).hostname : ""; } catch (error) { /* no host */ }
-    if (tag === "iframe") { try { linkHost = new URL(control.src, location.href).hostname; } catch (error) { /* no host */ } }
-    const own = tag === "input" || tag === "textarea" || tag === "select";
-    return {
-      tag, type, role: control.getAttribute("role") || "",
-      text: clip(own ? (control.value || control.placeholder || "") : (control.innerText || control.textContent)),
-      label: clip(named(control)), title: clip(control.getAttribute("title")),
-      alt: clip(alts.join(" | ")), linkHost, idClass: clip(tokens.filter(Boolean).join(" "), 240),
-      inFileComponent: inFile,
-      formField: (tag === "input" && FIELD.has(type || "text")) || tag === "textarea" || tag === "select",
-    };
-  })(${Number(x)}, ${Number(y)})`;
-}
-
-type Described = Omit<AgentVetTarget, "kind"> & { formField?: boolean };
-
-/** Describes the control at a point (CSS pixels), or null when nothing is there or the page cannot say. */
-export async function describeTargetAt(cdp: Cdp, x: number, y: number): Promise<Described | null> {
-  try {
-    const answer = await cdp.send<{ result?: { value?: unknown } }>("Runtime.evaluate", {
-      expression: targetScript(x, y),
-      returnByValue: true,
-    });
-    const value = answer.result?.value;
-    return value && typeof value === "object" ? value : null;
-  } catch {
-    return null;
-  }
-}
-
-export interface GuardVerdict {
-  blocked: boolean;
-  reason?: string;
-  cause?: VetCause;
-  /** The doubt about a control that goes ahead, for the model. */
-  hint?: string;
-}
-
-export interface ClickGuardDeps {
-  /** The session of the tab the run is in now (a run may move to another tab). */
-  cdp: () => Cdp;
-  /** Asks the server's decision model. */
-  vet: (target: AgentVetTarget) => Promise<AgentVetVerdict>;
-  /** The page the click is on, for the description. */
-  pageUrl: () => string;
-}
-
-/** The guard for one run: it remembers what it has already judged, and never throws. */
-export function createClickGuard(
-  deps: ClickGuardDeps,
-): (x: number, y: number) => Promise<GuardVerdict> {
-  const judged = new Map<string, Promise<GuardVerdict>>();
-  return async (x, y) => {
-    try {
-      const described = await describeTargetAt(deps.cdp(), x, y);
-      if (!described) return { blocked: false };
-      const { formField, ...rest } = described;
-      // A plain form field is typed into, never a way to bring in a file.
-      if (formField && !rest.inFileComponent) return { blocked: false };
-      const key = JSON.stringify(rest);
-      let verdict = judged.get(key);
-      if (!verdict) {
-        verdict = deps
-          .vet({ kind: "control", ...rest, pageUrl: deps.pageUrl() })
-          .then((answer): GuardVerdict => ({
-            // A control is refused on its description for one cause only: an autofill from a saved
-            // profile or another service, where the click itself is the harm. Every other doubt goes
-            // ahead and is told to the model; the server says so, and this holds it to that.
-            blocked: answer.blocked === true && answer.cause === VET_CAUSE.otherAutofill,
-            reason: answer.reason,
-            cause: answer.cause,
-            hint: answer.hint,
-          }))
-          // The server could not be asked: the click goes ahead.
-          .catch((): GuardVerdict => ({ blocked: false, reason: "could not be checked" }));
-        judged.set(key, verdict);
-      }
-      return await verdict;
-    } catch {
-      return { blocked: false };
-    }
-  };
-}
 
 /** The address, title and start of the text of a window a click opened. */
 export async function describeWindow(tabId: number, pageUrl: string): Promise<AgentVetTarget> {
