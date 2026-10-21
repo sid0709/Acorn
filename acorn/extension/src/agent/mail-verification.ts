@@ -140,9 +140,9 @@ export async function waitForMailVerification(args: {
 export function noteForVerification(kind: VerificationKind, value: string): string {
   if (kind === VERIFICATION.emailLink) {
     return (
-      "Acorn read this verification link from your Gmail (confirmed in the message): " +
+      "Acorn read this verification link from your Gmail (confirmed in the message) and opened it in this tab: " +
       value +
-      ". Open it in this tab if the page asks you to, then finish the step."
+      ". The page you see now is where it led: carry on from it, and do not stop for the link again."
     );
   }
   return (

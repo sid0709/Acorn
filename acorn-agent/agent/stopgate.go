@@ -32,6 +32,19 @@ import (
 // that led on to the next page of a form (most of the fields it had are gone, though the URL may be the
 // same) is not that: what the next page asks is the run's to fill.
 
+// A stop for a human check is read against the screen. A recorded run stopped with reason captcha for
+// the small badge that says a page is protected by such a service, with every field filled and the
+// button that sends the page never pressed: the applicant was asked to pass a check that was not there,
+// and the application was not sent. So on a captcha stop the decision model is asked, of the screenshot
+// (and of the survey's screens, when the look has them), whether a check the applicant must pass by hand
+// is in view: a box to tick, a puzzle, a challenge over the page. Below Config.CaptchaConfirm the stop is
+// sent back once in a run, with a note to press the button that sends the page and to stop only when a
+// check then stands in the way. The next such stop stands: a model that will not press the button does
+// not go round for ever. No service is named anywhere: the checker judges what it sees.
+
+// askHumanCheck is the key of the question whether the screen shows a check the applicant must pass.
+const askHumanCheck = "human_check"
+
 // stopPassMessage is what the person sees while the agent finishes before asking them.
 const stopPassMessage = "Finishing everything else on the page before asking you."
 
@@ -191,8 +204,63 @@ func quoted(names []string) string {
 	return strings.Join(parts, ", ")
 }
 
+// humanCheckQuestion asks whether the screen shows a check the applicant must pass by hand.
+func humanCheckQuestion() map[string]decide.Question {
+	return map[string]decide.Question{askHumanCheck: decide.YesNo(
+		"Does this screen show a check that the applicant must pass by hand before the page goes on: a box to tick to prove they are a person, " +
+			"a picture or puzzle challenge, or a challenge dialog over the page? Answer no for a small badge, logo or notice, usually in a corner, " +
+			"saying the page is protected by such a service, and for a form that shows only its fields and the button that sends it.")}
+}
+
+// humanCheckState is what the checker sees: the screenshot, or every screen of the survey when the look is
+// one, so a check anywhere on the page counts.
+func humanCheckState(obs Observation) []decide.Part {
+	if len(obs.Survey) == 0 {
+		return checkState(obs.Screenshot)
+	}
+	parts := []decide.Part{decide.Text("Screenshots of a web page the applicant's browser is on, from its top to its bottom.")}
+	for _, screen := range obs.Survey {
+		parts = append(parts, decide.Image(screen.Screenshot))
+	}
+	return parts
+}
+
+// humanCheckOnScreen asks the decision model whether the screen shows a check the applicant must pass by
+// hand. It reports how sure it is, the call for the trace, and whether an answer came: a checker that
+// cannot answer leaves the model's word standing.
+func (a *Agent) humanCheckOnScreen(ctx context.Context, s *session, obs Observation) (float64, modelCall, bool) {
+	started := time.Now()
+	response, err := a.newScreen(s.key).Decide(ctx, decide.Request{State: humanCheckState(obs), Questions: humanCheckQuestion()})
+	s.usage.Checks++
+	s.usage.CheckCost += response.Usage.Cost
+	s.usage.Cost += response.Usage.Cost
+	call := verdict{response: response, prompt: "a check the applicant must pass by hand is on screen"}.call(err)
+	if call.LatencyMs == 0 {
+		call.LatencyMs = time.Since(started).Milliseconds()
+	}
+	if err != nil {
+		slog.Warn(runName(s.id)+": could not read from the screen whether a human check is there, so the model's word stands.", plainlog.ErrorKey, err)
+		return 0, call, false
+	}
+	answer, ok := response.Answers[askHumanCheck]
+	if !ok || answer.Noul == nil {
+		slog.Warn(runName(s.id) + ": the checker gave no answer about a human check, so the model's word stands.")
+		return 0, call, false
+	}
+	return *answer.Noul, call, true
+}
+
+// captchaHoldNote tells the model that the screen shows no check to pass, and to press the button that
+// sends the page before it stops for one.
+func captchaHoldNote(sure float64) string {
+	return fmt.Sprintf("You asked to stop for a human check (captcha), but a checker read the screen and is only %.0f%% sure there is one for the applicant to pass. "+
+		"A badge, logo or notice saying the page is protected is not a check: nothing on it needs their hand. "+
+		"Go on: press the button that sends the application (or goes on to the next page). "+
+		"Stop with need_person for the check only when the page then shows one to tick or solve, or will not go on until it is passed.", sure*100)
+}
+
 // holdStop says whether this stop is sent back, with the note that tells the model why, and the decision
-// call made to judge it, if one was.
+// calls made to judge it, if any were.
 func (a *Agent) holdStop(ctx context.Context, s *session, status string, answer reply, obs Observation) (string, bool, []modelCall) {
 	if a.cfg.StopPasses <= 0 || (status != StatusNeedPerson && status != StatusStuck) {
 		return "", false, nil
@@ -209,6 +277,17 @@ func (a *Agent) holdStop(ctx context.Context, s *session, status string, answer 
 	if held {
 		s.stopPasses++
 		return note, true, calls
+	}
+	// A stop for a human check the screen does not show is sent back once, to press the button that sends the page.
+	if reason == StopCaptcha && s.captchaPasses == 0 && a.cfg.CaptchaConfirm > 0 && a.checksOn(s) {
+		sure, call, answered := a.humanCheckOnScreen(ctx, s, obs)
+		calls = append(calls, call)
+		if answered && sure < a.cfg.CaptchaConfirm {
+			s.captchaPasses++
+			s.stopPasses++
+			slog.Info(fmt.Sprintf("%s: the stop is sent back: the checker is only %.0f%% sure the screen shows a human check to pass.", runName(s.id), sure*100))
+			return captchaHoldNote(sure), true, calls
+		}
 	}
 	if s.stopPasses >= a.cfg.StopPasses {
 		return "", false, calls

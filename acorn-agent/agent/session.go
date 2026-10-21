@@ -117,6 +117,9 @@ type session struct {
 	accountSteps int
 	// stopPasses counts the stops for the applicant that were sent back to finish the page first.
 	stopPasses int
+	// captchaPasses counts the stops for a human check that were sent back because the screen showed
+	// none to pass (stopgate.go); one a run.
+	captchaPasses int
 	// zones are the photos the extension took of the zones of the plan it just carried out, and
 	// anchors a crop of the survey around each target of the plan being carried out, by action id
 	// (zones.go).

@@ -92,6 +92,11 @@ type Config struct {
 	// is one only the applicant can fill (a probability) for a stop to stand with it empty; a field it is
 	// less sure of is the run's to fill, and the stop is sent back naming it (stopgate.go).
 	PersonField float64
+	// CaptchaConfirm is how sure the decision model must be that a check the applicant must pass by
+	// hand (a box to tick, a puzzle, a challenge dialog) is on screen for a stop with reason captcha to
+	// stand; below it the stop is sent back once, to press the button that sends the page first
+	// (stopgate.go). 0 takes the model's word.
+	CaptchaConfirm float64
 	// KeepTurns is how many recent steps stay in full when the history is compacted; older
 	// ones are folded into one line each.
 	KeepTurns int
@@ -148,6 +153,7 @@ func DefaultConfig() Config {
 		MaxLoadWaits:      4,
 		StopPasses:        2,
 		PersonField:       0.5,
+		CaptchaConfirm:    0.7,
 		DonePasses:        2,
 		DoneConfirm:       0.7,
 		SingleSignOnBlock: 0.5,

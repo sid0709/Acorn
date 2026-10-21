@@ -31,6 +31,9 @@ type fakeScreen struct {
 	options []optionVerdict
 	// sent is the probability returned for "does the screen confirm a sent application"; nil means sure (1.0).
 	sent *float64
+	// humanCheck is the probability returned for "does the screen show a check the applicant must pass by
+	// hand"; nil means sure (1.0).
+	humanCheck *float64
 	// nativeChoice is the key the screen gives for a list's options given as text (e.g. "option_4"); empty
 	// answers none. listedWeights, when set, are the weights it gives each key instead (the heaviest is its
 	// choice), and listedRequests counts the times it was asked about options as text.
@@ -134,6 +137,17 @@ func (f *fakeScreen) Decide(_ context.Context, req decide.Request) (decide.Respo
 			answers[key] = decide.Answer{Type: decide.TypeNoul, Noul: &p}
 		}
 		return decide.Response{Model: "fake-screen-1", Answers: answers, Usage: decide.Usage{InputTokens: 400, Cost: 0.0001}}, nil
+	}
+	if _, asked := req.Questions[askHumanCheck]; asked {
+		p := 1.0
+		if f.humanCheck != nil {
+			p = *f.humanCheck
+		}
+		return decide.Response{
+			Model:   "fake-screen-1",
+			Answers: map[string]decide.Answer{askHumanCheck: {Type: decide.TypeNoul, Noul: &p}},
+			Usage:   decide.Usage{InputTokens: 500, Cost: 0.0001},
+		}, nil
 	}
 	if _, asked := req.Questions[askSent]; asked {
 		p := 1.0

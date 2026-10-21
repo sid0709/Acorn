@@ -18,6 +18,7 @@ import {
   type QueueState,
 } from "../agent-queue/model";
 import { readQueue, updateQueue } from "../agent-queue/store";
+import { whenTabLoaded } from "../tab-load";
 
 import { startRunOnTab } from "./messages/run";
 import { stopRunOnTab } from "./run-stop";
@@ -66,33 +67,6 @@ async function tabExists(tabId: number | undefined): Promise<boolean> {
     () => true,
     () => false,
   );
-}
-
-/** Resolves true once the tab has loaded (or the wait ran out), false if it was closed first. */
-function whenLoaded(tabId: number): Promise<boolean> {
-  return new Promise<boolean>((resolve) => {
-    const finish = (result: boolean) => {
-      clearTimeout(timer);
-      chrome.tabs.onUpdated.removeListener(onUpdated);
-      chrome.tabs.onRemoved.removeListener(onRemoved);
-      resolve(result);
-    };
-    const onUpdated = (id: number, info: chrome.tabs.TabChangeInfo) => {
-      if (id === tabId && info.status === "complete") finish(true);
-    };
-    const onRemoved = (id: number) => {
-      if (id === tabId) finish(false);
-    };
-    const timer = setTimeout(() => finish(true), LOAD_TIMEOUT_MS);
-    chrome.tabs.onUpdated.addListener(onUpdated);
-    chrome.tabs.onRemoved.addListener(onRemoved);
-    void chrome.tabs.get(tabId).then(
-      (tab) => {
-        if (tab.status === "complete") finish(true);
-      },
-      () => finish(false),
-    );
-  });
 }
 
 /** In the words the person reads: why a Run could not finish. */
@@ -147,7 +121,8 @@ async function workOn(job: QueueItem): Promise<void> {
     if (tab?.id == null) return block(job.id, NOT_OPENED_NOTE, undefined);
     tabId = tab.id;
     await patch(job.id, { tabId });
-    if (!(await whenLoaded(tabId))) return block(job.id, TAB_CLOSED_NOTE, undefined);
+    if (!(await whenTabLoaded(tabId, LOAD_TIMEOUT_MS)))
+      return block(job.id, TAB_CLOSED_NOTE, undefined);
     await sleep(SETTLE_MS);
   }
 

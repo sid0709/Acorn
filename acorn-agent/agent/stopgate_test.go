@@ -4,6 +4,9 @@ import (
 	"context"
 	"strings"
 	"testing"
+
+	"github.com/sid0709/acorn/acorn-agent/applicant"
+	"github.com/sid0709/acorn/acorn-agent/decide"
 )
 
 // formMarks are the controls of a form the page reports: a filled text box and the button that sends it.
@@ -226,5 +229,120 @@ func TestAStopWithOnlyTheApplicantsFieldEmptyIsNotHeldForFields(t *testing.T) {
 	unnamed[0].Question, unnamed[1].Question = "", ""
 	if names := unfilledFields(unnamed); names[0] != `the choice between "Veteran", "Not a veteran"` {
 		t.Fatalf("a group without a question is named by its choices: %q", names)
+	}
+}
+
+// captchaStop is the model stopping for a human check, in the words a recorded run used for a badge.
+func captchaStop() string {
+	return ending("need_person", "Please complete the human check and submit the application.",
+		map[string]any{"reason": "captcha", "problem": "The application requires a human check before it can be submitted.", "action": "Complete the check on the page, then submit the application."})
+}
+
+// humanCheckRequests is how many times the screen was asked whether a human check is in view, and the
+// last such request.
+func humanCheckRequests(screen *fakeScreen) (int, decide.Request) {
+	screen.mu.Lock()
+	defer screen.mu.Unlock()
+	n, last := 0, decide.Request{}
+	for _, req := range screen.requests {
+		if _, asked := req.Questions[askHumanCheck]; asked {
+			n, last = n+1, req
+		}
+	}
+	return n, last
+}
+
+func TestACaptchaStopTheScreenDoesNotShowIsSentBackToPressTheSendButton(t *testing.T) {
+	badge := 0.08
+	screen := &fakeScreen{humanCheck: &badge}
+	model := &scriptedModel{replies: []string{captchaStop(), captchaStop()}}
+	a := newAgentWithScreen(t, model, &fixedDecider{}, screen, DefaultConfig())
+	id := start(t, a)
+	step := stepOK(t, a, id, observation(shot(t, 40)))
+	if step.Status != StatusWorking || step.Message != stopPassMessage || len(step.Actions) != 1 || step.Actions[0].Kind != KindWait {
+		t.Fatalf("a captcha stop with no check on screen goes back once: %+v", step)
+	}
+	obs := observation(shot(t, 90))
+	obs.Results = resultsOf(step)
+	step = stepOK(t, a, id, obs)
+	if step.Status != StatusNeedPerson || step.Stop == nil || step.Stop.Reason != StopCaptcha {
+		t.Fatalf("the next captcha stop stands, so the run cannot go round for ever: %+v", step)
+	}
+	text := lastText(model)
+	for _, want := range []string{"only 8% sure", "not a check", "press the button that sends the application", "Stop with need_person for the check only when"} {
+		if !strings.Contains(text, want) {
+			t.Fatalf("the model was not told %q:\n%s", want, text)
+		}
+	}
+	if asked, _ := humanCheckRequests(screen); asked != 1 {
+		t.Fatalf("the screen is asked about a human check once a run, not %d times", asked)
+	}
+}
+
+func TestACaptchaStopTheScreenShowsIsHeldOnlyToFinishThePage(t *testing.T) {
+	box := 0.96
+	screen := &fakeScreen{humanCheck: &box}
+	model := &scriptedModel{replies: []string{captchaStop(), captchaStop()}}
+	a := newAgentWithScreen(t, model, &fixedDecider{}, screen, DefaultConfig())
+	id := start(t, a)
+	step := stepOK(t, a, id, observation(shot(t, 40)))
+	if step.Status != StatusWorking {
+		t.Fatalf("the first stop of a run goes back to finish the page: %+v", step)
+	}
+	obs := observation(shot(t, 90))
+	obs.Results = resultsOf(step)
+	if step = stepOK(t, a, id, obs); step.Status != StatusNeedPerson {
+		t.Fatalf("a check the screen shows stands on the next stop: %+v", step)
+	}
+	text := lastText(model)
+	if !strings.Contains(text, "the applicant is asked last") || strings.Contains(text, "press the button that sends the application") {
+		t.Fatalf("a check the screen shows is held only to finish the page:\n%s", text)
+	}
+}
+
+func TestTheHumanCheckIsReadFromEveryScreenOfASurvey(t *testing.T) {
+	badge := 0.1
+	screen := &fakeScreen{humanCheck: &badge}
+	a := newAgentWithScreen(t, &scriptedModel{replies: []string{captchaStop()}}, &fixedDecider{}, screen, DefaultConfig())
+	started, err := a.Start(context.Background(), "key", applicant.Auth{}, Start{Survey: true})
+	if err != nil {
+		t.Fatal(err)
+	}
+	obs := observation(shot(t, 40))
+	obs.Survey = []SurveyScreen{{Screenshot: shot(t, 50)}, {Screenshot: shot(t, 60), ScrollY: 800}}
+	if step := stepOK(t, a, started.SessionID, obs); step.Status != StatusWorking {
+		t.Fatalf("%+v", step)
+	}
+	asked, req := humanCheckRequests(screen)
+	if asked != 1 {
+		t.Fatalf("asked %d times", asked)
+	}
+	images := 0
+	for _, part := range req.State {
+		if part.ImageURL != nil {
+			images++
+		}
+	}
+	if images != 2 {
+		t.Fatalf("the checker sees every screen of the survey, not %d images", images)
+	}
+}
+
+func TestACaptchaStopIsTakenAtItsWordWhenTheCheckIsOff(t *testing.T) {
+	badge := 0.05
+	screen := &fakeScreen{humanCheck: &badge}
+	cfg := DefaultConfig()
+	cfg.CaptchaConfirm = 0
+	model := &scriptedModel{replies: []string{captchaStop(), captchaStop()}}
+	a := newAgentWithScreen(t, model, &fixedDecider{}, screen, cfg)
+	id := start(t, a)
+	step := stepOK(t, a, id, observation(shot(t, 40)))
+	obs := observation(shot(t, 90))
+	obs.Results = resultsOf(step)
+	if step = stepOK(t, a, id, obs); step.Status != StatusNeedPerson {
+		t.Fatalf("%+v", step)
+	}
+	if asked, _ := humanCheckRequests(screen); asked != 0 {
+		t.Fatalf("the screen was asked %d times with the check off", asked)
 	}
 }

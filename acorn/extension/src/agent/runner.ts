@@ -33,6 +33,7 @@ import {
 } from "@acorn/shared/run-types";
 
 import { RunLog, logUrl } from "../pipeline/run-log";
+import { whenTabNavigated } from "../tab-load";
 
 import { captureShot, isTabHidden, type Shot } from "./capture";
 import {
@@ -115,6 +116,8 @@ export const STEP_RETRY_LIMIT = 3;
 export const STEP_RETRY_BACKOFF_MS = [2_000, 6_000, 15_000] as const;
 /** How long a tab the page opened gets to show an address before the run goes on in it. */
 export const NEW_TAB_WAIT_MS = 8_000;
+/** How long the page an emailed link leads to gets to load before the run looks at it anyway. */
+export const MAIL_LINK_LOAD_WAIT_MS = 15_000;
 /** Told to the model when the tab a page opened was closed before the run could go into it. */
 const NEW_TAB_GONE_NOTE =
   "The page opened a new tab, but it was closed. You are still in the same tab.";
@@ -579,7 +582,13 @@ export async function runAgent(args: AgentRunArgs): Promise<RunReport> {
       await continueSession(args.agentUrl, must(sessionId), onHttp);
       keepSession = false;
       if (outcome.kind === VERIFICATION.emailLink) {
+        // The page the link leads to is waited for, so the next look is of it and not of the page it
+        // left; the wait is set up first, so the old page's "complete" does not end it.
+        const openedAt = Date.now();
+        const loaded = whenTabNavigated(here.tabId, MAIL_LINK_LOAD_WAIT_MS);
         await chrome.tabs.update(here.tabId, { url: outcome.value });
+        const stayed = await loaded;
+        log.event("mail-verification:opened", { loaded: stayed, ms: Date.now() - openedAt });
       }
       pendingNotes.push(noteForVerification(outcome.kind, outcome.value));
       lastChangeAt = Date.now();
@@ -1122,6 +1131,9 @@ export async function runAgent(args: AgentRunArgs): Promise<RunReport> {
       if (step.status === AGENT_STATUS.needPerson && isEmailVerificationStop(step.stop?.reason)) {
         const gmail = await readGmail(step, info, text, here);
         if (gmail === GMAIL_READ.found) {
+          // A link that was opened led to another page, maybe at the same address: the next look
+          // starts it afresh, from its top, with nothing of the page it left kept as settled.
+          if (verificationKindFor(step.stop) === VERIFICATION.emailLink) lastLook = "";
           results = [];
           continue;
         }
