@@ -12,6 +12,7 @@ import { pinnedTabId } from "../tab-target";
 import { pipelineRunningTabIds, runTabIds, syncWorkKeepAlive } from "../work-state";
 
 import type { RuntimeMessage, SendResponse } from "./shared";
+import type { RunReport } from "@acorn/shared/run-types";
 
 /** Run: the whole application on this tab, in one click. */
 export function handleStartRun(
@@ -25,33 +26,51 @@ export function handleStartRun(
       sendResponse({ error: "No tab for Run" });
       return;
     }
-    if (pipelineRunningTabIds.has(tabId)) {
-      sendResponse({ error: "A run is already working on this tab" });
-      return;
-    }
+    const started = await startRunOnTab(tabId, {
+      continueRun: message.continueRun === true,
+      stopBeforeSubmit: stopBeforeSubmitFor(message),
+    });
+    sendResponse("error" in started ? { error: started.error } : { ok: true });
+  })();
+}
 
-    const resume = await resumableRun(tabId, message.continueRun === true);
+/** A Run that began: `done` settles with its report when it ends, or null when it threw. */
+export type StartedRun = { done: Promise<RunReport | null> } | { error: string };
 
-    const claimed = new Set<number>([tabId]);
-    const stop = beginRunStop(tabId);
-    pipelineRunningTabIds.add(tabId);
-    runTabIds.add(tabId);
-    void groupRunTab(tabId);
-    syncWorkKeepAlive();
-    sendResponse({ ok: true });
-    // A completed run the backend could not take earlier is sent again now.
-    void flushCompletedRuns().catch(() => undefined);
+/**
+ * Starts a Run on this tab and returns once it works, without waiting for it to end. The Run's
+ * progress goes to the sidebar as it always does; the queue of the Agent tab also waits on `done`.
+ */
+export async function startRunOnTab(
+  tabId: number,
+  options: { continueRun?: boolean; stopBeforeSubmit?: boolean } = {},
+): Promise<StartedRun> {
+  if (pipelineRunningTabIds.has(tabId)) {
+    return { error: "A run is already working on this tab" };
+  }
 
+  const resume = await resumableRun(tabId, options.continueRun === true);
+
+  const claimed = new Set<number>([tabId]);
+  const stop = beginRunStop(tabId);
+  pipelineRunningTabIds.add(tabId);
+  runTabIds.add(tabId);
+  void groupRunTab(tabId);
+  syncWorkKeepAlive();
+  // A completed run the backend could not take earlier is sent again now.
+  void flushCompletedRuns().catch(() => undefined);
+
+  const done = (async (): Promise<RunReport | null> => {
     try {
       // The agent plans from screenshots; it reads the person's profile and résumés from
       // acorn-backend with their Acorn session, so it needs them signed in (a local development
       // agent reading files ignores the session).
       console.info("[acorn:agent] Run on tab", tabId, "→", getAgentUrl());
-      await runAgent({
+      return await runAgent({
         tabId,
         agentUrl: getAgentUrl(),
         signal: stop.signal,
-        stopBeforeSubmit: stopBeforeSubmitFor(message),
+        stopBeforeSubmit: options.stopBeforeSubmit === true,
         resume,
         keepRun,
         recordCompleted: recordCompletedRun,
@@ -74,6 +93,7 @@ export function handleStartRun(
         message: "Failed",
         error: err instanceof Error ? err.message : String(err),
       });
+      return null;
     } finally {
       endRunStop(stop);
       for (const id of claimed) {
@@ -83,6 +103,7 @@ export function handleStartRun(
       syncWorkKeepAlive();
     }
   })();
+  return { done };
 }
 
 /**

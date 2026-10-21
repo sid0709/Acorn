@@ -1,5 +1,6 @@
 import { MSG } from "../types";
 
+import { handleQueueCommand, type QueueCommand } from "./agent-queue";
 import { sinkTrace } from "./debug-trace-sink";
 import {
   handleAuthSignIn,
@@ -67,6 +68,11 @@ export function routeMessage(
   if (message.type === MSG.STOP_RUN) {
     handleStopRun(message, sender, sendResponse);
     return false;
+  }
+
+  if (message.type === MSG.AGENT_QUEUE) {
+    void handleQueueCommand(message as unknown as QueueCommand).then(sendResponse);
+    return true;
   }
 
   if (message.type === MSG.SHOW_ON_PAGE) {

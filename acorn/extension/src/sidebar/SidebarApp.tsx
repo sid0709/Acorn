@@ -4,9 +4,11 @@ import { useEffect, useMemo, useState } from "react";
 
 import { countBusyWorkers, tabInputFromProgress } from "../acorn-face/director";
 import { useCompanionFace } from "../acorn-face/use-companion-face";
+import { tally } from "../agent-queue/model";
 import { MSG } from "../types";
 
 import { pushAcornNotice } from "./acorn-notice";
+import { AgentPanel } from "./AgentPanel";
 import { JobsPanel } from "./JobsPanel";
 import { LogsPanel } from "./LogsPanel";
 import { NowCard } from "./NowCard";
@@ -20,6 +22,7 @@ import { SignedOutView } from "./SignedOutView";
 import { SupportPanel } from "./SupportPanel";
 import { UpdateDialog } from "./UpdateDialog";
 import { useActiveTabId } from "./use-active-tab";
+import { useAgentQueue } from "./use-agent-queue";
 import { useAvailableUpdate } from "./use-available-update";
 import { useSidebarAuth } from "./use-sidebar-auth";
 import { useSocketStatus } from "./use-socket-status";
@@ -41,6 +44,7 @@ export default function SidebarApp() {
   // Bumped on every open so the dialog remounts and starts with no notes or picked report.
   const [reportRun, setReportRun] = useState(0);
   const availableUpdate = useAvailableUpdate();
+  const agent = useAgentQueue();
   const [reportSending, setReportSending] = useState(false);
 
   const { apiUrl, setApiUrl, session, authBusy, handleSignIn, handleSignOut } = useSidebarAuth({
@@ -185,12 +189,15 @@ export default function SidebarApp() {
               value={mainTab}
               onChange={setMainTab}
               busyJobs={busyTotal}
+              agentOpen={tally(agent.queue).open}
               unreadSupport={support.unread}
             />
           </div>
 
           <main className="sidebar-scroll">
             <JobsPanel mainTab={mainTab} nowCard={nowCard} />
+
+            <AgentPanel mainTab={mainTab} agent={agent} pipelines={pipelines} />
 
             <SupportPanel
               mainTab={mainTab}

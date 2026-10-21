@@ -28,6 +28,8 @@ export const MSG = {
   ANSWER_RUN: "acorn:answer-run",
   /** Sidebar → service worker: scroll this tab's page to a field (`control`) or a place (`y`) and ring it; refused while a Run works there. */
   SHOW_ON_PAGE: "acorn:show-on-page",
+  /** Sidebar → service worker: add links to the Agent tab's queue, start, pause or skip its jobs. */
+  AGENT_QUEUE: "acorn:agent-queue",
   PIPELINE_PROGRESS: "acorn:pipeline-progress",
   SOCKET_STATUS: "acorn:socket-status",
   OPERATOR_NOTICE: "acorn:operator-notice",
