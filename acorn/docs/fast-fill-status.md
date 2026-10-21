@@ -132,3 +132,52 @@ The blue stretches followed the form correctly (six height changes, none forgott
 **Looked at and left alone, on purpose:** the survey's direction (the total travel is the same wherever it ends, except from the middle of a page); the cursor's glide (about 0.1 s a click); the explicit waits of the probe (they cover lists that load as one types); giving the dropdown helpers their zone (the survey after a probe would reuse a photo taken before the pick); a faster wheel for the scroll to an action (it changes what the person sees, and is theirs to decide).
 
 **To measure on the next run:** whether `agent-layout` and `agent-mark` appear and agree with what the page did; how many batches are still abandoned; the `settle` lap against the 22.5 s above; the time of the dropdown passes.
+
+## 7. The run `b3f2aa68` (1.94.0) and what 1.95.0 does about it
+
+Written 2026-10-20, after the run and before a new one. Nothing below was run in a real browser by Claude: the logic is held by unit tests (Go, and the extension's `tests/`, which run the page scripts against a fake page).
+
+**What the run showed** (the same Greenhouse form, 188 s, 11 model calls, 32 decision calls, ended at the e-mail code):
+
+| Cause                                                                                  | Steps | Time  |
+| -------------------------------------------------------------------------------------- | ----- | ----- |
+| An "Apply" click to reach a form already in the survey; its point check refused (0.01) | 1–2   | ~11 s |
+| The plan cut at the résumé upload, then a second plan and survey                       | 3→4   | ~12 s |
+| Twelve dropdowns opened, photographed, read and picked one by one                      | 4, 7  | ~42 s |
+| The retry ladder for "Asian" (six decision calls, every answer the same), a re-plan    | 5–6   | ~32 s |
+| The sponsorship box aimed at its own words inside the box, refused (0.44, 0.61)        | 8     | ~19 s |
+| Two more calls and a survey to confirm a stop the page had already explained           | 10–11 | ~11 s |
+
+The disability dropdown's probe click landed on its four-line question and opened nothing; its typed fallback then died on a 70 px growth 1,000 px below it, which the global page-height check took for a moved target. The sponsorship box straddled the 30 px survey overlap and was whole on neither screen.
+
+**What 1.95.0 does** (details in [`architecture/extension.md`](architecture/extension.md) 19.4m, _Aim, labels, lists and the stop_, and 19.4g):
+
+1. Every point of a plan is moved onto its control's entry (the box less its own label, as the page reports it) before the check and the click; a choose on a text box is typed.
+2. A point bound to a control the page calls by the model's label is not checked against a picture.
+3. A point bound to no control is placed by where the form moved, from the page's controls; the picture is searched only for a point that lies where something appeared.
+4. The page names the options of an open list with every look and probe photo. An exact match is picked with no model; the decision model reads the rest as text and takes a best option that leads clearly (`ACORN_AGENT_OPTION_ACCEPT_PERCENT`, 50); nothing is typed into a list that shows options, only into one the page says is open and empty; a list no option of which answers is left to the driving model with its options, in one call for all of them, while the rest of the run goes on and the click that sends the page is held back.
+5. A fast-fill plan goes on past an upload.
+6. A survey's screens begin above any control their top edge would cut.
+7. The marker is an open ring with a dot: the checker reads what is under it.
+8. A stop stands at once when the page reports no invalid control and every empty one appeared after the click that sent the page went through.
+9. Prompt: aim at the value line, never at the question's words; answer in the option's own words; plan the whole page, upload included; fill a form that is already in the survey.
+
+The trace now records how many controls came with each look and which control each point was bound to (`marks`, `bound` in `NNN.json`), and the log's `agent-mark` entries say when a point was placed by the form's move (`shift`).
+
+**To measure on the next run:** the decision calls per dropdown (expected one or none), whether any dropdown is left to the model and which, the point checks skipped (the agent's terminal says how many the page answered), whether the plan runs past the upload in one piece, and whether the stop after the code request stands at once.
+
+## 8. The run `2ad55733` (1.95.0) and what 1.95.1 does about it
+
+Written 2026-10-21, after the run and before a new one. Nothing below was run in a real browser by Claude.
+
+**What the run showed**: 162 s, 5 model calls (11 before), 12 decision calls (32 before), the stop after the code request accepted at once, the sponsorship box typed as a text box, and every single-choice dropdown picked from the options the page named. What still cost time, all of it on screen 2:
+
+| Cause                                                                                                                                                                                                                                  | Time                              |
+| -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | --------------------------------- |
+| The six "mark all that apply" dropdowns had no mark: their input is drawn without a size until something is typed. The model's points stayed on the questions, 20 px above the rows, and the probe clicks only gave the boxes focus.   | ~18 s typed fallback              |
+| Typed into from the top down with each list left open, the click on the next dropdown landed on an option of the list above ("South Asian" was chosen by accident), and "Male" typed into a list of "Man, Woman, …" showed no options. | two more plans and surveys, ~44 s |
+| The first model call took 25 s (the provider's wait), for a plan of the résumé upload alone.                                                                                                                                           | ~15 s over the usual              |
+
+**What 1.95.1 does**: a text box or dropdown input drawn without a size gets the box of the row it sits on ([`control-marks-page.ts`](../../extension/src/agent/control-marks-page.ts)), so it is a mark, the point is moved onto the row, the label answers the check, and the probe's click opens the list; a typed probe closes its list after its picture ([`probe.go`](../../../acorn-agent/agent/probe.go)); a probe click that gave no control focus is made again 12 px lower before anything is typed; the trace's `bound` covers the whole plan; the note for a list that showed no options tells the model to choose again with the list's own wording.
+
+**To measure on the next run:** `marks` in the step-2 trace entry (expected about 50 at the first look of the form, not 38), the six dropdowns picked in the pick batch with no typed stage, no accidental choice, and the whole form in three model calls.

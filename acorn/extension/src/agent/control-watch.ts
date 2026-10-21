@@ -13,6 +13,7 @@ import {
   layoutMoves,
   markMove,
   parseMarks,
+  shiftAt,
   type ControlMark,
   type LayoutMove,
   type MarkMove,
@@ -101,12 +102,15 @@ export class ControlWatch {
   marks: ControlMark[] = [];
   /** The list the agent was last told of: the form moved where the latest list differs from it. */
   private told: ControlMark[] = [];
+  /** The list at the last survey: a plan's points are measured on it, so a point bound to no control is placed from it. */
+  private surveyed: ControlMark[] = [];
   private version = -1;
 
   /** Another page: the lists describe the last one. */
   forget(): void {
     this.marks = [];
     this.told = [];
+    this.surveyed = [];
     this.version = -1;
   }
 
@@ -144,6 +148,21 @@ export class ControlWatch {
   /** The agent has been told of this list: the next move is measured from it. */
   commit(list: ControlMark[]): void {
     this.told = list;
+  }
+
+  /** The look that carried this list was a survey: the plan made on it measures its points on this page. */
+  survey(list: ControlMark[]): void {
+    this.surveyed = list;
+  }
+
+  /**
+   * How far a place on the page as the last survey saw it (`y`, CSS pixels) has moved since, with the form:
+   * 0 when nothing above it moved, null when it lies where something appeared or went, or when no survey
+   * has been taken (nothing is known).
+   */
+  shiftSince(y: number): number | null {
+    const moves = layoutMoves(this.surveyed, this.marks);
+    return moves ? shiftAt(moves, y) : null;
   }
 
   /**

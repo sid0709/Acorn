@@ -30,9 +30,22 @@ var digitFont = [10][5]string{
 	{"###", "# #", "###", "  #", "###"},
 }
 
-// markScreenshot draws where each action points on the screenshot the model was shown: a
-// ring and cross at a click, a line for a scroll, each numbered in order. It is for the
-// person debugging a run: it shows, without guessing, where a click actually went.
+// The marker's shape, in screenshot pixels at scale 1. The ring is wide and open: a point sits on
+// the control's own text (a short button, the line a value is typed on), and the decision model
+// that checks the point against its label must still read that text. The number plate sits
+// outside the ring, at its top right.
+const (
+	markRingRadius = 24
+	markDotRadius  = 3
+	markHaloWidth  = 2
+	markPlateGapPx = 4
+)
+
+// markScreenshot draws where each action points on the screenshot the model was shown: an open
+// ring with a dot at its middle for a click or an upload, a ring for a hover, a line for a scroll,
+// each numbered in order. It is for the decision model that checks a point against its label, and
+// for the person debugging a run: it shows, without guessing, where a click actually went, and
+// hides nothing of what is there.
 func markScreenshot(dataURL string, actions []Action) ([]byte, error) {
 	comma := strings.IndexByte(dataURL, ',')
 	if comma < 0 {
@@ -50,6 +63,7 @@ func markScreenshot(dataURL string, actions []Action) ([]byte, error) {
 	draw.Draw(canvas, canvas.Bounds(), decoded, decoded.Bounds().Min, draw.Src)
 	scale := max(1, canvas.Bounds().Dx()/700) // keep the marks legible on a wide screenshot
 	thick := max(3, 2*scale)                  // thin lines vanish in JPEG compression
+	radius := markRingRadius * scale
 	for i, action := range actions {
 		if action.X == nil || action.Y == nil {
 			continue
@@ -60,15 +74,14 @@ func markScreenshot(dataURL string, actions []Action) ([]byte, error) {
 			drawLine(canvas, x, y, x+int(clampF(action.DX, 160*float64(scale))), y+int(clampF(action.DY, 160*float64(scale))), colorScroll, thick)
 			drawRing(canvas, x, y, 6*scale, colorScroll, thick)
 		case KindUpload:
-			drawRing(canvas, x, y, 14*scale, colorUpload, thick)
-			drawCross(canvas, x, y, 22*scale, colorUpload, thick)
+			drawOpenMark(canvas, x, y, radius, scale, colorUpload, thick)
 		case KindHover:
-			drawRing(canvas, x, y, 14*scale, colorHover, thick)
+			drawRing(canvas, x, y, radius, colorHover, thick)
 		default:
-			drawRing(canvas, x, y, 14*scale, colorClick, thick)
-			drawCross(canvas, x, y, 22*scale, colorClick, thick)
+			drawOpenMark(canvas, x, y, radius, scale, colorClick, thick)
 		}
-		drawNumber(canvas, i+1, x+16*scale, y-26*scale, scale, colorLabel)
+		gap := markPlateGapPx * scale
+		drawNumber(canvas, i+1, x+radius+thick+gap, y-radius-thick-gap-6*scale, scale, colorLabel)
 	}
 	var out bytes.Buffer
 	if err := jpeg.Encode(&out, canvas, &jpeg.Options{Quality: markedQuality}); err != nil {
@@ -83,7 +96,16 @@ var (
 	colorUpload = color.RGBA{R: 20, G: 160, B: 60, A: 255}
 	colorHover  = color.RGBA{R: 170, G: 60, B: 200, A: 255}
 	colorLabel  = color.RGBA{R: 255, G: 255, B: 0, A: 255}
+	colorHalo   = color.RGBA{R: 255, G: 255, B: 255, A: 255}
 )
+
+// drawOpenMark draws a point as a wide ring with a white halo outside it and a dot at its middle: what
+// lies inside the ring (a button's text, a field's value line) stays readable.
+func drawOpenMark(img *image.RGBA, cx, cy, radius, scale int, c color.RGBA, thickness int) {
+	drawRing(img, cx, cy, radius+thickness, colorHalo, markHaloWidth*scale)
+	drawRing(img, cx, cy, radius, c, thickness)
+	drawRing(img, cx, cy, 0, c, markDotRadius*scale)
+}
 
 func clampF(value, limit float64) float64 { return math.Max(-limit, math.Min(limit, value)) }
 

@@ -19,10 +19,11 @@ import (
 // that has a label is checked against it: the survey screen is drawn with the points numbered on it,
 // and the decision model is asked, for each point, whether it is on the control that belongs to its
 // label. The screens are checked side by side, so it costs about one check. A point that is not
-// on its control, but in the field of one, is moved onto it and checked again (reaim.go). A point that
-// is still not on its control is not acted on, and neither is what was typed into it; the rest of
+// on its control is not acted on, and neither is what was typed into it; the rest of
 // the plan runs, except the click that sends the page (the plan lost something, so it is held back),
-// and the model is told which points to plan again.
+// and the model is told which points to plan again. Before the check, each point is moved onto the entry
+// of the control it is on (aim.go), and a point on a control the page calls what the model called it
+// is not checked at all (labels.go).
 
 // askPointPrefix starts the key of the question about a numbered point: "p1", "p2", ...
 const askPointPrefix = "p"
@@ -44,9 +45,10 @@ func pointQuestion(n int, label string) decide.Question {
 }
 
 // checkedPoints are the point actions of a plan that can be checked, by zone: they have a label and
-// an anchor (the survey screen they were measured on is readable). Zones come in the order of their
-// first action.
-func (s *session) checkedPoints(planned []Action) (zones []int, byZone map[int][]Action) {
+// an anchor (the survey screen they were measured on is readable). A point bound to a control the page
+// calls what the model called it is not checked: the page has answered (labels.go). Zones come in the
+// order of their first action; trusted counts the points the page answered for.
+func (s *session) checkedPoints(planned []Action) (zones []int, byZone map[int][]Action, trusted int) {
 	byZone = map[int][]Action{}
 	for _, action := range planned {
 		if !isPointAction(action) || strings.TrimSpace(action.Label) == "" {
@@ -55,12 +57,16 @@ func (s *session) checkedPoints(planned []Action) (zones []int, byZone map[int][
 		if _, ok := s.anchors[action.ID]; !ok {
 			continue
 		}
+		if ref, bound := s.marks[action.ID]; bound && labelsAgree(action.Label, ref.Label) {
+			trusted++
+			continue
+		}
 		if _, seen := byZone[action.Zone]; !seen {
 			zones = append(zones, action.Zone)
 		}
 		byZone[action.Zone] = append(byZone[action.Zone], action)
 	}
-	return zones, byZone
+	return zones, byZone, trusted
 }
 
 // zoneImage is the survey screen of a zone (the single screenshot when there is no survey).
@@ -79,7 +85,11 @@ func (a *Agent) checkPlanPoints(ctx context.Context, s *session, planned []Actio
 	if !s.start.FastFill || !a.checksOn(s) || a.cfg.PointMatch <= 0 {
 		return planned, nil
 	}
-	zones, byZone := s.checkedPoints(planned)
+	zones, byZone, trusted := s.checkedPoints(planned)
+	if trusted > 0 {
+		slog.Info(fmt.Sprintf("%s: %s of the plan %s on a control the page calls what the model called it, and %s not checked against a picture.",
+			runName(s.id), plainlog.Count(trusted, "point"), isOrAre(trusted), isOrAre(trusted)))
+	}
 	if len(zones) == 0 {
 		return planned, nil
 	}
@@ -113,12 +123,6 @@ func (a *Agent) checkPlanPoints(ctx context.Context, s *session, planned []Actio
 	s.usage.Checks += len(zones)
 	s.usage.CheckCost += cost
 	s.usage.Cost += cost
-	if len(wrong) == 0 {
-		return planned, calls
-	}
-	// A point on the words of a question is moved onto its box and checked again before it is given up.
-	planned, wrong, moved := a.reaimWrongPoints(ctx, s, planned, wrong, obs)
-	calls = append(calls, moved...)
 	if len(wrong) == 0 {
 		return planned, calls
 	}

@@ -58,6 +58,35 @@ function form(): Form {
   return { page, first, country, back, submit, banner };
 }
 
+/**
+ * A dropdown that marks all that apply: its input is drawn without a size until something is typed into
+ * it, inside the row a person clicks (which sits inside the bordered box with the question).
+ */
+function sizeless(page: FakePage): { input: FakeElement; row: FakeElement } {
+  const box = page.body.add("div", { x: 248, y: 1300, w: 540, h: 60 });
+  const row = box.add("div", { x: 248, y: 1320, w: 540, h: 38 });
+  const holder = row.add("div", { x: 262, y: 1324, w: 0, h: 0 });
+  const input = holder.add(
+    "input",
+    { x: 262, y: 1324, w: 0, h: 0 },
+    { role: "combobox", id: "race" },
+  );
+  return { input, row };
+}
+
+/** A bordered field whose question is printed inside it: the input is the whole box, the label its top 70 px. */
+function innerLabelled(page: FakePage): FakeElement {
+  const sponsorship = page.body.add(
+    "input",
+    { x: 240, y: 1100, w: 540, h: 100 },
+    { type: "text", name: "sponsorship", required: "", "aria-invalid": "true" },
+  );
+  const words = new FakeElement(page, "label", { x: 250, y: 1105, w: 500, h: 65 });
+  words.textContent = "Will you require sponsorship? *";
+  sponsorship.labels = [words];
+  return sponsorship;
+}
+
 describe("the page's list of controls", () => {
   it("is every drawn control that is not fixed to the window, with its kind, its place and its field", async () => {
     const { page } = form();
@@ -85,6 +114,60 @@ describe("the page's list of controls", () => {
       "the field round a tiny input is the whole dropdown",
     );
     assert.equal(back?.box, undefined, "a row of two buttons is no button's own field");
+  });
+
+  it("says what the page calls each control, and what it says of its state", async () => {
+    const { page, first, country } = form();
+    first.value = "Ada";
+    country.attributes["aria-required"] = "true";
+    const watch = new ControlWatch();
+    await watch.read(page.cdp());
+    const [name, dropdown, back, submit] = watch.marks;
+    assert.equal(name?.label, "First Name *");
+    assert.equal(name?.empty, false, "a text box with text in it");
+    assert.equal(name?.required, undefined);
+    assert.equal(dropdown?.required, true);
+    assert.equal(dropdown?.empty, undefined, "a dropdown the page draws keeps its value elsewhere");
+    assert.equal(back?.label, "Back");
+    assert.equal(back?.empty, undefined, "a button holds no value");
+    assert.equal(submit?.label, "Submit application");
+    assert.equal(name?.entry, undefined, "a label above the box leaves the whole box as the entry");
+  });
+
+  it("gives a control whose label is printed inside its box the line under the words as its entry", async () => {
+    const { page } = form();
+    innerLabelled(page);
+    const watch = new ControlWatch();
+    await watch.read(page.cdp());
+    const field = watch.marks.find((mark) => mark.id.includes("sponsorship"));
+    assert.deepEqual(field?.entry, { x: 240, y: 1170, w: 540, h: 30 });
+    assert.equal(field?.required, true);
+    assert.equal(field?.empty, true);
+    assert.equal(field?.invalid, true);
+  });
+
+  it("gives a control drawn without a size the box of the row it sits on, and finds it there again", async () => {
+    const { page } = form();
+    const { row } = sizeless(page);
+    const watch = new ControlWatch();
+    await watch.read(page.cdp());
+    const mark = watch.marks.find((one) => one.id === "input::race:");
+    assert.deepEqual(
+      [mark?.x, mark?.y, mark?.w, mark?.h],
+      [248, 1320, 540, 38],
+      "the row, not the sizeless input",
+    );
+    assert.equal(mark?.kind, "select");
+    assert.deepEqual(
+      await watch.move(page.cdp(), { id: "input::race:", x: 248, y: 1320, w: 540, h: 38 }, 1),
+      { dx: 0, dy: 0 },
+    );
+    row.box = { ...row.box, y: 1400 };
+    assert.deepEqual(
+      await watch.move(page.cdp(), { id: "input::race:", x: 248, y: 1320, w: 540, h: 38 }, 1),
+      { dx: 0, dy: 80 },
+      "the row's move is the control's",
+    );
   });
 
   it("counts the page's scroll in a control's place", async () => {
@@ -160,6 +243,28 @@ describe("where the form moved", () => {
     assert.deepEqual(watch.moves(), []);
     watch.forget();
     assert.equal(watch.moves(), null);
+  });
+
+  it("places a point of the last survey by the moves since it, whatever the agent was told between", async () => {
+    const { page, country, back, submit } = form();
+    const cdp = page.cdp();
+    const watch = new ControlWatch();
+    assert.equal(watch.shiftSince(320), null, "no survey yet");
+    await watch.read(cdp);
+    watch.survey(watch.marks);
+    watch.commit(watch.marks);
+    assert.equal(watch.shiftSince(320), 0);
+    for (const el of [country, back, submit]) el.box = { ...el.box, y: el.box.y + 30 };
+    page.mutated();
+    await watch.read(cdp, { fresh: true });
+    // A look between told the agent of the moved list; the survey's page is still what the plan measures on.
+    watch.commit(watch.marks);
+    assert.deepEqual(watch.moves(), []);
+    assert.equal(watch.shiftSince(320), 0, "above the growth");
+    assert.equal(watch.shiftSince(420), null, "in the gap where something appeared");
+    assert.equal(watch.shiftSince(830), 30, "below it");
+    watch.forget();
+    assert.equal(watch.shiftSince(830), null);
   });
 });
 

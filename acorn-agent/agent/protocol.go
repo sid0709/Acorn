@@ -173,6 +173,17 @@ type Observation struct {
 	// Look names the look, the same on a step the extension sends again after a failure, so the move
 	// in Layout is placed once. Empty from an extension that does not name its looks.
 	Look string `json:"look,omitempty"`
+	// List is the list of choices open on the page at this look, as the page names its options
+	// (an ARIA listbox or menu); nil when the page names none. A dropdown the agent opened is read
+	// from it as text (choose.go), with no picture to count rows in.
+	List *OpenList `json:"list,omitempty"`
+}
+
+// OpenList is a list of choices open on the page, as the page names its options, in the order they
+// are drawn (so the n-th is reached with n-1 ArrowDown from the first). Empty options is a list that
+// is open with nothing in it yet: a box that searches as one types.
+type OpenList struct {
+	Options []string `json:"options"`
 }
 
 // Rect is a box on the page, in screenshot pixels from the page's top left.
@@ -186,19 +197,37 @@ type Rect struct {
 // ControlMark is one control of the page (an input, a dropdown, a button, a check, a file field, a
 // link): a stable ID, what kind it is, where it sits, and Box, the field it belongs to: the largest
 // box around it that holds no other control, so a point on the control's own label is on its field.
+// Label is what the page calls it (its label, aria-label, placeholder, or a button's text). Entry is
+// the part of the control's own box that is not its label, when the label is printed inside the box
+// (a question's words inside a bordered field): the place to click or type. Required, Empty and
+// Invalid are what the page says of the control's state; Empty is nil when the page cannot tell (a
+// dropdown the page draws itself keeps its value elsewhere).
 type ControlMark struct {
 	ID   string `json:"id"`
 	Kind string `json:"kind"`
 	Rect
-	Box *Rect `json:"box,omitempty"`
+	Box      *Rect  `json:"box,omitempty"`
+	Label    string `json:"label,omitempty"`
+	Entry    *Rect  `json:"entry,omitempty"`
+	Required bool   `json:"required,omitempty"`
+	Empty    *bool  `json:"empty,omitempty"`
+	Invalid  bool   `json:"invalid,omitempty"`
 }
+
+// The kinds of control the page reports (control-marks-page.ts).
+const (
+	MarkKindInput  = "input"
+	MarkKindSelect = "select"
+)
 
 // MarkRef is the control a point was bound to when it was planned, as it sat then. The extension finds
 // the same control by ID when the point is acted on, and the difference of the two places is how far
-// the point has moved.
+// the point has moved. Label and Kind stay on the agent: the point is checked against the label.
 type MarkRef struct {
 	ID string `json:"id"`
 	Rect
+	Label string `json:"-"`
+	Kind  string `json:"-"`
 }
 
 // LayoutMove is a move of the form between two looks, in old page positions (screenshot pixels). The

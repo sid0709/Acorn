@@ -50,6 +50,7 @@ import {
 } from "./client";
 import {
   marksOfLook,
+  noteLook,
   placeMarksFor,
   quietSettle,
   startControlWatch,
@@ -78,7 +79,7 @@ import {
   verificationKindFor,
   waitForMailVerification,
 } from "./mail-verification";
-import { readFocus, readPageText } from "./page-info";
+import { readFocus, readOpenList, readPageText } from "./page-info";
 import { PageMapKeeper, pageKey } from "./page-map";
 import { pageState, type ScrollContext } from "./page-scroll";
 import {
@@ -613,7 +614,8 @@ export async function runAgent(args: AgentRunArgs): Promise<RunReport> {
       await here.overlay.hideForCapture(true);
       try {
         const photo = await captureShot(here.cdp);
-        const focus = await readFocus(here.cdp);
+        // What the page says of the list the click opened: the focused control, and the options it names.
+        const [focus, list] = await Promise.all([readFocus(here.cdp), readOpenList(here.cdp)]);
         // A picture that did not get through is not an error: the dropdown goes back to being set one at a time.
         await sendShot(
           args.agentUrl,
@@ -624,6 +626,7 @@ export async function runAgent(args: AgentRunArgs): Promise<RunReport> {
             screenshot: photo.dataUrl,
             scrollY: photo.viewport.scrollY,
             focus,
+            list,
           },
           signal,
           onHttp,
@@ -900,7 +903,15 @@ export async function runAgent(args: AgentRunArgs): Promise<RunReport> {
           survey = await look
             .time("survey", () =>
               surveys.take(
-                { cdp: here.cdp, sleep, checkStopped, onMove: showMap, scroll: scrolls },
+                {
+                  cdp: here.cdp,
+                  sleep,
+                  checkStopped,
+                  onMove: showMap,
+                  scroll: scrolls,
+                  // A screen's edge cuts no control with its field: the plan's points are aimed at whole controls.
+                  controls: () => marks.marks.map((mark) => mark.box ?? mark),
+                },
                 first,
                 zoneShots,
               ),
@@ -926,8 +937,12 @@ export async function runAgent(args: AgentRunArgs): Promise<RunReport> {
       pageMap.survey(survey, surveys.fresh, shot.viewport.height);
       pageMap.phase(RUN_MAP_PHASE.thinking);
       showRun();
-      const [focus, text] = await look.time("pageRead", () =>
-        Promise.all([readFocus(here.cdp), readPageText(here.cdp, here.tabId)]),
+      const [focus, text, list] = await look.time("pageRead", () =>
+        Promise.all([
+          readFocus(here.cdp),
+          readPageText(here.cdp, here.tabId),
+          readOpenList(here.cdp),
+        ]),
       );
       // The page's text goes once per change: the job description may sit above the form,
       // where a click on Apply has already scrolled past it.
@@ -945,7 +960,7 @@ export async function runAgent(args: AgentRunArgs): Promise<RunReport> {
       stepHttp = undefined;
       // The list this look tells the agent of: the form moves from here on are measured from it. The look's
       // name goes with it, the same on a retry, so the agent places the move once.
-      const sentMarks = marks.marks;
+      const sentMarks = noteLook(marks, survey);
       const lookId = crypto.randomUUID().slice(0, 8);
       const step = await askWithRetry({
         look: lookId,
@@ -956,6 +971,7 @@ export async function runAgent(args: AgentRunArgs): Promise<RunReport> {
         focus,
         notes,
         results,
+        list,
         ...(survey ? { survey } : {}),
         ...(zoneShots.length > 0 ? { zoneShots: [...zoneShots] } : {}),
         ...(pageText ? { pageText } : {}),

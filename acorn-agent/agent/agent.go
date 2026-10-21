@@ -72,7 +72,11 @@ type Config struct {
 	CheckLoadingWait float64
 	// OptionMatch is how sure the checker must be of which option of an open dropdown answers a
 	// choose action (a probability) for the agent to pick it.
-	OptionMatch  float64
+	OptionMatch float64
+	// OptionAccept is how sure the checker must be of an option when the list's options are read as
+	// text (the page names them) and no other option has more than half its weight: a best option that
+	// is not so bad is taken, as a person would take it, rather than typing or asking the model.
+	OptionAccept float64
 	LoadWait     time.Duration
 	MaxLoadWaits int
 	// DonePasses is how many times a "done" the screen does not confirm (no thank-you or confirmation) is
@@ -135,6 +139,7 @@ func DefaultConfig() Config {
 		CheckLoading:      0.3,
 		CheckLoadingWait:  0.7,
 		OptionMatch:       0.7,
+		OptionAccept:      0.5,
 		LoadWait:          time.Second,
 		MaxLoadWaits:      4,
 		StopPasses:        2,
@@ -396,6 +401,7 @@ func (a *Agent) step(ctx context.Context, id string, obs Observation) (Step, err
 	// What happened to every action sent since the model last looked, which may be several
 	// runs of one plan.
 	results := withoutChoose(append(append([]ActionResult(nil), s.carried...), obs.Results...))
+	s.noteCommitResults(obs.Results)
 	a.learnJD(ctx, s, obs)
 	if s.pendingUpload != nil {
 		return a.answerPending(s, obs, results, sig)
@@ -503,13 +509,19 @@ func (a *Agent) step(ctx context.Context, id string, obs Observation) (Step, err
 	// lost counts the actions of the plan that could not be carried out: the click that sends the page waits for them.
 	lost := len(answer.Actions) - len(planned)
 	planned = pinFrame(planned, obs.Viewport, len(screens))
-	planned, cut := cutAfterUpload(planned)
-	if cut > 0 && answer.Status == StatusWorking {
-		dropped = append(dropped, fmt.Sprintf("%d planned actions after the upload were not run: the page moves after a file is attached", cut))
-		s.notes = append(s.notes, afterUploadNote)
+	// A fast-fill plan goes on past an upload: its points follow the page's controls as the page moves
+	// (marks.go). Without the controls, the plan ends at the upload as before.
+	if !s.start.FastFill || len(obs.Marks) == 0 {
+		var cut int
+		planned, cut = cutAfterUpload(planned)
+		if cut > 0 && answer.Status == StatusWorking {
+			dropped = append(dropped, fmt.Sprintf("%d planned actions after the upload were not run: the page moves after a file is attached", cut))
+			s.notes = append(s.notes, afterUploadNote)
+		}
 	}
 	if s.start.FastFill {
 		planned = inheritZones(planned)
+		planned = s.aimAndLog(planned, obs)
 		s.anchors = buildAnchors(planned, obs)
 		s.marks = bindMarks(planned, obs)
 	} else {
@@ -549,6 +561,7 @@ func (a *Agent) step(ctx context.Context, id string, obs Observation) (Step, err
 	if held := a.holdCommits(s, &planned, lost); len(held) > 0 {
 		dropped = append(dropped, fmt.Sprintf("the click that sends the page was held back: the plan lost %s", plainlog.Count(lost, "action")))
 	}
+	s.noteCommitPlanned(planned, obs)
 	if settled := s.markSettled(obs, answer.Settled, planned, claimed); settled > 0 {
 		slog.Info(settledLine(s.id, settled, s.settled.Spans))
 	}
@@ -565,7 +578,7 @@ func (a *Agent) step(ctx context.Context, id string, obs Observation) (Step, err
 	}
 	status = answer.Status
 	// The applicant is asked last: a stop is first sent back to finish everything else on the page.
-	if note, held := a.holdStop(s, status, answer); held {
+	if note, held := a.holdStop(s, status, answer, obs); held {
 		status, answer.Message = StatusWorking, stopPassMessage
 		planned = []Action{{ID: fmt.Sprintf("s%da1", number), Kind: KindWait, Ms: stopPassWaitMs}}
 		s.notes = append(s.notes, note)
@@ -602,6 +615,7 @@ func (a *Agent) step(ctx context.Context, id string, obs Observation) (Step, err
 	entry.Observation, entry.Memo, entry.Job = answer.Observation, s.memo, s.job
 	entry.Status, entry.Message, entry.Actions, entry.Dropped = status, step.Message, actions, dropped
 	entry.Stop = step.Stop
+	entry.Marks, entry.Bound = len(obs.Marks), boundLines(planned, s.marks)
 	a.record(s, entry, obs.Screenshot, calls)
 	if status != StatusWorking {
 		s.finished, s.stoppedFor = true, step.Message

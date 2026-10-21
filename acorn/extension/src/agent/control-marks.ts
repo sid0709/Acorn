@@ -32,6 +32,19 @@ export const QUIET_MIN_MS = 60;
 export const MARK_HEIGHT_TOLERANCE_PX = 3;
 /** The same for width: a scrollbar that appears narrows a page by about 15, and its boxes with it. */
 export const MARK_WIDTH_TOLERANCE_PX = 24;
+/**
+ * The least height (CSS pixels) the part of a control's box that is not its label must have to be the
+ * control's entry: the line a value is typed or shown on, when the label is printed inside the box.
+ */
+export const ENTRY_MIN_HEIGHT_PX = 8;
+/** The longest label a mark carries. */
+export const MARK_LABEL_MAX_CHARS = 60;
+/**
+ * How many ancestors up a control drawn without a size (the input of a dropdown the page draws itself,
+ * sized by what is typed into it: nothing, so nothing) is given the box of: the first ancestor that has one
+ * is the row the control sits on, which is what a person clicks.
+ */
+export const SIZELESS_ANCESTORS = 4;
 
 export type ControlKind = "input" | "select" | "button" | "check" | "file" | "link";
 
@@ -39,13 +52,20 @@ export type ControlKind = "input" | "select" | "button" | "check" | "file" | "li
 export type Box = { x: number; y: number; w: number; h: number };
 
 /**
- * One control of the page: an id that is the same control wherever it sits, its kind and its place, and the
- * field round it (the largest box that holds no other control). Moving a mark changes only its place.
+ * One control of the page: an id that is the same control wherever it sits, its kind and its place, the
+ * field round it (the largest box that holds no other control), what the page calls it, its entry (the part
+ * of its own box that is not its label, when the label is printed inside the box), and what the page says of
+ * its state (`empty` is left out when the page cannot tell). Moving a mark changes only its place.
  */
 export type ControlMark = Box & {
   id: string;
   kind: ControlKind;
   box?: Box;
+  label?: string;
+  entry?: Box;
+  required?: boolean;
+  empty?: boolean;
+  invalid?: boolean;
 };
 
 /**
@@ -171,6 +191,17 @@ function singlyCovered<T extends Stretch>(pieces: T[]): T[] {
   return kept.filter((piece) => piece.to - piece.from > 1);
 }
 
+/**
+ * How far a place on the old page (`y`) moved with the form: 0 above the first move, a move's `dy` from its
+ * `at` down to the next move's gap, and null in a gap (something appeared or went there, so where the place
+ * is now is not known). A point bound to no control is placed by it when the page changed shape: growth
+ * below the point cannot have moved it.
+ */
+export function shiftAt(moves: LayoutMove[], y: number): number | null {
+  const run = runsOf(moves).find((piece) => piece.from <= y && y < piece.to);
+  return run ? run.dy : null;
+}
+
 /** Drops the part of each stretch that extends past `height`, and stretches that start there. */
 export function cropSpans<T extends Stretch>(spans: T[], height: number): T[] {
   const out: T[] = [];
@@ -206,7 +237,7 @@ export function moved(move: MarkMove): boolean {
 /** A list whose entries are all marks, or null: what the page sent is not trusted. */
 export function parseMarks(value: unknown): ControlMark[] | null {
   if (!Array.isArray(value)) return null;
-  return value.filter(isMark);
+  return value.filter(isMark).map(cleanMark);
 }
 
 export function isBox(value: unknown): value is Box {
@@ -223,6 +254,25 @@ function isMark(value: unknown): value is ControlMark {
   );
 }
 
+/** A mark with only the optional fields that are of the right shape; the rest are left out, not trusted. */
+function cleanMark(mark: ControlMark): ControlMark {
+  const out: ControlMark = {
+    id: mark.id,
+    kind: mark.kind,
+    x: mark.x,
+    y: mark.y,
+    w: mark.w,
+    h: mark.h,
+  };
+  if (mark.box) out.box = mark.box;
+  if (typeof mark.label === "string" && mark.label !== "") out.label = mark.label;
+  if (isBox(mark.entry)) out.entry = mark.entry;
+  if (mark.required === true) out.required = true;
+  if (typeof mark.empty === "boolean") out.empty = mark.empty;
+  if (mark.invalid === true) out.invalid = true;
+  return out;
+}
+
 /** The list as the agent is told it: in the screenshot's pixels. */
 export function marksForAgent(marks: ControlMark[], scale: number): ControlMark[] {
   const scaled = (box: Box): Box => ({
@@ -235,5 +285,6 @@ export function marksForAgent(marks: ControlMark[], scale: number): ControlMark[
     ...mark,
     ...scaled(mark),
     ...(mark.box ? { box: scaled(mark.box) } : {}),
+    ...(mark.entry ? { entry: scaled(mark.entry) } : {}),
   }));
 }

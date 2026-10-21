@@ -201,6 +201,8 @@ export interface AgentShotUpload {
   scrollY: number;
   /** What the page said had focus: a native list reports its options as text. */
   focus?: AgentFocus | null;
+  /** The list open on the page when the photo was taken, as the page names its options; null when it names none. */
+  list?: AgentOpenList | null;
 }
 
 /**
@@ -263,11 +265,28 @@ export interface AgentRect {
  * (equal ids are the same control, even when the page moved), what kind it is, and where it sits. `box`
  * is the field the control belongs to: the largest box round it that holds no other control, so a point
  * on the control's own label is on its field. The agent binds each point of a plan to a control with it.
+ * `label` is what the page calls the control; `entry` the part of its own box that is not its label, when
+ * the label is printed inside the box (the place to click or type); `required`, `empty` and `invalid` what
+ * the page says of its state (`empty` is left out when the page cannot tell).
  */
 export interface AgentControlMark extends AgentRect {
   id: string;
   kind: string;
   box?: AgentRect;
+  label?: string;
+  entry?: AgentRect;
+  required?: boolean;
+  empty?: boolean;
+  invalid?: boolean;
+}
+
+/**
+ * A list of choices open on the page, as the page names its options (an ARIA listbox or menu), in the
+ * order they are drawn. No options is a list that is open with nothing in it yet: a box that searches as
+ * one types.
+ */
+export interface AgentOpenList {
+  options: string[];
 }
 
 /**
@@ -313,6 +332,8 @@ export interface AgentObservation {
   layout?: AgentLayoutMove[];
   /** Names the look: a step sent again after a failure carries the same name, so the move in `layout` is placed once. */
   look?: string;
+  /** The list open on the page at this look, as the page names its options; null when it names none. */
+  list?: AgentOpenList | null;
 }
 
 export interface AgentAction {

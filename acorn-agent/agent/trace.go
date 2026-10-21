@@ -77,6 +77,10 @@ type stepTrace struct {
 	Stop        *StopInfo      `json:"stop,omitempty"`
 	Actions     []Action       `json:"actions"`
 	Dropped     []string       `json:"dropped,omitempty"`
+	// Marks is how many controls the page reported with the look, and Bound which control each point of
+	// the plan was bound to ("s3a1 input:text:first"), so a run can be read back without guessing.
+	Marks int      `json:"marks,omitempty"`
+	Bound []string `json:"bound,omitempty"`
 	// Error is why the step produced no answer (the model failed, the observation was refused).
 	Error string `json:"error,omitempty"`
 	// Usage is the run's model use up to and including this step.

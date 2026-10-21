@@ -144,6 +144,8 @@ type session struct {
 	script *script
 	// cover is what the run has looked at on the page it is on, in pixels from the top.
 	cover coverage
+	// commit is the click that sends the page, as the last plan kept it (stopgate.go).
+	commit commitState
 }
 
 // addTrace keeps the trace of an entry until the next answer carries it to the extension.

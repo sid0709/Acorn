@@ -31,6 +31,9 @@ type ShotUpload struct {
 	ScrollY    float64 `json:"scrollY"`
 	// Focus is what the page said had focus when a snap was taken: a native list reports its options as text.
 	Focus *Focus `json:"focus,omitempty"`
+	// List is the list of choices open on the page when a snap was taken, as the page names its options;
+	// nil when it names none (the picture is read instead).
+	List *OpenList `json:"list,omitempty"`
 }
 
 // ReceiveShot takes a picture the extension sent mid-batch. A zone shot starts its review at once; a snap

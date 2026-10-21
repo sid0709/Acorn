@@ -120,9 +120,12 @@ func TestAListThatIsTooLongToCountIsNarrowedByTypingTheAnswerAndPhotographedAgai
 	obs.Results = carriedOut(first.Actions)
 	second := stepOK(t, a, id, obs)
 
-	// The list is closed, opened again, the answer typed, and a picture taken: the list is left open.
+	// The list is closed, opened again, the answer typed, a picture taken, and the list closed again.
 	if len(snapsOf(second.Actions)) != 1 {
 		t.Fatalf("no second picture: %s", kinds(second.Actions))
+	}
+	if got := keysOf(second.Actions); len(got) != 1 || got[0] != probeEscape {
+		t.Fatalf("keys = %v: the typed list is not closed after its picture, and would hang over the dropdown below", got)
 	}
 	var typed bool
 	for _, action := range second.Actions {
@@ -141,8 +144,8 @@ func TestAListThatIsTooLongToCountIsNarrowedByTypingTheAnswerAndPhotographedAgai
 	obs = observation(shot(t, 170))
 	obs.Results = carriedOut(second.Actions)
 	third := stepOK(t, a, id, obs)
-	if got := keysOf(third.Actions); len(got) != 2 || got[0] != probeEscape || got[1] != optionKeys(1) {
-		t.Fatalf("keys = %v: the open list is closed, then the answer is picked", got)
+	if got := keysOf(third.Actions); len(got) != 1 || got[0] != optionKeys(1) {
+		t.Fatalf("keys = %v: the answer is picked", got)
 	}
 	var again bool
 	for _, action := range third.Actions {
@@ -173,12 +176,12 @@ func TestANativeListIsPickedFromItsOptionsAsText(t *testing.T) {
 }
 
 func TestASearchBoxWhoseListIsNotOpenIsTypedInTheProbeBatch(t *testing.T) {
-	// The first picture shows no list (a search box, or a list that has not drawn). Position 0 keeps
-	// pickOptionFrom from treating a sure option as proof the list is open.
+	// The first picture shows no list (a search box, or a list that has not drawn), though the click gave
+	// the box focus. Position 0 keeps pickOptionFrom from treating a sure option as proof the list is open.
 	screen := &fakeScreen{closedLooks: 1}
 	a, id := newProbeAgent(t, []string{plan("filling", nil, chooseWithLabel(1, 500, 300, "Country", "United States"))}, screen, DefaultConfig())
 	first := stepOK(t, a, id, surveyObservation(t))
-	sends(t, a, id, first.Actions, nil)
+	sends(t, a, id, first.Actions, map[int]*Focus{0: {Tag: "input", Type: "text", Label: "Country"}})
 	obs := observation(shot(t, 130))
 	obs.Results = carriedOut(first.Actions)
 	second := stepOK(t, a, id, obs)
@@ -369,5 +372,250 @@ func TestARefusedPointStillGetsItsSurveyAfterTheDropdownsAreSet(t *testing.T) {
 	s, _ := a.sessions.get(id)
 	if s.surveyAgain {
 		t.Fatal("the ask for a survey is still pending after the survey was asked for")
+	}
+}
+
+// sendsLists is the extension sending the pictures of a batch's snap actions with the options the page
+// names for each open list (by the snap's place in the batch; a list left out is one the page named nothing for).
+func sendsLists(t *testing.T, a *Agent, id string, actions []Action, lists map[int][]string) {
+	t.Helper()
+	for i, snap := range snapsOf(actions) {
+		upload := ShotUpload{Kind: ShotSnap, ID: snap.ID, Screenshot: shot(t, uint8(50+10*i))}
+		if options, ok := lists[i]; ok {
+			upload.List = &OpenList{Options: options}
+		}
+		if err := a.ReceiveShot(context.Background(), id, upload); err != nil {
+			t.Fatal(err)
+		}
+	}
+}
+
+// askedAboutPictures counts the times the screen was asked which option of a pictured list answers.
+func askedAboutPictures(screen *fakeScreen) int {
+	n := 0
+	for _, request := range screen.requests {
+		if _, asked := request.Questions[askOption]; asked {
+			n++
+		}
+	}
+	return n
+}
+
+func TestAListThePageNamesIsPickedByTheOptionThatIsExactlyTheAnswerWithNoModel(t *testing.T) {
+	screen := &fakeScreen{}
+	a, id := newProbeAgent(t, []string{dropdowns("No", "Male")}, screen, DefaultConfig())
+	first := stepOK(t, a, id, surveyObservation(t))
+	// The lists are opened from the top down: the first picture is the sponsorship's, the second the gender's.
+	sendsLists(t, a, id, first.Actions, map[int][]string{0: {"Yes", "No"}, 1: {"Female", "Male", "Non-binary"}})
+	obs := observation(shot(t, 130))
+	obs.Results = carriedOut(first.Actions)
+	second := stepOK(t, a, id, obs)
+	if picked := keysOf(second.Actions); len(picked) != 2 || picked[0] != optionKeys(2) || picked[1] != optionKeys(2) {
+		t.Fatalf("keys = %v, want each answer picked by its place among the options the page named", picked)
+	}
+	if askedAboutPictures(screen) != 0 || screen.listedRequests != 0 {
+		t.Fatalf("the decision model was asked (%d about pictures, %d about text) though each option was exactly the answer", askedAboutPictures(screen), screen.listedRequests)
+	}
+	if !second.Survey {
+		t.Fatal("the run's last batch is not followed by a survey")
+	}
+}
+
+func TestAListThePageNamesIsReadAsTextWhenNoOptionIsExactlyTheAnswer(t *testing.T) {
+	screen := &fakeScreen{listedWeights: map[string]float64{"option_1": 0.85, "option_2": 0.1, optionNone: 0.05}}
+	a, id := newProbeAgent(t, []string{plan("filling", nil, chooseWithLabel(1, 500, 300, "Race", "Asian"))}, screen, DefaultConfig())
+	first := stepOK(t, a, id, surveyObservation(t))
+	sendsLists(t, a, id, first.Actions, map[int][]string{0: {"Black or of African descent", "East Asian", "South Asian"}})
+	obs := observation(shot(t, 130))
+	obs.Results = carriedOut(first.Actions)
+	second := stepOK(t, a, id, obs)
+	if picked := keysOf(second.Actions); len(picked) != 1 || picked[0] != optionKeys(2) {
+		t.Fatalf("keys = %v, want the second option, which the model chose from the text", picked)
+	}
+	if askedAboutPictures(screen) != 0 || screen.listedRequests != 1 {
+		t.Fatalf("asked %d about pictures and %d about text, want the text read once", askedAboutPictures(screen), screen.listedRequests)
+	}
+	for _, action := range second.Actions {
+		if action.Kind == KindType {
+			t.Fatal("the answer was typed into a list that shows its options")
+		}
+	}
+}
+
+func TestAnOptionThatLeadsClearlyIsTakenThoughTheModelIsNotSureOfIt(t *testing.T) {
+	screen := &fakeScreen{listedWeights: map[string]float64{"option_1": 0.55, "option_2": 0.2, optionNone: 0.25}}
+	a, id := newProbeAgent(t, []string{plan("filling", nil, chooseWithLabel(1, 500, 300, "Race", "Asian"))}, screen, DefaultConfig())
+	first := stepOK(t, a, id, surveyObservation(t))
+	sendsLists(t, a, id, first.Actions, map[int][]string{0: {"Black or of African descent", "East Asian", "South Asian"}})
+	obs := observation(shot(t, 130))
+	obs.Results = carriedOut(first.Actions)
+	second := stepOK(t, a, id, obs)
+	if picked := keysOf(second.Actions); len(picked) != 1 || picked[0] != optionKeys(2) {
+		t.Fatalf("keys = %v, want the option that leads clearly (0.55 against 0.2)", picked)
+	}
+	cfg := DefaultConfig()
+	cfg.OptionAccept = 0
+	torn := &fakeScreen{listedWeights: map[string]float64{"option_1": 0.55, "option_2": 0.2, optionNone: 0.25}}
+	b, bid := newProbeAgent(t, []string{plan("filling", nil, chooseWithLabel(1, 500, 300, "Race", "Asian")), plan("again", nil, click(5, 5, nil))}, torn, cfg)
+	first = stepOK(t, b, bid, surveyObservation(t))
+	sendsLists(t, b, bid, first.Actions, map[int][]string{0: {"Black or of African descent", "East Asian", "South Asian"}})
+	obs = observation(shot(t, 130))
+	obs.Results = carriedOut(first.Actions)
+	if second := stepOK(t, b, bid, obs); len(keysOf(second.Actions)) != 0 {
+		t.Fatalf("with the lead rule off, keys = %v: an option the model is not sure of was taken", keysOf(second.Actions))
+	}
+}
+
+func TestADropdownNoOptionOfWhichAnswersIsLeftToTheModelWithItsOptionsAndTheSendIsHeld(t *testing.T) {
+	options := []string{"Black or of African descent", "East Asian", "Hispanic, Latinx or of Spanish Origin", "South Asian", "Southeast Asian"}
+	screen := &fakeScreen{listedWeights: map[string]float64{"option_1": 0.4, "option_3": 0.3, "option_4": 0.2, optionNone: 0.1}}
+	model := &scriptedModel{replies: []string{
+		plan("filling", nil,
+			chooseWithLabel(1, 500, 300, "Race", "Asian"),
+			labelled(1, 100, 600, "Phone"), typeAction("555", nil),
+			committing(3, 900, 700, "Submit application"),
+		),
+		plan("choosing", nil, chooseWithLabel(1, 500, 300, "Race", "East Asian")),
+	}}
+	a := newAgentWithScreen(t, model, &fixedDecider{}, screen, DefaultConfig())
+	id := startFast(t, a, true)
+	first := stepOK(t, a, id, surveyObservation(t))
+	sendsLists(t, a, id, first.Actions, map[int][]string{0: options})
+	obs := observation(shot(t, 130))
+	obs.Results = carriedOut(first.Actions)
+	second := stepOK(t, a, id, obs)
+	if len(keysOf(second.Actions)) != 0 {
+		t.Fatalf("keys = %v: nothing is picked in a list no option of which answers", keysOf(second.Actions))
+	}
+	for _, action := range second.Actions {
+		if action.Kind == KindType && action.Text != "555" {
+			t.Fatalf("the answer was typed into the list: %s", kinds(second.Actions))
+		}
+		if action.Commit || (action.Kind == KindClick && action.ScrollTo != nil && *action.ScrollTo == 1360) {
+			t.Fatalf("the click that sends the page went out with a dropdown unset: %s", kinds(second.Actions))
+		}
+	}
+	var typed bool
+	for _, action := range second.Actions {
+		typed = typed || (action.Kind == KindType && action.Text == "555")
+	}
+	if !typed {
+		t.Fatalf("the rest of the plan did not go on: %s", kinds(second.Actions))
+	}
+	if !second.Survey {
+		t.Fatal("the model is not shown the page again to choose")
+	}
+	s, _ := a.sessions.get(id)
+	joined := strings.Join(s.notes, "\n")
+	if !strings.Contains(joined, `choose "Asian"`) || !strings.Contains(joined, `2 "East Asian"`) || !strings.Contains(joined, `"Race"`) || !strings.Contains(joined, "on screen 1") {
+		t.Fatalf("the model is not told the options: %v", s.notes)
+	}
+	if !strings.Contains(joined, "Submit application") || !strings.Contains(joined, "not complete") {
+		t.Fatalf("the model is not told the click that sends the page was held back: %v", s.notes)
+	}
+	if s.probe != nil || s.script != nil {
+		t.Fatal("the run is over but the session still holds it")
+	}
+	// The model answers in the option's own words: it is picked with no question asked.
+	third := stepOK(t, a, id, surveyObservation(t))
+	sendsLists(t, a, id, third.Actions, map[int][]string{0: options})
+	obs = observation(shot(t, 170))
+	obs.Results = carriedOut(third.Actions)
+	fourth := stepOK(t, a, id, obs)
+	if picked := keysOf(fourth.Actions); len(picked) != 1 || picked[0] != optionKeys(2) {
+		t.Fatalf("keys = %v, want East Asian picked by its place", picked)
+	}
+	if screen.listedRequests != 1 {
+		t.Fatalf("the decision model was asked %d times about the text, want once: the model's own words need no question", screen.listedRequests)
+	}
+}
+
+func TestAnOpenListWithNoOptionsIsTypedAndReadAgainFromThePage(t *testing.T) {
+	screen := &fakeScreen{}
+	a, id := newProbeAgent(t, []string{plan("filling", nil, chooseWithLabel(1, 500, 300, "Country", "United States"))}, screen, DefaultConfig())
+	first := stepOK(t, a, id, surveyObservation(t))
+	// The page says a list is open with nothing in it: a box that searches as one types.
+	sendsLists(t, a, id, first.Actions, map[int][]string{0: {}})
+	obs := observation(shot(t, 130))
+	obs.Results = carriedOut(first.Actions)
+	second := stepOK(t, a, id, obs)
+	var typed bool
+	for _, action := range second.Actions {
+		typed = typed || (action.Kind == KindType && action.Text == "United States")
+	}
+	if !typed || len(snapsOf(second.Actions)) != 1 {
+		t.Fatalf("the answer was not typed and the list read again: %s", kinds(second.Actions))
+	}
+	sendsLists(t, a, id, second.Actions, map[int][]string{0: {"United States", "United States Minor Outlying Islands"}})
+	obs = observation(shot(t, 170))
+	obs.Results = carriedOut(second.Actions)
+	third := stepOK(t, a, id, obs)
+	if got := keysOf(third.Actions); len(got) != 1 || got[0] != optionKeys(1) {
+		t.Fatalf("keys = %v: the first of the narrowed options is picked", got)
+	}
+	if askedAboutPictures(screen) != 0 || screen.listedRequests != 0 {
+		t.Fatalf("the decision model was asked (%d pictures, %d text) though the page named the options and one was the answer", askedAboutPictures(screen), screen.listedRequests)
+	}
+}
+
+func TestAClickThatReachedNothingIsMadeAgainLowerBeforeAnythingIsTyped(t *testing.T) {
+	// The first picture shows no list and the page says nothing has focus: the click landed beside the
+	// dropdown. The second, 12 px lower, opens it; the pick then clicks where the list opened.
+	screen := &fakeScreen{closedLooks: 1, options: []optionVerdict{{3, 0.95}}}
+	a, id := newProbeAgent(t, []string{plan("filling", nil, chooseWithLabel(1, 500, 300, "Gender", "Male"))}, screen, DefaultConfig())
+	first := stepOK(t, a, id, surveyObservation(t))
+	sends(t, a, id, first.Actions, nil)
+	obs := observation(shot(t, 130))
+	obs.Results = carriedOut(first.Actions)
+	second := stepOK(t, a, id, obs)
+	for _, action := range second.Actions {
+		if action.Kind == KindType {
+			t.Fatalf("typed into a dropdown whose click reached nothing: %s", kinds(second.Actions))
+		}
+	}
+	if ys := clickYs(second.Actions); len(ys) != 1 || ys[0] != 300+nudgeOffsets[0] {
+		t.Fatalf("clicks at %v, want one %v px lower than the model's point", ys, nudgeOffsets[0])
+	}
+	if len(snapsOf(second.Actions)) != 1 || keysOf(second.Actions)[0] != probeEscape {
+		t.Fatalf("the lower click was not photographed and closed: %s", kinds(second.Actions))
+	}
+	sends(t, a, id, second.Actions, nil)
+	obs = observation(shot(t, 170))
+	obs.Results = carriedOut(second.Actions)
+	third := stepOK(t, a, id, obs)
+	if ys := clickYs(third.Actions); len(ys) != 1 || ys[0] != 300+nudgeOffsets[0] {
+		t.Fatalf("the pick clicks at %v, want where the list opened", ys)
+	}
+	if got := keysOf(third.Actions); len(got) != 1 || got[0] != optionKeys(3) {
+		t.Fatalf("keys = %v, want the answer picked", got)
+	}
+	if !third.Survey {
+		t.Fatal("the run's last batch is not followed by a survey")
+	}
+}
+
+func TestAClickMadeAgainLowerThatStillReachesNothingIsTyped(t *testing.T) {
+	// Lower, the list is still not open and nothing has focus: the answer is typed, as for a search box,
+	// and the dropdown is not nudged for ever.
+	screen := &fakeScreen{closedLooks: 2, options: []optionVerdict{{1, 0.95}}}
+	a, id := newProbeAgent(t, []string{plan("filling", nil, chooseWithLabel(1, 500, 300, "Country", "Canada"))}, screen, DefaultConfig())
+	first := stepOK(t, a, id, surveyObservation(t))
+	sends(t, a, id, first.Actions, nil)
+	obs := observation(shot(t, 130))
+	obs.Results = carriedOut(first.Actions)
+	second := stepOK(t, a, id, obs)
+	sends(t, a, id, second.Actions, nil)
+	obs = observation(shot(t, 170))
+	obs.Results = carriedOut(second.Actions)
+	third := stepOK(t, a, id, obs)
+	var typed bool
+	for _, action := range third.Actions {
+		typed = typed || (action.Kind == KindType && action.Text == "Canada")
+	}
+	if !typed || len(snapsOf(third.Actions)) != 1 {
+		t.Fatalf("the answer was not typed after the lower click: %s", kinds(third.Actions))
+	}
+	if ys := clickYs(third.Actions); len(ys) != 1 || ys[0] != 300+nudgeOffsets[0] {
+		t.Fatalf("typed at %v, want the lower point", ys)
 	}
 }

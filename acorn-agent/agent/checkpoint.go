@@ -164,7 +164,7 @@ func (a *Agent) takePlan(s *session, actions []Action, dropped []string) ([]Acti
 		return a.startScript(s, actions), dropped
 	}
 	batch := a.checksOn(s)
-	return a.sendRun(s, splitPlanForSession(actions, a.chunkLimit(s.start.FastFill), batch), dropped)
+	return a.sendRun(s, splitPlanForSession(actions, a.chunkLimit(s.start.FastFill), batch, s.start.FastFill), dropped)
 }
 
 // sendRun sends the first of the runs and keeps the rest only if the screen can be checked

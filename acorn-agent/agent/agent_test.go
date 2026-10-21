@@ -981,14 +981,29 @@ func TestAMarkedScreenshotShowsWhereEachActionPoints(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	// A red cross arm runs through the point; the page behind it is white.
-	r, g, b, _ := img.At(401, 290).RGBA()
-	if !(r>>8 > 150 && g>>8 < 130 && b>>8 < 130) {
-		t.Errorf("no red mark near the click point: %d %d %d", r>>8, g>>8, b>>8)
+	// A red ring stands round the point, with a dot at the point itself; what lies inside the ring (a
+	// button's text, the line a value is typed on) is left as it was, and so is the page away from it.
+	red := func(x, y int) bool {
+		r, g, b, _ := img.At(x, y).RGBA()
+		return r>>8 > 150 && g>>8 < 130 && b>>8 < 130
 	}
-	r, g, b, _ = img.At(900, 700).RGBA()
-	if !(r>>8 > 240 && g>>8 > 240 && b>>8 > 240) {
-		t.Errorf("the page away from the click was changed: %d %d %d", r>>8, g>>8, b>>8)
+	white := func(x, y int) bool {
+		r, g, b, _ := img.At(x, y).RGBA()
+		return r>>8 > 240 && g>>8 > 240 && b>>8 > 240
+	}
+	if !red(400, 300-markRingRadius-1) || !red(400+markRingRadius+1, 300) {
+		t.Error("no red ring round the click point")
+	}
+	if !red(400, 300) {
+		t.Error("no dot at the click point")
+	}
+	for _, at := range [][2]int{{400, 290}, {412, 300}, {400, 310}} {
+		if !white(at[0], at[1]) {
+			t.Errorf("the page inside the ring was drawn over at %v", at)
+		}
+	}
+	if !white(900, 700) {
+		t.Error("the page away from the click was changed")
 	}
 }
 

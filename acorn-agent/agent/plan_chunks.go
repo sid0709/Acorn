@@ -1,9 +1,10 @@
 package agent
 
 // splitPlan cuts a plan into runs. A run ends at an action the model put a check on, after
-// limit actions when it did not, and always before or after uploads and scrolls so the screen
-// is verified before the page moves and coordinates stay valid.
-func splitPlan(actions []Action, limit int) []chunk {
+// limit actions when it did not, and always before or after scrolls so coordinates stay valid.
+// With atUploads, a run also ends after an upload, so the screen is verified before the page moves;
+// a fast-fill plan goes on past it, since its points follow the page's controls.
+func splitPlan(actions []Action, limit int, atUploads bool) []chunk {
 	var out []chunk
 	var current []Action
 	flush := func(expect string) {
@@ -18,7 +19,7 @@ func splitPlan(actions []Action, limit int) []chunk {
 			flush(current[len(current)-1].Check)
 		}
 		current = append(current, action)
-		if action.Kind == KindUpload {
+		if action.Kind == KindUpload && atUploads {
 			flush(action.Check)
 			continue
 		}

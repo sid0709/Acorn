@@ -10,6 +10,7 @@ import {
   parseMarks,
   placeSpans,
   scaleMoves,
+  shiftAt,
   type ControlMark,
 } from "../../src/agent/control-marks.ts";
 
@@ -144,6 +145,34 @@ describe("placeSpans", () => {
   });
 });
 
+describe("shiftAt", () => {
+  const moves = [
+    { from: 1000, at: 1100, dy: 20 },
+    { from: 2000, at: 2100, dy: 50 },
+  ];
+
+  it("is nothing above the first move, each move's distance from where it began, and unknown in a gap", () => {
+    assert.equal(shiftAt(moves, 500), 0);
+    assert.equal(shiftAt(moves, 999), 0);
+    assert.equal(shiftAt(moves, 1050), null, "something appeared here");
+    assert.equal(shiftAt(moves, 1100), 20);
+    assert.equal(shiftAt(moves, 1999), 20);
+    assert.equal(shiftAt(moves, 2050), null);
+    assert.equal(shiftAt(moves, 2100), 50);
+    assert.equal(shiftAt(moves, 9000), 50);
+  });
+
+  it("is nothing anywhere when nothing moved", () => {
+    assert.equal(shiftAt([], 4846), 0);
+  });
+
+  it("leaves a point above a growth far below it where it was", () => {
+    // A recorded run: picking a dropdown at 5888 grew the page 76 px there; the point at 4846 did not move.
+    assert.equal(shiftAt([{ from: 5862, at: 5888, dy: 76 }], 4846), 0);
+    assert.equal(shiftAt([{ from: 5862, at: 5888, dy: 76 }], 5987), 76);
+  });
+});
+
 describe("cropSpans", () => {
   it("cuts a stretch that reaches past the page and drops one that begins there", () => {
     assert.deepEqual(
@@ -201,19 +230,53 @@ describe("what the page sends and what the agent is told", () => {
     assert.equal(parseMarks("nothing"), null);
   });
 
+  it("keeps what the page says of a control only when it is of the right shape", () => {
+    const [full, bare] =
+      parseMarks([
+        {
+          ...mark("a", 10),
+          label: "First Name",
+          entry: { x: 400, y: 30, w: 300, h: 20 },
+          required: true,
+          empty: false,
+          invalid: true,
+        },
+        { ...mark("b", 10), label: "", entry: { x: 1 }, required: "yes", empty: "no", invalid: 0 },
+      ]) ?? [];
+    assert.deepEqual(full, {
+      ...mark("a", 10),
+      label: "First Name",
+      entry: { x: 400, y: 30, w: 300, h: 20 },
+      required: true,
+      empty: false,
+      invalid: true,
+    });
+    assert.deepEqual(bare, mark("b", 10));
+  });
+
   it("tells the agent the list in the screenshot's pixels, boxes included", () => {
     const told = marksForAgent(
-      [{ ...mark("a", 100), box: { x: 380, y: 70, w: 340, h: 90 } }, mark("b", 200)],
+      [
+        {
+          ...mark("a", 100),
+          box: { x: 380, y: 70, w: 340, h: 90 },
+          entry: { x: 400, y: 120, w: 300, h: 20 },
+          label: "A",
+        },
+        mark("b", 200),
+      ],
       0.5,
     );
     assert.deepEqual(told[0], {
       id: "a",
       kind: "input",
+      label: "A",
       x: 200,
       y: 50,
       w: 150,
       h: 20,
       box: { x: 190, y: 35, w: 170, h: 45 },
+      entry: { x: 200, y: 60, w: 150, h: 10 },
     });
     assert.equal(told[1]?.box, undefined);
     assert.deepEqual(scaleMoves([{ from: 10, at: 20, dy: 30 }], 2), [{ from: 20, at: 40, dy: 60 }]);

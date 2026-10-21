@@ -14,6 +14,23 @@ type Style = { display: string; visibility: string; position: string };
 const CONTROL_TAGS = new Set(["input", "textarea", "select", "button"]);
 const CONTROL_ROLES = new Set(["button", "checkbox", "radio", "combobox"]);
 
+/** One simple selector: a tag, an attribute, or both (`input`, `[role=option]`, `a[href]`). */
+type Simple = { tag?: string; attr?: string; value?: string };
+
+/** Reads a selector list of simple selectors, which is all the page's scripts use. */
+function parseSelector(selector: string): Simple[] {
+  return selector.split(",").map((part) => {
+    const match = /^\s*([a-z]*)(?:\[([a-z-]+)(?:=([^\]]*))?\])?\s*$/i.exec(part);
+    if (!match) throw new Error(`the fake page cannot read the selector ${part}`);
+    const [, tag, attr, value] = match;
+    return {
+      ...(tag ? { tag: tag.toLowerCase() } : {}),
+      ...(attr ? { attr } : {}),
+      ...(value !== undefined ? { value } : {}),
+    };
+  });
+}
+
 export class FakeElement {
   readonly nodeType = 1;
   parentElement: FakeElement | null = null;
@@ -24,6 +41,14 @@ export class FakeElement {
   labels: FakeElement[] | null = null;
   isContentEditable = false;
   connected = true;
+  /** What a text box, a text area or a native list holds. */
+  value = "";
+  /** Whether the page marks the control as required (the `required` attribute). */
+  get required(): boolean {
+    return "required" in this.attributes;
+  }
+  /** Whether a (`role=combobox`) search box's shadow root gives focus on; none here. */
+  readonly shadowRoot = null;
 
   constructor(
     readonly page: FakePage,
@@ -77,9 +102,18 @@ export class FakeElement {
     return this.page.document;
   }
 
-  /** The controls inside this element (the scripts only ever ask for their selector of controls). */
-  querySelectorAll(): FakeElement[] {
-    return this.page.controls().filter((el) => el !== this && this.contains(el));
+  /** The elements inside this element that a selector list of simple selectors matches, in the order they were added. */
+  querySelectorAll(selector: string): FakeElement[] {
+    return this.page.matching(selector).filter((el) => el !== this && this.contains(el));
+  }
+
+  /** Whether one simple selector matches this element. */
+  matches(simple: Simple): boolean {
+    if (simple.tag && simple.tag !== this.tag.toLowerCase()) return false;
+    if (simple.attr === undefined) return true;
+    const value = this.attributes[simple.attr];
+    if (value === undefined) return false;
+    return simple.value === undefined || value === simple.value;
   }
 
   /** Whether the page's own selector of controls matches this element. */
@@ -137,6 +171,8 @@ export class FakePage {
   animations: FakeAnimation[] = [];
   /** What `elementFromPoint` finds. */
   hitAt: (x: number, y: number) => FakeElement | null = () => null;
+  /** The element that has focus; the body when none does. */
+  activeElement: FakeElement | null = null;
   readonly all: FakeElement[] = [];
   readonly html: FakeElement;
   readonly body: FakeElement;
@@ -168,17 +204,28 @@ export class FakePage {
     this.document = {
       documentElement: this.html,
       body: this.body,
-      querySelectorAll: () => this.controls(),
+      querySelectorAll: (selector: string) => this.matching(selector),
       getElementById: (id: string) => this.all.find((el) => el.id === id) ?? null,
       elementFromPoint: (x: number, y: number) => this.hitAt(x, y),
       getAnimations: () => this.animations,
     };
     Object.defineProperty(this.document, "visibilityState", { get: () => this.visibilityState });
+    Object.defineProperty(this.document, "activeElement", {
+      get: () => this.activeElement ?? this.body,
+    });
   }
 
   /** Controls that are in the page, in the order they were added. */
   controls(): FakeElement[] {
     return this.all.filter((el) => el.connected && el.isControl());
+  }
+
+  /** The elements in the page that a selector list of simple selectors matches, in the order they were added. */
+  matching(selector: string): FakeElement[] {
+    const simples = parseSelector(selector);
+    return this.all.filter(
+      (el) => el.connected && el !== this.html && simples.some((simple) => el.matches(simple)),
+    );
   }
 
   /** Something in the page changed: its observers are told. */

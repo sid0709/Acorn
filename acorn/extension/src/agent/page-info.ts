@@ -5,10 +5,12 @@
  */
 
 import type { Cdp } from "./cdp";
-import type { AgentFocus } from "@acorn/shared/agent-contract";
+import type { AgentFocus, AgentOpenList } from "@acorn/shared/agent-contract";
 
 /** The most options of a native list that are reported. */
 export const FOCUS_OPTIONS_MAX = 80;
+/** The most options of a list the page draws itself that are reported: a list of countries is about 250. */
+export const LIST_OPTIONS_MAX = 400;
 /** The longest value, label, or message that is reported. */
 export const FOCUS_TEXT_MAX_CHARS = 200;
 
@@ -308,6 +310,78 @@ export async function readFocus(cdp: Cdp): Promise<AgentFocus | null> {
     });
     if (answer.exceptionDetails) return null;
     return answer.result?.value ?? null;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * The page-side function that reads a list of choices open on the page, as the page names its options
+ * (the ARIA roles a list the page draws itself carries: a listbox, menu or tree, and their options). It is
+ * the list the focused control opens (`aria-controls` or `aria-owns` on it or on the combobox round it),
+ * else the one drawn list, else the drawn list nearest below the focused control. Options are those that
+ * are drawn and not disabled, in the order they are drawn, so the n-th is reached with Home and n-1
+ * ArrowDown. A list that is drawn with nothing in it is reported empty (a box that searches as one types);
+ * no list at all is null.
+ */
+export const OPEN_LIST_SCRIPT = `(() => {
+  const MAX = ${LIST_OPTIONS_MAX};
+  const TEXT = ${FOCUS_TEXT_MAX_CHARS};
+  const clip = (text) => String(text ?? "").replace(/\\s+/g, " ").trim().slice(0, TEXT);
+  const drawn = (el) => {
+    const style = getComputedStyle(el);
+    if (style.display === "none" || style.visibility === "hidden") return false;
+    const rect = el.getBoundingClientRect();
+    return rect.width >= 1 && rect.height >= 1;
+  };
+  let focused = document.activeElement;
+  for (let depth = 0; focused && depth < 8; depth += 1) {
+    if (focused.shadowRoot && focused.shadowRoot.activeElement) focused = focused.shadowRoot.activeElement;
+    else break;
+  }
+  if (focused === document.body || focused === document.documentElement) focused = null;
+  const listOf = (el) => {
+    const ids = ((el.getAttribute("aria-controls") || "") + " " + (el.getAttribute("aria-owns") || "")).split(/\\s+/).filter(Boolean);
+    for (const id of ids) {
+      const list = document.getElementById(id);
+      if (list && drawn(list)) return list;
+    }
+    return null;
+  };
+  let list = null;
+  for (let el = focused; el && !list; el = el.parentElement) {
+    if (el === document.body) break;
+    if (el === focused || el.getAttribute("role") === "combobox") list = listOf(el);
+  }
+  if (!list) {
+    const lists = Array.from(document.querySelectorAll("[role=listbox], [role=menu], [role=tree]")).filter(drawn);
+    if (lists.length === 1) list = lists[0];
+    else if (lists.length > 1 && focused) {
+      const bottom = focused.getBoundingClientRect().bottom;
+      lists.sort((a, b) => Math.abs(a.getBoundingClientRect().top - bottom) - Math.abs(b.getBoundingClientRect().top - bottom));
+      list = lists[0];
+    }
+  }
+  const OPTION = "[role=option], [role=menuitem], [role=menuitemradio], [role=treeitem]";
+  const items = Array.from(list ? list.querySelectorAll(OPTION) : document.querySelectorAll("[role=option]"))
+    .filter((el) => drawn(el) && el.getAttribute("aria-disabled") !== "true");
+  if (!list && items.length === 0) return null;
+  return { options: items.slice(0, MAX).map((el) => clip(el.textContent)) };
+})()`;
+
+type ListResult = { result?: { value?: AgentOpenList | null }; exceptionDetails?: unknown };
+
+/** The list of choices open on the page, as the page names its options, or null when it names none. */
+export async function readOpenList(cdp: Cdp): Promise<AgentOpenList | null> {
+  try {
+    const answer = await cdp.send<ListResult>("Runtime.evaluate", {
+      expression: OPEN_LIST_SCRIPT,
+      returnByValue: true,
+    });
+    if (answer.exceptionDetails) return null;
+    const list = answer.result?.value;
+    if (!list || !Array.isArray(list.options)) return null;
+    return { options: list.options.filter((option) => typeof option === "string") };
   } catch {
     return null;
   }

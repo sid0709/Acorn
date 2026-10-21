@@ -34,6 +34,17 @@ export function marksOfLook(
   };
 }
 
+/**
+ * The list a look tells the agent of, which the form's moves are measured from once the answer is back. A
+ * look that is a survey is what a plan measures its points on: a point bound to no control is placed from
+ * its list when the page changes shape.
+ */
+export function noteLook(watch: ControlWatch, survey: unknown): ControlMark[] {
+  const sent = watch.marks;
+  if (survey) watch.survey(sent);
+  return sent;
+}
+
 /** A move for the log, whole pixels. */
 function roundedMove(move: LayoutMove): LayoutMove {
   return { from: Math.round(move.from), at: Math.round(move.at), dy: Math.round(move.dy) };
@@ -115,6 +126,16 @@ export function placeMarksFor(args: {
       const held = await args.watch.holds(args.tab().cdp, action.mark, x, y);
       if (!held) args.log.event("agent-mark", { id: action.id, control: action.mark.id, held });
       return held;
+    },
+    shift: (action, scale) => {
+      if (action.scrollTo == null || action.y == null) return null;
+      const shift = args.watch.shiftSince((action.scrollTo + action.y) / scale);
+      if (shift !== 0)
+        args.log.event("agent-mark", {
+          id: action.id,
+          shift: shift === null ? null : Math.round(shift),
+        });
+      return shift;
     },
   };
 }

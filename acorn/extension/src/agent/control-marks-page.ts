@@ -10,7 +10,13 @@
  * scroll position, so it says nothing of where the form is and is left out.
  */
 
-import { FIELD_MAX_HEIGHT_PX, MAX_CONTROL_MARKS } from "./control-marks";
+import {
+  ENTRY_MIN_HEIGHT_PX,
+  FIELD_MAX_HEIGHT_PX,
+  MARK_LABEL_MAX_CHARS,
+  MAX_CONTROL_MARKS,
+  SIZELESS_ANCESTORS,
+} from "./control-marks";
 
 /** The property the page keeps the latest list on. */
 export const CONTROL_MARKS_KEY = "__acornControlMarks";
@@ -37,6 +43,9 @@ function installBody(): string {
     const SELECTOR = ${JSON.stringify(CONTROL_SELECTOR)};
     const MAX = ${MAX_CONTROL_MARKS};
     const FIELD_MAX_H = ${FIELD_MAX_HEIGHT_PX};
+    const ENTRY_MIN_H = ${ENTRY_MIN_HEIGHT_PX};
+    const LABEL_MAX = ${MARK_LABEL_MAX_CHARS};
+    const SIZELESS_UP = ${SIZELESS_ANCESTORS};
     const state = {
       installed: true, build, version: Math.floor(Math.random() * 1e9), marks: [], els: new Map(), idOf: new WeakMap(),
       lastActivity: performance.now(), stop: null,
@@ -47,20 +56,63 @@ function installBody(): string {
       w: round(rect.width), h: round(rect.height),
     });
     const collapse = (text, max) => String(text || "").replace(/\\s+/g, " ").trim().slice(0, max);
+    const sized = (rect) => rect.width >= 1 && rect.height >= 1;
+    // The box a control is drawn in. A text box or dropdown input drawn without a size (a dropdown the page
+    // draws itself sizes its input by what is typed into it: nothing, so nothing) has the box of the first
+    // ancestor that has one, the row it sits on, as long as that is a row and not a section of the page.
+    const rectOf = (el, tag) => {
+      const own = el.getBoundingClientRect();
+      if (sized(own) || (tag !== "input" && tag !== "textarea")) return own;
+      for (let node = el.parentElement, up = 0; node && node !== document.body && up < SIZELESS_UP; node = node.parentElement, up += 1) {
+        const rect = node.getBoundingClientRect();
+        if (sized(rect)) return rect.height <= FIELD_MAX_H ? rect : own;
+      }
+      return own;
+    };
+    // The element that labels a control, when the page says which one does.
+    const labelElOf = (el) => {
+      if (el.labels && el.labels.length > 0) return el.labels[0];
+      const by = el.getAttribute("aria-labelledby");
+      if (by) return document.getElementById(by.split(" ")[0]);
+      return null;
+    };
     const labelOf = (el) => {
       const aria = el.getAttribute("aria-label");
-      if (aria) return collapse(aria, 60);
-      if (el.labels && el.labels.length > 0) return collapse(el.labels[0].textContent, 60);
-      const by = el.getAttribute("aria-labelledby");
-      if (by) {
-        const ref = document.getElementById(by.split(" ")[0]);
-        if (ref) return collapse(ref.textContent, 60);
-      }
+      if (aria) return collapse(aria, LABEL_MAX);
+      const labelEl = labelElOf(el);
+      if (labelEl) return collapse(labelEl.textContent, LABEL_MAX);
       const own = el.getAttribute("placeholder") || el.getAttribute("title");
-      if (own) return collapse(own, 60);
+      if (own) return collapse(own, LABEL_MAX);
       const role = el.getAttribute("role");
-      if (el.tagName === "BUTTON" || el.tagName === "A" || role === "button") return collapse(el.textContent, 60);
+      if (el.tagName === "BUTTON" || el.tagName === "A" || role === "button") return collapse(el.textContent, LABEL_MAX);
       return "";
+    };
+    // The part of a control's box that is not its label, when the label lies inside the box (a question
+    // printed inside a bordered field): the line a value is typed or shown on. Null when the label is
+    // elsewhere or what is left is too small to be a line.
+    const entryOf = (el, rect) => {
+      const labelEl = labelElOf(el);
+      if (!labelEl || !labelEl.getBoundingClientRect) return null;
+      const lab = labelEl.getBoundingClientRect();
+      if (lab.width < 1 || lab.height < 1) return null;
+      const inside = lab.left >= rect.left - 1 && lab.right <= rect.right + 1 && lab.top >= rect.top - 1 && lab.bottom <= rect.bottom + 1;
+      if (!inside) return null;
+      const below = rect.bottom - lab.bottom, above = lab.top - rect.top;
+      if (below >= above && below >= ENTRY_MIN_H) return boxOf({ left: rect.left, top: lab.bottom, width: rect.width, height: below });
+      if (above >= ENTRY_MIN_H) return boxOf({ left: rect.left, top: rect.top, width: rect.width, height: above });
+      return null;
+    };
+    // Whether a control is empty, when the page can tell: a text box, a text area, a native list, an
+    // editable area. A dropdown the page draws itself keeps its value elsewhere, and a check or a button has none.
+    const emptyOf = (el, tag, type) => {
+      if (el.getAttribute("role") === "combobox") return undefined;
+      if (tag === "textarea" || tag === "select") return el.value === "";
+      if (tag === "input") {
+        if (type === "checkbox" || type === "radio" || type === "file" || type === "button" || type === "submit" || type === "reset" || type === "image" || type === "hidden") return undefined;
+        return el.value === "";
+      }
+      if (el.isContentEditable) return collapse(el.textContent, 1) === "";
+      return undefined;
     };
     const kindOf = (el, tag, type) => {
       const role = el.getAttribute("role");
@@ -108,11 +160,11 @@ function installBody(): string {
         if (entries.length >= MAX) break;
         const style = getComputedStyle(el);
         if (style.display === "none" || style.visibility === "hidden") continue;
-        const rect = el.getBoundingClientRect();
-        if (rect.width < 1 || rect.height < 1) continue;
-        if (isFixed(el)) continue;
         const type = (el.getAttribute("type") || "").toLowerCase();
         const tag = el.tagName.toLowerCase();
+        const rect = rectOf(el, tag);
+        if (!sized(rect)) continue;
+        if (isFixed(el)) continue;
         const signature = tag + ":" + type + ":" + (el.getAttribute("name") || el.id || "") + ":" + labelOf(el);
         signatures.set(signature, (signatures.get(signature) || 0) + 1);
         entries.push({ el, signature, type, tag, rect });
@@ -133,6 +185,14 @@ function installBody(): string {
         const mark = { id, kind: kindOf(entry.el, entry.tag, entry.type), ...boxOf(entry.rect) };
         const field = fieldOf(entry.el, entry.rect, under);
         if (field) mark.box = field;
+        const label = labelOf(entry.el);
+        if (label) mark.label = label;
+        const place = entryOf(entry.el, entry.rect);
+        if (place) mark.entry = place;
+        if (entry.el.required === true || entry.el.getAttribute("aria-required") === "true") mark.required = true;
+        const empty = emptyOf(entry.el, entry.tag, entry.type);
+        if (typeof empty === "boolean") mark.empty = empty;
+        if (entry.el.getAttribute("aria-invalid") === "true") mark.invalid = true;
         marks.push(mark);
         els.set(id, new WeakRef(entry.el));
         idOf.set(entry.el, id);
@@ -163,8 +223,8 @@ function installBody(): string {
     state.where = (id) => {
       const el = live(id);
       if (!el) return null;
-      const rect = el.getBoundingClientRect();
-      return rect.width < 1 || rect.height < 1 ? null : boxOf(rect);
+      const rect = rectOf(el, el.tagName.toLowerCase());
+      return sized(rect) ? boxOf(rect) : null;
     };
     state.holds = (id, x, y) => {
       const el = live(id);

@@ -9,6 +9,7 @@
 
 import { captureShot, type Shot } from "./capture";
 import {
+  MARK_MOVE_PX,
   cropSpans,
   moved,
   placeSpans,
@@ -53,20 +54,46 @@ export const LAYOUT_TOLERANCE_PX = 12;
 /** The least a screen may advance: a window shorter than the overlap would never move. */
 const SURVEY_MIN_STEP_RATIO = 0.5;
 
+/** A box on the page (CSS pixels) a survey keeps whole on a screen: a control with its field. */
+export type SurveyBox = { y: number; h: number };
+
 /**
  * The positions (CSS pixels) a survey of a page scrolls to: the top, then one screen less the overlap at
- * a time, and always the very bottom, whatever the height of the page.
+ * a time, and always the very bottom, whatever the height of the page. Given the page's controls, a screen
+ * is moved up so that its top edge cuts none of them: a control cut by the edge of one screen and off the
+ * next is whole on neither, and the model aims at what it cannot see. A screen never advances less than
+ * half a window for it, and a control taller than the window is left as it falls.
  */
-export function surveyPositions(pageHeight: number, viewHeight: number): number[] {
+export function surveyPositions(
+  pageHeight: number,
+  viewHeight: number,
+  controls: SurveyBox[] = [],
+): number[] {
   if (!(viewHeight > 0) || pageHeight < viewHeight * SURVEY_MIN_PAGE_RATIO) return [];
   const last = pageHeight - viewHeight;
   const step = Math.max(viewHeight - SURVEY_OVERLAP_PX, viewHeight * SURVEY_MIN_STEP_RATIO);
+  const least = viewHeight * SURVEY_MIN_STEP_RATIO;
+  const whole = controls.filter((box) => box.h < viewHeight);
   const positions: number[] = [];
-  for (let y = 0; y < last - 1 && positions.length < SURVEY_MAX_SCREENS - 1; y += step) {
+  for (let y = 0; y < last - 1 && positions.length < SURVEY_MAX_SCREENS - 1;) {
     positions.push(Math.round(y));
+    y = aboveAnyCut(y + step, y + least, whole);
   }
   positions.push(Math.round(last));
   return positions;
+}
+
+/** The screen top `y` moved up, as far as `floor`, to above every control its edge would cut. */
+function aboveAnyCut(y: number, floor: number, controls: SurveyBox[]): number {
+  let top = y;
+  for (let round = 0; round < controls.length; round += 1) {
+    const cut = controls.filter((box) => box.y < top && box.y + box.h > top);
+    if (cut.length === 0) break;
+    const above = Math.min(...cut.map((box) => box.y)) - 1;
+    if (above < floor) break;
+    top = above;
+  }
+  return top;
 }
 
 /**
@@ -93,6 +120,8 @@ export interface SurveyDeps {
   onMove?: (viewTop: number) => void;
   /** The run's scrolling: the settled parts it keeps out of, and where it tells what it did. */
   scroll?: ScrollContext;
+  /** The page's controls with their fields (CSS pixels), so no screen's edge cuts one. */
+  controls?: () => SurveyBox[];
 }
 
 /** What the last survey saw: its screens and how tall the page was (screenshot pixels). */
@@ -166,6 +195,7 @@ export async function captureSurvey(
   const positions = surveyPositions(
     first.viewport.pageHeight / scale,
     first.viewport.height / scale,
+    deps.controls?.() ?? [],
   );
   if (positions.length < 2) return null;
   const original = first.viewport.scrollY / scale;
@@ -397,6 +427,12 @@ export interface PlaceMarks {
   move(action: AgentAction, scale: number): Promise<MarkMove | null>;
   /** Whether the point (CSS pixels in the window) is on the field of that control. */
   holds(action: AgentAction, x: number, y: number): Promise<boolean>;
+  /**
+   * How far the place the point was measured at has moved with the form since the survey (CSS pixels): 0
+   * when nothing above it moved, null when it is not known (the point lies where something appeared, or no
+   * survey has been taken). For a point bound to no control.
+   */
+  shift?(action: AgentAction, scale: number): number | null;
 }
 
 /**
@@ -404,9 +440,11 @@ export interface PlaceMarks {
  * point is now (CSS pixels). When the page is not the shape the survey saw, a question that appeared or an
  * error message may have moved the point. The point was bound to the control it was on when it was planned,
  * so the control is asked for where it is now and the point goes with it, once the page agrees that the point
- * is on that control's field; failing that, the target is found again by its anchor (`locate`), a picture of
- * what was round it. A target that cannot be found either way is not guessed at: this throws, so the action is
- * not done at a point that now means something else, and the model looks again.
+ * is on that control's field. A point bound to no control is placed by where the form moved: growth below
+ * it cannot have moved it, and growth above it moved it by as much. Failing both, the target is found again
+ * by its anchor (`locate`), a picture of what was round it. A target that cannot be found any way is not
+ * guessed at: this throws, so the action is not done at a point that now means something else, and the
+ * model looks again.
  */
 export async function scrollForAction(
   cdp: Cdp,
@@ -447,6 +485,8 @@ export async function scrollForAction(
         Math.abs(state.y - wanted) <= SCROLL_TOLERANCE_PX &&
         (await deps.marks?.holds(action, own.x, own.y)) === true;
       if (stayed) return own;
+      const shifted = await placeByShift(cdp, action, scale, deps, { own, wanted, state });
+      if (shifted) return shifted;
       const found = await findAgain(cdp, action, scale, deps, { wanted, saw, state });
       if (found) return found;
       throw new Error(
@@ -487,6 +527,34 @@ async function placeOnControl(
   const y = wanted + own.y + bound.dy - state.y;
   if (x < 0 || y < 0 || (state.view > 0 && y >= state.view)) return null;
   return (await deps.marks?.holds(action, x, y)) === true ? { x, y } : null;
+}
+
+/**
+ * Places a point bound to no control by where the form moved since the survey, as the page's controls
+ * say: growth below the point left it where it was, growth above it moved it by as much, and the window
+ * goes there with it. Null when the move is not known (the point lies where something appeared) or the
+ * page would not scroll there.
+ */
+async function placeByShift(
+  cdp: Cdp,
+  action: AgentAction,
+  scale: number,
+  deps: PlaceDeps,
+  at: { own: { x: number; y: number }; wanted: number; state: { y: number } },
+): Promise<{ x: number; y: number } | null> {
+  const shift = deps.marks?.shift?.(action, scale);
+  if (shift == null) return null;
+  if (Math.abs(shift) <= MARK_MOVE_PX) {
+    return Math.abs(at.state.y - at.wanted) <= SCROLL_TOLERANCE_PX ? at.own : null;
+  }
+  const target = Math.max(0, at.wanted + shift);
+  const landed = await scrollPageSlowly(cdp, target, deps.sleep, deps.scroll, "action");
+  if (landed.moved) await deps.sleep(SURVEY_SETTLE_MS);
+  // The window went where the point's part of the page went: the point keeps its place in the window, or
+  // follows the rest of the way when the page could not scroll that far (its end).
+  const y = at.wanted + at.own.y + shift - landed.y;
+  if (y < 0 || (landed.view > 0 && y >= landed.view)) return null;
+  return { x: at.own.x, y };
 }
 
 /**

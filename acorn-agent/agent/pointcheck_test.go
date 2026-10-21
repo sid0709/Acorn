@@ -195,19 +195,19 @@ func TestOnlyAClickCanBeTheOneThatSendsThePage(t *testing.T) {
 
 func ptr[T any](v T) *T { return &v }
 
-func TestAPointOnTheWordsOfAQuestionIsMovedOntoItsBoxAndCheckedAgain(t *testing.T) {
-	// The label of the question sits above its box and inside the field; the first check refuses the point.
+func TestAPointOnTheWordsOfAQuestionIsMovedOntoItsBoxBeforeTheCheck(t *testing.T) {
+	// The label of the question sits above its box and inside the field: the point is moved onto the box
+	// before anything is checked, so the check sees it on its control and nothing is refused.
 	reply := plan("filling", nil,
 		labelled(1, 100, 100, "First Name"), typeAction("Ada", nil),
 		labelled(1, 500, 280, "Sponsorship"), typeAction("No", nil),
 		committing(3, 900, 700, "Submit application"),
 	)
 	model := &scriptedModel{replies: []string{reply}}
-	screen := &fakeScreen{wrongFirst: []string{"Sponsorship"}}
+	screen := &fakeScreen{}
 	a := newAgentWithScreen(t, model, &fixedDecider{}, screen, DefaultConfig())
 	id := startFast(t, a, true)
-	obs := markedSurvey(t)
-	step := stepOK(t, a, id, obs)
+	step := stepOK(t, a, id, markedSurvey(t))
 	if len(step.Actions) != 5 {
 		t.Fatalf("%d actions went out (%s), want the whole plan: the point was moved, not dropped", len(step.Actions), kinds(step.Actions))
 	}
@@ -223,17 +223,17 @@ func TestAPointOnTheWordsOfAQuestionIsMovedOntoItsBoxAndCheckedAgain(t *testing.
 	}
 	s, _ := a.sessions.get(id)
 	if len(s.notes) != 0 {
-		t.Fatalf("the model was told of a refusal that was put right: %v", s.notes)
+		t.Fatalf("the model was told of a refusal: %v", s.notes)
 	}
 	if _, ok := s.anchors[moved.ID]; !ok {
 		t.Fatal("the moved point has no picture of its new place")
 	}
-	if screen.pointRequests < 3 {
-		t.Fatalf("%d point checks: the moved point was not checked again", screen.pointRequests)
+	if screen.pointRequests != 2 {
+		t.Fatalf("%d point checks, want one for each of the 2 screens the points are on", screen.pointRequests)
 	}
 }
 
-func TestAMovedPointThatIsStillRefusedIsDroppedAsBefore(t *testing.T) {
+func TestAPointTheCheckRefusesThoughItIsOnItsControlIsDropped(t *testing.T) {
 	reply := plan("filling", nil,
 		labelled(1, 500, 280, "Sponsorship"), typeAction("No", nil),
 		committing(3, 900, 700, "Submit application"),
@@ -244,7 +244,7 @@ func TestAMovedPointThatIsStillRefusedIsDroppedAsBefore(t *testing.T) {
 	step := stepOK(t, a, id, markedSurvey(t))
 	for _, action := range step.Actions {
 		if action.Kind == KindType {
-			t.Fatalf("text was typed into a field whose point was refused twice: %s", kinds(step.Actions))
+			t.Fatalf("text was typed into a field whose point was refused: %s", kinds(step.Actions))
 		}
 	}
 	s, _ := a.sessions.get(id)
@@ -253,26 +253,53 @@ func TestAMovedPointThatIsStillRefusedIsDroppedAsBefore(t *testing.T) {
 	}
 }
 
-func TestAPointAlreadyOnAControlOrInNoFieldIsNotMoved(t *testing.T) {
+// namedMarks are the marks of markedSurvey with the names the page gives the controls.
+func namedMarks(t *testing.T) Observation {
+	t.Helper()
 	obs := markedSurvey(t)
-	x, onBox, nowhere := 500.0, 320.0, 420.0
-	scroll := 0.0
-	onControl := Action{Kind: KindClick, X: &x, Y: &onBox, ScrollTo: &scroll}
-	if _, ok := reaimed(onControl, obs); ok {
-		t.Fatal("a point on a control was moved: the label is what was wrong")
+	for i := range obs.Marks {
+		switch obs.Marks[i].ID {
+		case "input:text:first":
+			obs.Marks[i].Label = "First Name *"
+		case "input:combobox:country":
+			obs.Marks[i].Label = "Country of residence"
+		case "input:text:last":
+			obs.Marks[i].Label = "Last Name"
+		}
 	}
-	between := Action{Kind: KindClick, X: &x, Y: &nowhere, ScrollTo: &scroll}
-	if _, ok := reaimed(between, obs); ok {
-		t.Fatal("a point in no field was moved")
+	return obs
+}
+
+func TestAPointOnAControlThePageCallsByItsLabelIsNotCheckedAgainstAPicture(t *testing.T) {
+	reply := plan("filling", nil,
+		labelled(1, 500, 320, "First Name"), typeAction("Ada", nil),
+		labelled(2, 500, 130, "Last name"), typeAction("Lovelace", nil),
+		committing(3, 900, 700, "Submit application"),
+	)
+	model := &scriptedModel{replies: []string{reply}}
+	screen := &fakeScreen{wrongPoints: []string{"First Name", "Last name"}}
+	a := newAgentWithScreen(t, model, &fixedDecider{}, screen, DefaultConfig())
+	step := stepOK(t, a, startFast(t, a, true), namedMarks(t))
+	if len(step.Actions) != 5 {
+		t.Fatalf("%d actions went out (%s): a point the page itself names must not be refused by a picture", len(step.Actions), kinds(step.Actions))
 	}
-	noMarks := surveyObservation(t)
-	label := 280.0
-	words := Action{Kind: KindClick, X: &x, Y: &label, ScrollTo: &scroll}
-	if _, ok := reaimed(words, noMarks); ok {
-		t.Fatal("a point was moved on a look without marks")
+	if screen.pointRequests != 1 {
+		t.Fatalf("%d point checks, want 1: only the click that sends the page is bound to no named control", screen.pointRequests)
 	}
-	moved, ok := reaimed(words, obs)
-	if !ok || *moved.Y != 320 {
-		t.Fatalf("the point on the label was not moved onto the box: %+v %v", moved, ok)
+}
+
+func TestAPointWhoseLabelDisagreesWithThePagesIsStillChecked(t *testing.T) {
+	reply := plan("filling", nil, labelled(1, 500, 320, "Email"), typeAction("ada@example.com", nil))
+	model := &scriptedModel{replies: []string{reply}}
+	screen := &fakeScreen{wrongPoints: []string{"Email"}}
+	a := newAgentWithScreen(t, model, &fixedDecider{}, screen, DefaultConfig())
+	step := stepOK(t, a, startFast(t, a, true), namedMarks(t))
+	if screen.pointRequests != 1 {
+		t.Fatalf("%d checks: a point the page calls something else must be checked", screen.pointRequests)
+	}
+	for _, action := range step.Actions {
+		if action.Kind == KindClick || action.Kind == KindType {
+			t.Fatalf("actions %s: the refused point and its text must not go out", kinds(step.Actions))
+		}
 	}
 }

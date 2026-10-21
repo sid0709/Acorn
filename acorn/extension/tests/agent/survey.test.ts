@@ -3,9 +3,11 @@ import { describe, it } from "node:test";
 
 import { ControlWatch } from "../../src/agent/control-watch.ts";
 import {
+  SURVEY_OVERLAP_PX,
   SurveyKeeper,
   scrollForAction,
   settledStill,
+  surveyPositions,
   type PlaceDeps,
 } from "../../src/agent/survey.ts";
 
@@ -24,6 +26,8 @@ type Case = {
   slept: number[];
   located: string[];
   held: [number, number][];
+  /** What `shift` answers for a point bound to no control; unset means the page was not asked. */
+  shift?: number | null;
 };
 
 /** A page 6076 px tall, scrolled to `scrollY`, whose text box is at page y `fieldY`. */
@@ -47,6 +51,7 @@ function setup(options: { fieldY: number; scrollY: number; pageHeight?: number }
   const slept: number[] = [];
   const located: string[] = [];
   const held: [number, number][] = [];
+  const c: Partial<Case> = {};
   const deps: PlaceDeps = {
     sleep: (ms) => {
       slept.push(ms);
@@ -63,9 +68,10 @@ function setup(options: { fieldY: number; scrollY: number; pageHeight?: number }
         held.push([x, y]);
         return action.mark ? watch.holds(cdp, action.mark, x, y) : Promise.resolve(false);
       },
+      shift: () => c.shift ?? null,
     },
   };
-  return { page, field, deps, slept, located, held };
+  return Object.assign(c, { page, field, deps, slept, located, held });
 }
 
 /** A click on the text box as the plan aimed at it: 100 px down the screen scrolled to page y 3800, on a page then 6000 tall. */
@@ -139,12 +145,39 @@ describe("placing a point on a page that changed shape", () => {
     assert.deepEqual(c.held, [], "the page was not asked about a point outside the window");
   });
 
-  it("acts as before on a point bound to no control", async () => {
+  it("acts as before on a point bound to no control when the page cannot say where it went", async () => {
     const c = setup({ fieldY: 3956, scrollY: 5000 });
     const where = await scrollForAction(c.page.cdp(), click({ mark: undefined }), 1, c.deps);
     assert.deepEqual(c.located, ["s2a5"]);
     assert.deepEqual(where, { x: 111, y: 222 });
     assert.deepEqual(c.held, []);
+  });
+
+  it("leaves a point bound to no control where it was when the page grew below it", async () => {
+    // The page is 76 px taller, but the controls say the growth is below the point: nothing moved it.
+    const c = setup({ fieldY: 3880, scrollY: 5000 });
+    c.shift = 0;
+    const where = await scrollForAction(c.page.cdp(), click({ mark: undefined }), 1, c.deps);
+    assert.deepEqual(where, { x: 500, y: 100 });
+    assert.equal(c.page.scrollY, 3800);
+    assert.deepEqual(c.located, [], "no picture was searched");
+  });
+
+  it("moves a point bound to no control by the growth above it, window and all", async () => {
+    const c = setup({ fieldY: 3956, scrollY: 5000 });
+    c.shift = 76;
+    const where = await scrollForAction(c.page.cdp(), click({ mark: undefined }), 1, c.deps);
+    assert.deepEqual(where, { x: 500, y: 100 }, "the point keeps its place in the window");
+    assert.equal(c.page.scrollY, 3876);
+    assert.deepEqual(c.located, []);
+  });
+
+  it("searches the picture for a point bound to no control that lies where something appeared", async () => {
+    const c = setup({ fieldY: 3956, scrollY: 5000 });
+    c.shift = null;
+    const where = await scrollForAction(c.page.cdp(), click({ mark: undefined }), 1, c.deps);
+    assert.deepEqual(c.located, ["s2a5"]);
+    assert.deepEqual(where, { x: 111, y: 222 });
   });
 
   it("acts as before on a page of the height the survey saw", async () => {
@@ -168,6 +201,35 @@ describe("placing a point on a page that changed shape", () => {
     const where = await scrollForAction(c.page.cdp(), half, 0.5, c.deps);
     assert.deepEqual(where, { x: 500, y: 100 });
     assert.equal(c.page.scrollY, 3876);
+  });
+});
+
+describe("where a survey's screens begin", () => {
+  it("steps one screen less the overlap at a time, to the very bottom", () => {
+    assert.deepEqual(surveyPositions(2400, 800), [0, 800 - SURVEY_OVERLAP_PX, 1540, 1600]);
+    assert.deepEqual(surveyPositions(900, 800), [], "about one screen tall");
+  });
+
+  it("begins a screen above a control its edge would cut, so the control is whole on it", () => {
+    // A 105 px field straddles the second screen's top edge at 770: the screen begins above it.
+    const controls = [
+      { y: 300, h: 40 },
+      { y: 735, h: 105 },
+      { y: 1400, h: 40 },
+    ];
+    assert.deepEqual(surveyPositions(2400, 800, controls), [0, 734, 1504, 1600]);
+  });
+
+  it("moves up past several controls, and no further than half a screen", () => {
+    const stack = [
+      { y: 700, h: 100 },
+      { y: 690, h: 20 },
+    ];
+    assert.deepEqual(surveyPositions(2400, 800, stack), [0, 689, 1459, 1600]);
+    // A control that would push the screen back past half a window is left as it falls, cut.
+    assert.deepEqual(surveyPositions(2400, 800, [{ y: 300, h: 600 }]), [0, 770, 1540, 1600]);
+    // One taller than the window cannot be whole on any screen.
+    assert.deepEqual(surveyPositions(2400, 800, [{ y: 100, h: 900 }]), [0, 770, 1540, 1600]);
   });
 });
 

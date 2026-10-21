@@ -52,10 +52,25 @@ func acceptMarks(marks []ControlMark) []ControlMark {
 		if mark.Box != nil && !mark.Box.finite() {
 			mark.Box = nil
 		}
+		if mark.Entry != nil && !mark.Entry.finite() {
+			mark.Entry = nil
+		}
 		kept = append(kept, mark)
 	}
 	return kept
 }
+
+// entryOf is where a control is clicked or typed at: the part of its box that is not its label when the
+// label is printed inside the box, else the box itself.
+func (m ControlMark) entryOf() Rect {
+	if m.Entry != nil {
+		return *m.Entry
+	}
+	return m.Rect
+}
+
+// center is the middle of the box.
+func (r Rect) center() (x, y float64) { return r.X + r.W/2, r.Y + r.H/2 }
 
 // pageY is the place on the page (screenshot pixels from its top) of the point of an action: it is
 // measured on the screen the page is scrolled to for it.
@@ -115,7 +130,18 @@ func bindMarks(planned []Action, obs Observation) map[string]MarkRef {
 			continue
 		}
 		if mark, ok := markAt(obs.Marks, pageX(action, obs), pageY(action, obs)); ok {
-			out[action.ID] = MarkRef{ID: mark.ID, Rect: mark.Rect}
+			out[action.ID] = MarkRef{ID: mark.ID, Rect: mark.Rect, Label: mark.Label, Kind: mark.Kind}
+		}
+	}
+	return out
+}
+
+// boundLines says which control each point of a plan is bound to, for the trace: "s3a1 input:text:first".
+func boundLines(planned []Action, marks map[string]MarkRef) []string {
+	var out []string
+	for _, action := range planned {
+		if ref, ok := marks[action.ID]; ok {
+			out = append(out, action.ID+" "+ref.ID)
 		}
 	}
 	return out

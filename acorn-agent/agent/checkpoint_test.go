@@ -31,8 +31,12 @@ type fakeScreen struct {
 	options []optionVerdict
 	// sent is the probability returned for "does the screen confirm a sent application"; nil means sure (1.0).
 	sent *float64
-	// nativeChoice is the key the screen gives for a native list's options (e.g. "option_4"); empty answers none.
-	nativeChoice string
+	// nativeChoice is the key the screen gives for a list's options given as text (e.g. "option_4"); empty
+	// answers none. listedWeights, when set, are the weights it gives each key instead (the heaviest is its
+	// choice), and listedRequests counts the times it was asked about options as text.
+	nativeChoice   string
+	listedWeights  map[string]float64
+	listedRequests int
 	// wrongPoints are the labels whose points the screen says are not on their controls, and
 	// pointRequests how many times it was asked about points.
 	wrongPoints   []string
@@ -123,14 +127,25 @@ func (f *fakeScreen) Decide(_ context.Context, req decide.Request) (decide.Respo
 			Usage:   decide.Usage{InputTokens: 500, Cost: 0.0001},
 		}, nil
 	}
-	if _, asked := req.Questions[askNativeOption]; asked {
+	if _, asked := req.Questions[askListedOption]; asked {
+		f.listedRequests++
 		choice := optionNone
+		weights := map[string]float64{choice: 0.95}
 		if f.nativeChoice != "" {
 			choice = f.nativeChoice
+			weights = map[string]float64{choice: 0.95}
+		}
+		if f.listedWeights != nil {
+			weights = f.listedWeights
+			for key, weight := range weights {
+				if weight > weights[choice] || choice == optionNone {
+					choice = key
+				}
+			}
 		}
 		return decide.Response{
 			Model:   "fake-screen-1",
-			Answers: map[string]decide.Answer{askNativeOption: {Type: decide.TypeChoice, Choice: choice, Probabilities: map[string]float64{choice: 0.95}}},
+			Answers: map[string]decide.Answer{askListedOption: {Type: decide.TypeChoice, Choice: choice, Probabilities: weights}},
 			Usage:   decide.Usage{InputTokens: 300, Cost: 0.0001},
 		}, nil
 	}
@@ -548,7 +563,7 @@ func TestChecksAreCountedAndCostedSeparately(t *testing.T) {
 
 func TestSplitPlanEndsARunAtACheckOrTheLimit(t *testing.T) {
 	act := func(check string) Action { return Action{Kind: KindClick, Check: check} }
-	runs := splitPlan([]Action{act(""), act("a"), act(""), act(""), act(""), act(""), act(""), act("b")}, 3)
+	runs := splitPlan([]Action{act(""), act("a"), act(""), act(""), act(""), act(""), act(""), act("b")}, 3, true)
 	var shape []string
 	for _, run := range runs {
 		shape = append(shape, strings.Repeat("x", len(run.actions))+"|"+run.expect)
@@ -556,7 +571,7 @@ func TestSplitPlanEndsARunAtACheckOrTheLimit(t *testing.T) {
 	if got := strings.Join(shape, " "); got != "xx|a xxx| xxx|b" {
 		t.Fatalf("runs = %s", got)
 	}
-	if got := splitPlan(nil, 3); len(got) != 0 {
+	if got := splitPlan(nil, 3, true); len(got) != 0 {
 		t.Fatalf("empty plan = %v", got)
 	}
 }
