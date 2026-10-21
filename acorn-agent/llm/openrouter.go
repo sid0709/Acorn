@@ -121,7 +121,8 @@ type chatResponse struct {
 		} `json:"prompt_tokens_details"`
 	} `json:"usage"`
 	Error *struct {
-		Message string `json:"message"`
+		Message string          `json:"message"`
+		Code    json.RawMessage `json:"code"`
 	} `json:"error"`
 }
 
@@ -260,8 +261,8 @@ func (c *OpenRouter) once(ctx context.Context, body []byte) (got Response, retry
 	if jsonErr != nil {
 		return got, "", fmt.Errorf("read model response: %w", jsonErr)
 	}
-	if decoded.Error != nil && decoded.Error.Message != "" {
-		return got, "", &StatusError{Status: http.StatusBadGateway, Message: clip(decoded.Error.Message, maxErrorText)}
+	if decoded.Error != nil && (decoded.Error.Message != "" || len(decoded.Error.Code) > 0) {
+		return got, "", &StatusError{Status: ErrorStatus(decoded.Error.Code, http.StatusBadGateway), Message: clip(decoded.Error.Message, maxErrorText)}
 	}
 	if len(decoded.Choices) == 0 {
 		return got, "", fmt.Errorf("model returned no choices")

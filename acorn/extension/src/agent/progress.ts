@@ -5,7 +5,6 @@
  */
 
 import {
-  AGENT_ERROR_CODE,
   AGENT_STATUS,
   AGENT_STOP_REASON,
   type AgentAsk,
@@ -23,7 +22,12 @@ import {
   type RunProgress,
   type RunReport,
 } from "@acorn/shared/run-types";
-import { ERROR_CODE, LOCAL_ERROR_CODE } from "@acorn/shared/user-messages";
+import {
+  ERROR_CODE,
+  codeForAgentError,
+  codeForErrorText,
+  describeRunFailure,
+} from "@acorn/shared/user-messages";
 
 import { AgentApiError } from "./client";
 
@@ -37,17 +41,16 @@ export const AGENT_EXPIRED_MESSAGE = "The agent no longer remembers this run, so
 export const AGENT_RESTORED_MESSAGE =
   "The agent was restarted. Acorn kept the job description, your résumé choice and its notes, and goes on from them…";
 
-/** What the person is told for each way the agent server can refuse, as the shared catalogue names it. */
-const SHARED_CODE: Record<string, string> = {
-  [AGENT_ERROR_CODE.noKey]: ERROR_CODE.noKey,
-  [AGENT_ERROR_CODE.invalidKey]: ERROR_CODE.invalidKey,
-  [AGENT_ERROR_CODE.noCredits]: ERROR_CODE.noCredits,
-  [AGENT_ERROR_CODE.rateLimited]: ERROR_CODE.rateLimited,
-  [AGENT_ERROR_CODE.signedOut]: ERROR_CODE.signedOut,
-  [AGENT_ERROR_CODE.modelError]: ERROR_CODE.providerDown,
-  unreachable: LOCAL_ERROR_CODE.offline,
-  timeout: LOCAL_ERROR_CODE.timeout,
-};
+/** The catalogue codes that are the AI provider's, not the page's: the run failed for want of the AI. */
+const AI_CODES: ReadonlySet<string> = new Set([
+  ERROR_CODE.noKey,
+  ERROR_CODE.invalidKey,
+  ERROR_CODE.noCredits,
+  ERROR_CODE.rateLimited,
+  ERROR_CODE.providerDown,
+  ERROR_CODE.modelTimeout,
+  ERROR_CODE.modelBadAnswer,
+]);
 
 /** The run state of an agent Run on one step. */
 export function agentRunState(input: {
@@ -90,18 +93,18 @@ export function failureFromError(
   err: unknown,
   stage: RunFailure["stage"] = RUN_STAGE.filling,
 ): RunFailure {
-  if (err instanceof AgentApiError) {
-    const sharedCode = SHARED_CODE[err.code];
-    return {
-      reason: sharedCode ? RUN_FAILURE_REASON.aiUnavailable : RUN_FAILURE_REASON.noProgress,
-      code: sharedCode,
-      label: err.message,
-      detail: err.message,
-      stage,
-    };
-  }
+  // The person reads the catalogue's words for it (user-messages.ts); the raw text stays as the details.
   const message = err instanceof Error ? err.message : String(err);
-  return { reason: RUN_FAILURE_REASON.noProgress, label: message, detail: message, stage };
+  const code =
+    (err instanceof AgentApiError ? codeForAgentError(err.code) : null) ??
+    codeForErrorText(message);
+  return {
+    reason: AI_CODES.has(code) ? RUN_FAILURE_REASON.aiUnavailable : RUN_FAILURE_REASON.noProgress,
+    code,
+    label: message,
+    detail: "",
+    stage,
+  };
 }
 
 /** What the agent said when it ended the run itself: needs the person, or cannot go on. */
@@ -151,9 +154,11 @@ export function endMessage(
     case RUN_OUTCOME.readyToSubmit:
       return `Ready to submit · ${took}`;
     case RUN_OUTCOME.failed:
-      return `Stopped · ${report.failure?.label ?? "the run could not finish"}`;
+      return report.failure
+        ? `Stopped · ${describeRunFailure(report.failure).title}`
+        : "Stopped · the run could not finish";
     default:
-      return `Done · ${took}`;
+      return `${report.alreadyApplied ? "Already applied" : "Done"} · ${took}`;
   }
 }
 

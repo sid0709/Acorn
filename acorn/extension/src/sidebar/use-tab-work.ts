@@ -8,7 +8,7 @@ import { useCallback } from "react";
 
 import { MSG, type AcornNoticePayload } from "../types";
 
-import { pushAcornNotice } from "./acorn-notice";
+import { noticeOf, pushAcornNotice } from "./acorn-notice";
 import { sendMessage } from "./runtime";
 
 import type { useTabSession } from "./use-tab-session";
@@ -20,7 +20,7 @@ function notify(tabId: number | null | undefined, notice: AcornNoticePayload): v
   // An error a person can act on is said in plain words; the raw text stays in the log.
   const said =
     notice.kind === "error" && notice.detail ? describeError({ message: notice.detail }) : null;
-  if (said?.known) notice = { ...notice, title: said.title, detail: said.detail };
+  if (said?.known) notice = { ...notice, ...noticeOf(said), id: notice.id };
   pushAcornNotice(typeof tabId === "number" ? { ...notice, tabId } : notice);
 }
 

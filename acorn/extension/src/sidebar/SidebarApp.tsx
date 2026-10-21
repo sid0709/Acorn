@@ -24,6 +24,7 @@ import { UpdateDialog } from "./UpdateDialog";
 import { useActiveTabId } from "./use-active-tab";
 import { useAgentQueue } from "./use-agent-queue";
 import { useAvailableUpdate } from "./use-available-update";
+import { useNoticeActions } from "./use-notice-actions";
 import { useSidebarAuth } from "./use-sidebar-auth";
 import { useSocketStatus } from "./use-socket-status";
 import { useSupportClaims } from "./use-support-claims";
@@ -78,6 +79,13 @@ export default function SidebarApp() {
     activeTabId,
     setPipelines,
     tabWorkBusy,
+  });
+
+  useNoticeActions({
+    pipelines,
+    startRun,
+    openReport,
+    openJobQueue: () => setMainTab("agent"),
   });
 
   const runLabel = runButtonLabel(progress, fillBusy);

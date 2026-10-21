@@ -17,19 +17,27 @@ import (
 // the model is sent back to submit or to say plainly why it did not, and a run that still ends "done"
 // without the page's confirmation is reported as one that could not confirm, never as sent.
 
-const askSent = "application_sent"
+const (
+	askSent    = "application_sent"
+	askAlready = "already_applied"
+)
 
 // donePassMessage is what the person sees while the agent makes the model look again.
 const donePassMessage = "The page has not confirmed the application was sent; looking again."
 
 // sentQuestion asks whether the screen shows the employer has the application: the one just sent, or one the
 // applicant sent before (a recorded run sent an application again and was told it had already been
-// received; that is the job applied to, not a run that could not finish).
+// received; that is the job applied to, not a run that could not finish). The second question says which,
+// so the person is told "already applied" rather than "sent".
 func sentQuestion() map[string]decide.Question {
-	return map[string]decide.Question{askSent: decide.YesNo(
-		"Does this screen show that the employer has received the applicant's application for this job: a thank-you or confirmation " +
-			"for an application just submitted, or a notice that the applicant has already applied or that their application was already received? " +
-			"Answer no for a form that is still open or has fields to fill, an error message, a page that asks for something more, or a job posting.")}
+	return map[string]decide.Question{
+		askSent: decide.YesNo(
+			"Does this screen show that the employer has received the applicant's application for this job: a thank-you or confirmation " +
+				"for an application just submitted, or a notice that the applicant has already applied or that their application was already received? " +
+				"Answer no for a form that is still open or has fields to fill, an error message, a page that asks for something more, or a job posting."),
+		askAlready: decide.YesNo(
+			"Does this screen say that the applicant had already applied for this job before, or that an earlier application of theirs was already received?"),
+	}
 }
 
 // holdDone checks a "done" the model gave. It reports a note and true when the run must not end yet
@@ -52,12 +60,15 @@ func (a *Agent) holdDone(ctx context.Context, s *session, obs Observation, answe
 		sure = *answer.Noul
 	}
 	if sure >= a.cfg.DoneConfirm {
+		if already, ok := response.Answers[askAlready]; ok && already.Noul != nil && *already.Noul >= likely {
+			s.alreadyApplied = true
+		}
 		return "", false
 	}
 	if s.donePasses >= a.cfg.DonePasses {
 		answer.Status = StatusStuck
 		answer.Stop = &StopInfo{
-			Reason:  StopPageProblem,
+			Reason:  StopNotConfirmed,
 			Problem: "The page never showed that the application was sent, so Acorn cannot call it done.",
 			Action:  "Look at the page: if the form is still open, finish and submit it yourself, then press Continue or Run again.",
 		}

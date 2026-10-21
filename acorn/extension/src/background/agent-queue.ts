@@ -1,6 +1,6 @@
 import { AGENT_STOP_REASON } from "@acorn/shared/agent-contract";
 import { RUN_OUTCOME, type RunReport } from "@acorn/shared/run-types";
-import { READY_TO_SUBMIT, describeRunFailure } from "@acorn/shared/user-messages";
+import { describeRunEnd, describeRunFailure } from "@acorn/shared/user-messages";
 
 import { QUEUE_ACTION } from "../agent-queue/actions";
 import { parseJobLinks } from "../agent-queue/links";
@@ -77,9 +77,7 @@ function blockNote(report: RunReport | null): string {
   const failure = report.failure;
   if (!failure) return "The run ended before the application was sent.";
   const said = describeRunFailure(failure);
-  return [failure.agentStop?.problem || said.title, failure.agentStop?.action || said.detail]
-    .filter(Boolean)
-    .join(" ");
+  return [said.title, said.steps[0] || said.detail].filter(Boolean).join(". ");
 }
 
 async function patch(id: string, change: Partial<QueueItem>): Promise<void> {
@@ -168,7 +166,7 @@ async function workOn(job: QueueItem): Promise<void> {
     // queue goes on to the next job.
     await patch(job.id, {
       status: QUEUE_ITEM.ready,
-      note: READY_TO_SUBMIT.detail,
+      note: describeRunEnd(report).detail,
       tabId,
       endedAt: Date.now(),
     });

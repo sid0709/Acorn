@@ -1189,7 +1189,11 @@ export async function runAgent(args: AgentRunArgs): Promise<RunReport> {
           // The agent says when a done stopped before sending (the server may hold every run before the
           // control that sends, whatever this run asked for); an older agent leaves it to what was asked.
           const ready = step.readyToSubmit === true || stopBeforeSubmit;
-          return finish(report(ready ? RUN_OUTCOME.readyToSubmit : RUN_OUTCOME.completed));
+          if (ready) return finish(report(RUN_OUTCOME.readyToSubmit));
+          return finish({
+            ...report(RUN_OUTCOME.completed),
+            alreadyApplied: step.alreadyApplied === true,
+          });
         }
         return finish(
           report(RUN_OUTCOME.failed, failureFromStatus(step.status, step.message, step.stop)),

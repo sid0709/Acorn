@@ -1,40 +1,37 @@
-import { RUN_FAILURE_REASON, RUN_OUTCOME } from "@acorn/shared/run-types";
-import { READY_TO_SUBMIT, describeError, describeRunFailure } from "@acorn/shared/user-messages";
+import { RUN_OUTCOME } from "@acorn/shared/run-types";
+import { describeError, describeRunEnd } from "@acorn/shared/user-messages";
 import { useEffect, useRef } from "react";
 
-import { pushAcornNotice } from "./acorn-notice";
+import { clearAcornNotices, noticeOf, pushAcornNotice } from "./acorn-notice";
 
 import type { TabPipelineMap } from "../tab-pipeline-session";
 import type { AcornNoticePayload } from "../types";
 import type { PipelineProgress } from "@acorn/shared/pipeline-types";
 
-/** The notice for work on one tab that has just ended; null while it runs or idles. */
+/**
+ * The notice for work on one tab that has just ended, in the catalogue's words (user-messages.ts): sent,
+ * already applied, ready to submit, paused, or why it stopped and what to do; null while it runs or idles.
+ */
 function endNotice(progress: PipelineProgress): AcornNoticePayload | null {
+  const report = progress.run?.report;
   if (progress.phase === "error") {
-    const failure = progress.run?.report?.failure;
-    const errored = progress.run?.report?.outcome === RUN_OUTCOME.failed;
     // Words for a person; the raw error stays in the Logs tab.
-    const said = failure
-      ? describeRunFailure(failure)
-      : describeError({
-          code: progress.errorCode,
-          status: progress.errorStatus,
-          message: progress.error || progress.message,
-        });
-    // A job nobody can apply to is told, not reported as a failure of the run.
-    const unavailable = failure?.reason === RUN_FAILURE_REASON.jobUnavailable;
-    return {
-      kind: unavailable ? "info" : "error",
-      title: said.title || (errored ? "Run stopped" : "Run couldn’t finish"),
-      detail: said.detail,
-    };
+    return noticeOf(
+      report
+        ? describeRunEnd(report)
+        : describeError({
+            code: progress.errorCode,
+            status: progress.errorStatus,
+            message: progress.error || progress.message,
+          }),
+    );
   }
-  if (progress.phase !== "done") return null;
-  if (progress.run?.report?.outcome === RUN_OUTCOME.completed) {
-    return { kind: "success", title: "Application sent", detail: progress.message };
-  }
-  if (progress.run?.report?.outcome === RUN_OUTCOME.readyToSubmit) {
-    return { kind: "info", title: READY_TO_SUBMIT.title, detail: READY_TO_SUBMIT.detail };
+  if (!report) return null;
+  if (
+    progress.phase === "done" ||
+    (progress.phase === "idle" && report.outcome === RUN_OUTCOME.stopped)
+  ) {
+    return noticeOf(describeRunEnd(report));
   }
   return null;
 }
@@ -60,8 +57,10 @@ export function useWorkEndNotices(pipelines: TabPipelineMap): void {
       const key = notice ? endKey(progress, notice) : null;
       now.set(tabKey, key);
       const tabId = Number(tabKey);
-      if (!notice || key == null || !before.has(tabKey) || before.get(tabKey) === key) continue;
       if (!Number.isInteger(tabId)) continue;
+      // The run on the tab moved on (Continue, Run again): what it waited on is no longer the person's.
+      if (!notice && before.get(tabKey)) clearAcornNotices(tabId);
+      if (!notice || key == null || !before.has(tabKey) || before.get(tabKey) === key) continue;
       pushAcornNotice({ ...notice, id: `${tabKey}:${key}`, tabId });
     }
     seen.current = now;

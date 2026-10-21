@@ -1,4 +1,6 @@
 import { formatUsd } from "@acorn/shared/ai-usage";
+import { RUN_OUTCOME } from "@acorn/shared/run-types";
+import { describeRunEnd } from "@acorn/shared/user-messages";
 import { useState, type CSSProperties } from "react";
 import { Badge, Card, Glyph, HStack, Text, VStack } from "sid-ui";
 
@@ -58,6 +60,7 @@ export function RunCelebration({ run }: { run: RunProgress }) {
   // Decided once per run (the caller keys this by run): a re-render never restarts the burst.
   const [burst] = useState(() => Date.now() - ended < CELEBRATION_FRESH_MS);
   const pages = Math.max(run.report?.pages ?? run.page, 1);
+  const said = describeRunEnd(run.report ?? { outcome: RUN_OUTCOME.completed, pages, refills: 0 });
 
   return (
     <VStack gap={3} className="acorn-celebrate" role="status" aria-live="polite">
@@ -76,10 +79,10 @@ export function RunCelebration({ run }: { run: RunProgress }) {
       <VStack gap={1} align="center">
         <Badge variant="green" icon={<Glyph name="check" />} label="Applied" />
         <Text type="display-3" weight="bold" justify="center">
-          Application sent!
+          {said.title}
         </Text>
         <Text type="supporting" justify="center">
-          Acorn filled every step and sent it. Good luck!
+          {said.detail}
         </Text>
       </VStack>
       <HStack gap={2} className="acorn-celebrate-stats">

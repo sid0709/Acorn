@@ -158,9 +158,11 @@ type session struct {
 	// retry holds the fields whose fill did not verify since the model last looked, and retried the fields
 	// already brought to the middle of the window once on their page (focus.go); planScrollY is where the
 	// page was scrolled when the plan being carried out was made.
-	retry       []focusTarget
-	retried     map[string]bool
-	planScrollY float64
+	// alreadyApplied is that the done check read the page as saying the application was sent before.
+	alreadyApplied bool
+	retry          []focusTarget
+	retried        map[string]bool
+	planScrollY    float64
 	// sendRefused is set when the screen showed the page refused the click that sent it: the next plan's
 	// send is held for one look (stopgate.go).
 	sendRefused bool
