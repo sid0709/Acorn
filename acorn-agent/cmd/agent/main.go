@@ -39,7 +39,10 @@ const (
 	defaultReasoning = "none"
 	// defaultMaxModelCalls bounds the steps in flight across every run.
 	defaultMaxModelCalls = 256
-	shutdownTimeout      = 10 * time.Second
+	// defaultFastFill makes every run plan a whole page from one look. ACORN_AGENT_FAST_FILL=off
+	// goes back to step by step.
+	defaultFastFill = true
+	shutdownTimeout = 10 * time.Second
 )
 
 // Environment variable names this service reads.
@@ -138,7 +141,10 @@ func run() error {
 	cfg.MaxActions = config.EnvInt(envMaxActions, cfg.MaxActions)
 	cfg.ChunkActions = config.EnvInt(envChunkActions, cfg.ChunkActions)
 	cfg.FastFillActions = config.EnvInt(envFastFillMax, cfg.FastFillActions)
-	cfg.FastFill = isOn(config.Env(envFastFill, ""))
+	cfg.FastFill = defaultFastFill
+	if value := config.Env(envFastFill, ""); value != "" {
+		cfg.FastFill = isOn(value)
+	}
 	cfg.PointMatch = percent(envPointMatch, cfg.PointMatch)
 	cfg.ReviewMatch = percent(envReviewMatch, cfg.ReviewMatch)
 	cfg.ProbeDropdowns = !isOff(config.Env(envProbe, ""))
