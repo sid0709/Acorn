@@ -17,12 +17,16 @@ type ErrorBody = { message?: string; error?: string };
 
 const UNREACHABLE = "Couldn’t reach Acorn. Check that the API is running.";
 
+/** The page renders while it waits, so a backend that does not answer must not hold it for long. */
+const READ_TIMEOUT_MS = 8_000;
+
 async function read<T>(path: string, query: URLSearchParams): Promise<Read<T>> {
   const token = await sessionToken();
   if (!token) return { ok: false, message: "Sign in required." };
   const response = await fetch(`${acornApiUrl()}${path}?${query}`, {
     headers: acornHeaders(token),
     cache: "no-store",
+    signal: AbortSignal.timeout(READ_TIMEOUT_MS),
   }).catch(() => null);
   if (!response) return { ok: false, message: UNREACHABLE };
   const data = (await response.json().catch(() => ({}))) as T & ErrorBody;
