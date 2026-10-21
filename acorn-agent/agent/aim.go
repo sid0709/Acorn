@@ -34,7 +34,8 @@ func aimAtControls(planned []Action, obs Observation) ([]Action, aimed) {
 	}
 	out := make([]Action, 0, len(planned))
 	for _, action := range planned {
-		if !isPointAction(action) {
+		// A point on an option of the open list is the pick itself: it stays where the model put it.
+		if !isPointAction(action) || onOpenOption(action, obs) {
 			out = append(out, action)
 			continue
 		}

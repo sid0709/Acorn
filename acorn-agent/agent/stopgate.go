@@ -115,14 +115,22 @@ func (s *session) noteRefusedSend(obs Observation) bool {
 	if !s.commit.done || s.commit.url != withoutFragment(obs.URL) || !s.commit.samePage(obs.Marks) {
 		return false
 	}
-	left := unfilledFields(obs.Marks)
-	if len(left) == 0 {
+	left, stale := unfilledFields(obs.Marks), staleMarkedFields(obs.Marks)
+	if len(left) == 0 && len(stale) == 0 {
 		return false
 	}
 	// This send is judged once: the next plan's send is a new one.
 	s.commit = commitState{}
 	s.sendRefused = true
-	s.notes = append(s.notes, refusedSendNote(left))
+	if len(left) > 0 {
+		s.notes = append(s.notes, refusedSendNote(left))
+	}
+	if len(stale) > 0 {
+		// The page refused the send, so an error beside a filled field may be real this time: the model
+		// looks at the value, and sets it again once if it is wrong.
+		s.notes = append(s.notes, staleMarkedNote(stale))
+	}
+	left = append(left, stale...)
 	s.surveyAgain = true
 	slog.Info(fmt.Sprintf("%s: the page refused the send: it reports %s empty or invalid (%s); the next send is held for one look.",
 		runName(s.id), plainlog.Count(len(left), "required field"), quoted(left)))
@@ -184,10 +192,12 @@ func (s *session) nothingLeftToFill(obs Observation) bool {
 	}
 	sent := s.commit.done && s.commit.url == withoutFragment(obs.URL) && s.commit.samePage(obs.Marks)
 	for _, mark := range obs.Marks {
-		if mark.Invalid {
+		// A control marked invalid that holds a value may only be wearing a message from before it was set
+		// (staleMarkedFields): it does not keep the stop from standing. One marked invalid and empty does.
+		if mark.Invalid && isEmpty(mark) {
 			return false
 		}
-		if mark.Empty == nil || !*mark.Empty {
+		if !isEmpty(mark) {
 			continue
 		}
 		if !sent || s.commit.controls[mark.ID] {
@@ -197,16 +207,43 @@ func (s *session) nothingLeftToFill(obs Observation) bool {
 	return true
 }
 
-// unfilledFields are the controls the page reports required and empty, or marked invalid, that are
-// filled rather than pressed, named as the model would name them: a text box by its label, a group of
-// radio buttons once, by the question it answers (else by its choices). A control the page gives no
-// name is left out: it cannot be told to the model.
+// isEmpty is whether the page reports a control empty.
+func isEmpty(mark ControlMark) bool { return mark.Empty != nil && *mark.Empty }
+
+// unfilledFields are the controls the page reports required and empty, or marked invalid while empty,
+// that are filled rather than pressed, named as the model would name them: a text box by its label, a
+// group of radio buttons once, by the question it answers (else by its choices). A control the page gives
+// no name is left out: it cannot be told to the model. A control marked invalid that holds a value is not
+// one of them (staleMarkedFields): many pages keep an error beside a field after it was set right, until
+// the next send, and a run that is sent back for it sets it again and again (a recorded run re-entered a
+// password that matched, and a location that was chosen, for want of this).
 func unfilledFields(marks []ControlMark) []string {
+	return namedFields(marks, func(mark ControlMark) bool {
+		return isEmpty(mark) && (mark.Required || mark.Invalid)
+	})
+}
+
+// staleMarkedFields are the controls the page marks invalid though they hold a value: the error may be
+// from before the value was set, or the value may be wrong. The model is told, and judges from the screen.
+func staleMarkedFields(marks []ControlMark) []string {
+	return namedFields(marks, func(mark ControlMark) bool {
+		return mark.Invalid && mark.Empty != nil && !*mark.Empty
+	})
+}
+
+// staleMarkedNote tells the model which fields wear an error though they hold a value, and how to judge.
+func staleMarkedNote(fields []string) string {
+	return fmt.Sprintf("The page still shows an error beside %s, though each holds a value. Such a message often stays from before the field was set: "+
+		"look at the value on the screen. If it is right, leave the field alone, the message is stale; set it again only if the value is wrong, and then once.", quoted(fields))
+}
+
+// namedFields names the controls of marks that `wanted` picks, as unfilledFields describes.
+func namedFields(marks []ControlMark, wanted func(ControlMark) bool) []string {
 	var names []string
 	seen := map[string]bool{}
 	choices := map[string][]string{}
 	for _, mark := range marks {
-		if !isField(mark.Kind) || !(mark.Invalid || (mark.Required && mark.Empty != nil && *mark.Empty)) {
+		if !isField(mark.Kind) || !wanted(mark) {
 			continue
 		}
 		if mark.Group == "" {
@@ -364,6 +401,10 @@ func (a *Agent) holdStop(ctx context.Context, s *session, status string, answer 
 // not again once a pass filled none of them. Nothing is asked when the page reports no such field, or no
 // decision model checks the run.
 func (a *Agent) holdForFields(ctx context.Context, s *session, stop *StopInfo, reason string, obs Observation) (string, bool, []modelCall) {
+	if stale := staleMarkedFields(obs.Marks); len(stale) > 0 {
+		// Told, not held for: the value is there, and the model judges it from the screen.
+		s.notes = append(s.notes, staleMarkedNote(stale))
+	}
 	names := unfilledFields(obs.Marks)
 	if len(names) == 0 || !a.checksOn(s) {
 		return "", false, nil

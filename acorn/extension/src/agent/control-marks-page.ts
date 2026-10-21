@@ -13,6 +13,7 @@
 import { EXTENSION_BUILD } from "../build-version";
 
 import {
+  COMBOBOX_ANCESTORS,
   ENTRY_MIN_HEIGHT_PX,
   FIELD_MAX_HEIGHT_PX,
   MARK_LABEL_MAX_CHARS,
@@ -52,6 +53,7 @@ function installBody(): string {
     const LABEL_MAX = ${MARK_LABEL_MAX_CHARS};
     const VALUE_MAX = ${MARK_VALUE_MAX_CHARS};
     const SIZELESS_UP = ${SIZELESS_ANCESTORS};
+    const COMBOBOX_UP = ${COMBOBOX_ANCESTORS};
     const state = {
       installed: true, build, version: Math.floor(Math.random() * 1e9), marks: [], els: new Map(), idOf: new WeakMap(),
       lastActivity: performance.now(), stop: null,
@@ -179,11 +181,26 @@ function installBody(): string {
       } else return null;
       return { key, question: questionOf(el) };
     };
+    // A text box that opens a list of choices (a page's own dropdown: a combobox, a box that searches as one
+    // types) is a list to choose from, not a box to type into. The page says so in its own words: the role,
+    // an autocomplete or popup it declares, the list it controls, or a combobox it sits in.
+    const opensAList = (el, tag) => {
+      if (tag !== "input") return false;
+      const autocomplete = el.getAttribute("aria-autocomplete");
+      const popup = el.getAttribute("aria-haspopup");
+      if (autocomplete === "list" || autocomplete === "both") return true;
+      if (popup === "listbox" || popup === "menu" || popup === "tree" || popup === "true") return true;
+      if (el.getAttribute("aria-controls") != null || el.getAttribute("aria-owns") != null || el.getAttribute("aria-expanded") != null) return true;
+      for (let node = el.parentElement, up = 0; node && node !== document.body && up < COMBOBOX_UP; node = node.parentElement, up += 1) {
+        if (node.getAttribute("role") === "combobox") return true;
+      }
+      return false;
+    };
     const kindOf = (el, tag, type) => {
       const role = el.getAttribute("role");
       if (type === "file") return "file";
       if (type === "checkbox" || type === "radio" || role === "checkbox" || role === "radio") return "check";
-      if (tag === "select" || role === "combobox") return "select";
+      if (tag === "select" || role === "combobox" || opensAList(el, tag)) return "select";
       if (tag === "input" && (type === "button" || type === "submit" || type === "reset" || type === "image")) return "button";
       if (tag === "input" || tag === "textarea" || el.isContentEditable) return "input";
       if (tag === "a") return "link";

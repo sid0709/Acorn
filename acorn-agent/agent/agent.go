@@ -469,6 +469,9 @@ func (a *Agent) step(ctx context.Context, id string, obs Observation) (Step, err
 	s.script = nil
 	number := s.step + 1
 	notes := append(append([]string(nil), obs.Notes...), s.notes...)
+	if obs.List != nil && len(obs.List.Options) > 0 {
+		notes = append(notes, openListNote(obs.List.Options))
+	}
 	if line := s.cover.line(obs.Viewport); line != "" {
 		notes = append(notes, line)
 	}

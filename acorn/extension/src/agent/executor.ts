@@ -121,9 +121,8 @@ async function glideTo(ctx: ExecutorContext, x: number, y: number): Promise<void
 }
 
 /**
- * What the guard has to say about the control: a doubt to tell the model with the result (the click
- * goes ahead, and does not wait for this), or, were a control ever blocked, the refusal. An upload still
- * waits for it before the file goes in.
+ * What the guard has to say about the control before the click: a doubt to tell the model with the
+ * result (the click goes ahead), or the refusal of an autofill from a saved profile or another service.
  */
 async function guardHint(verdict: Promise<GuardVerdict> | undefined): Promise<string | undefined> {
   const answer = await verdict;
@@ -176,22 +175,25 @@ async function perform(ctx: ExecutorContext, action: AgentAction, watch: Stopwat
         scrollForAction(cdp, action, ctx.scale(), ctx),
       );
       ctx.progress?.(action, ACTION_PROGRESS.aimed, { x, y });
-      // The guard's judgment never holds a click back (guard.ts): it is a doubt told to the model with the
-      // result. So the click does not wait for it; the judgment is collected once the click has settled. A
-      // recorded run waited three to six seconds before every click for a verdict that changed nothing.
+      // The guard can refuse a click (an autofill from a saved profile or another service, guard.ts), so
+      // the click waits for it. It answers at once for a plain form field, which it does not judge, and
+      // from its memory for a control it judged before; the wait is for buttons and links on their first
+      // click. It starts while the cursor glides.
       const verdict = ctx.guard?.(x, y);
       await watch.time("glide", () => glideTo(ctx, x, y));
+      const hint = await watch.time("guard", () => guardHint(verdict));
       void ctx.overlay.click();
       const count = action.kind === "double_click" ? 2 : action.kind === "triple_click" ? 3 : 1;
-      const done = await clickWatchingForPicker(
-        ctx,
-        x,
-        y,
-        { button: action.kind === "right_click" ? "right" : "left", count },
-        watch,
+      return withHint(
+        await clickWatchingForPicker(
+          ctx,
+          x,
+          y,
+          { button: action.kind === "right_click" ? "right" : "left", count },
+          watch,
+        ),
+        hint,
       );
-      const hint = await watch.time("guard", () => guardHint(verdict));
-      return withHint(done, hint);
     }
     case "hover": {
       const { x, y } = await watch.time("scroll", () =>

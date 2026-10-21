@@ -270,6 +270,24 @@ func (a *Agent) pickOptionFrom(ctx context.Context, s *session, screenshot, answ
 // optionKeys goes to the first option of an open list (Home, as in any list box: the highlighted
 // option follows the mouse pointer, so it is not necessarily the first), moves down to the one at
 // position and picks it.
+// optionPick is the action that picks the n-th option (position, from 1) of an open list: a click on the
+// option where the page said it is drawn, at the scroll the list was read at (scrollY, screenshot pixels),
+// else, when the page did not say or the option is drawn off the screen, the keys that reach it. A pick
+// is a click wherever a click is possible: the option is what the applicant would press, and a list that
+// closes or moves on an arrow key is not pressed by keys. A native list (the browser's own popup) is never
+// in a picture, so it is always keyed (chooseNative).
+func optionPick(id string, list *OpenList, position int, scrollY float64, vp Viewport) Action {
+	if box, ok := list.optionBox(position - 1); ok {
+		cx, cy := box.center()
+		x, y := cx-vp.ScrollX, cy-scrollY
+		if x >= 0 && y >= 0 && x < float64(vp.Width) && y < float64(vp.Height) {
+			top := scrollY
+			return Action{ID: id, Kind: KindClick, X: &x, Y: &y, ScrollTo: &top, PageHeight: vp.PageHeight}
+		}
+	}
+	return Action{ID: id, Kind: KindKey, Keys: optionKeys(position)}
+}
+
 func optionKeys(position int) string {
 	keys := make([]string, 0, position+1)
 	keys = append(keys, "Home")
@@ -342,9 +360,9 @@ func (a *Agent) continueScript(ctx context.Context, s *session, obs Observation,
 	var step Step
 	switch {
 	case read.position > 0:
-		key := Action{ID: sc.nextID(s.seq), Kind: KindKey, Keys: optionKeys(read.position)}
+		pick := optionPick(sc.nextID(s.seq), obs.List, read.position, obs.Viewport.ScrollY, obs.Viewport)
 		sc.open = nil
-		step = Step{Status: StatusWorking, Message: s.message, Actions: a.dispatch(s, []Action{key}), Number: s.step, Usage: s.usage}
+		step = Step{Status: StatusWorking, Message: s.message, Actions: a.dispatch(s, []Action{pick}), Number: s.step, Usage: s.usage}
 	case read.err != nil || open.cleared:
 		// Nothing answers even in the whole list (or the checker failed): the model looks, with the list open.
 		return a.giveUp(s, obs, entry, open, nil, calls)
@@ -404,9 +422,9 @@ func (a *Agent) chooseListed(ctx context.Context, s *session, obs Observation, e
 	if index < 0 {
 		return a.giveUp(s, obs, entry, open, options, calls)
 	}
-	key := Action{ID: sc.nextID(s.seq), Kind: KindKey, Keys: optionKeys(index + 1)}
+	pick := optionPick(sc.nextID(s.seq), obs.List, index+1, obs.Viewport.ScrollY, obs.Viewport)
 	sc.open = nil
-	step := Step{Status: StatusWorking, Message: s.message, Actions: a.dispatch(s, []Action{key}), Number: s.step, Usage: s.usage}
+	step := Step{Status: StatusWorking, Message: s.message, Actions: a.dispatch(s, []Action{pick}), Number: s.step, Usage: s.usage}
 	entry.Status, entry.Message, entry.Actions = step.Status, step.Message, step.Actions
 	a.record(s, entry, obs.Screenshot, calls)
 	return step, true
@@ -431,6 +449,16 @@ func (a *Agent) giveUp(s *session, obs Observation, entry stepTrace, open *openL
 // unsureNote tells the model which dropdown found no sure option among the options the page named, and
 // what they are, so it chooses among them in one answer: a choose whose text is the option's own words
 // is picked with no further question.
+// openListNote tells the model that a list of choices is open on the screen it is looking at, and that
+// the pick is a click on an option before anything else. A recorded run typed a city into a box, saw its
+// list open on the next look, went on to the next field, and the page cleared the box: a value in such a
+// box counts only once an option is clicked, and any click or key elsewhere closes the list first.
+func openListNote(options []string) string {
+	return fmt.Sprintf("A list of choices is open on this screen, under the box last typed into. Its options are: %s. "+
+		"Pick now, by clicking the option on the screenshot that answers, before any other action: a click or a key anywhere else closes the list "+
+		"and the page drops what was typed. Do not type into the box again.", listedLine(options))
+}
+
 func unsureNote(choose Action, options []string) string {
 	where := fmt.Sprintf("at %.0f,%.0f", *choose.X, *choose.Y)
 	if choose.Zone > 0 {

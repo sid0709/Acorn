@@ -168,15 +168,33 @@ func markByLabel(marks []ControlMark, label string, x, y float64) (ControlMark, 
 	return found, n == 1
 }
 
+// onOpenOption is whether the point of an action is on an option of the list open at the look, where
+// the page drew it. Such a point is the model picking from the list it sees: it is not moved onto the
+// box under the list, nor bound to that box (a recorded run's click on an option was moved onto the
+// search box the list hung from, and the option was never picked).
+func onOpenOption(action Action, obs Observation) bool {
+	if obs.List == nil || len(obs.List.Boxes) == 0 || !isPointAction(action) {
+		return false
+	}
+	x, y := pageX(action, obs), pageY(action, obs)
+	for _, box := range obs.List.Boxes {
+		if box.finite() && box.contains(x, y, markSlackPx) {
+			return true
+		}
+	}
+	return false
+}
+
 // bindMarks binds the point of every point action of a plan to the control it is on, by action id. A
-// look without marks (no survey) binds nothing, and a point on no control is left out.
+// look without marks (no survey) binds nothing, and a point on no control, or on an option of the open
+// list, is left out.
 func bindMarks(planned []Action, obs Observation) map[string]MarkRef {
 	if len(obs.Marks) == 0 {
 		return nil
 	}
 	out := map[string]MarkRef{}
 	for _, action := range planned {
-		if !isPointAction(action) {
+		if !isPointAction(action) || onOpenOption(action, obs) {
 			continue
 		}
 		if mark, ok := boundMark(obs.Marks, action, obs); ok {

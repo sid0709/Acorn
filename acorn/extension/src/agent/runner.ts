@@ -674,7 +674,10 @@ export async function runAgent(args: AgentRunArgs): Promise<RunReport> {
       try {
         const photo = await captureShot(here.cdp);
         // What the page says of the list the click opened: the focused control, and the options it names.
-        const [focus, list] = await Promise.all([readFocus(here.cdp), readOpenList(here.cdp)]);
+        const [focus, list] = await Promise.all([
+          readFocus(here.cdp),
+          readOpenList(here.cdp, photo.scale),
+        ]);
         // A picture that did not get through is not an error: the dropdown goes back to being set one at a time.
         await sendShot(
           args.agentUrl,
@@ -1042,7 +1045,7 @@ export async function runAgent(args: AgentRunArgs): Promise<RunReport> {
         Promise.all([
           readFocus(here.cdp),
           readPageText(here.cdp, here.tabId),
-          readOpenList(here.cdp),
+          readOpenList(here.cdp, shot?.scale ?? 1),
         ]),
       );
       // The page's text goes once per change: the job description may sit above the form,

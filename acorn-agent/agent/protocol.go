@@ -209,6 +209,17 @@ type Observation struct {
 // is open with nothing in it yet: a box that searches as one types.
 type OpenList struct {
 	Options []string `json:"options"`
+	// Boxes is where each option is drawn, one per option in the same order (screenshot pixels from the
+	// page's top left, as marks are), when the page could say: the pick is a click on the option.
+	Boxes []Rect `json:"boxes,omitempty"`
+}
+
+// optionBox is where the n-th option (from 0) is drawn, when the page said.
+func (l *OpenList) optionBox(index int) (Rect, bool) {
+	if l == nil || index < 0 || index >= len(l.Boxes) || len(l.Boxes) != len(l.Options) {
+		return Rect{}, false
+	}
+	return l.Boxes[index], l.Boxes[index].finite()
 }
 
 // Rect is a box on the page, in screenshot pixels from the page's top left.

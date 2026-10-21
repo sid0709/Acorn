@@ -99,6 +99,10 @@ type probeItem struct {
 	unsure bool
 	done   bool
 	listed []string
+	// list is the list the pick was read from, as the page named and placed its options, and listScrollY
+	// the scroll its picture was taken at: the pick clicks the option there (optionPick).
+	list        *OpenList
+	listScrollY float64
 }
 
 // probeNudge is one try at opening a dropdown a little above or below the model's point.
@@ -311,11 +315,17 @@ func (s *session) focusElsewhere(item *probeItem, focus *Focus) bool {
 	return !labelsAgree(focus.Label, bound.Label)
 }
 
-// probeSelect picks the answer in a dropdown that was resolved: the same keys the script would send.
+// probeSelect picks the answer in a dropdown that was resolved: the list is opened again as it was read
+// (typed into the same way when it was narrowed), and the option is clicked where the page drew it; the
+// keys that reach it are the fallback when the page did not say where (optionPick). A native list is
+// keyed: the browser draws its popup outside the page.
 func (a *Agent) probeSelect(s *session, item *probeItem) []Action {
 	pr := s.probe
 	seq := s.seq
 	open := a.helper(s, item.choose, pr.nextID(seq), KindClick)
+	pick := func() Action {
+		return optionPick(pr.nextID(seq), item.list, item.pick, item.listScrollY, s.viewport)
+	}
 	switch {
 	case item.native != "":
 		// A native list matches what is typed to its options as it goes, so the whole text selects that one.
@@ -331,11 +341,11 @@ func (a *Agent) probeSelect(s *session, item *probeItem) []Action {
 		return []Action{open,
 			{ID: pr.nextID(seq), Kind: KindType, Text: item.typedText},
 			{ID: pr.nextID(seq), Kind: KindWait, Ms: wait},
-			{ID: pr.nextID(seq), Kind: KindKey, Keys: optionKeys(item.pick)}}
+			pick()}
 	}
 	return []Action{open,
 		{ID: pr.nextID(seq), Kind: KindWait, Ms: probeSelectWaitMs},
-		{ID: pr.nextID(seq), Kind: KindKey, Keys: optionKeys(item.pick)}}
+		pick()}
 }
 
 // reading is what reading one dropdown's picture made, for the trace and the usage.
@@ -347,8 +357,9 @@ type reading struct {
 }
 
 // readListed reads a dropdown from the options the page named for it: the pick, or that none answered.
-func (a *Agent) readListed(ctx context.Context, s *session, item *probeItem, options []string, focus *Focus) reading {
-	index, check, asked, err := a.decideListed(ctx, s, item.choose.Text, options, chooseLabel(item.choose, focus))
+func (a *Agent) readListed(ctx context.Context, s *session, item *probeItem, snap ShotUpload) reading {
+	options := snap.List.Options
+	index, check, asked, err := a.decideListed(ctx, s, item.choose.Text, options, chooseLabel(item.choose, snap.Focus))
 	out := reading{asked: asked, cost: check.response.Usage.Cost, failure: err}
 	if asked {
 		out.call = check.call(err)
@@ -356,7 +367,7 @@ func (a *Agent) readListed(ctx context.Context, s *session, item *probeItem, opt
 	switch {
 	case err != nil:
 	case index >= 0:
-		item.pick = index + 1
+		item.pick, item.list, item.listScrollY = index+1, snap.List, snap.ScrollY
 	default:
 		item.listed, item.unsure = options, true
 	}
@@ -425,7 +436,7 @@ func (a *Agent) readOne(ctx context.Context, s *session, item *probeItem, snap S
 	if list := snap.List; list != nil {
 		switch {
 		case len(list.Options) > 0:
-			return a.readListed(ctx, s, item, list.Options, snap.Focus)
+			return a.readListed(ctx, s, item, snap)
 		case !item.typed:
 			// The page says a list is open with nothing in it: a box that searches as one types. Type the
 			// answer in this batch and read the list again.

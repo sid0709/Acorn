@@ -47,6 +47,8 @@ export const MARK_VALUE_MAX_CHARS = 40;
  * is the row the control sits on, which is what a person clicks.
  */
 export const SIZELESS_ANCESTORS = 4;
+/** How many ancestors up a text box is looked at for the combobox it sits in (a page's own dropdown). */
+export const COMBOBOX_ANCESTORS = 3;
 
 export type ControlKind = "input" | "select" | "button" | "check" | "file" | "link";
 

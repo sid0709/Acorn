@@ -181,11 +181,17 @@ export interface AgentVetTarget {
 export const VET_CAUSE = {
   onlineSource: "online_source",
   singleSignOn: "single_sign_on",
+  /** An autofill from a saved profile or another service: the one cause for which a control itself is refused. */
+  otherAutofill: "other_autofill",
 } as const;
 export type VetCause = (typeof VET_CAUSE)[keyof typeof VET_CAUSE];
 
 export interface AgentVetVerdict {
-  /** Only a window or frame a click opened is ever blocked (closed); a control goes ahead. */
+  /**
+   * A window or frame a click opened is blocked (closed) when it is what the applicant has not allowed; a
+   * control goes ahead with a hint, except one that fills the application from a saved profile or another
+   * service (`other_autofill`), which is refused before the click.
+   */
   blocked: boolean;
   probability: number;
   cause?: VetCause;
@@ -340,6 +346,12 @@ export interface AgentControlMark extends AgentRect {
  */
 export interface AgentOpenList {
   options: string[];
+  /**
+   * Where each option is drawn, one box per option in the same order (screenshot pixels from the page's
+   * top left, as `marks` are), so the agent can click the option it picks instead of reaching it by keys.
+   * Absent when the page could not say.
+   */
+  boxes?: AgentRect[];
 }
 
 /**
