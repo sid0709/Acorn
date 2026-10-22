@@ -2,15 +2,15 @@
 
 Chrome extension + React UI board for capturing page DOM trees, generating structured AI action plans, and running fill automation.
 
-**Backend lives in athens-backend** (`/api/oak` + Socket.io path `/oak` on port **8980**). There is no separate Oak Express server.
+**Backend is `../oak-backend`** (`/api/oak` + Socket.io path `/oak` on port **8980**), on Acorn's accounts, profile and résumé Library. There is no separate Oak Express server.
 
-Engineering policy: [`policy-oak.md`](policy-oak.md). Parent rules: [`../rule.md`](../rule.md).
+Engineering policy: [`policy-oak.md`](policy-oak.md).
 
 ## Architecture
 
 ```
 ┌─────────────────────┐   socket.io /oak    ┌──────────────────────┐
-│  Chrome Extension   │ ◄─────────────────► │  athens-backend      │
+│  Chrome Extension   │ ◄─────────────────► │  oak-backend          │
 │  (side panel)       │                     │  :8980               │
 └──────────┬──────────┘   HTTP /api/oak/*   └──────────┬───────────┘
            │ fetch DOM                                 │ broadcast
@@ -21,7 +21,7 @@ Engineering policy: [`policy-oak.md`](policy-oak.md). Parent rules: [`../rule.md
                                                └──────────────────┘
 ```
 
-Auth: Athens account username + password (`POST /api/oak/auth/signin`). AI Analyze uses the signed-in profile’s LLM key + default model, and sanitized `autoBidProfile` (secrets stripped) instead of a local `profile.md`.
+Auth: the Acorn email and the **extension password** from the Acorn profile (`POST /api/oak/auth/signin`, which signs in through acorn-backend). The token is an Acorn session, so it works on both backends. AI Analyze uses the profile's OpenRouter key (else OpenAI) and the saved profile, with passwords and keys stripped.
 
 ## Projects
 
@@ -33,15 +33,17 @@ Auth: Athens account username + password (`POST /api/oak/auth/signin`). AI Analy
 
 ## Quick Start
 
-### 1. Start athens-backend
+### 1. Start acorn-backend and oak-backend
 
-From the monorepo `athens-backend/` package:
+acorn-backend handles sign-in. Then, from `oak-backend/`:
 
 ```bash
-npm run start:dev
+cp .env.example .env   # set ACORN_MONGO_URI
+bun install
+bun run start:dev
 ```
 
-Ensure your Athens profile has an LLM API key and default model set in Settings. Optional Oak env knobs are documented in `athens-backend/.env.example` (`OAK_*`).
+The Acorn profile needs an OpenRouter or OpenAI key, an extension password, and at least one Library résumé.
 
 Add the UI board origin to `CORS_ORIGIN` (e.g. `http://localhost:5173`).
 
@@ -49,30 +51,30 @@ Add the UI board origin to `CORS_ORIGIN` (e.g. `http://localhost:5173`).
 
 ```bash
 cd Oak
-npm install
+bun install
 ```
 
 ### 3. Start the UI board
 
 ```bash
-npm run dev:ui-board
+bun run dev:ui-board
 ```
 
-Open http://localhost:5173 — sign in with your Athens credentials.
+Open http://localhost:5173 — sign in with your Acorn email and extension password.
 
-Optional: `VITE_ATHENS_API_URL=https://athensai.remotepairnet.net`
+Optional: `VITE_ATHENS_API_URL` (oak-backend origin; defaults to `http://127.0.0.1:8980`)
 
 ### 4. Build & load the extension
 
 ```bash
-npm run build -w extension
+bun run build:extension
 ```
 
 1. Open `chrome://extensions`
 2. Enable **Developer mode**
 3. **Load unpacked** → select `extension/dist`
-4. Open the Oak sidebar → sign in with the same Athens credentials
-5. Confirm Athens API URL is `https://athensai.remotepairnet.net` (shipped default) or `http://127.0.0.1:8980` (local). Keep the side panel open for a green **Socket connected** light — the panel holds a port so Chrome does not park the worker that owns the `/oak` socket. The extension prefers Engine.IO **websocket** with HTTP long-poll fallback (`path: /oak`, `auth.token`). Cloud nginx must proxy `/oak` to port **8980** and return 101 on the websocket upgrade (see `docker/athensai-host-nginx.conf`). Sign-in uses `/api/oak/*` and can succeed a moment before the socket turns green. The socket token travels in the handshake `auth` payload only — query-string tokens are rejected, since URLs land in nginx access logs. Every socket joins a room keyed by the signed-in account: `dom:tree`, `pipeline:progress`, `clients:update` and every relayed command (`dom:get-content`, `dom:execute-actions`, `dom:plan-step`) stay inside that room, so a client can only ever see or drive its own account's extension.
+4. Open the Oak sidebar → sign in with the same Acorn email and extension password
+5. Confirm the Oak API URL is `http://127.0.0.1:8980` (local default) or your deployed oak-backend (set `VITE_OAK_API_URL` at build time). Keep the side panel open for a green **Socket connected** light — the panel holds a port so Chrome does not park the worker that owns the `/oak` socket. The extension prefers Engine.IO **websocket** with HTTP long-poll fallback (`path: /oak`, `auth.token`). Cloud nginx must proxy `/oak` to port **8980** and return 101 on the websocket upgrade (see `docker/athensai-host-nginx.conf`). Sign-in uses `/api/oak/*` and can succeed a moment before the socket turns green. The socket token travels in the handshake `auth` payload only — query-string tokens are rejected, since URLs land in nginx access logs. Every socket joins a room keyed by the signed-in account: `dom:tree`, `pipeline:progress`, `clients:update` and every relayed command (`dom:get-content`, `dom:execute-actions`, `dom:plan-step`) stay inside that room, so a client can only ever see or drive its own account's extension.
 
 ### 5. Use it
 
@@ -87,65 +89,15 @@ npm run build -w extension
 9. In the sidebar: **Pure Tree**, **Meta Tree**, **AI Analyze**, and the plan-run step list (verified / skipped)
 10. **Fetch DOM** still sends a snapshot to the UI board if you want the desktop board
 
-## API (athens-backend)
+## API
 
-| Method | Path                                                | Auth                                                                                                                                                                                                                                                                                                                                                                                                                                                             |
-| ------ | --------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| POST   | `/api/oak/auth/signin`                              | —                                                                                                                                                                                                                                                                                                                                                                                                                                                                |
-| POST   | `/api/oak/auth/signout`                             | Bearer                                                                                                                                                                                                                                                                                                                                                                                                                                                           |
-| GET    | `/api/oak/auth/me`                                  | Bearer                                                                                                                                                                                                                                                                                                                                                                                                                                                           |
-| GET    | `/api/oak/health`                                   | — liveness only (`{ ok: true }`); it does not report connected clients                                                                                                                                                                                                                                                                                                                                                                                           |
-| POST   | `/api/oak/ai-analyze`                               | Bearer — `{ pureTree, page }`. The planner reads the **pure tree only**; control attrs (`role`, `aria-*`, `type`, `name`) **and `class` tokens** ride on each node's `detail`. Class tokens are what distinguish nodes identical by tag and text (a yes/no toggle button from a plain button, the résumé field from an autofill drop zone), so they must stay on the pure tree. `metaTree` is still accepted from older extensions but is not sent to the model. |
-| POST   | `/api/oak/match-option`                             | Bearer                                                                                                                                                                                                                                                                                                                                                                                                                                                           |
-| POST   | `/api/oak/qa`                                       | Bearer — leftover-field Q&A (same writer as text fill)                                                                                                                                                                                                                                                                                                                                                                                                           |
-| GET    | `/api/oak/runtime-file`                             | Bearer                                                                                                                                                                                                                                                                                                                                                                                                                                                           |
-| GET    | `/api/oak/jobs`                                     | Bearer — Worker Pool jobs (include stored `jobDescription` when present)                                                                                                                                                                                                                                                                                                                                                                                         |
-| GET    | `/api/oak/jobs/:jobId`                              | Bearer — one job, including stored `jobDescription` when the list omits it                                                                                                                                                                                                                                                                                                                                                                                       |
-| POST   | `/api/oak/jobs/:jobId/mark-applied`                 | Bearer — clear Worker pool, then mark applied                                                                                                                                                                                                                                                                                                                                                                                                                    |
-| GET    | `/api/oak/jobs/:jobId/resume-preview`               | Bearer — HTML preview of the generated résumé, or the assigned Library Word file                                                                                                                                                                                                                                                                                                                                                                                 |
-| GET    | `/api/oak/jobs/:jobId/recommended-resume`           | Bearer — generated Worker-pool résumé if present, else Library file                                                                                                                                                                                                                                                                                                                                                                                              |
-| POST   | `/api/oak/custom/extract-jd`                        | Bearer — `{ pageText }` → `{ hasJobDescription, jobDescription, reason }`. HTTP 200 when no posting (`hasJobDescription: false`). Custom sends the same formatted **pure tree** Fill uses for AI Analyze.                                                                                                                                                                                                                                                        |
-| POST   | `/api/oak/custom/generate`                          | Bearer — `{ jobDescription, jobId?, checkpoint? }` → My Resume Editor generate. `checkpoint` skips completed section steps. Optional `jobId` attaches the file to a Worker pool job. `{ inputId }`                                                                                                                                                                                                                                                               |
-| POST   | `/api/oak/custom/generate/:inputId/continue`        | Bearer — resume a failed generate at `checkpoint.resumeFrom` using saved `partialSections`. 404 → Oak enqueues a new generate with the same checkpoint.                                                                                                                                                                                                                                                                                                          |
-| GET    | `/api/oak/custom/generate/:inputId`                 | Bearer — poll Custom generate. Completed: `{ status, generationId, resumeId }` (`resumeId` = Firestore file). Running: `{ partialSections, progress }`                                                                                                                                                                                                                                                                                                           |
-| POST   | `/api/oak/custom/recommend`                         | Bearer — `{ jobDescription, title?, url? }` → Job Search Library recommend (analyzed uploads). `{ recommendedResumeId, recommendedResumeStack, recommendedResumeReason }`                                                                                                                                                                                                                                                                                        |
-| GET    | `/api/oak/custom/library-resumes/:resumeId/preview` | Bearer — HTML preview of the recommended Library Word file                                                                                                                                                                                                                                                                                                                                                                                                       |
-| GET    | `/api/oak/custom/library-resumes/:resumeId`         | Bearer — `{ file, resumeId, stack }` Library DOCX, same shape as recommended-resume                                                                                                                                                                                                                                                                                                                                                                              |
-| GET    | `/api/oak/custom/resumes/:generationId/preview`     | Bearer — HTML preview of the **stored** template-applied file (not `renderDocx`)                                                                                                                                                                                                                                                                                                                                                                                 |
-| GET    | `/api/oak/custom/resumes/:generationId`             | Bearer — `{ file, generationId, resumeId }` Firestore DOCX, same shape as recommended-resume                                                                                                                                                                                                                                                                                                                                                                     |
-
-### Custom generate backend contract
-
-Oak does not render a Custom-only résumé. `POST /api/oak/custom/generate` must be the same path as My Resume’s Editor:
-
-1. Load the signed-in profile’s stored `ResumeConfig`, DOCX template, and variables.
-2. **Fill mode:** use the Worker pool job’s stored `jobDescription`. Do not extract from the page. **Custom mode:** same DOM snapshot as Fill (`fetchDomFromTab` + `formatAnalyzeTrees`), then `POST /api/oak/custom/extract-jd` with `pageText` = that formatted pure tree. If `hasJobDescription` is false, stop — do not enqueue.
-3. Enqueue editor `resume_generation` with `jobDescription` = that posting prose. If the body includes `checkpoint.resumeFrom` / `partialSections`, skip completed section steps (`summary` / `skills` / `experience`) and continue from `resumeFrom`. `POST .../generate/:inputId/continue` should do the same for an existing task.
-4. Optional `jobId` persists the template-applied file onto that Worker pool job (`generatedResume`).
-5. Apply that stored template to the generation result.
-6. Write the template-applied DOCX to Firestore.
-7. Poll returns `generationId` plus `resumeId` of the stored file, plus `partialSections` while running.
-8. `GET /api/oak/custom/resumes/:generationId` and `/preview` return/convert **that** file.
-
-Oak persists checkpoints locally (`chrome.storage.session`) per Custom tab and per Worker pool job so Continue works even if Athens has not deployed continue yet — JD extract is skipped on Oak’s side; section skip still needs the checkpoint fields above.
-
-### Custom recommend backend contract
-
-`POST /api/oak/custom/recommend` must be the same Library match as Job Search recommend:
-
-1. Call `POST /api/oak/custom/extract-jd` first when Custom (same Fill analyze pure tree). Fill Recommend uses the stored job JD and skips extract. If `hasJobDescription` is false, stop.
-2. Load the signed-in profile’s analyzed Library catalog (same as Job Search).
-3. Run `RecommendOneService.fromPageText` with the extracted posting prose.
-4. Resolve `resumeId` from the matched stack label. Do not write `vendor_tasks`.
-5. `GET /api/oak/custom/library-resumes/:resumeId` and `/preview` return/convert **that** Library file.
-
-Fill (Worker Pool) still uses the Library upload via `GET /api/oak/jobs/:jobId/recommended-resume`. Custom Fill in Generate mode uses the generated Firestore file. Custom Fill in Recommend mode uses `GET /api/oak/custom/library-resumes/:resumeId`. Do not serve `GET /api/personal/resume-generations/:id/docx` (`renderDocx`, Source Sans, no Skills block) as the Custom generated file.
+See [`../oak-backend/README.md`](../oak-backend/README.md). The Worker pool list and Custom Generate / Recommend / preview routes are not ported to Acorn yet, so those parts of the sidebar are empty or fail until they are.
 
 Socket.io: same host, path `/oak`, handshake `auth.token` = access token.
 
 ## Development
 
 ```bash
-npm run dev:extension   # watch-build extension
+bun run dev:extension   # watch-build extension
 # Reload unpacked extension in chrome://extensions after changes
 ```

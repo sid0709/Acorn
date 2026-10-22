@@ -19,7 +19,7 @@ One mode at a time. The head is a single path — ears do not move. No plate or 
 ## Playground
 
 ```bash
-npm run dev:oak-face
+bun run dev:oak-face
 ```
 
 Opens the chip board at http://localhost:5175.

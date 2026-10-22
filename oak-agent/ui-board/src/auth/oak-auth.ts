@@ -1,5 +1,7 @@
-export const DEFAULT_ATHENS_API_URL =
-  import.meta.env.VITE_ATHENS_API_URL || "https://athensai.remotepairnet.net";
+const LOCAL_OAK_API_URL = "http://127.0.0.1:8980";
+
+/** The oak-backend origin used until the person saves another one. */
+export const DEFAULT_ATHENS_API_URL = import.meta.env.VITE_ATHENS_API_URL || LOCAL_OAK_API_URL;
 export const OAK_SOCKET_PATH = "/oak";
 
 export type OakStoredSession = {
@@ -51,7 +53,7 @@ export function getAccessToken(): string | null {
 }
 
 export async function oakSignIn(
-  name: string,
+  email: string,
   password: string,
   apiUrl = getAthensApiUrl(),
 ): Promise<OakStoredSession> {
@@ -59,7 +61,7 @@ export async function oakSignIn(
   const res = await fetch(`${base}/api/oak/auth/signin`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ name, password }),
+    body: JSON.stringify({ email, password }),
   });
   const data = (await res.json().catch(() => ({}))) as {
     success?: boolean;
@@ -77,8 +79,8 @@ export async function oakSignIn(
   }
   const session: OakStoredSession = {
     accessToken: data.session.accessToken,
-    username: data.session.username || name,
-    displayName: data.session.displayName || data.session.username || name,
+    username: data.session.username || email,
+    displayName: data.session.displayName || data.session.username || email,
     profileId: data.session.profileId || "",
     expiresAt: data.session.expiresAt || "",
   };
@@ -105,7 +107,7 @@ export async function oakSignOut(): Promise<void> {
 
 export function authHeaders(): Record<string, string> {
   const token = getAccessToken();
-  if (!token) throw new Error("Sign in to Athens required");
+  if (!token) throw new Error("Sign in to Acorn required");
   return {
     "Content-Type": "application/json",
     Authorization: `Bearer ${token}`,

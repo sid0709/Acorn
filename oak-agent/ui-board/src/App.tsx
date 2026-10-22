@@ -390,8 +390,8 @@ export default function App() {
               <input
                 value={authName}
                 onChange={(e) => setAuthName(e.target.value)}
-                placeholder="Username"
-                autoComplete="username"
+                placeholder="Acorn email"
+                autoComplete="email"
               />
               <input
                 type="password"

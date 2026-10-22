@@ -4,7 +4,15 @@ import { customTabHasResume, type OakCustomTabBinding } from "../tab-custom-sess
 import { getJobGenerate } from "../tab-job-generate-session";
 import type { OakTabJobBinding } from "../tab-job-session";
 import type { PipelineSource } from "../types";
-import { fetchCustomLibraryResume, fetchCustomResume, fetchRecommendedResume } from "./ai-client";
+import {
+  fetchCustomLibraryResume,
+  fetchCustomResume,
+  fetchRecommendedResume,
+  fetchRuntimeFile,
+} from "./ai-client";
+
+/** The file key the planner's resume_upload step reads. */
+const RECOMMENDED_RESUME_KEY = "recommended_resume";
 
 const WRONG_SITE = "Page is not this job's apply site — skipped resume upload";
 
@@ -15,13 +23,14 @@ export async function loadFillResume(input: {
   customGenerationId?: string | null;
   apiUrl: string;
 }): Promise<{ file: RuntimeAttachedFile | null; skipReason: string | null }> {
-  if (input.source === "custom" || (input.customTab && customTabHasResume(input.customTab))) {
+  const customPicked = Boolean(input.customTab && customTabHasResume(input.customTab));
+  if (customPicked) {
     return loadCustomFillResume(input);
   }
 
   const tabJob = input.tabJob;
   if (!tabJob?.jobId) {
-    return { file: null, skipReason: null };
+    return loadPrimaryLibraryResume(input.apiUrl);
   }
 
   const jobGen = await getJobGenerate(tabJob.jobId);
@@ -66,6 +75,21 @@ export async function loadFillResume(input: {
       file: null,
       skipReason: err instanceof Error ? err.message : String(err),
     };
+  }
+}
+
+/** No job and no picked résumé: upload the primary résumé from the Acorn Library. */
+async function loadPrimaryLibraryResume(
+  apiUrl: string,
+): Promise<{ file: RuntimeAttachedFile | null; skipReason: string | null }> {
+  try {
+    const file = await fetchRuntimeFile(apiUrl);
+    if (!file) {
+      return { file: null, skipReason: "No résumé in your Acorn Library" };
+    }
+    return { file: { ...file, key: RECOMMENDED_RESUME_KEY }, skipReason: null };
+  } catch (err) {
+    return { file: null, skipReason: err instanceof Error ? err.message : String(err) };
   }
 }
 

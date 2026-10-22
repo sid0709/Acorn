@@ -8,11 +8,13 @@
     "packages/oak-face"
   ],
   "scripts": {
-    "dev:ui-board": "npm run dev -w ui-board",
-    "dev:extension": "npm run dev -w extension",
-    "dev:oak-face": "npm run dev -w @oak/face",
-    "build": "npm run build -w extension && npm run build -w ui-board",
-    "test": "node --experimental-strip-types --test shared/page-text.test.ts shared/apply-site.test.ts shared/generate-checkpoint.test.ts shared/job-description.test.ts",
-    "install:all": "npm install"
-  }
+    "dev:ui-board": "bun run --filter oak-ui-board dev",
+    "dev:extension": "bun run --filter oak-extension dev",
+    "dev:oak-face": "bun run --filter @oak/face dev",
+    "build": "bun run --filter oak-extension build && bun run --filter oak-ui-board build",
+    "test": "bun test shared",
+    "install:all": "bun install",
+    "build:extension": "bun run --filter oak-extension build"
+  },
+  "packageManager": "bun@1.4.2"
 }

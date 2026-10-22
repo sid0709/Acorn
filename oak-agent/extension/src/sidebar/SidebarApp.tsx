@@ -371,7 +371,7 @@ export default function SidebarApp() {
         pushOakNotice({
           kind: "error",
           title: "Couldn’t sign in",
-          detail: res?.error || "Check your username and password.",
+          detail: res?.error || "Check your email and extension password.",
         });
         return;
       }
@@ -572,7 +572,7 @@ export default function SidebarApp() {
           if (/sign in/i.test(err)) {
             setTabProgress(tabId, {
               phase: "idle",
-              message: "Sign in to Athens to run Oak",
+              message: "Sign in to Acorn to run Oak",
             });
             pushOakNotice({
               kind: "error",
@@ -1005,24 +1005,24 @@ export default function SidebarApp() {
             <section className="connection">
               <div className="auth-form">
                 <label className="field">
-                  <span>Username</span>
+                  <span>Email</span>
                   <input
                     value={name}
                     onChange={(e) => setName(e.target.value)}
                     onFocus={() => setNameFocused(true)}
                     onBlur={() => setNameFocused(false)}
-                    autoComplete="username"
-                    placeholder="Athens username"
+                    autoComplete="email"
+                    placeholder="Acorn email"
                   />
                 </label>
                 <label className="field">
-                  <span>Password</span>
+                  <span>Extension password</span>
                   <input
                     type="password"
                     value={password}
                     onChange={(e) => setPassword(e.target.value)}
                     autoComplete="current-password"
-                    placeholder="Athens password"
+                    placeholder="Acorn extension password"
                     onKeyDown={(e) => {
                       if (e.key === "Enter") void handleSignIn();
                     }}
@@ -1321,7 +1321,7 @@ export default function SidebarApp() {
           </summary>
           <div className="oak-connection-body">
             <label className="field">
-              <span>Athens API URL</span>
+              <span>Oak API URL</span>
               <input
                 value={apiUrl}
                 onChange={(e) => {

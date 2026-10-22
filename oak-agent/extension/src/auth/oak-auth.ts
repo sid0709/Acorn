@@ -1,4 +1,7 @@
-export const DEFAULT_ATHENS_API_URL = "https://athensai.remotepairnet.net";
+const LOCAL_OAK_API_URL = "http://127.0.0.1:8980";
+
+/** The oak-backend origin used until the person saves another one in Settings. */
+export const DEFAULT_ATHENS_API_URL = import.meta.env.VITE_OAK_API_URL?.trim() || LOCAL_OAK_API_URL;
 export const OAK_SOCKET_PATH = "/oak";
 
 export type OakStoredSession = {
@@ -62,8 +65,9 @@ export async function getAccessToken(): Promise<string | null> {
 
 export type OakAuthResult = { ok: true; session: OakStoredSession } | { ok: false; error: string };
 
+/** Signs in with the Acorn email and the extension password from the Acorn profile. */
 export async function oakSignIn(
-  name: string,
+  email: string,
   password: string,
   apiUrl?: string,
 ): Promise<OakAuthResult> {
@@ -72,7 +76,7 @@ export async function oakSignIn(
     const res = await fetch(`${base}/api/oak/auth/signin`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ name, password }),
+      body: JSON.stringify({ email, password }),
     });
     const data = (await res.json().catch(() => ({}))) as {
       success?: boolean;
@@ -88,13 +92,13 @@ export async function oakSignIn(
     if (!res.ok || !data.session?.accessToken) {
       return {
         ok: false,
-        error: data.message || "Check your username and password.",
+        error: data.message || "Check your email and extension password.",
       };
     }
     const session: OakStoredSession = {
       accessToken: data.session.accessToken,
-      username: data.session.username || name,
-      displayName: data.session.displayName || data.session.username || name,
+      username: data.session.username || email,
+      displayName: data.session.displayName || data.session.username || email,
       profileId: data.session.profileId || "",
       expiresAt: data.session.expiresAt || "",
     };
@@ -106,7 +110,7 @@ export async function oakSignIn(
     if (/failed to fetch|networkerror|load failed/i.test(message)) {
       return {
         ok: false,
-        error: "Couldn’t reach Athens. Check the API URL and that the backend is running.",
+        error: "Couldn’t reach the Oak backend. Check the API URL and that the backend is running.",
       };
     }
     return { ok: false, error: message || "Couldn’t sign in." };
@@ -131,7 +135,7 @@ export async function oakSignOut(): Promise<void> {
 
 export async function authHeaders(): Promise<Record<string, string>> {
   const token = await getAccessToken();
-  if (!token) throw new Error("Sign in to Athens required");
+  if (!token) throw new Error("Sign in to Acorn required");
   return {
     "Content-Type": "application/json",
     Authorization: `Bearer ${token}`,
