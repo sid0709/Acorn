@@ -3,6 +3,7 @@ import {
   ACORN_RECOMMEND_PATH,
   ACORN_RECOMMEND_TIMEOUT_MS,
 } from '../../acorn/acorn.constants';
+import { appLogger } from '../../common/logger/app-logger';
 import {
   AcornApiClient,
   acornErrorMessage,
@@ -19,14 +20,27 @@ type RankedResume = { resumeId: string; stack: string; probability: number };
  */
 @Injectable()
 export class OakJdShotService {
+  private readonly log = appLogger(OakJdShotService.name);
+
   constructor(private readonly acorn: AcornApiClient) {}
 
   async run(token: string, pageText: string) {
+    const started = Date.now();
     const res = await this.acorn.request('POST', ACORN_RECOMMEND_PATH, {
       token,
       json: { jobDescription: pageText },
       timeoutMs: ACORN_RECOMMEND_TIMEOUT_MS,
     });
+    // acorn-backend reports each stage (session, setup, candidates, match); never the text itself.
+    this.log.info(
+      {
+        status: res.status,
+        textChars: pageText.length,
+        totalMs: Date.now() - started,
+        acornTimings: res.body.timings ?? null,
+      },
+      'oak jd-shot timing',
+    );
     if (res.status === STATUS_NO_POSTING) {
       return {
         success: true as const,

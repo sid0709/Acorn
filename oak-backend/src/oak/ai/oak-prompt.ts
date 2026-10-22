@@ -47,7 +47,7 @@ Rules:
     - Different groups can differ: an export-control / restricted-country group may correctly be None while a citizenship / residency group must use the matching status option from the same profile.
 12. Reserve pause_for_review only for true blockers (missing element, upload file required with no file available, or verification failure). Do not pause for optional/ambiguous questions.
 13. Put every answered field index into validation.required_element_indexes so the run validates completeness (not only starred/required fields).
-14. Resume / CV: if page.recommendedResumeAvailable is true, emit action "resume_upload" (not "upload") with file "recommended_resume" only for Resume/CV file inputs and their nearby Attach controls. The runtime attaches that job's generated Worker-pool résumé when one exists, otherwise the Job Search recommended Library file — and no other file. If page.recommendedResumeAvailable is false, do not emit resume_upload or upload for Resume/CV — list the control in unresolved_items and keep filling every other field. Never emit resume_upload for cover letters, transcripts, or other documents.
+14. Resume / CV: if page.recommendedResumeAvailable is true, emit action "resume_upload" (not "upload") with file "recommended_resume" only for Resume/CV file inputs and their nearby Attach controls. The runtime attaches the Library résumé picked for this job (or the applicant's primary Library résumé) — and no other file. If page.recommendedResumeAvailable is false, do not emit resume_upload or upload for Resume/CV — list the control in unresolved_items and keep filling every other field. Never emit resume_upload for cover letters, transcripts, or other documents.
 15. Applicant identity (overrides rules 6–7 only for the cases below): every answer is the human applicant from the profile. The applicant is not an AI, bot, automated agent, or automation tool.
     - If a question asks whether the applicant used AI, a chatbot, a bot, or an automated tool to write, fill, or submit THIS application, choose that control's no / have not / not applicable option. Never choose yes / used AI / automated.
     - Never select an option that identifies the applicant as an AI, bot, or automated agent.
@@ -92,24 +92,44 @@ Return this JSON structure:
   "unresolved_items": []
 }
 
-Unused optional fields on an action must be null (not omitted).`;
+Unused optional fields on an action must be null (not omitted).
 
+Before you answer:
+- Answer every fillable control you can identify, including voluntary/EEO questions; do not omit optional fields. Prefer applicant profile facts over none/not-applicable/decline options when the profile answers the question. For unrelated/ambiguous questions, choose the most plausible concrete answer — never use {{...}} placeholders.
+- Fill as the human applicant: never answer that they used AI/automation to write, fill, or submit this application; never identify as a bot; never consent to automated employment decision / screening tools (choose no / do not consent). Workplace AI/LLM tool-use questions (which tools, frequency, impact on work) are experience questions — do not answer those with "I have not used AI".
+- Route work-authorization questions from settings.citizenship and settings.workAuthorized (a status that already permits work is Yes) and visa-sponsorship questions from settings.visaSponsorship — do not mix them.
+- How-did-you-hear / job-source: choose the listed option that matches the professional network already on the profile (settings.linkedin, else settings.github / settings.portfolio).
+- For Resume/CV controls, emit resume_upload with file "recommended_resume" only when page.recommendedResumeAvailable is true; otherwise skip resume upload and fill the rest. Never target cover letters with resume_upload.`;
+
+/** Page facts the planner reads; the fetch time is left out so the prompt does not change for no reason. */
+function pageFacts(page: unknown): unknown {
+  if (!page || typeof page !== 'object' || Array.isArray(page)) return page;
+  const rest = { ...(page as Record<string, unknown>) };
+  delete rest.fetchedAt;
+  return rest;
+}
+
+/**
+ * The planner prompt, ordered for the provider's prompt cache: the fixed rules are the whole system
+ * prompt, then the user prompt goes from what changes least to what changes most — the applicant's
+ * profile (the same on every page), the page's tree, and last the page's own facts.
+ */
 export function buildAnalyzePrompt(input: {
   applicantProfile: string;
   pureTree: string;
   page?: unknown;
 }): { systemPrompt: string; userPrompt: string } {
   const pageBlock = input.page
-    ? `Page:\n${JSON.stringify(input.page, null, 2)}\n\n`
+    ? `\n\nPage:\n${JSON.stringify(pageFacts(input.page), null, 2)}`
     : '';
 
-  const userPrompt = `${pageBlock}Applicant data:
+  const userPrompt = `Applicant data:
 ${input.applicantProfile}
 
 Pure Tree:
-${input.pureTree}
+${input.pureTree}${pageBlock}
 
-Generate the action plan JSON now. Answer every fillable control you can identify, including voluntary/EEO questions; do not omit optional fields. Prefer applicant profile facts over none/not-applicable/decline options when the profile answers the question. For unrelated/ambiguous questions, choose the most plausible concrete answer — never use {{...}} placeholders. Fill as the human applicant: never answer that they used AI/automation to write, fill, or submit this application; never identify as a bot; never consent to automated employment decision / screening tools (choose no / do not consent). Workplace AI/LLM tool-use questions (which tools, frequency, impact on work) are experience questions — do not answer those with "I have not used AI". Route work-authorization questions from immigrationStatus (a status that already permits work is Yes) and visa-sponsorship questions from sponsorship — do not mix them. How-did-you-hear / job-source: choose the listed option that matches the professional network already on the profile (settings.linkedin, else github / portfolioUrl). For Resume/CV controls, emit resume_upload with file "recommended_resume" only when page.recommendedResumeAvailable is true (generated Worker-pool résumé if present, else Job Search Library file); otherwise skip resume upload and fill the rest. Never target cover letters with resume_upload.`.trim();
+Generate the action plan JSON now.`.trim();
 
   return {
     systemPrompt: SYSTEM_PROMPT,

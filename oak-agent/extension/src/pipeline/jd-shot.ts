@@ -1,5 +1,5 @@
-import { PAGE_TEXT_MAX_CHARS } from "../../../shared/page-text";
-import { formatAnalyzeTrees, type DomTreeNode } from "../../../shared/tree-export";
+import { extractVisiblePageText } from "../../../shared/page-text";
+import { splitDomTree, type DomTreeNode } from "../../../shared/tree-export";
 import { broadcastOperatorNotice } from "../operator-notice";
 import { addPageWork, patchPage } from "../tab-page-session";
 import { requestJdShot } from "./ai-client";
@@ -8,12 +8,19 @@ import { fetchDomFromTab } from "./run-pipeline";
 export const NO_JD = "No job description on this page";
 const NO_MATCH = "A posting was found, but no Library résumé fit it";
 
+/**
+ * The most page text a JD shot sends. A posting fits well inside it; the model's time grows with
+ * what it reads, so the page's controls, indexes and class names are left out.
+ */
+const JD_SHOT_TEXT_MAX_CHARS = 12_000;
+
 function capText(text: string): string {
-  return text.length > PAGE_TEXT_MAX_CHARS ? text.slice(0, PAGE_TEXT_MAX_CHARS) : text;
+  return text.length > JD_SHOT_TEXT_MAX_CHARS ? text.slice(0, JD_SHOT_TEXT_MAX_CHARS) : text;
 }
 
 /**
- * JD shot: the page's DOM tree, formatted as Fill's AI Analyze reads it, goes to the backend.
+ * JD shot: the page's visible text, read from the same DOM tree Fill's AI Analyze uses (its text
+ * nodes only, without form controls), goes to the backend.
  * Jev checks it is a job posting and, if so, picks the Library résumé. A page with no posting
  * keeps any earlier pick.
  */
@@ -23,8 +30,10 @@ export async function runJdShot(args: { tabId: number; apiUrl: string }): Promis
   await patchPage(tabId, { jdStatus: "running", jdMessage: null });
   try {
     const treePayload = await fetchDomFromTab(tabId);
-    const { pureTree } = formatAnalyzeTrees(treePayload.tree as unknown as DomTreeNode);
-    const pageText = capText(pureTree);
+    const { pure } = splitDomTree(treePayload.tree as unknown as DomTreeNode);
+    const pageText = capText(
+      extractVisiblePageText(pure, { title: treePayload.title, url: treePayload.url }),
+    );
     if (!pageText.trim()) {
       throw new Error("No readable text on this tab");
     }

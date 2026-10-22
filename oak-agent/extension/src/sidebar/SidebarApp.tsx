@@ -303,7 +303,7 @@ export default function SidebarApp() {
 
   const startPipeline = useCallback(async () => {
     const tabId = activeTabId;
-    if (tabWorkBusy || tabId == null) return;
+    if (tabWorkBusy || tabId == null || page?.jdStatus !== "found") return;
     setTabProgress(tabId, { phase: "fetching", message: "Starting…" });
     try {
       const res = await sendMessage<{ ok?: boolean; error?: string }>({
@@ -339,7 +339,7 @@ export default function SidebarApp() {
         error: detail,
       });
     }
-  }, [activeTabId, tabWorkBusy, setTabProgress]);
+  }, [activeTabId, page?.jdStatus, tabWorkBusy, setTabProgress]);
 
   const rememberFocusedTab = useCallback(async () => {
     const tabId = activeTabId;
@@ -598,9 +598,16 @@ export default function SidebarApp() {
     ? "Reading this page for a job description"
     : "Take a shot of the job description: Oak checks it is a posting and picks a résumé";
   const sentLabel = sending ? "Sending…" : "Sent";
-  // Sent needs a JD shot that found a posting: the application is counted against that job.
+  // Fill and Sent need a JD shot that found a posting: the job description picks the résumé Fill
+  // uploads, and the application is counted against that job.
   const jdDone = page?.jdStatus === "found";
   const sentDisabled = actionsOff || !jdDone;
+  const fillDisabled = actionsOff || !jdDone;
+  const fillTitle = jdBusy
+    ? "Wait for the JD shot to finish"
+    : jdDone
+      ? undefined
+      : "Take a JD shot of this page first";
   const sentTitle = jdBusy
     ? "Wait for the JD shot to finish"
     : jdDone
@@ -888,10 +895,10 @@ export default function SidebarApp() {
           fillLabel={fillLabel}
           jdShotLabel={jdShotLabel}
           sentLabel={sentLabel}
-          fillDisabled={actionsOff}
+          fillDisabled={fillDisabled}
           jdShotDisabled={actionsOff}
           sentDisabled={sentDisabled}
-          fillTitle={fillLabel}
+          fillTitle={fillTitle ?? fillLabel}
           jdShotTitle={jdShotTitle}
           sentTitle={sentTitle}
           onFill={() => void startPipeline()}

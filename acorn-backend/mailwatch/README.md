@@ -1,8 +1,8 @@
 # mailwatch
 
-Labels arriving Gmail that delivers a verification code or link with one Gmail label, `oak-verify-email`.
+Labels arriving Gmail that delivers an account code or link (verification, sign-up, sign-in, password reset or recovery) with one Gmail label, `oak-verify-email`.
 
-For every new inbox email it asks TypeSafe Jev, from the sender, the subject and the plain text (cut to 3000 characters), whether the email exists to deliver a one-time verification code, or a link the recipient must open to verify an account or an email address. When Jev's probability for that is at least `MAIL_VERIFY_MIN_CONFIDENCE` (default 0.8) the label is put on the message. Anything else is left alone. There is one label, for codes and links alike. The Oak extension's Emails tab lists the mail that has it (`GET /acorn/gmail/verify-mail`).
+For every new inbox email it asks TypeSafe Jev, from the sender, the subject and the plain text (cut to 3000 characters), whether the email exists to deliver a one-time code, or a link the recipient must open, to finish an account action: verify an email address, create or confirm an account, sign in, or reset or recover a password. When Jev's probability for that is at least `MAIL_VERIFY_MIN_CONFIDENCE` (default 0.8) the label is put on the message. Anything else is left alone. There is one label, for codes and links alike. The Oak extension's Emails tab lists the mail that has it (`GET /acorn/gmail/verify-mail`).
 
 ## Two ways to notice new mail
 

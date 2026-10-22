@@ -75,3 +75,36 @@ export function applyApplicantIdentityToPlan(
   }
   return plan;
 }
+
+/**
+ * For the identity questions, put back the planner's own answer over whatever a later step wrote:
+ * the identity rule then decides those answers alone.
+ */
+export function keepPlannerAnswers(
+  plan: unknown,
+  planned: unknown,
+  applicationAiIndexes: Set<number>,
+): unknown {
+  if (!applicationAiIndexes.size || !plan || typeof plan !== 'object') {
+    return plan;
+  }
+  const actions = (plan as { actions?: unknown }).actions;
+  const original = (planned as { actions?: unknown } | null)?.actions;
+  if (!Array.isArray(actions) || !Array.isArray(original)) return plan;
+  const plannedValue = new Map<number, unknown>();
+  for (const action of original) {
+    const row = action as PlanAction | null;
+    if (row && typeof row.element_index === 'number') {
+      plannedValue.set(row.element_index, row.value);
+    }
+  }
+  for (const action of actions) {
+    const row = action as PlanAction | null;
+    if (!row || typeof row.element_index !== 'number') continue;
+    if (!applicationAiIndexes.has(row.element_index)) continue;
+    if (plannedValue.has(row.element_index)) {
+      row.value = plannedValue.get(row.element_index);
+    }
+  }
+  return plan;
+}

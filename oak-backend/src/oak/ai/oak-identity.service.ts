@@ -6,6 +6,8 @@ import {
   OAK_USAGE_FEATURES,
   oakIdentityMaxOutputTokens,
   oakIdentityTimeoutMs,
+  oakHelperReasoningEffort,
+  OAK_PROMPT_CACHE_KEYS,
 } from '../constants/oak.constants';
 import { collectIdentityQuestions } from './applicant-identity';
 import { parseApplicationAiIndexes } from './oak-identity-parse';
@@ -51,6 +53,8 @@ export class OakIdentityService {
                 systemPrompt: IDENTITY_SYSTEM_PROMPT,
                 userPrompt,
                 format: IDENTITY_CLASSIFY_FORMAT,
+                reasoningEffort: oakHelperReasoningEffort(),
+                cacheKey: OAK_PROMPT_CACHE_KEYS.identity,
                 maxOutputTokens: oakIdentityMaxOutputTokens(),
                 clampReasoningToLow: true,
                 signal: controller.signal,
@@ -92,6 +96,7 @@ export class OakIdentityService {
         { role: 'user', content: userPrompt },
       ],
       jsonMode: true,
+      reasoningEffort: oakHelperReasoningEffort(),
       temperature: 0.1,
       timeoutMs: oakIdentityTimeoutMs(),
       retries: 0,

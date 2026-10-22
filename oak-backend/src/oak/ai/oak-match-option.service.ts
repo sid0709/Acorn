@@ -5,6 +5,8 @@ import { AcornUsageService } from '../../acorn/acorn-usage.service';
 import {
   OAK_USAGE_FEATURES,
   oakMatchOptionMaxOutputTokens,
+  oakHelperReasoningEffort,
+  OAK_PROMPT_CACHE_KEYS,
 } from '../constants/oak.constants';
 import { MATCH_OPTION_SYSTEM_PROMPT } from './oak-prompt';
 import { summarizeUsage } from './oak-pricing';
@@ -55,8 +57,6 @@ export class OakMatchOptionService {
     ]
       .filter(Boolean)
       .join('\n');
-
-    const startedAt = new Date();
     const t0 = Date.now();
     try {
       const raw =
@@ -67,6 +67,8 @@ export class OakMatchOptionService {
                 systemPrompt: MATCH_OPTION_SYSTEM_PROMPT,
                 userPrompt,
                 format: matchOptionFormat(list),
+                reasoningEffort: oakHelperReasoningEffort(),
+                cacheKey: OAK_PROMPT_CACHE_KEYS.matchOption,
                 maxOutputTokens: oakMatchOptionMaxOutputTokens(),
                 clampReasoningToLow: true,
               },
@@ -145,6 +147,7 @@ export class OakMatchOptionService {
         { role: 'user', content: userPrompt },
       ],
       jsonMode: true,
+      reasoningEffort: oakHelperReasoningEffort(),
       temperature: 0.1,
     });
     const model = completion.model || auth.model;
