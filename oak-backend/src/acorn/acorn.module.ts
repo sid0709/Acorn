@@ -1,4 +1,5 @@
 import { Global, Module } from '@nestjs/common';
+import { AcornApiClient } from './acorn-api-client.service';
 import { AcornAuthClient } from './acorn-auth-client.service';
 import { AcornDbService } from './acorn-db.service';
 import { AcornLibraryService } from './acorn-library.service';
@@ -10,6 +11,7 @@ import { AcornUsageService } from './acorn-usage.service';
 @Global()
 @Module({
   providers: [
+    AcornApiClient,
     AcornDbService,
     AcornSessionService,
     AcornAuthClient,
@@ -18,6 +20,7 @@ import { AcornUsageService } from './acorn-usage.service';
     AcornUsageService,
   ],
   exports: [
+    AcornApiClient,
     AcornDbService,
     AcornSessionService,
     AcornAuthClient,

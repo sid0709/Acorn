@@ -45,6 +45,8 @@ export type ChatUsage = {
   totalTokens: number;
   /** Context-cache hits (DeepSeek `prompt_cache_hit_tokens`, OpenAI cached_tokens). */
   cachedTokens?: number;
+  /** Amount the provider billed for the call, in USD (OpenRouter reports it). */
+  costUsd?: number;
 };
 
 export type ChatCompletionResult = {

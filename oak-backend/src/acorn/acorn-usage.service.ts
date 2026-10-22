@@ -4,14 +4,15 @@ import { compactError } from '../ai/openai/llm-log-fields';
 import type { ChatUsage } from '../ai/openai/openai.types';
 import { appLogger } from '../common/logger/app-logger';
 import { summarizeUsage } from '../oak/ai/oak-pricing';
-import { ACORN_AI_USAGE_COLLECTION } from './acorn.constants';
+import {
+  ACORN_AI_USAGE_COLLECTION,
+  NANOS_PER_USD,
+  OAK_CLIENT,
+} from './acorn.constants';
+import { currentAcornContext } from './request-context';
 import { AcornDbService } from './acorn-db.service';
 
-const NANOS_PER_USD = 1e9;
 const OBJECT_ID_BYTES = 12;
-
-/** Client name stamped on Oak's rows in `acorn_ai_usage`. */
-const OAK_CLIENT = 'oak';
 
 export type AcornUsageInput = {
   accountId: string;
@@ -23,6 +24,8 @@ export type AcornUsageInput = {
   billedModel?: string;
   usage?: ChatUsage | null;
   cachedTokens?: number;
+  /** What the provider billed, when it says (OpenRouter does). Else priced from a table. */
+  costUsd?: number | null;
   durationMs: number;
   success?: boolean;
   httpStatus?: number;
@@ -51,21 +54,23 @@ export class AcornUsageService {
           prompt_tokens: promptTokens,
           completion_tokens: completionTokens,
           prompt_cache_hit_tokens: cachedTokens,
+          ...(typeof input.costUsd === 'number' ? { cost: input.costUsd } : {}),
         },
         model,
       );
+      const context = currentAcornContext();
       const success = input.success ?? true;
       const rows = await this.db.collection(ACORN_AI_USAGE_COLLECTION);
       await rows.insertOne({
         _id: randomBytes(OBJECT_ID_BYTES).toString('hex') as never,
         accountId: input.accountId,
-        tabKey: '',
+        tabKey: context.tabKey,
         model,
         feature: input.feature,
         step: '',
         route: input.path ?? '',
         client: OAK_CLIENT,
-        clientVersion: '',
+        clientVersion: context.clientVersion,
         supportBy: '',
         status: success ? 'ok' : 'error',
         errorKind: '',
@@ -86,5 +91,27 @@ export class AcornUsageService {
     } catch (err) {
       this.log.warn({ err: compactError(err) }, 'Acorn usage record failed');
     }
+  }
+
+  /** What the models cost for one Chrome tab, from every client that tagged the tab. */
+  async tabCost(
+    accountId: string,
+    tabKey: string,
+  ): Promise<{ costNanos: number; calls: number }> {
+    if (!accountId || !tabKey) return { costNanos: 0, calls: 0 };
+    const rows = await this.db.collection(ACORN_AI_USAGE_COLLECTION);
+    const [total] = await rows
+      .aggregate<{ costNanos: number; calls: number }>([
+        { $match: { accountId, tabKey } },
+        {
+          $group: {
+            _id: null,
+            costNanos: { $sum: '$costNanos' },
+            calls: { $sum: 1 },
+          },
+        },
+      ])
+      .toArray();
+    return { costNanos: total?.costNanos ?? 0, calls: total?.calls ?? 0 };
   }
 }

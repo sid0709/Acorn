@@ -80,12 +80,17 @@ export function summarizeUsage(usage: unknown, model: string): OakUsageSummary {
     u.prompt_cache_hit_tokens ?? details.cached_tokens,
   );
   const totalTokens = num(u.total_tokens) || inputTokens + outputTokens;
-  const cost = estimateCostUsd({
-    model,
-    inputTokens,
-    outputTokens,
-    cachedInputTokens,
-  });
+  // OpenRouter bills each call and reports the amount: that beats any price table.
+  const reported = typeof u.cost === 'number' && u.cost >= 0 ? u.cost : null;
+  const cost =
+    reported !== null
+      ? { model, costUsd: reported, priced: true, pricingNote: undefined }
+      : estimateCostUsd({
+          model,
+          inputTokens,
+          outputTokens,
+          cachedInputTokens,
+        });
 
   return {
     model: cost.model || model,

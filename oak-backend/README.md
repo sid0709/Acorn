@@ -45,3 +45,13 @@ Every socket joins a room for its account (`oak:acct:<accountId>`); a client onl
 ## Not ported yet
 
 Worker-pool jobs and mark-applied, and Custom generate / recommend / extract-JD / résumé preview. They were Athens features on Athens data. The extension's Worker pool list is empty and Custom Generate / Recommend will not work until they are rebuilt on Acorn's `acorn_resume_*` collections.
+
+## JD shot, Sent and page cost
+
+| Method | Path        | Notes                                                                                                                                                                                                                                                                                                             |
+| ------ | ----------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| POST   | `/jd-shot`  | `{ pageText }` → `hasJobDescription`, and when true the recommended Library résumé (`resumeId`, `stack`, `matchReason`, `top`). Forwards to acorn-backend's `/acorn/custom/recommend`, where Jev checks the text is a posting; 422 there means "no job description".                                              |
+| GET    | `/tab-cost` | `costNanos` and `calls` for the tab named by `X-Acorn-Tab`, summed from `acorn_ai_usage` (Oak's calls and the ones acorn-backend made for the same tab).                                                                                                                                                          |
+| POST   | `/sent`     | `{ url, title, durationMs, steps, endedAt?, utcOffsetMinutes, screenshot }` (base64 JPEG). Records a Run through acorn-backend (`POST /acorn/runs`, with the tab's cost) and uploads the screenshot (`PUT /acorn/runs/{id}/screenshot`). The record id is a hash of account, tab and URL, so a retry counts once. |
+
+Every request should carry `X-Acorn-Tab: <uuid per Chrome tab>` and `X-Acorn-Client: oak/<version>`. Oak stamps them on its usage rows and forwards them to acorn-backend, so one tab's cost is one sum. With an OpenRouter key the cost is the amount OpenRouter billed for each call (`usage.cost`); with an OpenAI key it is priced from a table.

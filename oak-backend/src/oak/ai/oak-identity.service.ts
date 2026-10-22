@@ -106,6 +106,7 @@ export class OakIdentityService {
           completion_tokens: completion.usage?.completionTokens,
           total_tokens: completion.usage?.totalTokens,
           prompt_cache_hit_tokens: completion.usage?.cachedTokens,
+          cost: completion.usage?.costUsd,
         },
         completion.model || auth.model,
       ),

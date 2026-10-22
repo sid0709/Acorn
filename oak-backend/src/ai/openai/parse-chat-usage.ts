@@ -11,5 +11,8 @@ export function parseChatUsage(usage: unknown): ChatUsage | null {
     completionTokens: parsed.outputTokens,
     totalTokens: parsed.totalTokens || promptTokens + parsed.outputTokens,
     cachedTokens: parsed.cacheHit,
+    ...(typeof (usage as { cost?: unknown }).cost === 'number'
+      ? { costUsd: (usage as { cost: number }).cost }
+      : {}),
   };
 }

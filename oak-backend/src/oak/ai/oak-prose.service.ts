@@ -79,6 +79,7 @@ export class OakProseService {
           totalTokens: raw.usage.totalTokens,
         },
         cachedTokens: raw.usage.cachedInputTokens,
+        costUsd: raw.usage.costUsd,
         durationMs: Date.now() - t0,
         success: true,
       });
@@ -132,6 +133,7 @@ export class OakProseService {
           completion_tokens: completion.usage?.completionTokens,
           total_tokens: completion.usage?.totalTokens,
           prompt_cache_hit_tokens: completion.usage?.cachedTokens,
+          cost: completion.usage?.costUsd,
         },
         completion.model || auth.model,
       ),

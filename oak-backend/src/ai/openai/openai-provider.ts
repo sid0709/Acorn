@@ -119,6 +119,8 @@ export function buildChatCompletionBody(
     ...(responseFormat ? { response_format: responseFormat } : {}),
     ...(includeTemperature ? { temperature: input.temperature } : {}),
   };
+  // OpenRouter adds the billed cost to `usage` when asked.
+  if (provider === 'openrouter') body.usage = { include: true };
   const effort = openaiReasoningEffort(input.model, input.reasoningEffort);
   if (effort) {
     if (provider === 'openrouter') body.reasoning = { effort };

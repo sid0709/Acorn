@@ -75,6 +75,7 @@ export class OakAnalyzeService {
           totalTokens: result.usage.totalTokens,
         },
         cachedTokens: result.usage.cachedInputTokens,
+        costUsd: result.usage.costUsd,
         durationMs: Date.now() - t0,
         success: true,
       });
@@ -158,6 +159,7 @@ export class OakAnalyzeService {
           completion_tokens: completion.usage?.completionTokens,
           total_tokens: completion.usage?.totalTokens,
           prompt_cache_hit_tokens: completion.usage?.cachedTokens,
+          cost: completion.usage?.costUsd,
         },
         model,
       ),

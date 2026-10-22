@@ -13,6 +13,8 @@ import { OakProfilePromptService } from './ai/oak-profile-prompt.service';
 import { OakResponsesService } from './ai/oak-responses.service';
 import { OakGatewayBootstrap } from './gateway/oak-gateway.bootstrap';
 import { OakController } from './http/oak.controller';
+import { OakJdShotService } from './http/oak-jd-shot.service';
+import { OakSentService } from './http/oak-sent.service';
 import { OakResumeFilesService } from './http/oak-resume-files.service';
 import { OakFillPolicyService } from './policy/oak-fill-policy.service';
 
@@ -31,6 +33,8 @@ import { OakFillPolicyService } from './policy/oak-fill-policy.service';
     OakIdentityService,
     OakMatchOptionService,
     OakResumeFilesService,
+    OakJdShotService,
+    OakSentService,
     OakFillPolicyService,
     OakGatewayBootstrap,
   ],

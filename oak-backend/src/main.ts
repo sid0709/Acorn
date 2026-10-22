@@ -1,6 +1,7 @@
 import 'dotenv/config';
 import { NestFactory } from '@nestjs/core';
 import { NestExpressApplication } from '@nestjs/platform-express';
+import { acornRequestContext } from './acorn/request-context';
 import { AppModule } from './app.module';
 import { AuthResponseFilter } from './common/auth-response.filter';
 import { appLogger } from './common/logger/app-logger';
@@ -24,6 +25,7 @@ async function bootstrap() {
   app.useBodyParser('urlencoded', { limit: '50mb', extended: true });
 
   app.setGlobalPrefix('api');
+  app.use(acornRequestContext);
   app.use(httpAccessLog);
   app.useGlobalFilters(new AuthResponseFilter());
   app.enableCors({

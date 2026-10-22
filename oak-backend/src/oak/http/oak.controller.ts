@@ -10,6 +10,8 @@ import {
   UsePipes,
   ValidationPipe,
 } from '@nestjs/common';
+import { AcornUsageService } from '../../acorn/acorn-usage.service';
+import { currentAcornContext } from '../../acorn/request-context';
 import { OakAuthGuard, type OakAuthedRequest } from '../auth/oak-auth.guard';
 import { OakAnalyzeService } from '../ai/oak-analyze.service';
 import { OakMatchOptionService } from '../ai/oak-match-option.service';
@@ -17,7 +19,11 @@ import { OakQaService } from '../ai/oak-qa.service';
 import { OakAiAnalyzeDto } from './dto/ai-analyze.dto';
 import { OakMatchOptionDto } from './dto/match-option.dto';
 import { OakQaDto } from './dto/qa.dto';
+import { OakJdShotDto } from './dto/jd-shot.dto';
+import { OakSentDto } from './dto/sent.dto';
+import { OakJdShotService } from './oak-jd-shot.service';
 import { OakResumeFilesService } from './oak-resume-files.service';
+import { OakSentService } from './oak-sent.service';
 
 @Controller('oak')
 @UsePipes(new ValidationPipe({ whitelist: true, transform: true }))
@@ -29,6 +35,9 @@ export class OakController {
     private readonly matchOption: OakMatchOptionService,
     private readonly qa: OakQaService,
     private readonly resumeFiles: OakResumeFilesService,
+    private readonly jdShot: OakJdShotService,
+    private readonly sent: OakSentService,
+    private readonly usage: AcornUsageService,
   ) {}
 
   /** Unauthenticated liveness probe — must not disclose who is connected. */
@@ -106,6 +115,29 @@ export class OakController {
       );
       throw err;
     }
+  }
+
+  /** JD shot: is this page a job posting, and which Library résumé fits it. */
+  @Post('jd-shot')
+  @UseGuards(OakAuthGuard)
+  jdShotRun(@Req() req: OakAuthedRequest, @Body() dto: OakJdShotDto) {
+    return this.jdShot.run(req.oakToken!, dto.pageText);
+  }
+
+  /** What the models cost for the tab named by X-Acorn-Tab. */
+  @Get('tab-cost')
+  @UseGuards(OakAuthGuard)
+  async tabCost(@Req() req: OakAuthedRequest) {
+    const { tabKey } = currentAcornContext();
+    const cost = await this.usage.tabCost(req.oakSession!.accountId, tabKey);
+    return { success: true as const, ...cost };
+  }
+
+  /** Sent: count the page as an application, with its cost and a full-page screenshot. */
+  @Post('sent')
+  @UseGuards(OakAuthGuard)
+  markSent(@Req() req: OakAuthedRequest, @Body() dto: OakSentDto) {
+    return this.sent.record(req.oakToken!, req.oakSession!, dto);
   }
 
   /** The account's primary Acorn Library résumé. */
