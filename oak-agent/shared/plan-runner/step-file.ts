@@ -3,25 +3,11 @@ import type { PlanAction, RuntimeAttachedFile } from "./types";
 
 export type PlanStepFiles = {
   runtimeFile: RuntimeAttachedFile | null;
-  /** Library resume from Job Search Recommend / Worker Pool. */
+  /** The Library résumé a JD shot picked, else the primary one. */
   recommendedResume: RuntimeAttachedFile | null;
-  /** Custom-tab editor-generated résumé. */
-  customResume: RuntimeAttachedFile | null;
-  resumeFileKind?: "library" | "custom";
 };
 
 const RECOMMENDED_FILE_KEYS = new Set(["recommended_resume"]);
-const CUSTOM_FILE_KEYS = new Set(["custom_resume"]);
-
-export function isCustomResumeFile(
-  file: Pick<RuntimeAttachedFile, "key"> | null | undefined,
-): boolean {
-  return CUSTOM_FILE_KEYS.has(
-    String(file?.key || "")
-      .trim()
-      .toLowerCase(),
-  );
-}
 
 export function isExecutableStep(action: PlanAction["action"]): boolean {
   return (
@@ -60,23 +46,17 @@ export function wantsRecommendedResume(action: PlanAction): boolean {
   const key = String(action.file || "")
     .trim()
     .toLowerCase();
-  if (RECOMMENDED_FILE_KEYS.has(key) || CUSTOM_FILE_KEYS.has(key)) {
+  if (RECOMMENDED_FILE_KEYS.has(key)) {
     return true;
   }
   return labelLooksLikeResume(action.expected_label);
-}
-
-export function resolveResumeUploadFile(files: PlanStepFiles): RuntimeAttachedFile | null {
-  if (files.resumeFileKind === "custom") return files.customResume;
-  if (files.resumeFileKind === "library") return files.recommendedResume;
-  return files.customResume || files.recommendedResume;
 }
 
 export function resolveStepFile(
   action: PlanAction,
   files: PlanStepFiles,
 ): RuntimeAttachedFile | null {
-  if (wantsRecommendedResume(action)) return resolveResumeUploadFile(files);
+  if (wantsRecommendedResume(action)) return files.recommendedResume;
   if (action.action === "upload") return files.runtimeFile;
   return null;
 }
@@ -94,9 +74,7 @@ export function missingUploadReason(action: PlanAction, files: PlanStepFiles): s
   }
   if (resolveStepFile(action, files)) return null;
   if (wantsRecommendedResume(action)) {
-    return files.resumeFileKind === "custom"
-      ? "Resume upload requires the generated résumé for this tab"
-      : "Resume upload requires the Library resume recommended for this job";
+    return "Resume upload requires a Library résumé for this page";
   }
   return "Upload requires FILE_PATH runtime file, but none was loaded";
 }

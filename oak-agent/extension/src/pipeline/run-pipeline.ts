@@ -1,4 +1,4 @@
-import { formatDuration, formatUsd } from "../../../shared/ai-usage";
+import { formatDuration } from "../../../shared/ai-usage";
 import { applyApplicantIdentityToActions } from "../../../shared/plan-runner/applicant-identity";
 import { runActionPlan } from "../../../shared/plan-runner/orchestrator";
 import type {
@@ -10,23 +10,11 @@ import type {
 import type { PipelineProgress } from "../../../shared/pipeline-types";
 import { formatAnalyzeTrees } from "../../../shared/tree-export";
 import { sendPlanStepToTab, sendTabMessage } from "../tab-messaging";
-import { getTabJob } from "../tab-job-session";
-import { customTabHasResume, getCustomTab } from "../tab-custom-session";
-import {
-  DEFAULT_AI_SERVER,
-  MSG,
-  type DomNode,
-  type DomTreePayload,
-  type PipelineSource,
-} from "../types";
+import { addPageWork, getPage } from "../tab-page-session";
+import { MSG, type DomNode, type DomTreePayload } from "../types";
 import { fetchRuntimeFile, requestAiAnalyze } from "./ai-client";
-import { keepResumeIfSameSite, loadFillResume } from "./fill-resume";
+import { loadFillResume } from "./fill-resume";
 import { buildResumeUploadProgress } from "./resume-upload-status";
-import {
-  addPipelineUsage,
-  beginPipelineUsageTracking,
-  endPipelineUsageTracking,
-} from "./usage-tracker";
 
 export type PipelineEmit = (progress: PipelineProgress) => void;
 
@@ -34,13 +22,16 @@ export interface RunPipelineArgs {
   /** Pinned at Fill click. DOM fetch and every plan step target this tab, even if the user focuses another. */
   tabId: number;
   preferredFrameId?: number | null;
-  aiServerUrl?: string;
-  /** Worker Pool Fill (default) or Custom remembered-tab Fill. */
-  source?: PipelineSource;
+  aiServerUrl: string;
   /** Emit DOM tree to backend for UI board (optional socket emit callback). */
   emitDomTree?: (payload: DomTreePayload) => void;
   /** Broadcast progress to the Chrome side panel + backend. */
   onProgress: PipelineEmit;
+}
+
+/** Plan steps that ran against the page (a skipped step did not). */
+function executedStepCount(steps: RunStepRecord[] | undefined): number {
+  return (steps ?? []).filter((step) => step.status === "ok" || step.status === "failed").length;
 }
 
 function shortLabel(expectedLabel: string | null | undefined, action: string): string {
@@ -205,17 +196,9 @@ export async function fetchDomFromTab(
 }
 
 export async function runFabPipeline(args: RunPipelineArgs): Promise<void> {
-  const {
-    tabId,
-    preferredFrameId = null,
-    aiServerUrl = DEFAULT_AI_SERVER,
-    source = "fill",
-    emitDomTree,
-    onProgress,
-  } = args;
+  const { tabId, preferredFrameId = null, aiServerUrl, emitDomTree, onProgress } = args;
 
   const startedAt = Date.now();
-  beginPipelineUsageTracking(tabId);
 
   let treeSnapshot: PipelineProgress["tree"];
   let planSnapshot: ActionPlan | undefined;
@@ -228,55 +211,28 @@ export async function runFabPipeline(args: RunPipelineArgs): Promise<void> {
     onProgress(progress);
   };
 
-  const finishMeta = () => {
+  /** Adds this run's time and steps to the page's totals, which the Sent record carries. */
+  const finishMeta = async (steps: RunStepRecord[] | undefined) => {
     const durationMs = Date.now() - startedAt;
-    const usage = endPipelineUsageTracking(tabId);
-    return { durationMs, usage };
+    await addPageWork(tabId, { durationMs, steps: executedStepCount(steps) }).catch(
+      () => undefined,
+    );
+    return { durationMs };
   };
 
   try {
     emit({ phase: "fetching", message: "Fetching DOM…" });
 
-    const customTab = await getCustomTab(tabId);
-    if (source === "custom" && !customTab) {
-      throw new Error("Remember this tab before Fill");
-    }
-    const tabJob = source === "custom" ? null : await getTabJob(tabId);
-    const usingForcedCustom =
-      source !== "custom" && customTab != null && customTabHasResume(customTab);
-    const resumeSource: PipelineSource =
-      source === "custom" || usingForcedCustom ? "custom" : "fill";
-    const [treePayload, resumeLoad, runtimeFile] = await Promise.all([
+    const page = await getPage(tabId);
+    const [treePayload, primary] = await Promise.all([
       fetchDomFromTab(tabId, preferredFrameId),
-      loadFillResume({
-        source: resumeSource,
-        tabJob,
-        customTab,
-        customGenerationId: customTab?.generationId ?? null,
-        apiUrl: aiServerUrl,
-      }),
       fetchRuntimeFile(aiServerUrl).catch(() => null),
     ]);
-    const boundResume =
-      resumeSource === "custom"
-        ? { file: resumeLoad.file, skipReason: resumeLoad.skipReason }
-        : keepResumeIfSameSite(resumeLoad.file, tabJob, treePayload.url, resumeLoad.skipReason);
-    const resumeFile = boundResume.file;
-    const usingLibrary = resumeSource === "custom" && customTab?.resumeMode === "recommend";
-    const recommendedResume =
-      resumeSource === "custom" ? (usingLibrary ? resumeFile : null) : resumeFile;
-    const customResume = resumeSource === "custom" && !usingLibrary ? resumeFile : null;
-    const resumeFileKind = resumeSource === "custom" && !usingLibrary ? "custom" : "library";
-    const resumeSkipReason = boundResume.skipReason;
-    const boundResumeStack =
-      resumeSource === "custom"
-        ? resumeFile?.label ||
-          (usingLibrary
-            ? customTab?.recommendedResumeStack
-            : customTab?.generationId
-              ? "Generated"
-              : null)
-        : (tabJob?.resumeStack ?? null);
+    const resumeLoad = await loadFillResume({ page, primary, apiUrl: aiServerUrl });
+    const resumeFile = resumeLoad.file;
+    const runtimeFile = primary;
+    const resumeSkipReason = resumeLoad.skipReason;
+    const boundResumeStack = resumeFile?.label || page?.resumeStack || null;
     emitDomTree?.(treePayload);
     treeSnapshot = {
       url: treePayload.url,
@@ -298,15 +254,7 @@ export async function runFabPipeline(args: RunPipelineArgs): Promise<void> {
       phase: "analyzing",
       message: resumeFile
         ? `Analyzing ${nodeCount} nodes · resume ${resumeFile.label || resumeFile.name}`
-        : source === "custom"
-          ? usingLibrary && customTab?.recommendedResumeId
-            ? `Analyzing ${nodeCount} nodes · Library file unavailable`
-            : customTab?.generationId
-              ? `Analyzing ${nodeCount} nodes · generated file unavailable`
-              : `Analyzing ${nodeCount} nodes…`
-          : tabJob?.resumeStack
-            ? `Analyzing ${nodeCount} nodes · ${tabJob.resumeStack} file unavailable`
-            : `Analyzing ${nodeCount} nodes…`,
+        : `Analyzing ${nodeCount} nodes…`,
       tree: treeSnapshot,
       resumeUpload: resumeUpload(),
     });
@@ -320,37 +268,13 @@ export async function runFabPipeline(args: RunPipelineArgs): Promise<void> {
           title: treePayload.title || "Untitled",
           url: treePayload.url,
           fetchedAt: treePayload.fetchedAt,
-          job:
-            source === "custom"
-              ? null
-              : tabJob
-                ? {
-                    id: tabJob.jobId,
-                    title: tabJob.title,
-                    company: tabJob.company,
-                  }
-                : null,
-          customGenerationId:
-            source === "custom" && !usingLibrary ? (customTab?.generationId ?? null) : null,
-          customLibraryResumeId:
-            source === "custom" && usingLibrary ? (customTab?.recommendedResumeId ?? null) : null,
-          customRemembered: source === "custom",
           recommendedResumeAvailable: Boolean(resumeFile),
-          recommendedResumeStack:
-            resumeFile?.label ||
-            (source === "custom"
-              ? usingLibrary
-                ? customTab?.recommendedResumeStack
-                : customTab?.generationId
-                  ? "Generated"
-                  : null
-              : tabJob?.resumeStack) ||
-            null,
+          recommendedResumeStack: boundResumeStack,
         },
       },
       aiServerUrl,
+      tabId,
     );
-    addPipelineUsage(tabId, analyze.usage);
 
     const plan = analyze.plan as ActionPlan;
     applyApplicantIdentityToActions(plan.actions);
@@ -371,9 +295,7 @@ export async function runFabPipeline(args: RunPipelineArgs): Promise<void> {
     const report = await runActionPlan({
       plan,
       runtimeFile,
-      recommendedResume,
-      customResume,
-      resumeFileKind,
+      recommendedResume: resumeFile,
       executeStep: async (step: PlanStepPayload) => {
         const res = await sendPlanStepToTab(tabId, step, frameId);
         const details = res.details ?? {};
@@ -443,9 +365,8 @@ export async function runFabPipeline(args: RunPipelineArgs): Promise<void> {
       }>(tabId, { type: MSG.FILL_LEFTOVER_COMBOS }, frameId ?? undefined, 120000);
     }
 
-    const { durationMs, usage } = finishMeta();
+    const { durationMs } = await finishMeta(report.steps);
     const timeLabel = formatDuration(durationMs);
-    const costLabel = formatUsd(usage?.costUsd);
 
     const doneResume = buildResumeUploadProgress({
       recommendedResume: resumeFile,
@@ -457,11 +378,10 @@ export async function runFabPipeline(args: RunPipelineArgs): Promise<void> {
     if (report.aborted) {
       emit({
         phase: "error",
-        message: `Aborted · ${timeLabel} · ${costLabel}`,
+        message: `Aborted · ${timeLabel}`,
         error: "Plan run aborted",
         stepTotal,
         durationMs,
-        usage,
         tree: treeSnapshot,
         plan: planSnapshot,
         steps: report.steps,
@@ -477,24 +397,22 @@ export async function runFabPipeline(args: RunPipelineArgs): Promise<void> {
 
     emit({
       phase: "done",
-      message: `Done · ${resultLabel} · ${timeLabel} · ${costLabel}`,
+      message: `Done · ${resultLabel} · ${timeLabel}`,
       stepTotal,
       durationMs,
-      usage,
       tree: treeSnapshot,
       plan: planSnapshot,
       steps: report.steps,
       resumeUpload: doneResume,
     });
   } catch (err) {
-    const { durationMs, usage } = finishMeta();
+    const { durationMs } = await finishMeta(stepsSnapshot);
     const error = err instanceof Error ? err.message : String(err);
     emit({
       phase: "error",
-      message: `Failed · ${formatDuration(durationMs)} · ${formatUsd(usage?.costUsd)}`,
+      message: `Failed · ${formatDuration(durationMs)}`,
       error,
       durationMs,
-      usage,
       tree: treeSnapshot,
       plan: planSnapshot,
       steps: stepsSnapshot,

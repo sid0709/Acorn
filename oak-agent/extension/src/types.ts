@@ -20,11 +20,6 @@ export interface DomTreePayload {
   formScore?: number;
 }
 
-/** @deprecated use DEFAULT_ATHENS_API_URL from auth/oak-auth */
-export const DEFAULT_SERVER = "https://athensai.remotepairnet.net";
-/** @deprecated same host as athens-backend */
-export const DEFAULT_AI_SERVER = "https://athensai.remotepairnet.net";
-
 /** Long-lived side-panel port. Keeps the MV3 worker (and `/oak` socket) alive. */
 export const OAK_SIDEBAR_PORT = "oak-sidebar";
 
@@ -45,17 +40,12 @@ export const MSG = {
   AUTH_STATUS: "oak:auth-status",
   AUTH_SIGNIN: "oak:auth-signin",
   AUTH_SIGNOUT: "oak:auth-signout",
-  LIST_WORKER_JOBS: "oak:list-worker-jobs",
-  OPEN_WORKER_JOB: "oak:open-worker-job",
-  MARK_JOB_APPLIED: "oak:mark-job-applied",
-  GET_TAB_JOB: "oak:get-tab-job",
-  REMEMBER_CUSTOM_TAB: "oak:remember-custom-tab",
-  FORGET_CUSTOM_TAB: "oak:forget-custom-tab",
-  FOCUS_CUSTOM_TAB: "oak:focus-custom-tab",
-  START_CUSTOM_GENERATE: "oak:start-custom-generate",
-  START_CUSTOM_RECOMMEND: "oak:start-custom-recommend",
-  START_JOB_GENERATE: "oak:start-job-generate",
-  START_JOB_RECOMMEND: "oak:start-job-recommend",
+  REMEMBER_PAGE: "oak:remember-page",
+  FORGET_PAGE: "oak:forget-page",
+  FOCUS_PAGE: "oak:focus-page",
+  START_JD_SHOT: "oak:start-jd-shot",
+  SENT_PAGE: "oak:sent-page",
+  REFRESH_PAGE_COST: "oak:refresh-page-cost",
   SELECTION_QA: "oak:selection-qa",
 } as const;
 
@@ -66,8 +56,6 @@ export type OakNoticePayload = {
   title: string;
   detail?: string;
 };
-
-export type PipelineSource = "fill" | "custom";
 
 export interface MatchOptionRequest {
   intendedValue: string;
@@ -96,7 +84,6 @@ export interface RuntimeAttachedFile {
   base64: string;
   label?: string | null;
   resumeId?: string | null;
-  jobId?: string | null;
 }
 
 export interface PlanStepPayload {

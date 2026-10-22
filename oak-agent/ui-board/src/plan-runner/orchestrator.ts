@@ -23,8 +23,6 @@ export interface RunPlanOptions {
   frameId?: number | null;
   runtimeFile: RuntimeAttachedFile | null;
   recommendedResume?: RuntimeAttachedFile | null;
-  customResume?: RuntimeAttachedFile | null;
-  resumeFileKind?: "library" | "custom";
   hooks: OrchestratorHooks;
 }
 
@@ -60,26 +58,13 @@ function emitPlanStep(
 }
 
 export async function runActionPlan(options: RunPlanOptions): Promise<RunReport> {
-  const {
-    plan,
-    socket,
-    tabId,
-    url,
-    extensionId,
-    frameId,
-    runtimeFile,
-    recommendedResume,
-    customResume,
-    resumeFileKind,
-    hooks,
-  } = options;
+  const { plan, socket, tabId, url, extensionId, frameId, runtimeFile, recommendedResume, hooks } =
+    options;
 
   const sharedOptions: SharedRunPlanOptions = {
     plan,
     runtimeFile,
     recommendedResume: recommendedResume ?? null,
-    customResume: customResume ?? null,
-    resumeFileKind,
     hooks,
     executeStep: (step) => emitPlanStep(socket, { tabId, url, extensionId, frameId, step }),
   };

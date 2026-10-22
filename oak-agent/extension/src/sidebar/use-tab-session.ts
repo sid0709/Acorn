@@ -5,22 +5,11 @@ import {
   type PipelineProgress,
 } from "../../../shared/pipeline-types";
 import {
-  listTabJobs,
-  TAB_JOBS_STORAGE_KEY,
-  type JobAttachment,
-  type TabJobMap,
-} from "../tab-job-session";
-import {
-  listCustomTabs,
-  TAB_CUSTOM_STORAGE_KEY,
-  type CustomTabMap,
-  type OakCustomTabBinding,
-} from "../tab-custom-session";
-import {
-  JOB_GENERATE_STORAGE_KEY,
-  listJobGenerates,
-  type JobGenerateMap,
-} from "../tab-job-generate-session";
+  listPages,
+  TAB_PAGES_STORAGE_KEY,
+  type OakPageBinding,
+  type PageMap,
+} from "../tab-page-session";
 import {
   listTabPipelines,
   TAB_PIPELINES_STORAGE_KEY,
@@ -29,24 +18,15 @@ import {
 import { MSG } from "../types";
 
 export function useTabSession(activeTabId: number | null) {
-  const [tabJobs, setTabJobs] = useState<TabJobMap>({});
-  const [customTabs, setCustomTabs] = useState<CustomTabMap>({});
-  const [jobGenerates, setJobGenerates] = useState<JobGenerateMap>({});
+  const [pageMap, setPageMap] = useState<PageMap>({});
   const [pipelines, setPipelines] = useState<TabPipelineMap>({});
 
   useEffect(() => {
     let alive = true;
     void (async () => {
-      const [jobs, custom, generates, progress] = await Promise.all([
-        listTabJobs(),
-        listCustomTabs(),
-        listJobGenerates(),
-        listTabPipelines(),
-      ]);
+      const [pages, progress] = await Promise.all([listPages(), listTabPipelines()]);
       if (!alive) return;
-      setTabJobs(jobs);
-      setCustomTabs(custom);
-      setJobGenerates(generates);
+      setPageMap(pages);
       setPipelines(progress);
     })();
 
@@ -55,17 +35,9 @@ export function useTabSession(activeTabId: number | null) {
       area,
     ) => {
       if (area !== "session") return;
-      if (changes[TAB_JOBS_STORAGE_KEY]) {
-        const next = changes[TAB_JOBS_STORAGE_KEY].newValue;
-        setTabJobs(next && typeof next === "object" ? (next as TabJobMap) : {});
-      }
-      if (changes[TAB_CUSTOM_STORAGE_KEY]) {
-        const next = changes[TAB_CUSTOM_STORAGE_KEY].newValue;
-        setCustomTabs(next && typeof next === "object" ? (next as CustomTabMap) : {});
-      }
-      if (changes[JOB_GENERATE_STORAGE_KEY]) {
-        const next = changes[JOB_GENERATE_STORAGE_KEY].newValue;
-        setJobGenerates(next && typeof next === "object" ? (next as JobGenerateMap) : {});
+      if (changes[TAB_PAGES_STORAGE_KEY]) {
+        const next = changes[TAB_PAGES_STORAGE_KEY].newValue;
+        setPageMap(next && typeof next === "object" ? (next as PageMap) : {});
       }
       if (changes[TAB_PIPELINES_STORAGE_KEY]) {
         const next = changes[TAB_PIPELINES_STORAGE_KEY].newValue;
@@ -98,33 +70,18 @@ export function useTabSession(activeTabId: number | null) {
   }, []);
 
   const tabKey = activeTabId != null ? String(activeTabId) : null;
-  const tabJob = tabKey ? (tabJobs[tabKey] ?? null) : null;
-  const customTab: OakCustomTabBinding | null = tabKey ? (customTabs[tabKey] ?? null) : null;
+  const page: OakPageBinding | null = tabKey ? (pageMap[tabKey] ?? null) : null;
   const progress = tabKey ? (pipelines[tabKey] ?? IDLE_PIPELINE_PROGRESS) : IDLE_PIPELINE_PROGRESS;
 
-  const attachments = useMemo(() => {
-    const next: Record<string, JobAttachment> = {};
-    for (const [id, job] of Object.entries(tabJobs)) {
-      const tabId = Number(id);
-      if (!Number.isFinite(tabId)) continue;
-      next[job.jobId] = { tabId, active: tabId === activeTabId };
-    }
-    return next;
-  }, [tabJobs, activeTabId]);
-
-  const customList = useMemo(() => {
-    return Object.values(customTabs).sort((a, b) => (a.rememberedAt < b.rememberedAt ? 1 : -1));
-  }, [customTabs]);
+  const pageList = useMemo(() => {
+    return Object.values(pageMap).sort((a, b) => (a.rememberedAt < b.rememberedAt ? 1 : -1));
+  }, [pageMap]);
 
   return {
-    tabJobs,
-    tabJob,
-    customTab,
-    customList,
-    jobGenerates,
+    page,
+    pageList,
     pipelines,
     progress,
-    attachments,
     setPipelines,
   };
 }

@@ -64,47 +64,46 @@ export function CheckIcon() {
   );
 }
 
-export function GenerateIcon() {
+/** JD shot: a camera, since the button takes a shot of the posting on the page. */
+export function JdShotIcon() {
   return (
     <svg viewBox="0 0 20 20" width="16" height="16" aria-hidden="true" fill="none">
       <path
         stroke="currentColor"
         strokeWidth="1.5"
         strokeLinejoin="round"
-        d="M6 3.5h5.2L16 8.3V16a1.5 1.5 0 0 1-1.5 1.5h-8.5A1.5 1.5 0 0 1 4.5 16V5A1.5 1.5 0 0 1 6 3.5Z"
+        d="M3.5 7.2A1.7 1.7 0 0 1 5.2 5.5h1.3l.9-1.4h5.2l.9 1.4h1.3a1.7 1.7 0 0 1 1.7 1.7v6.6a1.7 1.7 0 0 1-1.7 1.7H5.2a1.7 1.7 0 0 1-1.7-1.7V7.2Z"
       />
+      <circle cx="10" cy="10.4" r="2.5" stroke="currentColor" strokeWidth="1.5" />
+    </svg>
+  );
+}
+
+/** Sent: a check in a circle. */
+export function SentIcon() {
+  return (
+    <svg viewBox="0 0 20 20" width="16" height="16" aria-hidden="true" fill="none">
+      <circle cx="10" cy="10" r="7.25" stroke="currentColor" strokeWidth="1.5" />
       <path
         stroke="currentColor"
         strokeWidth="1.5"
         strokeLinecap="round"
         strokeLinejoin="round"
-        d="M11 3.6V7.5h4"
-      />
-      <path
-        stroke="currentColor"
-        strokeWidth="1.5"
-        strokeLinecap="round"
-        d="M7.2 12.2h5.6M7.2 9.4h2.4"
+        d="m6.9 10.2 2.2 2.2 4-4.4"
       />
     </svg>
   );
 }
 
-export function RecommendIcon() {
+/** Forget: a cross. */
+export function CloseIcon() {
   return (
     <svg viewBox="0 0 20 20" width="16" height="16" aria-hidden="true" fill="none">
       <path
         stroke="currentColor"
         strokeWidth="1.5"
-        strokeLinejoin="round"
-        d="M4.5 7.2 10 4.5l5.5 2.7v5.6L10 15.5 4.5 12.8V7.2Z"
-      />
-      <path
-        stroke="currentColor"
-        strokeWidth="1.5"
         strokeLinecap="round"
-        strokeLinejoin="round"
-        d="m7.6 10.1 1.6 1.6 3.2-3.4"
+        d="m5.5 5.5 9 9m0-9-9 9"
       />
     </svg>
   );

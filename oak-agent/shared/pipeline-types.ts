@@ -1,6 +1,5 @@
 /** One-click fill pipeline progress contract (extension ↔ Chrome side panel). */
 
-import type { AiUsageSummary } from "./ai-usage";
 import type { ActionPlan, RunStepRecord } from "./plan-runner/types";
 import type { DomTreeNode } from "./tree-export";
 
@@ -20,10 +19,8 @@ export interface PipelineProgress {
   stepTotal?: number;
   stepLabel?: string;
   error?: string;
-  /** Wall-clock ms for the full FAB pipeline (set on done/error). */
+  /** Wall-clock ms for the full Fill pipeline (set on done/error). */
   durationMs?: number;
-  /** Aggregated AI token usage / estimated USD (analyze + match-option). */
-  usage?: AiUsageSummary | null;
   /** UI-only snapshot of the tree sent to AI Analyze. */
   tree?: PipelineTreeSnapshot;
   /** UI-only AI Analyze plan JSON. */

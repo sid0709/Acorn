@@ -1,6 +1,6 @@
 {
   "name": "oak-extension",
-  "version": "1.6.41",
+  "version": "1.7.0",
   "private": true,
   "type": "module",
   "scripts": {

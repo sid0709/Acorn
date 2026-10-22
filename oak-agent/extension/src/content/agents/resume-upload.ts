@@ -1,6 +1,5 @@
 import type { RuntimeAttachedFile } from "../../types";
 import { uploadFileToElement } from "./upload";
-import { isCustomResumeFile } from "../../../../shared/plan-runner/step-file";
 import {
   documentFieldKind,
   labelLooksLikeOtherDocument,
@@ -97,16 +96,13 @@ function resolveResumeFileInput(
   throw new Error("No Resume/CV file input found near this control");
 }
 
-function otherDocumentError(file: RuntimeAttachedFile): string {
-  return isCustomResumeFile(file)
-    ? "Generated résumé can only be attached to a Resume/CV control"
-    : "Recommended resume can only be attached to a Resume/CV control";
+function otherDocumentError(): string {
+  return "The Library résumé can only be attached to a Resume/CV control";
 }
 
 /**
  * Attach a résumé to a Resume/CV file input.
- * Custom Fill passes the generated file (`custom_resume`); Worker Pool /
- * Fill tab still pass the Job Search Library match (`recommended_resume`).
+ * Fill passes the page's Library résumé (`recommended_resume`).
  * Never targets cover letters or other document controls.
  */
 export async function resumeUpload(
@@ -115,7 +111,7 @@ export async function resumeUpload(
   expectedLabel?: string | null,
 ): Promise<string> {
   if (labelLooksLikeOtherDocument(expectedLabel)) {
-    throw new Error(otherDocumentError(file));
+    throw new Error(otherDocumentError());
   }
   const input = resolveResumeFileInput(el, expectedLabel);
   return uploadFileToElement(input, file);

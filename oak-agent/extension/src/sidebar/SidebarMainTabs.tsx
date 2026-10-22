@@ -1,4 +1,4 @@
-export type OakMainTab = "fill" | "qa" | "custom";
+export type OakMainTab = "fill" | "qa";
 
 type SidebarMainTabsProps = {
   value: OakMainTab;
@@ -29,17 +29,6 @@ export function SidebarMainTabs({ value, onChange }: SidebarMainTabsProps) {
         onClick={() => onChange("qa")}
       >
         Q&amp;A
-      </button>
-      <button
-        type="button"
-        role="tab"
-        id="oak-tab-custom"
-        aria-controls="oak-panel-custom"
-        aria-selected={value === "custom"}
-        className={value === "custom" ? "active" : undefined}
-        onClick={() => onChange("custom")}
-      >
-        Custom
       </button>
     </div>
   );

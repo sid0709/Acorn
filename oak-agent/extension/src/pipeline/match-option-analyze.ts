@@ -6,6 +6,8 @@ export async function matchOptionViaAnalyze(input: {
   options: string[];
   fieldLabel: string;
   apiUrl: string;
+  /** Files the call's cost under this Chrome tab. */
+  tabId?: number | null;
 }): Promise<string | null> {
   const options = input.options
     .map((item) => item.trim())
@@ -25,7 +27,7 @@ export async function matchOptionViaAnalyze(input: {
     `  input[4] role=combobox aria-label=${JSON.stringify(label.slice(0, 120))} placeholder=Select...`,
     ...optionLines,
   ].join("\n");
-  const result = await requestAiAnalyze({ pureTree }, input.apiUrl);
+  const result = await requestAiAnalyze({ pureTree }, input.apiUrl, input.tabId);
   const value = String(
     result.plan?.actions?.find((action) => action.action === "fill" && action.value)?.value || "",
   ).trim();

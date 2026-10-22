@@ -13,6 +13,15 @@ export interface AiUsageSummary {
   calls?: number;
 }
 
+/** Nanodollars in a dollar: `acorn_ai_usage.costNanos` and a Run's `costNanos`. */
+export const NANOS_PER_USD = 1_000_000_000;
+
+/** A backend cost in nanodollars as dollars, e.g. `$0.0042`. */
+export function formatNanosUsd(costNanos: number | null | undefined): string {
+  if (costNanos == null || !Number.isFinite(costNanos)) return "$?";
+  return formatUsd(costNanos / NANOS_PER_USD);
+}
+
 export function formatUsd(costUsd: number | null | undefined): string {
   if (costUsd == null || !Number.isFinite(costUsd)) return "$?";
   if (costUsd >= 1) return `$${costUsd.toFixed(2)}`;

@@ -1,19 +1,12 @@
 import type { OakFaceMode } from "@oak/face";
 import type { PipelinePhase, PipelineProgress } from "../../../shared/pipeline-types";
-import { EXTRACT_LABEL, LOAD_JD_LABEL } from "../pipeline/custom-generate-progress";
-import type { CustomGenerateStatus } from "../tab-custom-session";
+import type { JdShotStatus } from "../tab-page-session";
 
 export type RowFaceInput = {
   fillPhase?: PipelinePhase | null;
   resumeSkipped?: boolean;
-  generateStatus?: CustomGenerateStatus | null;
-  generateLabel?: string | null;
-  hasResume?: boolean;
-  blocked?: boolean;
-  recommendWarning?: boolean;
-  selected?: boolean;
-  opening?: boolean;
-  marking?: boolean;
+  jdStatus?: JdShotStatus | null;
+  sending?: boolean;
   downloading?: boolean;
 };
 
@@ -21,9 +14,7 @@ export type TabFaceInput = {
   signedIn: boolean;
   fillPhase?: PipelinePhase | null;
   resumeSkipped?: boolean;
-  generateStatus?: CustomGenerateStatus | null;
-  generateLabel?: string | null;
-  hasResume?: boolean;
+  jdStatus?: JdShotStatus | null;
   hidden?: boolean;
 };
 
@@ -38,24 +29,12 @@ export type CompanionFaceInput = {
   qaError: boolean;
   inspectOpen: boolean;
   connectionOpen: boolean;
-  jobsLoading: boolean;
-  jobsEmpty: boolean;
-  jobsError: boolean;
-  customEmpty: boolean;
-  opening: boolean;
-  marking: boolean;
+  pagesEmpty: boolean;
+  remembering: boolean;
+  sending: boolean;
   afk: boolean;
   emptyIdle: boolean;
 };
-
-function generatingThink(status?: CustomGenerateStatus | null, label?: string | null): boolean {
-  if (status === "queued") return true;
-  return status === "running" && (label === EXTRACT_LABEL || label === LOAD_JD_LABEL || !label);
-}
-
-function generatingWork(status?: CustomGenerateStatus | null, label?: string | null): boolean {
-  return status === "running" && !generatingThink(status, label);
-}
 
 export function holdFromFill(
   phase?: PipelinePhase | null,
@@ -68,31 +47,20 @@ export function holdFromFill(
   return null;
 }
 
-export function holdFromGenerate(
-  status?: CustomGenerateStatus | null,
-  label?: string | null,
-  hasResume = false,
-): OakFaceMode | null {
-  if (generatingThink(status, label)) return "thinking";
-  if (generatingWork(status, label)) return "working";
+/** A JD shot reads the page and matches a résumé: the face thinks while it runs. */
+export function holdFromJdShot(status?: JdShotStatus | null): OakFaceMode | null {
+  if (status === "running") return "thinking";
   if (status === "failed") return "sad";
-  if (!hasResume && (status === "idle" || status === "completed" || status == null)) {
-    return null;
-  }
   return null;
 }
 
-/** Hold pose for one job / remembered tab. One-shots are applied by playback. */
+/** Hold pose for one remembered page. One-shots are applied by playback. */
 export function resolveRowHold(input: RowFaceInput): OakFaceMode {
-  if (input.marking) return "smile";
-  if (input.opening || input.downloading) return "working";
+  if (input.sending || input.downloading) return "working";
   const fill = holdFromFill(input.fillPhase, input.resumeSkipped);
   if (fill === "working" || fill === "thinking" || fill === "sad") return fill;
-  const gen = holdFromGenerate(input.generateStatus, input.generateLabel, input.hasResume);
-  if (gen) return gen;
-  if (input.blocked) return "sad";
-  if (input.recommendWarning && input.selected) return "sad";
-  if (input.hasResume === false && input.generateStatus != null) return "sad";
+  const jd = holdFromJdShot(input.jdStatus);
+  if (jd) return jd;
   return "waiting";
 }
 
@@ -101,43 +69,21 @@ export type BusyWorkerCounts = {
   working: number;
 };
 
-/** Unique tabs currently thinking or working (fill + Custom). */
+/** Unique tabs currently thinking or working (Fill and JD shot). */
 export function countBusyWorkers(
   pipelines: Record<string, PipelineProgress>,
-  customTabs: Array<{
-    tabId: number;
-    generateStatus: CustomGenerateStatus;
-    generateProgress?: { label?: string } | null;
-    generationId?: string | null;
-    recommendedResumeId?: string | null;
-  }>,
-  jobGenerates: Array<{
-    jobId: string;
-    tabId?: number | null;
-    generateStatus: CustomGenerateStatus;
-    generateProgress?: { label?: string } | null;
-  }> = [],
+  pages: Array<{ tabId: number; jdStatus: JdShotStatus }>,
 ): BusyWorkerCounts {
   const modes = new Map<string, OakFaceMode>();
   for (const [tabId, progress] of Object.entries(pipelines)) {
     const mode = holdFromFill(progress.phase, progress.resumeUpload?.status === "skipped");
     if (mode === "thinking" || mode === "working") modes.set(tabId, mode);
   }
-  for (const tab of customTabs) {
-    const key = String(tab.tabId);
+  for (const page of pages) {
+    const key = String(page.tabId);
     if (modes.has(key)) continue;
-    const mode = holdFromGenerate(
-      tab.generateStatus,
-      tab.generateProgress?.label,
-      Boolean(tab.generationId || tab.recommendedResumeId),
-    );
-    if (mode === "thinking" || mode === "working") modes.set(key, mode);
-  }
-  for (const row of jobGenerates) {
-    const key = row.tabId != null ? String(row.tabId) : `job:${row.jobId}`;
-    if (modes.has(key)) continue;
-    const mode = holdFromGenerate(row.generateStatus, row.generateProgress?.label, false);
-    if (mode === "thinking" || mode === "working") modes.set(key, mode);
+    const mode = holdFromJdShot(page.jdStatus);
+    if (mode === "thinking") modes.set(key, mode);
   }
   let thinking = 0;
   let working = 0;
@@ -153,8 +99,8 @@ export function resolveTabHold(input: TabFaceInput): OakFaceMode {
   if (!input.signedIn) return "sleeping";
   const fill = holdFromFill(input.fillPhase, input.resumeSkipped);
   if (fill === "working" || fill === "thinking" || fill === "sad") return fill;
-  const gen = holdFromGenerate(input.generateStatus, input.generateLabel, input.hasResume);
-  if (gen) return gen;
+  const jd = holdFromJdShot(input.jdStatus);
+  if (jd) return jd;
   if (input.hidden) return "sleeping";
   return "waiting";
 }
@@ -165,13 +111,11 @@ export function resolveCompanionHold(input: CompanionFaceInput): OakFaceMode {
   if (focused === "working" || focused === "thinking" || focused === "sad") return focused;
   if (input.qaBusy) return "thinking";
   if (input.qaError) return "sad";
-  if (input.opening || input.marking || input.authBusy) return "working";
-  if (input.jobsLoading || input.inspectOpen || input.connectionOpen) return "thinking";
+  if (input.remembering || input.sending || input.authBusy) return "working";
+  if (input.inspectOpen || input.connectionOpen) return "thinking";
   if (input.anyTabWorking) return "working";
   if (input.signedIn && !input.connected) return "sad";
-  if (input.jobsError) return "sad";
-  if (input.jobsEmpty) return input.emptyIdle ? "sleeping" : "sad";
-  if (input.customEmpty) return "thinking";
+  if (input.pagesEmpty) return input.emptyIdle ? "sleeping" : "thinking";
   if (!input.signedIn) {
     if (input.authBusy) return "working";
     return input.nameFocused ? "waiting" : "sleeping";
@@ -184,20 +128,14 @@ export function resolveCompanionHold(input: CompanionFaceInput): OakFaceMode {
 export function tabInputFromProgress(
   signedIn: boolean,
   progress: PipelineProgress | null | undefined,
-  generate?: {
-    status?: CustomGenerateStatus | null;
-    label?: string | null;
-    hasResume?: boolean;
-  },
+  jdStatus?: JdShotStatus | null,
   hidden = false,
 ): TabFaceInput {
   return {
     signedIn,
     fillPhase: progress?.phase ?? "idle",
     resumeSkipped: progress?.resumeUpload?.status === "skipped",
-    generateStatus: generate?.status ?? null,
-    generateLabel: generate?.label ?? null,
-    hasResume: Boolean(generate?.hasResume),
+    jdStatus: jdStatus ?? null,
     hidden,
   };
 }

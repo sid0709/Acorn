@@ -1,20 +1,20 @@
 import { useEffect, useRef, useState } from "react";
 import type { OakFaceMode } from "@oak/face";
 import type { PipelinePhase } from "../../../shared/pipeline-types";
-import type { CustomGenerateStatus } from "../tab-custom-session";
+import type { JdShotStatus } from "../tab-page-session";
 import { FACE_SMILE_MS, FACE_WINK_MS } from "./constants";
 import { mergeFaceShot } from "./director";
 
-/** Smile once when fill or generate completes. */
+/** Smile once when a fill or a JD shot completes. */
 export function useCompletionSmile(input: {
   hold: OakFaceMode;
   fillPhase?: PipelinePhase | null;
-  generateStatus?: CustomGenerateStatus | null;
+  jdStatus?: JdShotStatus | null;
   winkToken?: number;
 }): OakFaceMode {
   const [shot, setShot] = useState<OakFaceMode | null>(null);
   const prevFill = useRef(input.fillPhase);
-  const prevGen = useRef(input.generateStatus);
+  const prevJd = useRef(input.jdStatus);
   const prevWink = useRef(input.winkToken);
 
   useEffect(() => {
@@ -30,16 +30,16 @@ export function useCompletionSmile(input: {
   }, [input.fillPhase]);
 
   useEffect(() => {
-    const gen = input.generateStatus;
-    if (prevGen.current !== "completed" && gen === "completed") {
+    const jd = input.jdStatus;
+    if (prevJd.current === "running" && jd === "found") {
       setShot("smile");
       const timer = window.setTimeout(() => setShot(null), FACE_SMILE_MS);
-      prevGen.current = gen;
+      prevJd.current = jd;
       return () => window.clearTimeout(timer);
     }
-    prevGen.current = gen;
+    prevJd.current = jd;
     return undefined;
-  }, [input.generateStatus]);
+  }, [input.jdStatus]);
 
   useEffect(() => {
     const token = input.winkToken;

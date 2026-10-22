@@ -2,16 +2,27 @@ import { useState } from "react";
 import { FACE_SMILE_MS } from "../oak-face/constants";
 import { flashOakFace } from "../oak-face/face-flash";
 import { requestQaAnswer, type OakQaPage } from "../pipeline/ai-client";
+import { MSG } from "../types";
+import { sendMessage } from "./runtime";
 
 type QaPanelProps = {
   signedIn: boolean;
   page?: OakQaPage | null;
+  /** Chrome tab the question is about; its cost is filed under it. */
+  tabId?: number | null;
   disabled?: boolean;
   showHeading?: boolean;
   onStatus?: (status: { busy: boolean; error: boolean }) => void;
 };
 
-export function QaPanel({ signedIn, page, disabled, showHeading = true, onStatus }: QaPanelProps) {
+export function QaPanel({
+  signedIn,
+  page,
+  tabId,
+  disabled,
+  showHeading = true,
+  onStatus,
+}: QaPanelProps) {
   const [question, setQuestion] = useState("");
   const [answer, setAnswer] = useState("");
   const [error, setError] = useState<string | null>(null);
@@ -25,7 +36,12 @@ export function QaPanel({ signedIn, page, disabled, showHeading = true, onStatus
     setError(null);
     setCopied(false);
     try {
-      const next = await requestQaAnswer({ question, page: page ?? null });
+      const next = await requestQaAnswer(
+        { question, page: page ?? null },
+        undefined,
+        tabId ?? null,
+      );
+      if (tabId != null) void sendMessage({ type: MSG.REFRESH_PAGE_COST, tabId });
       setAnswer(next);
       onStatus?.({ busy: false, error: false });
     } catch (err) {

@@ -17,35 +17,25 @@ import {
 } from "./oak-socket";
 import { matchOptionViaAnalyze } from "./pipeline/match-option-analyze";
 import { runFabPipeline } from "./pipeline/run-pipeline";
-import { runCustomGenerate } from "./pipeline/custom-generate";
-import { runCustomRecommend } from "./pipeline/custom-recommend";
-import { runJobGenerate } from "./pipeline/job-generate";
-import { runJobRecommend } from "./pipeline/job-recommend";
+import { runJdShot } from "./pipeline/jd-shot";
+import { refreshPageCost } from "./pipeline/page-cost";
 import { requestQaAnswer } from "./pipeline/ai-client";
-import { addPipelineUsage, rekeyPipelineUsage } from "./pipeline/usage-tracker";
+import { sendPage } from "./pipeline/sent-page";
 import { focusChromeTab } from "./focus-tab";
 import { bindContentScriptInjection, injectIntoOpenTabs } from "./inject-content";
-import { openWorkerJobInTab } from "./open-worker-job";
 import { sendPlanStepToTab } from "./tab-messaging";
+import { forgetTabKey, rekeyTabKey } from "./tab-key";
 import {
-  findTabIdsForJob,
-  getTabJob,
-  rekeyTabJob,
-  unbindJobFromAllTabs,
-  unbindTabJob,
-} from "./tab-job-session";
-import {
-  getCustomTab,
-  patchCustomTab,
-  rekeyCustomTab,
-  rememberCustomTab,
-  refreshCustomTabMeta,
-  unbindCustomTab,
-} from "./tab-custom-session";
-import { getJobGenerate, patchJobGenerate } from "./tab-job-generate-session";
+  getPage,
+  refreshPageMeta,
+  rekeyPage,
+  rememberPage,
+  resetInterruptedJdShots,
+  unbindPage,
+  type OakPageBinding,
+} from "./tab-page-session";
 import { clearTabPipeline, queueTabPipeline, rekeyTabPipeline } from "./tab-pipeline-session";
 import { broadcastOperatorNotice, socketErrorDetail } from "./operator-notice";
-import { mapOakWorkerJobs } from "./worker-job";
 import {
   MSG,
   OAK_SIDEBAR_PORT,
@@ -61,36 +51,40 @@ import {
 let socketErrorToastAt = 0;
 const SOCKET_TOAST_MS = 12_000;
 const sidebarPorts = new Set<chrome.runtime.Port>();
-/** Tabs with an in-flight FAB pipeline (parallel across tabs; one per tab). */
+/** Tabs with an in-flight Fill pipeline (parallel across tabs; one per tab). */
 const pipelineRunningTabIds = new Set<number>();
-const customGenerateTabIds = new Set<number>();
-const jobGenerateJobIds = new Set<string>();
+const jdShotTabIds = new Set<number>();
+const sentTabIds = new Set<number>();
 
-async function patchCustomGenerateFailed(tabId: number, error: string): Promise<void> {
-  const tab = await getCustomTab(tabId);
-  if (tab?.generateStatus === "failed" && tab.checkpoint) {
-    if (!tab.generateError) {
-      await patchCustomTab(tabId, { generateError: error });
-    }
-    return;
-  }
-  await patchCustomTab(tabId, {
-    generateStatus: "failed",
-    generateError: error,
-  });
+/** The cost on a page's card is read from the backend at most this often while its work runs. */
+const COST_REFRESH_MIN_MS = 3000;
+const costRefreshAt = new Map<number, number>();
+const costRefreshTimers = new Map<number, ReturnType<typeof setTimeout>>();
+
+/** Reads the page's cost soon, at most once per COST_REFRESH_MIN_MS, so a busy Fill does not hammer the backend. */
+function scheduleCostRefresh(tabId: number, immediate = false): void {
+  if (costRefreshTimers.has(tabId)) return;
+  const wait = immediate
+    ? 0
+    : Math.max(0, (costRefreshAt.get(tabId) ?? 0) + COST_REFRESH_MIN_MS - Date.now());
+  const timer = setTimeout(() => {
+    costRefreshTimers.delete(tabId);
+    costRefreshAt.set(tabId, Date.now());
+    void getAthensApiUrl().then((apiUrl) => refreshPageCost(tabId, apiUrl));
+  }, wait);
+  costRefreshTimers.set(tabId, timer);
 }
 
-async function patchJobGenerateFailed(jobId: string, error: string): Promise<void> {
-  const row = await getJobGenerate(jobId);
-  if (row?.generateStatus === "failed" && row.checkpoint) {
-    if (!row.generateError) {
-      await patchJobGenerate(jobId, { generateError: error });
-    }
-    return;
-  }
-  await patchJobGenerate(jobId, {
-    generateStatus: "failed",
-    generateError: error,
+/** Remembers the tab as a page if it is not one yet. */
+async function ensurePage(tabId: number): Promise<OakPageBinding> {
+  const existing = await getPage(tabId);
+  if (existing) return existing;
+  const tab = await chrome.tabs.get(tabId);
+  return rememberPage({
+    tabId,
+    url: String(tab.url || ""),
+    title: String(tab.title || "Untitled"),
+    favIconUrl: tab.favIconUrl || null,
   });
 }
 
@@ -106,19 +100,12 @@ function pinnedTabId(requestedTabId: unknown, sender: chrome.runtime.MessageSend
   return sender.tab?.id ?? null;
 }
 
-async function resolvePreferredTabId(
-  sender: chrome.runtime.MessageSender,
-  requestedTabId: unknown,
-): Promise<number | null> {
-  const pinned = pinnedTabId(requestedTabId, sender);
-  if (pinned != null) return pinned;
-  const [tab] = await chrome.tabs.query({ active: true, lastFocusedWindow: true });
-  return tab?.id ?? null;
-}
-
 function broadcastPipelineProgress(tabId: number, progress: PipelineProgress): void {
   getOakSocket()?.emit("pipeline:progress", { tabId, progress });
   void queueTabPipeline(tabId, progress);
+  if (progress.phase !== "idle") {
+    scheduleCostRefresh(tabId, progress.phase === "done" || progress.phase === "error");
+  }
   chrome.runtime.sendMessage({ type: MSG.PIPELINE_PROGRESS, tabId, progress }, () => {
     void chrome.runtime.lastError;
   });
@@ -129,9 +116,7 @@ const WORK_KEEP_ALIVE_ALARM = "oak-work-keep-alive";
 chrome.alarms.create(KEEP_ALIVE_ALARM, { periodInMinutes: 0.5 });
 
 function anyTabWorking(): boolean {
-  return (
-    pipelineRunningTabIds.size > 0 || customGenerateTabIds.size > 0 || jobGenerateJobIds.size > 0
-  );
+  return pipelineRunningTabIds.size > 0 || jdShotTabIds.size > 0 || sentTabIds.size > 0;
 }
 
 async function closeTabsQuietly(tabIds: number[]): Promise<void> {
@@ -234,7 +219,7 @@ const socketHandlers: OakSocketHandlers = {
       broadcastOperatorNotice({
         kind: "success",
         title: "Connected",
-        detail: "Athens socket is online.",
+        detail: "Oak socket is online.",
       });
     }
   },
@@ -289,27 +274,28 @@ chrome.runtime.onConnect.addListener((port) => {
 });
 
 void connectSocket().catch(() => undefined);
+void resetInterruptedJdShots();
 enableSidePanelOnActionClick();
 bindContentScriptInjection();
 void injectIntoOpenTabs();
 chrome.runtime.onInstalled.addListener(enableSidePanelOnActionClick);
 
 chrome.tabs.onRemoved.addListener((tabId) => {
-  void unbindTabJob(tabId);
-  void unbindCustomTab(tabId);
+  void unbindPage(tabId);
   void clearTabPipeline(tabId);
+  void forgetTabKey(tabId);
+  costRefreshAt.delete(tabId);
 });
 
 chrome.tabs.onReplaced.addListener((addedTabId, removedTabId) => {
   if (pipelineRunningTabIds.delete(removedTabId)) {
     pipelineRunningTabIds.add(addedTabId);
   }
-  if (customGenerateTabIds.delete(removedTabId)) {
-    customGenerateTabIds.add(addedTabId);
+  if (jdShotTabIds.delete(removedTabId)) {
+    jdShotTabIds.add(addedTabId);
   }
-  rekeyPipelineUsage(removedTabId, addedTabId);
-  void rekeyTabJob(removedTabId, addedTabId);
-  void rekeyCustomTab(removedTabId, addedTabId);
+  void rekeyTabKey(removedTabId, addedTabId);
+  void rekeyPage(removedTabId, addedTabId);
   void rekeyTabPipeline(removedTabId, addedTabId);
 });
 
@@ -322,7 +308,7 @@ chrome.tabs.onUpdated.addListener((tabId, changeInfo, tab) => {
   ) {
     return;
   }
-  void refreshCustomTabMeta(tabId, {
+  void refreshPageMeta(tabId, {
     url: tab.url,
     title: tab.title,
     favIconUrl: tab.favIconUrl,
@@ -385,154 +371,6 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
     return true;
   }
 
-  if (message.type === MSG.LIST_WORKER_JOBS) {
-    void (async () => {
-      try {
-        const token = await getAccessToken();
-        if (!token) {
-          sendResponse({ ok: false, error: "Sign in required", jobs: [] });
-          return;
-        }
-        const base = await getAthensApiUrl();
-        const res = await fetch(`${base}/api/oak/jobs`, {
-          headers: await authHeaders(),
-        });
-        const data = (await res.json().catch(() => ({}))) as {
-          success?: boolean;
-          jobs?: unknown[];
-          message?: string;
-          error?: string;
-        };
-        if (!res.ok) {
-          sendResponse({
-            ok: false,
-            error: data.message || data.error || `Jobs failed (${res.status})`,
-            jobs: [],
-          });
-          return;
-        }
-        sendResponse({ ok: true, jobs: mapOakWorkerJobs(data.jobs) });
-      } catch (err) {
-        sendResponse({
-          ok: false,
-          error: err instanceof Error ? err.message : String(err),
-          jobs: [],
-        });
-      }
-    })();
-    return true;
-  }
-
-  if (message.type === MSG.OPEN_WORKER_JOB) {
-    void (async () => {
-      try {
-        const applyUrl = String(message.applyUrl || "").trim();
-        const jobId = String(message.jobId || "").trim();
-        if (!jobId) {
-          sendResponse({ ok: false, error: "Missing job id" });
-          return;
-        }
-        if (!applyUrl) {
-          sendResponse({ ok: false, error: "This job has no apply URL" });
-          return;
-        }
-        const preferredTabId = await resolvePreferredTabId(sender, message.tabId);
-        const attachedTabId =
-          typeof message.attachedTabId === "number" && Number.isFinite(message.attachedTabId)
-            ? message.attachedTabId
-            : null;
-        const opened = await openWorkerJobInTab({
-          preferredTabId,
-          attachedTabId,
-          job: {
-            jobId,
-            resumeId:
-              typeof message.resumeId === "string" && message.resumeId.trim()
-                ? message.resumeId.trim()
-                : null,
-            resumeStack:
-              typeof message.resumeStack === "string" && message.resumeStack.trim()
-                ? message.resumeStack.trim()
-                : null,
-            applyUrl,
-            title: String(message.title || ""),
-            company: String(message.company || ""),
-          },
-        });
-        sendResponse({ ok: true, tabId: opened.tabId, reused: opened.reused });
-      } catch (err) {
-        sendResponse({
-          ok: false,
-          error: err instanceof Error ? err.message : String(err),
-        });
-      }
-    })();
-    return true;
-  }
-
-  if (message.type === MSG.MARK_JOB_APPLIED) {
-    void (async () => {
-      try {
-        const jobId = String(message.jobId || "").trim();
-        if (!jobId) {
-          sendResponse({ ok: false, error: "Missing job id" });
-          return;
-        }
-        const token = await getAccessToken();
-        if (!token) {
-          sendResponse({ ok: false, error: "Sign in required" });
-          return;
-        }
-        const attachedTabIds = await findTabIdsForJob(jobId);
-        await unbindJobFromAllTabs(jobId);
-        void closeTabsQuietly(attachedTabIds);
-        const base = await getAthensApiUrl();
-        const res = await fetch(`${base}/api/oak/jobs/${encodeURIComponent(jobId)}/mark-applied`, {
-          method: "POST",
-          headers: await authHeaders(),
-        });
-        const data = (await res.json().catch(() => ({}))) as {
-          success?: boolean;
-          message?: string;
-          error?: string;
-        };
-        if (!res.ok || data.success === false) {
-          sendResponse({
-            ok: false,
-            error: data.message || data.error || `Mark applied failed (${res.status})`,
-          });
-          return;
-        }
-        sendResponse({ ok: true });
-      } catch (err) {
-        sendResponse({
-          ok: false,
-          error: err instanceof Error ? err.message : String(err),
-        });
-      }
-    })();
-    return true;
-  }
-
-  if (message.type === MSG.GET_TAB_JOB) {
-    void (async () => {
-      let tabId = typeof message.tabId === "number" ? message.tabId : (sender.tab?.id ?? null);
-      if (!tabId) {
-        const [tab] = await chrome.tabs.query({
-          active: true,
-          currentWindow: true,
-        });
-        tabId = tab?.id ?? null;
-      }
-      if (!tabId) {
-        sendResponse({ ok: false, job: null });
-        return;
-      }
-      sendResponse({ ok: true, job: await getTabJob(tabId) });
-    })();
-    return true;
-  }
-
   if (message.type === MSG.SELECTION_QA) {
     void (async () => {
       try {
@@ -547,21 +385,19 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
           return;
         }
         const tabId = sender.tab?.id;
-        const tabJob = typeof tabId === "number" ? await getTabJob(tabId) : null;
-        const answer = await requestQaAnswer({
-          question,
-          page: {
-            title: String(message.title || ""),
-            url: String(message.url || ""),
-            job: tabJob
-              ? {
-                  id: tabJob.jobId,
-                  title: tabJob.title,
-                  company: tabJob.company,
-                }
-              : null,
+        const apiUrl = await getAthensApiUrl();
+        const answer = await requestQaAnswer(
+          {
+            question,
+            page: {
+              title: String(message.title || ""),
+              url: String(message.url || ""),
+            },
           },
-        });
+          apiUrl,
+          tabId ?? null,
+        );
+        if (typeof tabId === "number") scheduleCostRefresh(tabId, true);
         sendResponse({ ok: true, answer });
       } catch (err) {
         const detail = err instanceof Error ? err.message : String(err);
@@ -574,7 +410,7 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
     return true;
   }
 
-  if (message.type === MSG.REMEMBER_CUSTOM_TAB) {
+  if (message.type === MSG.REMEMBER_PAGE) {
     void (async () => {
       try {
         const tabId = pinnedTabId(message.tabId, sender);
@@ -582,15 +418,9 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
           sendResponse({ ok: false, error: "No tab to remember" });
           return;
         }
-        const tab = await chrome.tabs.get(tabId);
-        const binding = await rememberCustomTab({
-          tabId,
-          url: String(tab.url || ""),
-          title: String(tab.title || "Untitled"),
-          favIconUrl: tab.favIconUrl || null,
-          resumeMode: message.resumeMode === "recommend" ? "recommend" : "generate",
-        });
-        sendResponse({ ok: true, tab: binding });
+        const page = await ensurePage(tabId);
+        scheduleCostRefresh(tabId, true);
+        sendResponse({ ok: true, page });
       } catch (err) {
         sendResponse({
           ok: false,
@@ -601,36 +431,28 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
     return true;
   }
 
-  if (message.type === MSG.FORGET_CUSTOM_TAB) {
+  if (message.type === MSG.FORGET_PAGE) {
     void (async () => {
-      try {
-        const tabId = pinnedTabId(message.tabId, sender);
-        if (tabId == null) {
-          sendResponse({ ok: false, error: "No tab to forget" });
-          return;
-        }
-        await unbindCustomTab(tabId);
-        await closeTabsQuietly([tabId]);
-        sendResponse({ ok: true });
-      } catch (err) {
-        sendResponse({
-          ok: false,
-          error: err instanceof Error ? err.message : String(err),
-        });
+      const tabId = pinnedTabId(message.tabId, sender);
+      if (tabId == null) {
+        sendResponse({ ok: false, error: "No tab to forget" });
+        return;
       }
+      await unbindPage(tabId);
+      sendResponse({ ok: true });
     })();
     return true;
   }
 
-  if (message.type === MSG.FOCUS_CUSTOM_TAB) {
+  if (message.type === MSG.FOCUS_PAGE) {
     void (async () => {
       const tabId = pinnedTabId(message.tabId, sender);
       if (tabId == null) {
         sendResponse({ ok: false, error: "No tab to show" });
         return;
       }
-      const binding = await getCustomTab(tabId);
-      if (!binding) {
+      const page = await getPage(tabId);
+      if (!page) {
         sendResponse({ ok: false, error: "That tab is not remembered" });
         return;
       }
@@ -640,141 +462,90 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
     return true;
   }
 
-  if (message.type === MSG.START_CUSTOM_GENERATE) {
+  if (message.type === MSG.REFRESH_PAGE_COST) {
+    const tabId = pinnedTabId(message.tabId, sender);
+    if (tabId != null) scheduleCostRefresh(tabId, true);
+    sendResponse({ ok: true });
+    return true;
+  }
+
+  if (message.type === MSG.START_JD_SHOT) {
     void (async () => {
       const tabId = pinnedTabId(message.tabId, sender);
       if (tabId == null) {
-        sendResponse({ ok: false, error: "No tab for generate" });
+        sendResponse({ ok: false, error: "No tab for JD shot" });
         return;
       }
-      const binding = await getCustomTab(tabId);
-      if (!binding) {
-        sendResponse({ ok: false, error: "Remember this tab first" });
-        return;
-      }
-      if (customGenerateTabIds.has(tabId)) {
-        sendResponse({ ok: false, error: "Already generating on this tab" });
+      if (jdShotTabIds.has(tabId)) {
+        sendResponse({ ok: false, error: "A JD shot is already running on this tab" });
         return;
       }
       if (pipelineRunningTabIds.has(tabId)) {
         sendResponse({ ok: false, error: "Fill is running on this tab" });
         return;
       }
-      customGenerateTabIds.add(tabId);
-      syncWorkKeepAlive();
-      sendResponse({ ok: true });
+      if (sentTabIds.has(tabId)) {
+        sendResponse({ ok: false, error: "This page is being sent" });
+        return;
+      }
       try {
         const token = await getAccessToken();
         if (!token) {
-          throw new Error("Sign in to Athens in the Oak sidebar first");
+          sendResponse({ ok: false, error: "Sign in to Acorn in the Oak sidebar first" });
+          return;
         }
-        const apiUrl = await getAthensApiUrl();
-        await runCustomGenerate({
-          tabId,
-          apiUrl,
-          continue: Boolean(message.continue),
-        });
+        await ensurePage(tabId);
       } catch (err) {
-        const error = err instanceof Error ? err.message : String(err);
-        await patchCustomGenerateFailed(tabId, error);
+        sendResponse({ ok: false, error: err instanceof Error ? err.message : String(err) });
+        return;
+      }
+      jdShotTabIds.add(tabId);
+      syncWorkKeepAlive();
+      sendResponse({ ok: true });
+      try {
+        await runJdShot({ tabId, apiUrl: await getAthensApiUrl() });
       } finally {
-        customGenerateTabIds.delete(tabId);
+        jdShotTabIds.delete(tabId);
         syncWorkKeepAlive();
+        scheduleCostRefresh(tabId, true);
       }
     })();
     return true;
   }
 
-  if (message.type === MSG.START_CUSTOM_RECOMMEND) {
+  if (message.type === MSG.SENT_PAGE) {
     void (async () => {
       const tabId = pinnedTabId(message.tabId, sender);
       if (tabId == null) {
-        sendResponse({ ok: false, error: "No tab for recommend" });
+        sendResponse({ ok: false, error: "No tab to send" });
         return;
       }
-      const binding = await getCustomTab(tabId);
-      if (!binding) {
-        sendResponse({ ok: false, error: "Remember this tab first" });
+      if (sentTabIds.has(tabId)) {
+        sendResponse({ ok: false, error: "This page is already being sent" });
         return;
       }
-      if (customGenerateTabIds.has(tabId)) {
-        sendResponse({ ok: false, error: "Already working on this tab" });
+      if (pipelineRunningTabIds.has(tabId) || jdShotTabIds.has(tabId)) {
+        sendResponse({ ok: false, error: "Wait for the current step on this tab to finish" });
         return;
       }
-      if (pipelineRunningTabIds.has(tabId)) {
-        sendResponse({ ok: false, error: "Fill is running on this tab" });
-        return;
-      }
-      customGenerateTabIds.add(tabId);
+      sentTabIds.add(tabId);
       syncWorkKeepAlive();
-      sendResponse({ ok: true });
       try {
         const token = await getAccessToken();
         if (!token) {
-          throw new Error("Sign in to Athens in the Oak sidebar first");
+          sendResponse({ ok: false, error: "Sign in to Acorn in the Oak sidebar first" });
+          return;
         }
-        const apiUrl = await getAthensApiUrl();
-        await runCustomRecommend({
-          tabId,
-          apiUrl,
-          continue: Boolean(message.continue),
-        });
+        await ensurePage(tabId);
+        const result = await sendPage({ tabId, apiUrl: await getAthensApiUrl() });
+        sendResponse({ ok: true, recorded: result.recorded, runId: result.runId });
+        // Only after the backend has the screenshot: the page is done, so it goes.
+        await unbindPage(tabId);
+        await closeTabsQuietly([tabId]);
       } catch (err) {
-        const error = err instanceof Error ? err.message : String(err);
-        await patchCustomGenerateFailed(tabId, error);
+        sendResponse({ ok: false, error: err instanceof Error ? err.message : String(err) });
       } finally {
-        customGenerateTabIds.delete(tabId);
-        syncWorkKeepAlive();
-      }
-    })();
-    return true;
-  }
-
-  if (message.type === MSG.START_JOB_GENERATE || message.type === MSG.START_JOB_RECOMMEND) {
-    void (async () => {
-      const jobId = String(message.jobId || "").trim();
-      if (!jobId) {
-        sendResponse({ ok: false, error: "Missing job id" });
-        return;
-      }
-      if (jobGenerateJobIds.has(jobId)) {
-        sendResponse({ ok: false, error: "Already generating for this job" });
-        return;
-      }
-      const tabId = pinnedTabId(message.tabId, sender);
-      jobGenerateJobIds.add(jobId);
-      syncWorkKeepAlive();
-      sendResponse({ ok: true });
-      try {
-        const token = await getAccessToken();
-        if (!token) {
-          throw new Error("Sign in to Athens in the Oak sidebar first");
-        }
-        const apiUrl = await getAthensApiUrl();
-        const storedJd = typeof message.jobDescription === "string" ? message.jobDescription : null;
-        const resume = Boolean(message.continue);
-        if (message.type === MSG.START_JOB_RECOMMEND) {
-          await runJobRecommend({
-            jobId,
-            tabId,
-            apiUrl,
-            continue: resume,
-            storedJd,
-          });
-        } else {
-          await runJobGenerate({
-            jobId,
-            tabId,
-            apiUrl,
-            continue: resume,
-            storedJd,
-          });
-        }
-      } catch (err) {
-        const error = err instanceof Error ? err.message : String(err);
-        await patchJobGenerateFailed(jobId, error);
-      } finally {
-        jobGenerateJobIds.delete(jobId);
+        sentTabIds.delete(tabId);
         syncWorkKeepAlive();
       }
     })();
@@ -799,18 +570,16 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
         sendResponse({ error: "A pipeline is already running on this tab" });
         return;
       }
-      if (customGenerateTabIds.has(tabId)) {
-        sendResponse({ error: "Generate or Recommend is running on this tab" });
+      if (jdShotTabIds.has(tabId) || sentTabIds.has(tabId)) {
+        sendResponse({ error: "A JD shot or Sent is running on this tab" });
         return;
       }
 
-      const source = message.source === "custom" ? "custom" : "fill";
-      if (source === "custom") {
-        const customTab = await getCustomTab(tabId);
-        if (!customTab) {
-          sendResponse({ error: "Remember this tab first" });
-          return;
-        }
+      try {
+        await ensurePage(tabId);
+      } catch (err) {
+        sendResponse({ error: err instanceof Error ? err.message : String(err) });
+        return;
       }
 
       pipelineRunningTabIds.add(tabId);
@@ -823,7 +592,7 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
           broadcastPipelineProgress(tabId, {
             phase: "error",
             message: "Sign in required",
-            error: "Sign in to Athens in the Oak sidebar first",
+            error: "Sign in to Acorn in the Oak sidebar first",
           });
           return;
         }
@@ -831,7 +600,6 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
         const apiUrl = await getAthensApiUrl();
         await runFabPipeline({
           tabId,
-          source,
           preferredFrameId: sender.tab ? (sender.frameId ?? null) : null,
           aiServerUrl: apiUrl,
           emitDomTree: (payload) => {
@@ -877,7 +645,7 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
         }
         const res = await fetch(`${base}/api/oak/match-option`, {
           method: "POST",
-          headers: await authHeaders(),
+          headers: await authHeaders(usageTabId),
           body: JSON.stringify(payload),
         });
         const data = (await res.json().catch(() => ({}))) as MatchOptionResponse;
@@ -889,9 +657,6 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
           } satisfies MatchOptionResponse);
           return;
         }
-        if (usageTabId != null && pipelineRunningTabIds.has(usageTabId) && data.usage) {
-          addPipelineUsage(usageTabId, data.usage);
-        }
         let reply: MatchOptionResponse = { ...data, ok: data.ok !== false };
         const listed = (payload.options as string[]) || [];
         let fromAnalyze: string | null = null;
@@ -901,6 +666,7 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
             options: listed,
             fieldLabel: typeof incoming.fieldLabel === "string" ? incoming.fieldLabel : "",
             apiUrl: base,
+            tabId: usageTabId ?? null,
           }).catch(() => null);
           if (fromAnalyze) {
             reply = { ...reply, matched_option: fromAnalyze, ok: true };

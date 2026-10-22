@@ -33,11 +33,8 @@ export interface RunPlanOptions {
   /** Execute one plan step against the live page (socket or direct tab message). */
   executeStep: (step: PlanStepPayload) => Promise<PlanStepResult>;
   runtimeFile: RuntimeAttachedFile | null;
-  /** Library resume assigned by Job Search Recommend / Worker Pool. */
+  /** The Library résumé a JD shot picked, else the primary one. */
   recommendedResume?: RuntimeAttachedFile | null;
-  /** Custom-tab editor-generated résumé. */
-  customResume?: RuntimeAttachedFile | null;
-  resumeFileKind?: "library" | "custom";
   hooks: OrchestratorHooks;
 }
 
@@ -65,20 +62,10 @@ function summarize(steps: RunStepRecord[]): RunReport["summary"] {
 }
 
 export async function runActionPlan(options: RunPlanOptions): Promise<RunReport> {
-  const {
-    plan,
-    executeStep,
-    runtimeFile,
-    recommendedResume = null,
-    customResume = null,
-    resumeFileKind,
-    hooks,
-  } = options;
+  const { plan, executeStep, runtimeFile, recommendedResume = null, hooks } = options;
   const files: PlanStepFiles = {
     runtimeFile,
     recommendedResume,
-    customResume,
-    resumeFileKind,
   };
   applyApplicantIdentityToActions(plan.actions);
   const forbidden = collectForbiddenIndexes(plan);
@@ -208,10 +195,7 @@ export async function runActionPlan(options: RunPlanOptions): Promise<RunReport>
 
     if (action.action === "resume_upload" && labelLooksLikeOtherDocument(action.expected_label)) {
       steps[i].status = "skipped";
-      steps[i].message =
-        files.resumeFileKind === "custom"
-          ? "Generated résumé is only for Resume/CV controls"
-          : "Recommended resume is only for Resume/CV controls";
+      steps[i].message = "Library résumé is only for Resume/CV controls";
       publish();
       continue;
     }
@@ -235,9 +219,7 @@ export async function runActionPlan(options: RunPlanOptions): Promise<RunReport>
       if (decision === "skip") {
         steps[i].status = "skipped";
         steps[i].message = wantsRecommendedResume(action)
-          ? files.resumeFileKind === "custom"
-            ? "Skipped — no generated résumé"
-            : "Skipped — no recommended resume"
+          ? "Skipped — no Library résumé"
           : "Skipped missing upload file";
         publish();
         continue;

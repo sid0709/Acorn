@@ -1,7 +1,7 @@
 import { type ReactNode } from "react";
 import type { OakFaceMode } from "@oak/face";
 import { ListCardMark } from "../oak-face/ListCardMark";
-import { CheckIcon, DownloadIcon, EyeIcon } from "./sidebar-icons";
+import { CloseIcon, DownloadIcon } from "./sidebar-icons";
 
 export type SidebarListCardAction = {
   title: string;
@@ -13,21 +13,20 @@ export type SidebarListCardAction = {
 type SidebarListCardProps = {
   itemId: string;
   selected: boolean;
-  attached?: boolean;
-  blocked?: boolean;
-  marking?: boolean;
   faceMode: OakFaceMode;
   logoUrl?: string;
   logoFallback: string;
   title: string;
   subtitle: string;
+  /** The résumé line: the picked Library résumé, or why there is none yet. */
   resumeText: string;
   resumeReady: boolean;
   resumeFailed?: boolean;
+  /** What the models cost this page so far. */
+  costText: string;
   open: SidebarListCardAction & { current?: boolean };
   download: SidebarListCardAction;
-  preview: SidebarListCardAction;
-  check: SidebarListCardAction;
+  forget: SidebarListCardAction;
   children?: ReactNode;
 };
 
@@ -57,9 +56,6 @@ function CardIconButton({
 export function SidebarListCard({
   itemId,
   selected,
-  attached = false,
-  blocked = false,
-  marking = false,
   faceMode,
   logoUrl,
   logoFallback,
@@ -68,18 +64,16 @@ export function SidebarListCard({
   resumeText,
   resumeReady,
   resumeFailed = false,
+  costText,
   open,
   download,
-  preview,
-  check,
+  forget,
   children,
 }: SidebarListCardProps) {
   return (
     <div
       data-item-id={itemId}
-      className={`worker-pool-item fill-job${selected ? " selected" : ""}${
-        attached && !selected ? " attached" : ""
-      }${marking ? " marking" : ""}${blocked ? " is-blocked" : ""}`}
+      className={`worker-pool-item fill-job${selected ? " selected" : ""}`}
     >
       <button
         type="button"
@@ -114,17 +108,20 @@ export function SidebarListCard({
           >
             {resumeText}
           </span>
+          <span
+            className="worker-pool-resume muted worker-pool-cost"
+            title="Model cost for this page"
+          >
+            {costText}
+          </span>
         </span>
       </div>
       <div className="worker-pool-actions">
         <CardIconButton className="worker-pool-icon-btn" action={download}>
           <DownloadIcon />
         </CardIconButton>
-        <CardIconButton className="worker-pool-icon-btn" action={preview}>
-          <EyeIcon />
-        </CardIconButton>
-        <CardIconButton className="worker-pool-applied" action={check}>
-          <CheckIcon />
+        <CardIconButton className="worker-pool-applied" action={forget}>
+          <CloseIcon />
         </CardIconButton>
       </div>
       {children}

@@ -1,6 +1,5 @@
 import type { PlanStepPayload, PlanStepResult } from "../types";
 import { rewriteApplicantIdentityValue } from "../../../shared/plan-runner/applicant-identity";
-import { isCustomResumeFile } from "../../../shared/plan-runner/step-file";
 import { controlAlreadyMatches } from "./agents/already-filled";
 import { fillElement } from "./agents/fill";
 import { readControlValue } from "./agents/read-control-value";
@@ -200,11 +199,7 @@ export async function runPlanStep(step: PlanStepPayload): Promise<PlanStepResult
       }
       case "resume_upload": {
         if (!step.file?.base64) {
-          throw new Error(
-            isCustomResumeFile(step.file)
-              ? "resume_upload requires the generated résumé"
-              : "resume_upload requires the recommended Library resume",
-          );
+          throw new Error("resume_upload requires a Library résumé");
         }
         valueAfter = await resumeUpload(el, step.file, step.expected_label);
         break;

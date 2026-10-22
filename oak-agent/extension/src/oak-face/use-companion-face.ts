@@ -44,8 +44,8 @@ export function useCompanionFace(
       input.focused.fillPhase === "running" ||
       input.qaBusy ||
       input.authBusy ||
-      input.opening ||
-      input.marking ||
+      input.remembering ||
+      input.sending ||
       input.anyTabWorking;
     if (busy) {
       setAfk(false);
@@ -71,19 +71,19 @@ export function useCompanionFace(
     input.focused.fillPhase,
     input.qaBusy,
     input.authBusy,
-    input.opening,
-    input.marking,
+    input.remembering,
+    input.sending,
     input.anyTabWorking,
   ]);
 
   useEffect(() => {
-    if (!input.jobsEmpty || !input.signedIn) {
+    if (!input.pagesEmpty || !input.signedIn) {
       setEmptyIdle(false);
       return undefined;
     }
     const timer = window.setTimeout(() => setEmptyIdle(true), FACE_EMPTY_SLEEP_MS);
     return () => window.clearTimeout(timer);
-  }, [input.jobsEmpty, input.signedIn]);
+  }, [input.pagesEmpty, input.signedIn]);
 
   const hold = resolveCompanionHold({ ...input, afk, emptyIdle });
   const glance = firstGlance && input.signedIn && hold === "waiting" ? "thinking" : hold;

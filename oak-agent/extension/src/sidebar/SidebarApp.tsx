@@ -1,5 +1,4 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { canContinueGenerate } from "../../../shared/generate-checkpoint";
 import {
   IDLE_PIPELINE_PROGRESS,
   isFillPhaseBusy,
@@ -23,37 +22,22 @@ import {
   setAthensApiUrl,
   type OakStoredSession,
 } from "../auth/oak-auth";
-import {
-  fetchCustomLibraryResume,
-  fetchCustomLibraryResumePreview,
-  fetchCustomResume,
-  fetchCustomResumePreview,
-  fetchGeneratedResumePreview,
-  fetchRecommendedResume,
-} from "../pipeline/ai-client";
-import {
-  customTabHasResume,
-  patchCustomTab,
-  type CustomResumeMode,
-  type OakCustomTabBinding,
-} from "../tab-custom-session";
-import { MSG, OAK_SIDEBAR_PORT, type DomNode, type PipelineSource } from "../types";
+import { pageHasResume } from "../tab-page-session";
+import { MSG, OAK_SIDEBAR_PORT, type DomNode } from "../types";
 import { InspectPanel, useInspectWindow } from "./InspectPanel";
 import { LoadMoreFooter } from "./LoadMoreFooter";
 import { QaPanel } from "./QaPanel";
-import { ResumePreviewPanel, type ResumePreviewDownload } from "./ResumePreviewPanel";
 import { SidebarMainTabs, type OakMainTab } from "./SidebarMainTabs";
 import { sendMessage } from "./runtime";
 import { clearTabTree, getTabTree, setTabTree, type TabTreeSummary } from "./tab-tree-cache";
 import { useActiveTabId } from "./use-active-tab";
 import { useShownCount } from "./use-shown-count";
 import { useTabSession } from "./use-tab-session";
-import { CustomTabList } from "./CustomTabList";
+import { PageList } from "./PageList";
 import { FaceGuidePanel } from "./FaceGuidePanel";
 import { pushOakNotice } from "./oak-notice";
 import { HelpIcon } from "./sidebar-icons";
 import { SidebarActionBar } from "./SidebarActionBar";
-import { WorkerPoolList, type OakWorkerJob } from "./WorkerPoolList";
 import { OAK_FACE_BADGE_PX, OAK_FACE_BRAND_PX } from "../oak-face/constants";
 import { countBusyWorkers, tabInputFromProgress } from "../oak-face/director";
 import { OakFaceView } from "../oak-face/OakFaceView";
@@ -61,13 +45,6 @@ import { useCompanionFace } from "../oak-face/use-companion-face";
 import "./SidebarApp.css";
 
 type InspectKind = "pure" | "meta" | "plan";
-
-type ResumePreviewRequest = {
-  title: string;
-  sourceKey: string;
-  loadHtml: () => Promise<string>;
-  downloadFile: () => Promise<ResumePreviewDownload>;
-};
 
 type TabUi = {
   lastFetch: TabTreeSummary | null;
@@ -83,16 +60,7 @@ const STEP_PAGE = 30;
 
 export default function SidebarApp() {
   const activeTabId = useActiveTabId();
-  const {
-    tabJob,
-    customTab,
-    customList,
-    jobGenerates,
-    pipelines,
-    progress,
-    attachments,
-    setPipelines,
-  } = useTabSession(activeTabId);
+  const { page, pageList, pipelines, progress, setPipelines } = useTabSession(activeTabId);
 
   const [apiUrl, setApiUrl] = useState(DEFAULT_ATHENS_API_URL);
   const [session, setSession] = useState<OakStoredSession | null>(null);
@@ -101,42 +69,25 @@ export default function SidebarApp() {
   const [authBusy, setAuthBusy] = useState(false);
   const [connected, setConnected] = useState(false);
   const [tabUi, setTabUi] = useState<Record<string, TabUi>>({});
-  const [workerJobs, setWorkerJobs] = useState<OakWorkerJob[]>([]);
-  const [workerJobsLoading, setWorkerJobsLoading] = useState(false);
-  const [workerJobsError, setWorkerJobsError] = useState<string | null>(null);
-  const [openingJobId, setOpeningJobId] = useState<string | null>(null);
-  const [markingJobId, setMarkingJobId] = useState<string | null>(null);
-  const [jobsListKey, setJobsListKey] = useState(0);
-  const [preview, setPreview] = useState<ResumePreviewRequest | null>(null);
-  const [jdPreview, setJdPreview] = useState<{ title: string; text: string } | null>(null);
   const [mainTab, setMainTab] = useState<OakMainTab>("fill");
   const [nameFocused, setNameFocused] = useState(false);
   const [connectionOpen, setConnectionOpen] = useState(false);
   const [qaStatus, setQaStatus] = useState({ busy: false, error: false });
+  const [sendingTabIds, setSendingTabIds] = useState<ReadonlySet<number>>(new Set());
   const [remembering, setRemembering] = useState(false);
   const [helpOpen, setHelpOpen] = useState(false);
-  const [customResumeMode, setCustomResumeMode] = useState<CustomResumeMode>("generate");
 
   const tabKey = activeTabId != null ? String(activeTabId) : null;
   const ui = (tabKey && tabUi[tabKey]) || EMPTY_TAB_UI;
   const fillBusy = isFillPhaseBusy(progress.phase);
-  const generateBusy =
-    customTab?.generateStatus === "queued" ||
-    customTab?.generateStatus === "running" ||
-    (tabJob != null &&
-      (jobGenerates[tabJob.jobId]?.generateStatus === "queued" ||
-        jobGenerates[tabJob.jobId]?.generateStatus === "running"));
-  const tabWorkBusy = fillBusy || generateBusy;
+  const jdBusy = page?.jdStatus === "running";
+  const sending = activeTabId != null && sendingTabIds.has(activeTabId);
+  const tabWorkBusy = fillBusy || jdBusy || sending;
   const anyTabWorking =
     Object.values(pipelines).some((row) => isFillPhaseBusy(row.phase)) ||
-    customList.some((tab) => tab.generateStatus === "queued" || tab.generateStatus === "running") ||
-    Object.values(jobGenerates).some(
-      (row) => row.generateStatus === "queued" || row.generateStatus === "running",
-    );
-  const busyCounts = useMemo(
-    () => countBusyWorkers(pipelines, customList, Object.values(jobGenerates)),
-    [pipelines, customList, jobGenerates],
-  );
+    pageList.some((row) => row.jdStatus === "running") ||
+    sendingTabIds.size > 0;
+  const busyCounts = useMemo(() => countBusyWorkers(pipelines, pageList), [pipelines, pageList]);
   const busyTotal = busyCounts.thinking + busyCounts.working;
   const workersMode =
     busyCounts.working > 0 ? "working" : busyCounts.thinking > 0 ? "thinking" : "waiting";
@@ -152,82 +103,10 @@ export default function SidebarApp() {
     });
   }, [fillErrorText]);
 
-  useEffect(() => {
-    if (customTab == null) return;
-    setCustomResumeMode(customTab.resumeMode);
-  }, [customTab?.tabId, customTab?.resumeMode]);
-
   const patchTabUi = useCallback((tabId: number, patch: Partial<TabUi>) => {
     setTabUi((prev) => {
       const key = String(tabId);
       return { ...prev, [key]: { ...(prev[key] ?? EMPTY_TAB_UI), ...patch } };
-    });
-  }, []);
-
-  const openJobResumePreview = useCallback(
-    (job: OakWorkerJob) => {
-      const generationId = String(jobGenerates[job.id]?.generationId || "").trim();
-      setPreview({
-        title: job.title,
-        sourceKey: generationId ? `job-gen:${generationId}` : `job:${job.id}`,
-        loadHtml: () =>
-          generationId
-            ? fetchCustomResumePreview(generationId)
-            : fetchGeneratedResumePreview(job.id),
-        downloadFile: async () => {
-          if (generationId) {
-            const file = await fetchCustomResume(generationId);
-            if (!file?.base64 || !file.name) {
-              throw new Error("Could not download the generated résumé");
-            }
-            return file;
-          }
-          const file = await fetchRecommendedResume(job.id);
-          if (!file?.base64 || !file.name) {
-            throw new Error(
-              job.generatedResume
-                ? "Could not download the generated résumé"
-                : "Could not download the Library résumé",
-            );
-          }
-          return file;
-        },
-      });
-    },
-    [jobGenerates],
-  );
-
-  const openCustomResumePreview = useCallback((tab: OakCustomTabBinding) => {
-    if (tab.resumeMode === "recommend") {
-      const resumeId = String(tab.recommendedResumeId || "").trim();
-      if (!resumeId) return;
-      setPreview({
-        title: tab.title || "Untitled",
-        sourceKey: `custom-library:${resumeId}`,
-        loadHtml: () => fetchCustomLibraryResumePreview(resumeId),
-        downloadFile: async () => {
-          const file = await fetchCustomLibraryResume(resumeId);
-          if (!file?.base64 || !file.name) {
-            throw new Error("Could not download the Library résumé");
-          }
-          return file;
-        },
-      });
-      return;
-    }
-    const generationId = String(tab.generationId || "").trim();
-    if (!generationId) return;
-    setPreview({
-      title: tab.title || "Untitled",
-      sourceKey: `custom:${generationId}:${String(tab.resumeId || "")}`,
-      loadHtml: () => fetchCustomResumePreview(generationId),
-      downloadFile: async () => {
-        const file = await fetchCustomResume(generationId);
-        if (!file?.base64 || !file.name) {
-          throw new Error("Could not download the stored editor résumé");
-        }
-        return file;
-      },
     });
   }, []);
 
@@ -421,184 +300,45 @@ export default function SidebarApp() {
     }
   };
 
-  const fetchWorkerJobs = useCallback(async () => {
-    setWorkerJobsLoading(true);
-    setWorkerJobsError(null);
+  const startPipeline = useCallback(async () => {
+    const tabId = activeTabId;
+    if (tabWorkBusy || tabId == null) return;
+    setTabProgress(tabId, { phase: "fetching", message: "Starting…" });
     try {
-      const res = await sendMessage<{
-        ok?: boolean;
-        error?: string;
-        jobs?: OakWorkerJob[];
-      }>({ type: MSG.LIST_WORKER_JOBS });
-      if (!res?.ok) {
-        pushOakNotice({
-          kind: "error",
-          title: "Couldn’t load jobs",
-          detail: res?.error || "Refresh and try again.",
-        });
-        setWorkerJobs([]);
-        return;
-      }
-      setWorkerJobs(Array.isArray(res.jobs) ? res.jobs : []);
-    } catch (err) {
-      setWorkerJobs([]);
-      pushOakNotice({
-        kind: "error",
-        title: "Couldn’t load jobs",
-        detail: err instanceof Error ? err.message : String(err),
+      const res = await sendMessage<{ ok?: boolean; error?: string }>({
+        type: MSG.START_PIPELINE,
+        tabId,
       });
-    } finally {
-      setWorkerJobsLoading(false);
-      setJobsListKey((key) => key + 1);
-    }
-  }, []);
-
-  useEffect(() => {
-    if (!session) {
-      setWorkerJobs([]);
-      setWorkerJobsError(null);
-      setJobsListKey((key) => key + 1);
-      return;
-    }
-    void fetchWorkerJobs();
-  }, [session, fetchWorkerJobs]);
-
-  const openWorkerJob = useCallback(
-    async (job: OakWorkerJob) => {
-      setOpeningJobId(job.id);
-      try {
-        const res = await sendMessage<{
-          ok?: boolean;
-          error?: string;
-          tabId?: number;
-          reused?: boolean;
-        }>({
-          type: MSG.OPEN_WORKER_JOB,
-          tabId: activeTabId,
-          attachedTabId: attachments[job.id]?.tabId,
-          jobId: job.id,
-          applyUrl: job.applyUrl,
-          resumeId: job.generatedResume ? null : job.recommendedResumeId,
-          resumeStack: job.generatedResume ? "Generated" : job.recommendedResumeStack,
-          title: job.title,
-          company: job.company,
-        });
-        if (!res?.ok) {
+      if (res?.error) {
+        const err = String(res.error);
+        if (/sign in/i.test(err)) {
+          setTabProgress(tabId, {
+            phase: "idle",
+            message: "Sign in to Acorn to run Oak",
+          });
           pushOakNotice({
             kind: "error",
-            title: "Couldn’t open job",
-            detail: res?.error || "This job has no apply URL.",
+            title: "Sign in required",
+            detail: "Sign in to run Fill.",
           });
           return;
         }
-        if (res.reused) return;
-        pushOakNotice({
-          kind: "success",
-          title: "Opened apply page",
-          detail: `${job.company} — ${job.title}`,
-        });
-      } catch (err) {
-        pushOakNotice({
-          kind: "error",
-          title: "Couldn’t open job",
-          detail: err instanceof Error ? err.message : String(err),
-        });
-      } finally {
-        setOpeningJobId(null);
-      }
-    },
-    [activeTabId, attachments],
-  );
-
-  const markJobApplied = useCallback(
-    async (job: OakWorkerJob) => {
-      setMarkingJobId(job.id);
-      setWorkerJobs((prev) => prev.filter((row) => row.id !== job.id));
-      const attachedTabId = attachments[job.id]?.tabId;
-      if (typeof attachedTabId === "number") {
-        void chrome.tabs.remove(attachedTabId).catch(() => undefined);
-      }
-      try {
-        const res = await sendMessage<{ ok?: boolean; error?: string }>({
-          type: MSG.MARK_JOB_APPLIED,
-          jobId: job.id,
-        });
-        if (!res?.ok) {
-          throw new Error(res?.error || "Failed to mark as applied");
-        }
-        pushOakNotice({
-          kind: "success",
-          title: "Marked applied",
-          detail: `${job.company} — ${job.title}`,
-        });
-      } catch (err) {
-        setWorkerJobs((prev) => {
-          if (prev.some((row) => row.id === job.id)) return prev;
-          return [job, ...prev];
-        });
-        pushOakNotice({
-          kind: "error",
-          title: "Couldn’t mark applied",
-          detail: err instanceof Error ? err.message : String(err),
-        });
-      } finally {
-        setMarkingJobId(null);
-      }
-    },
-    [attachments],
-  );
-
-  const startPipeline = useCallback(
-    async (source: PipelineSource = "fill") => {
-      const tabId = activeTabId;
-      if (tabWorkBusy || tabId == null) return;
-      if (source === "custom" && !customTab) {
-        pushOakNotice({
-          kind: "info",
-          title: "Remember this tab first",
-          detail: "Custom Fill only runs on a remembered tab.",
-        });
-        return;
-      }
-      setTabProgress(tabId, { phase: "fetching", message: "Starting…" });
-      try {
-        const res = await sendMessage<{ ok?: boolean; error?: string }>({
-          type: MSG.START_PIPELINE,
-          tabId,
-          source,
-        });
-        if (res?.error) {
-          const err = String(res.error);
-          if (/sign in/i.test(err)) {
-            setTabProgress(tabId, {
-              phase: "idle",
-              message: "Sign in to Acorn to run Oak",
-            });
-            pushOakNotice({
-              kind: "error",
-              title: "Sign in required",
-              detail: "Sign in to run Fill.",
-            });
-            return;
-          }
-          setTabProgress(tabId, {
-            phase: "error",
-            message: "Failed to start",
-            error: err,
-          });
-          return;
-        }
-      } catch (err) {
-        const detail = err instanceof Error ? err.message : String(err);
         setTabProgress(tabId, {
           phase: "error",
           message: "Failed to start",
-          error: detail,
+          error: err,
         });
+        return;
       }
-    },
-    [activeTabId, customTab, tabWorkBusy, setTabProgress],
-  );
+    } catch (err) {
+      const detail = err instanceof Error ? err.message : String(err);
+      setTabProgress(tabId, {
+        phase: "error",
+        message: "Failed to start",
+        error: detail,
+      });
+    }
+  }, [activeTabId, tabWorkBusy, setTabProgress]);
 
   const rememberFocusedTab = useCallback(async () => {
     const tabId = activeTabId;
@@ -606,57 +346,55 @@ export default function SidebarApp() {
     setRemembering(true);
     try {
       const res = await sendMessage<{ ok?: boolean; error?: string }>({
-        type: MSG.REMEMBER_CUSTOM_TAB,
+        type: MSG.REMEMBER_PAGE,
         tabId,
-        resumeMode: customResumeMode,
       });
       if (!res?.ok) {
         pushOakNotice({
           kind: "error",
-          title: "Couldn’t remember tab",
+          title: "Couldn’t add page",
           detail: res?.error || "Try again on this page.",
         });
         return;
       }
-      pushOakNotice({ kind: "success", title: "Tab remembered" });
+      pushOakNotice({ kind: "success", title: "Page added" });
     } catch (err) {
       pushOakNotice({
         kind: "error",
-        title: "Couldn’t remember tab",
+        title: "Couldn’t add page",
         detail: err instanceof Error ? err.message : String(err),
       });
     } finally {
       setRemembering(false);
     }
-  }, [activeTabId, customResumeMode]);
+  }, [activeTabId]);
 
-  const forgetCustomTab = useCallback(async (tabId: number) => {
-    void chrome.tabs.remove(tabId).catch(() => undefined);
+  const forgetPage = useCallback(async (tabId: number) => {
     try {
       const res = await sendMessage<{ ok?: boolean; error?: string }>({
-        type: MSG.FORGET_CUSTOM_TAB,
+        type: MSG.FORGET_PAGE,
         tabId,
       });
       if (!res?.ok) {
         pushOakNotice({
           kind: "error",
-          title: "Couldn’t forget tab",
+          title: "Couldn’t forget page",
           detail: res?.error || "Try again.",
         });
       }
     } catch (err) {
       pushOakNotice({
         kind: "error",
-        title: "Couldn’t forget tab",
+        title: "Couldn’t forget page",
         detail: err instanceof Error ? err.message : String(err),
       });
     }
   }, []);
 
-  const focusCustomTab = useCallback(async (tabId: number) => {
+  const focusPage = useCallback(async (tabId: number) => {
     try {
       const res = await sendMessage<{ ok?: boolean; error?: string }>({
-        type: MSG.FOCUS_CUSTOM_TAB,
+        type: MSG.FOCUS_PAGE,
         tabId,
       });
       if (!res?.ok) {
@@ -675,98 +413,81 @@ export default function SidebarApp() {
     }
   }, []);
 
-  const startJobWork = useCallback(
-    async (mode: CustomResumeMode, opts: { continue?: boolean; job?: OakWorkerJob } = {}) => {
-      const job = opts.job ?? workerJobs.find((row) => row.id === tabJob?.jobId) ?? null;
-      if (!job) {
-        pushOakNotice({
-          kind: "info",
-          title: "Open a Worker pool job first",
-          detail: "Fill Generate uses the stored JD on that list item.",
-        });
-        return;
-      }
-      setCustomResumeMode(mode);
-      try {
-        const res = await sendMessage<{ ok?: boolean; error?: string }>({
-          type: mode === "recommend" ? MSG.START_JOB_RECOMMEND : MSG.START_JOB_GENERATE,
-          jobId: job.id,
-          tabId: activeTabId,
-          continue: Boolean(opts.continue),
-          jobDescription: job.jobDescription,
-        });
-        if (!res?.ok) {
-          pushOakNotice({
-            kind: "error",
-            title: mode === "recommend" ? "Couldn’t recommend" : "Couldn’t generate",
-            detail: res?.error || "Try again.",
-          });
-        }
-      } catch (err) {
+  const startJdShot = useCallback(async () => {
+    const tabId = activeTabId;
+    if (tabWorkBusy || tabId == null) return;
+    try {
+      const res = await sendMessage<{ ok?: boolean; error?: string }>({
+        type: MSG.START_JD_SHOT,
+        tabId,
+      });
+      if (!res?.ok) {
         pushOakNotice({
           kind: "error",
-          title: mode === "recommend" ? "Couldn’t recommend" : "Couldn’t generate",
-          detail: err instanceof Error ? err.message : String(err),
+          title: "Couldn’t take the JD shot",
+          detail: res?.error || "Try again on this page.",
         });
       }
-    },
-    [activeTabId, tabJob?.jobId, workerJobs],
-  );
+    } catch (err) {
+      pushOakNotice({
+        kind: "error",
+        title: "Couldn’t take the JD shot",
+        detail: err instanceof Error ? err.message : String(err),
+      });
+    }
+  }, [activeTabId, tabWorkBusy]);
 
-  const startCustomWork = useCallback(
-    async (
-      mode: CustomResumeMode,
-      opts: { continue?: boolean; tab?: OakCustomTabBinding } = {},
-    ) => {
-      const tabId = opts.tab?.tabId ?? activeTabId;
-      if (tabId == null) return;
-      if (!opts.tab && tabWorkBusy) return;
-      if (mainTab === "fill") {
-        await startJobWork(mode, { continue: opts.continue });
-        return;
-      }
-      if (!customTab && !opts.tab) return;
-      setCustomResumeMode(mode);
-      try {
-        if (!customTab && !opts.tab) {
-          const remembered = await sendMessage<{ ok?: boolean; error?: string }>({
-            type: MSG.REMEMBER_CUSTOM_TAB,
-            tabId,
-            resumeMode: mode,
-          });
-          if (!remembered?.ok) {
-            pushOakNotice({
-              kind: "error",
-              title: mode === "recommend" ? "Couldn’t recommend" : "Couldn’t generate",
-              detail: remembered?.error || "Try again on this page.",
-            });
-            return;
-          }
-        } else if ((opts.tab ?? customTab)?.resumeMode !== mode) {
-          await patchCustomTab(tabId, { resumeMode: mode });
-        }
-        const res = await sendMessage<{ ok?: boolean; error?: string }>({
-          type: mode === "recommend" ? MSG.START_CUSTOM_RECOMMEND : MSG.START_CUSTOM_GENERATE,
-          tabId,
-          continue: Boolean(opts.continue),
-        });
-        if (!res?.ok) {
-          pushOakNotice({
-            kind: "error",
-            title: mode === "recommend" ? "Couldn’t recommend" : "Couldn’t generate",
-            detail: res?.error || "Try again on this page.",
-          });
-        }
-      } catch (err) {
+  const sendCurrentPage = useCallback(async () => {
+    const tabId = activeTabId;
+    if (tabWorkBusy || tabId == null) return;
+    setSendingTabIds((prev) => new Set(prev).add(tabId));
+    try {
+      const res = await sendMessage<{ ok?: boolean; error?: string }>({
+        type: MSG.SENT_PAGE,
+        tabId,
+      });
+      if (!res?.ok) {
         pushOakNotice({
           kind: "error",
-          title: mode === "recommend" ? "Couldn’t recommend" : "Couldn’t generate",
-          detail: err instanceof Error ? err.message : String(err),
+          title: "Couldn’t mark as sent",
+          detail: res?.error || "Try again.",
         });
+        return;
       }
-    },
-    [activeTabId, customTab, mainTab, startJobWork, tabWorkBusy],
-  );
+      pushOakNotice({
+        kind: "success",
+        title: "Sent",
+        detail: "Counted on your dashboard.",
+      });
+    } catch (err) {
+      pushOakNotice({
+        kind: "error",
+        title: "Couldn’t mark as sent",
+        detail: err instanceof Error ? err.message : String(err),
+      });
+    } finally {
+      setSendingTabIds((prev) => {
+        const next = new Set(prev);
+        next.delete(tabId);
+        return next;
+      });
+    }
+  }, [activeTabId, tabWorkBusy]);
+
+  // Each page's cost is read from the backend when it first shows up in the list.
+  const costAskedRef = useRef<Set<number>>(new Set());
+  useEffect(() => {
+    const asked = costAskedRef.current;
+    const live = new Set(pageList.map((row) => row.tabId));
+    for (const tabId of asked) {
+      if (!live.has(tabId)) asked.delete(tabId);
+    }
+    for (const tabId of live) {
+      if (asked.has(tabId)) continue;
+      asked.add(tabId);
+      void sendMessage({ type: MSG.REFRESH_PAGE_COST, tabId });
+    }
+  }, [pageList]);
 
   const lastFetch = ui.lastFetch;
   const inspectKind = ui.inspect?.kind ?? null;
@@ -855,78 +576,28 @@ export default function SidebarApp() {
     nameFocused,
     connected,
     anyTabWorking,
-    focused: tabInputFromProgress(Boolean(session), progress, {
-      status: customTab?.generateStatus ?? null,
-      label: customTab?.generateProgress?.label ?? null,
-      hasResume: customTab ? customTabHasResume(customTab) : false,
-    }),
+    focused: tabInputFromProgress(Boolean(session), progress, page?.jdStatus ?? null),
     qaBusy: qaStatus.busy,
     qaError: qaStatus.error,
-    inspectOpen: Boolean(ui.inspect || preview || helpOpen),
+    inspectOpen: Boolean(ui.inspect || helpOpen),
     connectionOpen,
-    jobsLoading: workerJobsLoading,
-    jobsEmpty:
-      Boolean(session) &&
-      mainTab === "fill" &&
-      !workerJobsLoading &&
-      !workerJobsError &&
-      workerJobs.length === 0,
-    jobsError: Boolean(workerJobsError),
-    customEmpty: Boolean(session) && mainTab === "custom" && customList.length === 0,
-    opening: Boolean(openingJobId) || remembering,
-    marking: Boolean(markingJobId),
+    pagesEmpty: Boolean(session) && mainTab === "fill" && pageList.length === 0,
+    remembering,
+    sending,
   });
 
-  const showActionBar = Boolean(session) && mainTab !== "qa" && !helpOpen;
-  const customLocked = mainTab === "custom" && !customTab;
-  const fillLocked = mainTab === "fill" && !tabJob;
-  const rememberFirst = "Remember this tab first";
-  const openJobFirst = "Open a Worker pool job first";
-  const actionsOff = tabWorkBusy || !session || activeTabId == null || customLocked;
-  const attachedJobGenerate = tabJob ? (jobGenerates[tabJob.jobId] ?? null) : null;
-  const fillCanContinue = canContinueGenerate(
-    attachedJobGenerate?.generateStatus,
-    attachedJobGenerate?.checkpoint,
-  );
-  const customCanContinue = canContinueGenerate(customTab?.generateStatus, customTab?.checkpoint);
-  const generateBusyFill =
-    attachedJobGenerate?.generateStatus === "queued" ||
-    attachedJobGenerate?.generateStatus === "running";
-  const generateLabel =
-    mainTab === "fill"
-      ? generateBusyFill && attachedJobGenerate?.workKind !== "recommend"
-        ? "Generating…"
-        : fillCanContinue && attachedJobGenerate?.workKind !== "recommend"
-          ? "Continue"
-          : attachedJobGenerate?.generationId ||
-              (tabJob != null &&
-                Boolean(workerJobs.find((job) => job.id === tabJob.jobId)?.generatedResume))
-            ? "Generate again"
-            : "Generate"
-      : generateBusy && customTab?.workKind !== "recommend"
-        ? "Generating…"
-        : customCanContinue && customTab?.workKind !== "recommend"
-          ? "Continue"
-          : customTab?.generationId
-            ? "Generate again"
-            : "Generate";
-  const recommendLabel =
-    mainTab === "fill"
-      ? generateBusyFill && attachedJobGenerate?.workKind === "recommend"
-        ? "Recommending…"
-        : fillCanContinue && attachedJobGenerate?.workKind === "recommend"
-          ? "Continue"
-          : attachedJobGenerate?.recommendedResumeId ||
-              (tabJob && workerJobs.find((job) => job.id === tabJob.jobId)?.recommendedResumeId)
-            ? "Recommend again"
-            : "Recommend"
-      : generateBusy && customTab?.workKind === "recommend"
-        ? "Recommending…"
-        : customCanContinue && customTab?.workKind === "recommend"
-          ? "Continue"
-          : customTab?.recommendedResumeId
-            ? "Recommend again"
-            : "Recommend";
+  const showActionBar = Boolean(session) && mainTab === "fill" && !helpOpen;
+  const actionsOff = tabWorkBusy || !session || activeTabId == null;
+  const jdShotLabel = jdBusy
+    ? "Reading…"
+    : page && pageHasResume(page)
+      ? "JD shot again"
+      : "JD shot";
+  const jdShotTitle = jdBusy
+    ? "Reading this page for a job description"
+    : "Take a shot of the job description: Oak checks it is a posting and picks a résumé";
+  const sentLabel = sending ? "Sending…" : "Sent";
+  const sentTitle = "Take a full-page screenshot, count this page as sent, and close the tab";
   const fillLabel = fillBusy
     ? progress.message
     : progress.phase === "done"
@@ -1060,107 +731,42 @@ export default function SidebarApp() {
                     showHeading={false}
                     disabled={fillBusy}
                     onStatus={setQaStatus}
-                    page={
-                      tabJob
-                        ? {
-                            job: {
-                              id: tabJob.jobId,
-                              title: tabJob.title,
-                              company: tabJob.company,
-                            },
-                          }
-                        : null
-                    }
+                    tabId={activeTabId}
+                    page={page ? { title: page.title, url: page.url } : null}
                   />
                 </div>
               ) : null}
 
               {session ? (
                 <div
-                  id="oak-panel-custom"
+                  id="oak-panel-fill"
                   className="sidebar-tab-panel"
                   role="tabpanel"
-                  aria-labelledby="oak-tab-custom"
-                  hidden={mainTab !== "custom"}
+                  aria-labelledby="oak-tab-fill"
+                  hidden={mainTab !== "fill"}
                 >
                   <button
                     type="button"
                     className="tool-card"
                     onClick={() => void rememberFocusedTab()}
-                    disabled={!session || activeTabId == null || Boolean(customTab) || tabWorkBusy}
+                    disabled={!session || activeTabId == null || Boolean(page) || tabWorkBusy}
                   >
-                    <span className="tool-label">
-                      {customTab ? "Tab remembered" : "Remember tab"}
-                    </span>
+                    <span className="tool-label">{page ? "Page added" : "Add this page"}</span>
                   </button>
                 </div>
               ) : null}
             </section>
 
             {session ? (
-              <div className="sidebar-list-slot" hidden={mainTab !== "custom"}>
-                <CustomTabList
-                  tabs={customList}
+              <div className="sidebar-list-slot" hidden={mainTab !== "fill"}>
+                <PageList
+                  pages={pageList}
                   pipelines={pipelines}
                   activeTabId={activeTabId}
-                  listActive={mainTab === "custom"}
-                  onFocus={(tabId) => void focusCustomTab(tabId)}
-                  onForget={(tabId) => void forgetCustomTab(tabId)}
-                  onPreview={openCustomResumePreview}
-                  onContinueGenerate={(tab) =>
-                    void startCustomWork(tab.workKind === "recommend" ? "recommend" : "generate", {
-                      continue: true,
-                      tab,
-                    })
-                  }
-                  onRestartGenerate={(tab) =>
-                    void startCustomWork(tab.workKind === "recommend" ? "recommend" : "generate", {
-                      continue: false,
-                      tab,
-                    })
-                  }
-                  onViewJd={(tab, jd) => setJdPreview({ title: tab.title || "Untitled", text: jd })}
-                />
-              </div>
-            ) : null}
-
-            {session ? (
-              <div
-                className="sidebar-list-slot"
-                hidden={mainTab !== "fill"}
-                id="oak-panel-fill"
-                role="tabpanel"
-                aria-labelledby="oak-tab-fill"
-              >
-                <WorkerPoolList
-                  jobs={workerJobs}
-                  loading={workerJobsLoading}
-                  error={workerJobsError}
-                  selectedJobId={tabJob?.jobId ?? null}
-                  attachments={attachments}
-                  pipelines={pipelines}
-                  generates={jobGenerates}
-                  openingJobId={openingJobId}
-                  markingJobId={markingJobId}
-                  listKey={jobsListKey}
+                  sendingTabIds={sendingTabIds}
                   listActive={mainTab === "fill"}
-                  onRefresh={() => void fetchWorkerJobs()}
-                  onOpen={(job) => void openWorkerJob(job)}
-                  onPreviewResume={openJobResumePreview}
-                  onMarkApplied={(job) => void markJobApplied(job)}
-                  onContinueGenerate={(job) =>
-                    void startJobWork(
-                      jobGenerates[job.id]?.workKind === "recommend" ? "recommend" : "generate",
-                      { continue: true, job },
-                    )
-                  }
-                  onRestartGenerate={(job) =>
-                    void startJobWork(
-                      jobGenerates[job.id]?.workKind === "recommend" ? "recommend" : "generate",
-                      { continue: false, job },
-                    )
-                  }
-                  onViewJd={(job, jd) => setJdPreview({ title: job.title, text: jd })}
+                  onFocus={(tabId) => void focusPage(tabId)}
+                  onForget={(tabId) => void forgetPage(tabId)}
                 />
               </div>
             ) : null}
@@ -1243,27 +849,6 @@ export default function SidebarApp() {
         )}
       </div>
 
-      {preview ? (
-        <ResumePreviewPanel
-          title={preview.title}
-          sourceKey={preview.sourceKey}
-          loadHtml={preview.loadHtml}
-          downloadFile={preview.downloadFile}
-          onClose={() => setPreview(null)}
-        />
-      ) : null}
-
-      {jdPreview ? (
-        <InspectPanel
-          title={`Job description · ${jdPreview.title}`}
-          lines={jdPreview.text.split("\n")}
-          hasMore={false}
-          onLoadMore={() => undefined}
-          onCopy={() => navigator.clipboard.writeText(jdPreview.text)}
-          onClose={() => setJdPreview(null)}
-        />
-      ) : null}
-
       {ui.inspect && inspectView ? (
         <InspectPanel
           title={ui.inspect.title}
@@ -1281,31 +866,17 @@ export default function SidebarApp() {
         <SidebarActionBar
           fillPhase={progress.phase}
           fillLabel={fillLabel}
-          generateLabel={generateLabel}
-          recommendLabel={recommendLabel}
+          jdShotLabel={jdShotLabel}
+          sentLabel={sentLabel}
           fillDisabled={actionsOff}
-          generateDisabled={actionsOff || fillLocked}
-          recommendDisabled={actionsOff || fillLocked}
-          fillTitle={customLocked ? rememberFirst : fillLabel}
-          generateTitle={customLocked ? rememberFirst : fillLocked ? openJobFirst : generateLabel}
-          recommendTitle={customLocked ? rememberFirst : fillLocked ? openJobFirst : recommendLabel}
-          onFill={() => void startPipeline(mainTab === "custom" ? "custom" : "fill")}
-          onGenerate={() =>
-            void startCustomWork("generate", {
-              continue:
-                mainTab === "fill"
-                  ? fillCanContinue && attachedJobGenerate?.workKind !== "recommend"
-                  : customCanContinue && customTab?.workKind !== "recommend",
-            })
-          }
-          onRecommend={() =>
-            void startCustomWork("recommend", {
-              continue:
-                mainTab === "fill"
-                  ? fillCanContinue && attachedJobGenerate?.workKind === "recommend"
-                  : customCanContinue && customTab?.workKind === "recommend",
-            })
-          }
+          jdShotDisabled={actionsOff}
+          sentDisabled={actionsOff}
+          fillTitle={fillLabel}
+          jdShotTitle={jdShotTitle}
+          sentTitle={sentTitle}
+          onFill={() => void startPipeline()}
+          onJdShot={() => void startJdShot()}
+          onSent={() => void sendCurrentPage()}
         />
       ) : null}
 
@@ -1329,7 +900,7 @@ export default function SidebarApp() {
                   setApiUrl(value);
                   void setAthensApiUrl(value);
                 }}
-                placeholder="https://athensai.remotepairnet.net"
+                placeholder={DEFAULT_ATHENS_API_URL}
               />
             </label>
             <div className={`conn-status ${connected ? "on" : "off"}`}>

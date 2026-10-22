@@ -1,48 +1,48 @@
 import type { PipelineProgress } from "../../../shared/pipeline-types";
-import { FillIcon, GenerateIcon, RecommendIcon } from "./sidebar-icons";
+import { FillIcon, JdShotIcon, SentIcon } from "./sidebar-icons";
 
 type SidebarActionBarProps = {
   fillPhase: PipelineProgress["phase"];
   fillLabel: string;
-  generateLabel: string;
-  recommendLabel: string;
+  jdShotLabel: string;
+  sentLabel: string;
   fillDisabled: boolean;
-  generateDisabled: boolean;
-  recommendDisabled: boolean;
+  jdShotDisabled: boolean;
+  sentDisabled: boolean;
   fillTitle?: string;
-  generateTitle?: string;
-  recommendTitle?: string;
+  jdShotTitle?: string;
+  sentTitle?: string;
   onFill: () => void;
-  onGenerate: () => void;
-  onRecommend: () => void;
+  onJdShot: () => void;
+  onSent: () => void;
 };
 
 export function SidebarActionBar({
   fillPhase,
   fillLabel,
-  generateLabel,
-  recommendLabel,
+  jdShotLabel,
+  sentLabel,
   fillDisabled,
-  generateDisabled,
-  recommendDisabled,
+  jdShotDisabled,
+  sentDisabled,
   fillTitle,
-  generateTitle,
-  recommendTitle,
+  jdShotTitle,
+  sentTitle,
   onFill,
-  onGenerate,
-  onRecommend,
+  onJdShot,
+  onSent,
 }: SidebarActionBarProps) {
   return (
     <div className="oak-booking-bar">
       <button
         type="button"
         className="oak-action-btn"
-        onClick={onGenerate}
-        disabled={generateDisabled}
-        title={generateTitle ?? generateLabel}
+        onClick={onJdShot}
+        disabled={jdShotDisabled}
+        title={jdShotTitle ?? jdShotLabel}
       >
-        <GenerateIcon />
-        <span>{generateLabel}</span>
+        <JdShotIcon />
+        <span>{jdShotLabel}</span>
       </button>
       <button
         type="button"
@@ -57,12 +57,12 @@ export function SidebarActionBar({
       <button
         type="button"
         className="oak-action-btn"
-        onClick={onRecommend}
-        disabled={recommendDisabled}
-        title={recommendTitle ?? recommendLabel}
+        onClick={onSent}
+        disabled={sentDisabled}
+        title={sentTitle ?? sentLabel}
       >
-        <RecommendIcon />
-        <span>{recommendLabel}</span>
+        <SentIcon />
+        <span>{sentLabel}</span>
       </button>
     </div>
   );

@@ -1,3 +1,5 @@
+import { CLIENT_HEADER, TAB_KEY_HEADER, clientHeaderValue, tabKeyFor } from "../tab-key";
+
 const LOCAL_OAK_API_URL = "http://127.0.0.1:8980";
 
 /** The oak-backend origin used until the person saves another one in Settings. */
@@ -133,11 +135,17 @@ export async function oakSignOut(): Promise<void> {
   await clearOakSession();
 }
 
-export async function authHeaders(): Promise<Record<string, string>> {
+/** Bearer token, the client name, and the tab's usage key when the call is about a tab. */
+export async function authHeaders(tabId?: number | null): Promise<Record<string, string>> {
   const token = await getAccessToken();
   if (!token) throw new Error("Sign in to Acorn required");
-  return {
+  const headers: Record<string, string> = {
     "Content-Type": "application/json",
     Authorization: `Bearer ${token}`,
+    [CLIENT_HEADER]: clientHeaderValue(),
   };
+  if (typeof tabId === "number") {
+    headers[TAB_KEY_HEADER] = await tabKeyFor(tabId);
+  }
+  return headers;
 }

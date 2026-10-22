@@ -43,10 +43,8 @@ export interface RuntimeAttachedFile {
   base64: string;
   /** Library stack label for UI (e.g. folder title). */
   label?: string | null;
-  /** Library row id assigned to this job. */
+  /** Library row id of this file. */
   resumeId?: string | null;
-  /** Worker pool job this file was fetched for. */
-  jobId?: string | null;
 }
 
 export interface PlanStepPayload {
