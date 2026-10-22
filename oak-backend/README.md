@@ -55,3 +55,7 @@ Worker-pool jobs and mark-applied, and Custom generate / recommend / extract-JD 
 | POST   | `/sent`     | `{ url, title, durationMs, steps, endedAt?, utcOffsetMinutes, screenshot }` (base64 JPEG). Records a Run through acorn-backend (`POST /acorn/runs`, with the tab's cost) and uploads the screenshot (`PUT /acorn/runs/{id}/screenshot`). The record id is a hash of account, tab and URL, so a retry counts once. |
 
 Every request should carry `X-Acorn-Tab: <uuid per Chrome tab>` and `X-Acorn-Client: oak/<version>`. Oak stamps them on its usage rows and forwards them to acorn-backend, so one tab's cost is one sum. With an OpenRouter key the cost is the amount OpenRouter billed for each call (`usage.cost`); with an OpenAI key it is priced from a table.
+
+### Upload name
+
+A résumé is served as `<profile name><its own extension>` (`Backend.pdf` → `Eli Taylor.pdf`, `Frontend.docx` → `Eli Taylor.docx`), the way Athens Lens' resume hook renamed uploads. The profile name is `fullName`, else first, middle and last name, else the account name. Anyone looking at the form can tell the right person's file went in, and its type. Characters a file name cannot hold become spaces.

@@ -144,7 +144,8 @@ export class OakController {
   @Get('runtime-file')
   @UseGuards(OakAuthGuard)
   getRuntimeFile(@Req() req: OakAuthedRequest) {
-    return this.resumeFiles.primary(req.oakSession!.accountId);
+    const session = req.oakSession!;
+    return this.resumeFiles.primary(session.accountId, session.applierName);
   }
 
   @Get('custom/library-resumes/:resumeId')
@@ -153,7 +154,12 @@ export class OakController {
     @Req() req: OakAuthedRequest,
     @Param('resumeId') resumeId: string,
   ) {
-    return this.resumeFiles.byId(req.oakSession!.accountId, resumeId);
+    const session = req.oakSession!;
+    return this.resumeFiles.byId(
+      session.accountId,
+      session.applierName,
+      resumeId,
+    );
   }
 
   /**
