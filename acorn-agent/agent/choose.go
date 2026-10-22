@@ -142,6 +142,9 @@ func plainChoose(action Action) []Action {
 // startScript turns a run of the model's actions into what the extension is sent first. A run
 // with no choose goes as it is.
 func (a *Agent) startScript(s *session, actions []Action) []Action {
+	if a.probing(s) {
+		actions = s.withCheckRetry(actions)
+	}
 	if !hasChoose(actions) {
 		return actions
 	}
@@ -338,6 +341,23 @@ func unsureNote(choose Action, options []string) string {
 	return fmt.Sprintf("You asked Acorn to choose %q in the dropdown%s %s, but none of its options was a sure match, so it was left unset. Its options are: %s. Choose again from them: plan a choose on the same box whose \"text\" is the option's own words, or leave it when none fits.", choose.Text, name, where, listedLine(options))
 }
 
+// typedListNote tells the model that the text it typed into a field opened a list of suggestions none of
+// which answered (or none could be read), so it plans a choose on that field with the suggestion's own words.
+func typedListNote(choose Action, options []string) string {
+	where := fmt.Sprintf("at %.0f,%.0f", *choose.X, *choose.Y)
+	if choose.Zone > 0 {
+		where += fmt.Sprintf(" on screen %d", choose.Zone)
+	}
+	name := ""
+	if label := strings.TrimSpace(choose.Label); label != "" {
+		name = fmt.Sprintf(" %q", label)
+	}
+	if len(options) == 0 {
+		return fmt.Sprintf("Typing %q into the field%s %s opened a list of suggestions, and none of them was a sure match, so the field holds only the typed text and no choice yet. Look at it on the survey and plan a choose on it, with the answer as its list words it; if its list is open on the screenshot, click the suggestion that answers.", choose.Text, name, where)
+	}
+	return fmt.Sprintf("Typing %q into the field%s %s opened a list of suggestions, and none of them was a sure match, so the field holds only the typed text and no choice yet. Its suggestions were: %s. Plan a choose on the same field whose \"text\" is the suggestion's own words.", choose.Text, name, where, listedLine(options))
+}
+
 // listedLine numbers options for the model and the trace: 1 "No", 2 "Yes", and how many more.
 func listedLine(options []string) string {
 	parts := make([]string, 0, min(len(options), maxListedInNote)+1)
@@ -387,7 +407,7 @@ func (a *Agent) chooseNative(ctx context.Context, s *session, obs Observation, e
 	open := sc.open
 	index, check, asked, err := a.decideListed(ctx, s, open.choose.Text, options, focusLabel(obs.Focus))
 	if !asked {
-		return a.commitNative(s, obs, entry, results, sig, options[index], nil)
+		return a.commitNative(s, obs, entry, results, sig, options, index, nil)
 	}
 	s.usage.Checks++
 	s.usage.CheckCost += check.response.Usage.Cost
@@ -401,7 +421,7 @@ func (a *Agent) chooseNative(ctx context.Context, s *session, obs Observation, e
 	if index < 0 {
 		return a.giveUp(s, obs, entry, open, options, []modelCall{check.call(err)})
 	}
-	return a.commitNative(s, obs, entry, results, sig, options[index], []modelCall{check.call(nil)})
+	return a.commitNative(s, obs, entry, results, sig, options, index, []modelCall{check.call(nil)})
 }
 
 // decideListed is which of a list's options, given as text, answers a choose action, as an index (-1:
@@ -422,7 +442,8 @@ func (a *Agent) decideListed(ctx context.Context, s *session, answer string, opt
 		Type: decide.TypeChoice,
 		Instructions: "A form has a dropdown list. Someone wants to choose the option that answers: " + strconv.Quote(answer) + ". " +
 			"Which option is it? Choose the option whose meaning matches: for a yes or no answer, the option that says yes or no, even when it goes on to explain. " +
-			"An option that is exactly the answer beats one that only begins with it or contains it. " +
+			"An answer that agrees, accepts or acknowledges something is answered by the option that accepts or goes on (such as one that says continue, proceed or I agree) when the list offers nothing closer. " +
+			"An option that is exactly the answer beats one that only begins with it or contains it. A placeholder that asks to make a selection answers nothing. " +
 			"Answer none if no option answers it.",
 		Criteria: criteria,
 	}}
@@ -473,14 +494,19 @@ func (a *Agent) optionAccepted(found decide.Answer) (key string, ok bool) {
 }
 
 // commitNative types a native list's option whole and presses Enter, then goes on to the next dropdown.
-func (a *Agent) commitNative(s *session, obs Observation, entry stepTrace, results []ActionResult, sig []uint8, option string, calls []modelCall) (Step, bool) {
+func (a *Agent) commitNative(s *session, obs Observation, entry stepTrace, results []ActionResult, sig []uint8, options []string, index int, calls []modelCall) (Step, bool) {
 	sc := s.script
 	s.carried = withoutChoose(results)
 	s.stale, s.lastSig = 0, sig
+	choose := sc.open.choose
 	sc.open = nil
-	typed := Action{ID: sc.nextID(s.seq), Kind: KindType, Text: option}
-	commit := Action{ID: sc.nextID(s.seq), Kind: KindKey, Keys: "Enter"}
-	step := Step{Status: StatusWorking, Message: s.message, Actions: a.dispatch(s, []Action{typed, commit}), Number: s.step, Usage: s.usage}
+	// The option is set by its place in the browser's own list, never through its popup (protocol.go,
+	// KindSelect): the closed box then shows it, and the next look confirms it.
+	set := Action{ID: sc.nextID(s.seq), Kind: KindSelect, X: choose.X, Y: choose.Y, ScrollTo: choose.ScrollTo, PageHeight: choose.PageHeight, Zone: choose.Zone}
+	set.Index, set.Option = &index, options[index]
+	s.carryAnchor(choose.ID, set.ID)
+	s.noteChosen(choose, options[index])
+	step := Step{Status: StatusWorking, Message: s.message, Actions: a.dispatch(s, []Action{set}), Number: s.step, Usage: s.usage}
 	entry.Usage = s.usage
 	entry.Status, entry.Message, entry.Actions = step.Status, step.Message, step.Actions
 	a.record(s, entry, obs.Screenshot, calls)

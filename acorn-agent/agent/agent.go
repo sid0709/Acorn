@@ -664,6 +664,7 @@ func (a *Agent) step(ctx context.Context, id string, obs Observation) (Step, err
 		s.heldSend.planGen = s.planGen
 	}
 	s.expect, s.expectURL = expectationsOf(planned, obs), withoutFragment(obs.URL)
+	s.typedAt = typedPointsOf(planned)
 	s.planScrollY = obs.Viewport.ScrollY
 	status := answer.Status
 	// "Done" is the page's confirmation, not the model's word: a done the screen does not show is sent back.
@@ -697,6 +698,27 @@ func (a *Agent) step(ctx context.Context, id string, obs Observation) (Step, err
 		planned = []Action{{ID: fmt.Sprintf("s%da1", number), Kind: KindWait, Ms: stopPassWaitMs}}
 		s.notes = append(s.notes, stopNote)
 	}
+	// A click planned again at the same point on a field still empty: the second time it is made with a
+	// picture after it (a check box the page toggled back is set with Space), the third time Space alone is
+	// pressed on it, the fourth time the run stops naming the field, before the model drifts to other points
+	// (repeat.go).
+	var forcedStop *StopInfo
+	if status == StatusWorking {
+		if repeat, count := s.repeatedClick(planned, obs); repeat != nil {
+			switch {
+			case count >= clickRepeatStop:
+				status = StatusStuck
+				answer.Message = fmt.Sprintf("The page did not take the click on %q, %d times over.", repeat.Label, count)
+				forcedStop = &StopInfo{
+					Reason:  StopPageProblem,
+					Problem: fmt.Sprintf("Acorn clicked %q %d times and the page did not take it.", repeat.Label, count),
+					Action:  "Set that field on the page yourself, then press Continue.",
+				}
+			case a.probing(s):
+				s.checkRetry, s.checkRetryClick, s.checkRetrySpace = repeat.ID, *repeat, count >= clickRepeatSpace
+			}
+		}
+	}
 	var actions []Action
 	switch {
 	case status != StatusWorking:
@@ -728,6 +750,9 @@ func (a *Agent) step(ctx context.Context, id string, obs Observation) (Step, err
 		Status: status, Message: strings.TrimSpace(answer.Message), Stop: stopFor(status, answer), Actions: actions,
 		Number: number, Usage: s.usage, Dropped: dropped, Survey: status == StatusWorking && a.surveyNext(s, actions, surveyAsked),
 		Settled: s.takeSettledMap(), ReadyToSubmit: ready, AlreadyApplied: status == StatusDone && s.alreadyApplied,
+	}
+	if forcedStop != nil {
+		step.Stop = forcedStop
 	}
 	entry.Observation, entry.Memo, entry.Job = answer.Observation, s.memo, s.job
 	entry.Status, entry.Message, entry.Actions, entry.Dropped = status, step.Message, actions, dropped

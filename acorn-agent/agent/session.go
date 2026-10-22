@@ -145,6 +145,22 @@ type session struct {
 	reviews reviewState
 	// snaps are the photos of open dropdowns sent mid-batch, by action id (probe.go).
 	snaps map[string]ShotUpload
+	// lastClickKeys are the clicks of the plan before, by point (repeat.go), clickRepeats how many plans in a
+	// row carried a click at each such point on a field still empty, and checkRetry the click of this plan
+	// that is made again with a picture after it, so a check box the page toggled back is set with Space.
+	lastClickKeys map[string]string
+	clickRepeats  map[string]int
+	checkRetry    string
+	// checkRetryClick is that click as the plan had it, and checkRetrySpace that this time Space is pressed
+	// on the focused control instead of clicking it once more.
+	checkRetryClick Action
+	checkRetrySpace bool
+	// checkRetryPressed is that the retry being carried out pressed Space, for the note its picture earns.
+	checkRetryPressed bool
+	// typedAt is, for each type action of the plan being carried out, the point action before it (the
+	// click on its field), by the type action's id: typing that opens a list of suggestions is finished
+	// like a choose on that field (probe.go).
+	typedAt map[string]Action
 	// surveyAgain asks for the next look to be a survey: points of the last plan were not carried
 	// out, and the model must see the whole page again to plan them.
 	surveyAgain bool

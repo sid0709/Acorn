@@ -22,6 +22,14 @@ const (
 	// KindChoose is not sent to the extension: it sets a dropdown the page draws itself to an
 	// answer given in words. The agent opens it, finds the option and picks it (choose.go).
 	KindChoose = "choose"
+	// KindFocus and KindSelect are the agent's own, never the model's, for a list the browser draws itself
+	// (a select element): its popup is a window of the operating system, in no screenshot and out of reach
+	// of a click or a key, so the control is given focus without being opened (focus), the page's own words
+	// for its options are read from the focus report, the decision model picks one, and that option is set
+	// by its place in the list (select), which the browser then shows in the closed box, where the photo of
+	// the zone confirms it (probe.go, choose.go).
+	KindFocus  = "focus"
+	KindSelect = "select"
 	// KindSurvey is not sent to the extension: it asks for the next look to be a survey of
 	// the whole page (Step.Survey).
 	KindSurvey = "survey"
@@ -354,6 +362,10 @@ type Action struct {
 	Resume string `json:"resume,omitempty"`
 	// FileName is set by the agent on KindUpload once the résumé is chosen.
 	FileName string `json:"fileName,omitempty"`
+	// Index is the place (from 0) of the option a KindSelect sets in the browser's own list at the point,
+	// and Option that option in the page's words, for the log and the person.
+	Index  *int   `json:"index,omitempty"`
+	Option string `json:"option,omitempty"`
 	// ScrollTo, when set, is the scroll position (screenshot pixels) the page must be at before
 	// the action, because its point was measured on that screen of a survey; PageHeight is the
 	// page's height then, so the extension can tell the page changed shape since and refuse.

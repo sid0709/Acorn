@@ -149,7 +149,9 @@ func expectQuestion(exp expectation) decide.Question {
 	}
 	return decide.YesNo(asked + " A dropdown shows the option chosen, and its wording may be longer than or differ from the answer " +
 		"as long as it says the same thing; a box that takes several choices shows each as a tag, and the one asked about among them is enough. " +
-		"Answer no if the field is empty, shows a different answer, or shows an error.")
+		"A field whose answer is not settled does not show it: a list of suggestions or options still open under or over the field, a highlighted suggestion " +
+		"waiting to be chosen, or a sign that the field is still loading or searching means no choice has been made yet, whatever text sits in the box. " +
+		"Answer no if the field is empty, shows a different answer, is not settled, or shows an error.")
 }
 
 func expectKey(n int) string { return fmt.Sprintf("%s%d", askExpectPrefix, n) }

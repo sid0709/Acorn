@@ -56,7 +56,21 @@ export const ACTION_KIND = {
   wait: "wait",
   /** The agent's own, never the model's: take a picture of the page now and send it at once (a dropdown's list). */
   snap: "snap",
+  /**
+   * The agent's own, for a list the browser draws itself (a select element), whose popup is a window of the
+   * operating system that no screenshot shows and no click or key reaches: `focus` gives the control at the
+   * point focus without opening it (the focus report then names its options), and `select` sets the option
+   * at `index` by its place, so the closed box shows it for the photo that confirms it.
+   */
+  focus: "focus",
+  select: "select",
 } as const;
+
+/**
+ * Ends the id of the picture the extension takes when typing into a field opened a list of suggestions
+ * under it: the type action's id and this. The agent reads the picture as it reads a dropdown's.
+ */
+export const TYPED_LIST_SNAP_SUFFIX = "l";
 
 export type ActionKind = (typeof ACTION_KIND)[keyof typeof ACTION_KIND];
 
@@ -423,6 +437,9 @@ export interface AgentAction {
   /** A résumé id from the session's list, chosen by the server for an upload. */
   resume?: string;
   fileName?: string;
+  /** `select`: the place (from 0) of the option to set in the browser's own list at the point, and its words. */
+  index?: number;
+  option?: string;
   /**
    * The scroll position (screenshot pixels) the page must be at before this action, because its
    * point was measured on that screen of a survey; `pageHeight` is the page's height then, so the

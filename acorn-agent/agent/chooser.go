@@ -108,6 +108,11 @@ func (a *Agent) pickResume(ctx context.Context, s *session, requested string) (r
 		stack = s.resume
 	case len(stacks) == 1:
 		stack = stacks[0]
+	case s.jd == "" && s.fallback != "" && contains(stacks, s.fallback):
+		// No job description was found on any page: the applicant's default résumé, the one they marked
+		// default in their Library for this case, is uploaded without asking them.
+		stack = s.fallback
+		note = fmt.Sprintf("no job description was found, so the applicant's default résumé (%s) was uploaded", s.fallback)
 	default:
 		chosen, err := a.askJev(ctx, s, stacks)
 		if err != nil {

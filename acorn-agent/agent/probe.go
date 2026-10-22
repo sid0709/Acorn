@@ -20,7 +20,13 @@ import (
 //     the answer into it, wait for it to narrow or load, and take another picture, read the same way; a list
 //     that still shows nothing is given one longer wait;
 //   - the click opened nothing: click a little above or below and take another picture, one try at a time;
-//   - a native list (the browser draws its popup outside the page) is picked from its options as text;
+//   - a native list (the browser draws its popup outside the page, in no picture and out of reach of a click
+//     or a key) is never opened: the control is given focus, its options are read from the focus report as
+//     text, the decision model picks one, and it is set by its place (KindSelect); the closed box then shows
+//     it, where the zone's photo confirms it;
+//   - typing into a field that then opens a list of suggestions (a city, an address) is finished the same
+//     way as a choose: the extension photographs the open list, the option that answers is picked from the
+//     picture and clicked, a list still loading is given a moment and photographed again;
 //   - nothing answers: close the list, and the driving model chooses on its next look, told which dropdown
 //     and, when the page named them, the options its list showed, so it chooses from the list's own words.
 //
@@ -47,6 +53,11 @@ const (
 	directMaxPosition = 6
 	// probeEscape is the key that closes an opened list.
 	probeEscape = "Escape"
+	// typedListSnapSuffix ends the id of the picture the extension takes when typing opened a list of
+	// suggestions: the type action's id and this (the same suffix in the extension).
+	typedListSnapSuffix = "l"
+	// nativeListIDPrefix begins the id the page gives a select element (its tag).
+	nativeListIDPrefix = "select:"
 )
 
 // probeItem is one dropdown of the plan.
@@ -81,6 +92,13 @@ type probeItem struct {
 	// leaves the dropdown to the model when none answered, so it chooses from the list's own words instead
 	// of guessing another wording (a recorded run guessed five, one a look, for one box).
 	options []string
+	// nativeIndex is the place (from 0) of the native option picked, with native its words.
+	nativeIndex int
+	// fromType is that the item is typing the model planned into a field that opened a list of suggestions,
+	// not a choose: the typed text is the answer, and nothing is typed again. listOpen is what the latest
+	// picture showed of a list.
+	fromType bool
+	listOpen bool
 }
 
 // probeRun is the plan with dropdowns in it, being carried out in one batch.
@@ -122,7 +140,7 @@ func (a *Agent) startProbe(s *session, actions []Action) []Action {
 // control, so its point is found again if the page changes shape.
 func (a *Agent) helper(s *session, choose, at Action, id string, kind string) Action {
 	action := Action{ID: id, Kind: kind, Zone: choose.Zone}
-	if kind == KindClick {
+	if kind == KindClick || kind == KindFocus || kind == KindSelect {
 		action.X, action.Y, action.ScrollTo, action.PageHeight = at.X, at.Y, at.ScrollTo, at.PageHeight
 		s.carryAnchor(choose.ID, id)
 	}
@@ -130,15 +148,45 @@ func (a *Agent) helper(s *session, choose, at Action, id string, kind string) Ac
 }
 
 // probeOpen opens a dropdown at the point of `at` (the model's, or a nudge of it), waits for its list to
-// draw, and takes its picture.
+// draw, and takes its picture. A dropdown the page reports as the browser's own list (its control is a
+// select element) is not opened, only given focus: its popup would be a window of the operating system,
+// in no picture and out of reach of every later click and key (a recorded run opened one and could not
+// set or close it for six steps); the focus report names its options, and the pick is made from those.
 func (a *Agent) probeOpen(s *session, item *probeItem, at Action) []Action {
 	pr := s.probe
 	item.snapID = pr.nextID(s.seq)
+	reach := KindClick
+	if s.boundToNativeList(item.choose) {
+		reach = KindFocus
+	}
 	return []Action{
-		a.helper(s, item.choose, at, pr.nextID(s.seq), KindClick),
+		a.helper(s, item.choose, at, pr.nextID(s.seq), reach),
 		{ID: pr.nextID(s.seq), Kind: KindWait, Ms: probeOpenWaitMs, Zone: item.choose.Zone},
 		{ID: item.snapID, Kind: KindSnap, Zone: item.choose.Zone},
 	}
+}
+
+// boundToNativeList is whether the plan bound this choose to a select element of the page (the control's
+// id begins with its tag). The page's list says what kind of control it is, not what it holds.
+func (s *session) boundToNativeList(choose Action) bool {
+	ref, ok := s.marks[choose.ID]
+	return ok && strings.HasPrefix(ref.ID, nativeListIDPrefix)
+}
+
+// typedPointsOf is, for each type action of a plan, the point action before it: the click on the field the
+// text goes into. Typing that opens a list of suggestions is then finished as a choose on that field.
+func typedPointsOf(planned []Action) map[string]Action {
+	out := map[string]Action{}
+	var last *Action
+	for i := range planned {
+		switch {
+		case isPointAction(planned[i]):
+			last = &planned[i]
+		case planned[i].Kind == KindType && last != nil && !planned[i].Secret:
+			out[planned[i].ID] = *last
+		}
+	}
+	return out
 }
 
 // typedAnswer is what is typed to narrow a list: the first part of the answer when it has several
@@ -160,6 +208,7 @@ func (item *probeItem) apply(read listReading, snap ShotUpload) {
 	if read.numbered || item.typed {
 		limit = maxOptionPosition
 	}
+	item.listOpen = read.open
 	switch {
 	case read.shows && !item.typed:
 		item.done = true
@@ -176,6 +225,9 @@ func (item *probeItem) apply(read listReading, snap ShotUpload) {
 		item.needs = true
 	case !read.open && !item.retried:
 		// Typed, and still no list in the picture: once more, with time for a list that loads.
+		item.needs = true
+	case item.fromType && !item.retried:
+		// A list opened by typing that shows no option yet (it is still loading): once more, after a moment.
 		item.needs = true
 	default:
 		item.unsure = true
@@ -203,9 +255,11 @@ func (r *reading) add(check verdict, err error) {
 func (a *Agent) readOne(ctx context.Context, s *session, item *probeItem, snap ShotUpload) reading {
 	var out reading
 	if options := nativeList(snap.Focus); options != nil && !item.typed {
+		// The note that leaves the dropdown to the model names these too: a native list's popup is in no picture.
+		item.options = options
 		index, check, asked, err := a.decideListed(ctx, s, item.choose.Text, options, focusLabel(snap.Focus))
 		if index >= 0 && err == nil {
-			item.native = options[index]
+			item.native, item.nativeIndex = options[index], index
 		}
 		if asked {
 			out.add(check, err)
@@ -236,11 +290,17 @@ func (pr *probeRun) itemBySnap(id string) *probeItem {
 // answerSnap reads the picture of an opened dropdown at once and says what the extension does next while the
 // list is open. The decision calls go to the trace with the next entry. The session is locked.
 func (a *Agent) answerSnap(ctx context.Context, s *session, upload ShotUpload) []Action {
+	if then, ok := a.answerCheckRetry(ctx, s, upload); ok {
+		return then
+	}
 	pr := s.probe
 	if pr == nil {
 		return nil
 	}
 	item := pr.itemBySnap(upload.ID)
+	if item == nil {
+		item = s.typedListItem(upload.ID)
+	}
 	if item == nil || item.settled {
 		return nil
 	}
@@ -259,12 +319,13 @@ func (a *Agent) answerSnap(ctx context.Context, s *session, upload ShotUpload) [
 	var then []Action
 	switch {
 	case item.native != "":
-		// A native list matches what is typed to its options as it goes, so the whole text selects that one.
+		// The browser's own list: the option is set by its place, never through its popup (see the top).
 		item.settled = true
-		then = []Action{
-			{ID: pr.nextID(seq), Kind: KindType, Text: item.native, Zone: zone},
-			{ID: pr.nextID(seq), Kind: KindKey, Keys: "Enter", Zone: zone},
-		}
+		index := item.nativeIndex
+		set := a.helper(s, item.choose, item.choose, pr.nextID(seq), KindSelect)
+		set.Index, set.Option = &index, item.native
+		then = []Action{set}
+		s.noteChosen(item.choose, item.native)
 	case item.done:
 		item.settled = true
 		then = []Action{{ID: pr.nextID(seq), Kind: KindKey, Keys: probeEscape, Zone: zone}}
@@ -294,10 +355,17 @@ func (a *Agent) answerSnap(ctx context.Context, s *session, upload ShotUpload) [
 		}
 	case item.needs:
 		item.retried, item.snapID = true, pr.nextID(seq)
+		wait := probeTypedRetryWaitMs
+		if item.fromType {
+			wait = probeTypedWaitMs
+		}
 		then = []Action{
-			{ID: pr.nextID(seq), Kind: KindWait, Ms: probeTypedRetryWaitMs, Zone: zone},
+			{ID: pr.nextID(seq), Kind: KindWait, Ms: wait, Zone: zone},
 			{ID: item.snapID, Kind: KindSnap, Zone: zone},
 		}
+	case item.fromType && !item.listOpen:
+		// Typing that opened no list after all (a message under the field, a counter): nothing to pick.
+		item.settled = true
 	default:
 		// Nothing answers: the list is closed and the driving model chooses on its next look.
 		item.unsure, item.settled = true, true
@@ -356,9 +424,41 @@ func (a *Agent) leaveToModel(s *session, asking []*probeItem) {
 	}
 	s.probeUnsure = true
 	for _, item := range asking {
+		if item.fromType {
+			s.notes = append(s.notes, typedListNote(item.choose, item.options))
+			continue
+		}
 		s.notes = append(s.notes, unsureNote(item.choose, item.options))
 	}
 	s.surveyAgain = true
 	slog.Info(fmt.Sprintf("%s: %s showed no sure option in their pictures, so the model chooses on its next look.",
 		runName(s.id), plainlog.Count(len(asking), "dropdown")))
+}
+
+// typedListItem is the dropdown that typing opened: the extension photographs a list of suggestions that
+// appeared under a field as text was typed into it, and names the picture by the type action. The item is
+// a choose on that field whose answer is the typed text, already typed, so the picture is read for the
+// option that answers and that option is clicked; a list still loading is photographed again after a
+// moment, and a picture that shows no list ends it. Nil for a picture of anything else.
+func (s *session) typedListItem(snapID string) *probeItem {
+	typeID, found := strings.CutSuffix(snapID, typedListSnapSuffix)
+	if !found {
+		return nil
+	}
+	typed, ok := s.byID[typeID]
+	if !ok || typed.Kind != KindType {
+		return nil
+	}
+	at, ok := s.typedAt[typeID]
+	if !ok {
+		return nil
+	}
+	if s.probe == nil {
+		s.probe = &probeRun{}
+	}
+	choose := at
+	choose.ID, choose.Kind, choose.Text = typeID, KindChoose, typed.Text
+	item := &probeItem{choose: choose, snapID: snapID, typed: true, typedText: typed.Text, fromType: true}
+	s.probe.items = append(s.probe.items, item)
+	return item
 }

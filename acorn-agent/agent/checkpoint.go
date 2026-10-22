@@ -362,7 +362,7 @@ func (a *Agent) surveyNext(s *session, sent []Action, asked bool) bool {
 		switch action.Kind {
 		case KindUpload:
 			return true
-		case KindClick, KindDoubleClick, KindTripleClick, KindRightClick, KindType, KindKey, KindChoose:
+		case KindClick, KindDoubleClick, KindTripleClick, KindRightClick, KindType, KindKey, KindChoose, KindSelect:
 			acted = true
 		case KindWait:
 			waited = true

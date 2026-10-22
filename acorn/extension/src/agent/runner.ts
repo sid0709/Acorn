@@ -52,6 +52,7 @@ import {
   waitFields,
 } from "./client";
 import { buildCompletedRun, carriedLegs, jobPageOf, workedMs } from "./completed-run";
+import { snapToControl } from "./control-snap";
 import {
   marksOfLook,
   noteLook,
@@ -217,6 +218,8 @@ export function describeAction(action: AgentAction): string {
       return `wait ${action.ms ?? 0}ms`;
     case "snap":
       return "take a picture of the page";
+    case "select":
+      return `select option ${(action.index ?? 0) + 1} at ${Math.round(action.x ?? 0)},${Math.round(action.y ?? 0)}`;
     case "upload":
       return `upload ${action.fileName ?? action.resume ?? ""} at ${Math.round(action.x ?? 0)},${Math.round(action.y ?? 0)}`;
     default:
@@ -691,6 +694,17 @@ export async function runAgent(args: AgentRunArgs): Promise<RunReport> {
     },
     sleep,
     checkStopped,
+    aim: async (x, y) => {
+      const snapped = await snapToControl(must(current).tabId, x, y);
+      if (snapped) {
+        log.event("agent-aim", {
+          from: [Math.round(x), Math.round(y)],
+          to: [Math.round(snapped.x), Math.round(snapped.y)],
+          detail: snapped.detail,
+        });
+      }
+      return snapped;
+    },
     afterClick: () => frames.sweep(),
     scroll: scrolls,
     marks: placeMarksFor({ tab: () => must(current), watch: marks, log, sleep }),

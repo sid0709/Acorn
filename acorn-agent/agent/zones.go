@@ -60,7 +60,7 @@ type anchorCrop struct {
 // isPointAction is whether an action aims at a point on the screen.
 func isPointAction(action Action) bool {
 	switch action.Kind {
-	case KindClick, KindDoubleClick, KindTripleClick, KindRightClick, KindHover, KindUpload, KindChoose:
+	case KindClick, KindDoubleClick, KindTripleClick, KindRightClick, KindHover, KindUpload, KindChoose, KindFocus, KindSelect:
 		return action.X != nil && action.Y != nil
 	}
 	return false

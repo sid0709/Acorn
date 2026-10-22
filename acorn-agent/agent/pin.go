@@ -21,7 +21,7 @@ func pinFrame(actions []Action, vp Viewport, surveyScreens int) []Action {
 			break
 		}
 		switch actions[i].Kind {
-		case KindClick, KindDoubleClick, KindTripleClick, KindRightClick, KindHover, KindUpload, KindChoose:
+		case KindClick, KindDoubleClick, KindTripleClick, KindRightClick, KindHover, KindUpload, KindChoose, KindFocus, KindSelect:
 			if actions[i].ScrollTo == nil {
 				at := scrollY
 				actions[i].ScrollTo = &at

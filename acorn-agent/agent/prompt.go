@@ -191,6 +191,10 @@ func describe(action Action) string {
 			return fmt.Sprintf("upload %s at %s", action.FileName, at(action))
 		}
 		return "upload at " + at(action)
+	case KindSelect:
+		if action.Index != nil {
+			return fmt.Sprintf("select option %d %q at %s", *action.Index+1, clipText(action.Option, 60), at(action))
+		}
 	}
 	return action.Kind + " at " + at(action)
 }
