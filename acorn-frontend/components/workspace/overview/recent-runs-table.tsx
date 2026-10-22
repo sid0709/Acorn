@@ -6,6 +6,8 @@ import { Link, Stack, Table, Text, type TableColumn } from "sid-ui";
 import { formatDay, formatTime } from "@/lib/workspace/dates";
 import { describeRun, formatCost } from "@/lib/workspace/progress";
 
+import { RunScreenshot } from "./run-screenshot";
+
 const PAGE_SIZE = 6;
 
 /** A job: its title as a link that opens the page it was on, and where that is. */
@@ -30,6 +32,11 @@ function JobCell({ run }: { run: CompletedRun }) {
 }
 
 const COLUMNS: TableColumn<CompletedRun>[] = [
+  {
+    key: "screenshot",
+    header: "Preview",
+    render: (run) => <RunScreenshot run={run} />,
+  },
   {
     key: "title",
     header: "Job",

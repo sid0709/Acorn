@@ -198,6 +198,8 @@ func New(accounts Accounts, listings *jobs.Store, brain *acorn.Service, opts Opt
 	mux.HandleFunc("POST /acorn/runs", s.recordRun)
 	mux.HandleFunc("GET /acorn/runs", s.listRuns)
 	mux.HandleFunc("GET /acorn/runs/daily", s.dailyRuns)
+	mux.HandleFunc("PUT /acorn/runs/{id}/screenshot", s.putRunScreenshot)
+	mux.HandleFunc("GET /acorn/runs/{id}/screenshot", s.getRunScreenshot)
 	mux.HandleFunc("POST /acorn/support/claims", s.createSupportClaim)
 	mux.HandleFunc("GET /acorn/support/claims", s.listMyClaims)
 	mux.HandleFunc("GET /acorn/support/claims/{id}", s.getMyClaim)

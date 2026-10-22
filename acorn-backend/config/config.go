@@ -8,12 +8,20 @@ import (
 	"os"
 	"strconv"
 	"strings"
+	"time"
 )
 
 const (
 	defaultDestDB              = "AcornDB"
 	defaultJobsCollection      = "jobs"
 	defaultCompaniesCollection = "companies"
+
+	// RunScreenshotsCollection holds the full-page image of each Run that sent an application.
+	RunScreenshotsCollection = "acorn_run_screenshots"
+	// RunScreenshotRetention is how long a Run's image is kept; the Run row itself stays.
+	RunScreenshotRetention = 90 * 24 * time.Hour
+	// MaxRunScreenshotBytes bounds one uploaded image (JPEG).
+	MaxRunScreenshotBytes = 6 << 20
 
 	// OpenRouter is the only model Acorn calls. The key lives on the account profile,
 	// not in the environment.
