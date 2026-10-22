@@ -5,6 +5,7 @@ import { ControlWatch } from "../../src/agent/control-watch.ts";
 import {
   SURVEY_OVERLAP_PX,
   SurveyKeeper,
+  actedOn,
   scrollForAction,
   settledStill,
   focusPositions,
@@ -349,5 +350,19 @@ describe("a field still to fill", () => {
     assert.ok(SURVEY_FOCUS_EDGE_PX > 0);
     assert.deepEqual(focusPositions([0], [800 - SURVEY_FOCUS_EDGE_PX], 3000, 800), []);
     assert.equal(focusPositions([0], [800 - SURVEY_FOCUS_EDGE_PX + 1], 3000, 800).length, 1);
+  });
+});
+
+describe("a screen the batch just carried out acted on", () => {
+  const zones = [{ zone: 3, screenshot: "data:,", scrollY: 3984 }];
+  it("is one that shares any of the page with a zone photographed when the zone was done", () => {
+    assert.equal(actedOn(3984, zones, 823), true);
+    assert.equal(actedOn(3645, zones, 823), true);
+    assert.equal(actedOn(4800, zones, 823), true);
+  });
+  it("is not one that begins where the zone's photo ends, or lies elsewhere", () => {
+    assert.equal(actedOn(4807, zones, 823), false);
+    assert.equal(actedOn(2000, zones, 823), false);
+    assert.equal(actedOn(3984, [], 823), false);
   });
 });

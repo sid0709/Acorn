@@ -190,6 +190,10 @@ type session struct {
 	fields        []FieldState
 	fieldsURL     string
 	fieldsChanged bool
+	// fieldsVersion counts the changes to the list, and fieldsWake is closed on each, so a wait for a newer
+	// list (WaitFields, fields.go) wakes: the sidebar follows the reviews as they come, not only the looks.
+	fieldsVersion int
+	fieldsWake    chan struct{}
 }
 
 // addTrace keeps the trace of an entry until the next answer carries it to the extension.

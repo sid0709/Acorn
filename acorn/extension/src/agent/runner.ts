@@ -49,6 +49,7 @@ import {
   sendStep,
   startSession,
   vetTarget,
+  waitFields,
 } from "./client";
 import { buildCompletedRun, carriedLegs, jobPageOf, workedMs } from "./completed-run";
 import {
@@ -428,6 +429,8 @@ export async function runAgent(args: AgentRunArgs): Promise<RunReport> {
   /** What the run is reading in Gmail, shown on the Now card; kept after the code is found. */
   let mailSearch: MailSearch | undefined;
   const MAIL_VERIFY_WINDOW_MS = 10 * 60 * 1000;
+  /** The pause before the to-do list is waited for again after a failure to reach the agent. */
+  const FIELDS_RETRY_MS = 2000;
   let pendingTab: number | null = null;
   let pageUrl = "";
   /** Notes from things that happened between looks (a frame the guard closed), told on the next look. */
@@ -505,6 +508,38 @@ export async function runAgent(args: AgentRunArgs): Promise<RunReport> {
   const showMap = (viewTop: number) => {
     pageMap.moveTo(viewTop);
     showRun();
+  };
+  /**
+   * Follows the form's to-do list between looks. The agent reads each zone's photo on the side and ticks its
+   * fields off (or puts them back) within about a second; one request waits on the server until the list
+   * changes (at most 25 s), then the next goes, so the sidebar shows each change as it happens instead of at
+   * the next look. It carries nothing up the line, so it stays out of the upload lane. An agent without the
+   * route, or a run that is over, ends it: the list then comes with each look, as before.
+   */
+  const followFields = (id: string) => {
+    let since = 0;
+    void (async () => {
+      while (!signal.aborted) {
+        try {
+          const update = await waitFields(args.agentUrl, id, since, signal);
+          if (update.version > since) {
+            since = update.version;
+            if (update.fields && update.fields.length > 0) {
+              pageMap.setFields(update.fields);
+              showRun();
+            }
+          }
+        } catch (err) {
+          if (signal.aborted) return;
+          if (err instanceof AgentApiError && err.status >= 400 && err.status < 500) return;
+          try {
+            await sleep(FIELDS_RETRY_MS);
+          } catch {
+            return;
+          }
+        }
+      }
+    })();
   };
   /** Puts the page on the map before the first look, so the card shows it at once. A page that cannot be read waits for the look. */
   const seedMap = async (tab: AgentTab) => {
@@ -904,6 +939,7 @@ export async function runAgent(args: AgentRunArgs): Promise<RunReport> {
         lastUsage = continued.usage;
         log.step = continued.number;
         log.event("agent-continue", { step: continued.number, calls: continued.usage.calls });
+        followFields(sessionId);
       } catch (err) {
         // A run the agent forgot (it expired, or the server restarted) cannot be continued: start over.
         if (!(err instanceof AgentApiError && err.code === AGENT_ERROR_CODE.noSession)) throw err;
@@ -944,6 +980,7 @@ export async function runAgent(args: AgentRunArgs): Promise<RunReport> {
         onHttp,
       );
       sessionId = started.sessionId;
+      followFields(sessionId);
       // The server may turn fast fill on for every run, and a fast-fill run surveys.
       surveyOn = followServerSurvey(surveyOn, started);
       serverFastFill = started.fastFill === true;

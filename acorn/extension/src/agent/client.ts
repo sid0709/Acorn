@@ -25,6 +25,7 @@ import {
   type AgentStart,
   type AgentStarted,
   type AgentStep,
+  type AgentFieldsUpdate,
   type AgentVetTarget,
   type AgentLocate,
   type AgentLocated,
@@ -59,6 +60,8 @@ import type { LanePriority } from "./upload-lane";
 export const STEP_TIMEOUT_MS = 6 * 60_000;
 /** Opening a run, ending one, and the health check are quick. */
 export const QUICK_TIMEOUT_MS = 20_000;
+/** The longest one wait for a newer to-do list runs: the server answers within 25 s either way. */
+export const FIELDS_WAIT_TIMEOUT_MS = 40_000;
 /** A file comes back whole (a résumé of a few hundred kilobytes): this, and what its size adds for a slow line. */
 export const FILE_TIMEOUT_MS = 60_000;
 /** How many times a look is sent when the server names pictures as missing; the last time it goes as bytes alone. */
@@ -419,6 +422,24 @@ export async function locateTarget(
     }),
   );
   return parseJson<AgentLocated>(response);
+}
+
+/**
+ * Waits for the form's to-do list to change (a zone's photo reviewed, a look) and brings it, or brings the
+ * same version and no list when nothing changed for a while. It goes beside the upload lane: it carries
+ * nothing up the line, and the lane's turn-taking is for what does.
+ */
+export async function waitFields(
+  base: string,
+  sessionId: string,
+  since: number,
+  signal: AbortSignal,
+): Promise<AgentFieldsUpdate> {
+  const response = await call(base, AGENT_ROUTES.fields(sessionId, since), {
+    signal,
+    timeoutMs: FIELDS_WAIT_TIMEOUT_MS,
+  });
+  return parseJson<AgentFieldsUpdate>(response);
 }
 
 /**

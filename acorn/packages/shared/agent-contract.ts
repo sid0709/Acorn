@@ -19,6 +19,9 @@ export const AGENT_ROUTES = {
   locate: (sessionId: string) => `/agent/v1/sessions/${encodeURIComponent(sessionId)}/locate`,
   shots: (sessionId: string) => `/agent/v1/sessions/${encodeURIComponent(sessionId)}/shots`,
   blobs: (sessionId: string) => `/agent/v1/sessions/${encodeURIComponent(sessionId)}/blobs`,
+  /** Waits for the form's to-do list to change since version `since` (a long poll), and brings it. */
+  fields: (sessionId: string, since: number) =>
+    `/agent/v1/sessions/${encodeURIComponent(sessionId)}/fields?since=${encodeURIComponent(String(since))}`,
 } as const;
 
 /**
@@ -510,6 +513,16 @@ export interface AgentFieldState {
   /** Screenshot pixels from the page's top. */
   y: number;
   state: FieldState;
+}
+
+/**
+ * The form's to-do list as the agent has it, with the count of its changes so far. A wait on the `fields`
+ * route answers once the count is past the one asked for (a zone's photo reviewed, a look), or with the same
+ * count and no list after a while; the sidebar follows it between looks.
+ */
+export interface AgentFieldsUpdate {
+  version: number;
+  fields?: AgentFieldState[] | null;
 }
 
 /** One file of a run's trace the server made: text in `text`, an image as base64 in `data`. */

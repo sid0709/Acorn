@@ -21,7 +21,8 @@ import (
 //     that still shows nothing is given one longer wait;
 //   - the click opened nothing: click a little above or below and take another picture, one try at a time;
 //   - a native list (the browser draws its popup outside the page) is picked from its options as text;
-//   - nothing answers: close the list, and the driving model chooses on its next look, told which dropdown.
+//   - nothing answers: close the list, and the driving model chooses on its next look, told which dropdown
+//     and, when the page named them, the options its list showed, so it chooses from the list's own words.
 //
 // The extension carries out the answer on the spot and goes on with the plan, so a dropdown is opened once and
 // its option clicked while its list is open: no close and open again, no look between. A dropdown whose
@@ -76,6 +77,10 @@ type probeItem struct {
 	listScrollY float64
 	// settled is that the dropdown was set (or closed for the model) while its list was open.
 	settled bool
+	// options are the options of the list as the page named them in its latest picture: for the note that
+	// leaves the dropdown to the model when none answered, so it chooses from the list's own words instead
+	// of guessing another wording (a recorded run guessed five, one a look, for one box).
+	options []string
 }
 
 // probeRun is the plan with dropdowns in it, being carried out in one batch.
@@ -207,6 +212,9 @@ func (a *Agent) readOne(ctx context.Context, s *session, item *probeItem, snap S
 		}
 		return out
 	}
+	if snap.List != nil && len(snap.List.Options) > 0 {
+		item.options = snap.List.Options
+	}
 	read, check, err := a.readListPicture(ctx, s, snap.Screenshot, item.choose.Text, chooseLabel(item.choose, nil), snap.List, snap.ScrollY, !item.typed)
 	out.add(check, err)
 	if err == nil {
@@ -265,6 +273,10 @@ func (a *Agent) answerSnap(ctx context.Context, s *session, upload ShotUpload) [
 		pick := optionPick(pr.nextID(seq), item.list, item.pick, item.listScrollY, s.viewport)
 		pick.Zone = zone
 		then = []Action{pick}
+		// The review of the zone asks for the option in the page's own words, when the page named it.
+		if item.list != nil && item.pick <= len(item.list.Options) {
+			s.noteChosen(item.choose, item.list.Options[item.pick-1])
+		}
 	case item.closed:
 		// The click opened nothing: try a little off the model's point, one try at a time.
 		item.nudged = true
@@ -344,7 +356,7 @@ func (a *Agent) leaveToModel(s *session, asking []*probeItem) {
 	}
 	s.probeUnsure = true
 	for _, item := range asking {
-		s.notes = append(s.notes, unsureNote(item.choose, nil))
+		s.notes = append(s.notes, unsureNote(item.choose, item.options))
 	}
 	s.surveyAgain = true
 	slog.Info(fmt.Sprintf("%s: %s showed no sure option in their pictures, so the model chooses on its next look.",

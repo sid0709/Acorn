@@ -57,6 +57,8 @@ const (
 	vetTimeout = 20 * time.Second
 	// locateTimeout bounds finding a target again on a screenshot: an action waits for it.
 	locateTimeout = 10 * time.Second
+	// fieldsTimeout bounds one wait for the to-do list to change: a long poll the sidebar follows between looks.
+	fieldsTimeout = 30 * time.Second
 )
 
 // Options configure the server.
@@ -132,6 +134,7 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("POST "+BasePath+"/sessions/{id}/locate", s.locate)
 	mux.HandleFunc("POST "+BasePath+"/sessions/{id}/shots", s.shots)
 	mux.HandleFunc("POST "+BasePath+"/sessions/{id}/blobs", s.keepBlobs)
+	mux.HandleFunc("GET "+BasePath+"/sessions/{id}/fields", s.fields)
 	mux.HandleFunc("GET "+BasePath+"/sessions/{id}/resume", s.resume)
 	mux.HandleFunc("DELETE "+BasePath+"/sessions/{id}", s.end)
 	return s.cors(logged(compressed(mux)))
@@ -273,6 +276,21 @@ func (s *Server) shots(w http.ResponseWriter, r *http.Request) {
 	}
 	// A snap of a dropdown being set in one pass is answered with what to do while its list is open.
 	writeJSON(w, http.StatusOK, map[string]any{"ok": true, "hash": blobHash(upload.Screenshot), "then": then})
+}
+
+// fields answers with the run's to-do list once it is newer than the version asked for (`since`), or with
+// the same version after fieldsTimeout: a long poll the sidebar follows, so each zone's review shows in it
+// as it comes, not at the next look.
+func (s *Server) fields(w http.ResponseWriter, r *http.Request) {
+	since, _ := strconv.Atoi(r.URL.Query().Get("since"))
+	ctx, cancel := context.WithTimeout(r.Context(), fieldsTimeout)
+	defer cancel()
+	update, err := s.agent.WaitFields(ctx, r.PathValue("id"), since)
+	if err != nil {
+		writeError(w, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, update)
 }
 
 // keepBlobs takes pictures ahead of the look that will refer to them (a survey's screens, sent as each is
