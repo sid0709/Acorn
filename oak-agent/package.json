@@ -1,0 +1,20 @@
+{
+  "name": "oak",
+  "version": "1.0.0",
+  "private": true,
+  "workspaces": [
+    "ui-board",
+    "extension",
+    "packages/oak-face"
+  ],
+  "scripts": {
+    "dev:ui-board": "bun run --filter oak-ui-board dev",
+    "dev:extension": "bun run --filter oak-extension dev",
+    "dev:oak-face": "bun run --filter @oak/face dev",
+    "build": "bun run --filter oak-extension build && bun run --filter oak-ui-board build",
+    "test": "bun test shared",
+    "install:all": "bun install",
+    "build:extension": "bun run --filter oak-extension build"
+  },
+  "packageManager": "bun@1.4.2"
+}

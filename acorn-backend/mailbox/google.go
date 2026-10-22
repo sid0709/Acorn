@@ -9,8 +9,11 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"math/rand/v2"
 	"net/http"
 	"net/url"
+	"strconv"
+	"strings"
 	"sync"
 	"time"
 
@@ -30,6 +33,8 @@ const (
 	// gmailRetries is how many times a rate-limited Gmail call is retried.
 	gmailRetries   = 3
 	gmailRetryBase = 200 * time.Millisecond
+	// maxRetryAfter caps how long a Retry-After header may make one call wait.
+	maxRetryAfter = 30 * time.Second
 )
 
 // ErrGmailAuth is a refresh token Google no longer accepts; the mailbox must reconnect.
@@ -191,7 +196,7 @@ func (g *Google) call(ctx context.Context, method, accessToken, path string, que
 		if payload != nil {
 			req.Header.Set("Content-Type", "application/json")
 		}
-		body, status, err := g.do(req)
+		body, status, header, err := g.doHeader(req)
 		if err != nil {
 			return nil, err
 		}
@@ -209,12 +214,23 @@ func (g *Google) call(ctx context.Context, method, accessToken, path string, que
 			select {
 			case <-ctx.Done():
 				return nil, ctx.Err()
-			case <-time.After(gmailRetryBase << attempt):
+			case <-time.After(retryDelay(attempt, header.Get("Retry-After"))):
 			}
 			continue
 		}
 		return nil, statusErr
 	}
+}
+
+// retryDelay is how long to wait before retry number attempt+1: Gmail's own Retry-After (seconds)
+// when it sends one, else exponential backoff with jitter, so workers that were throttled together
+// do not come back together.
+func retryDelay(attempt int, retryAfter string) time.Duration {
+	if seconds, err := strconv.Atoi(strings.TrimSpace(retryAfter)); err == nil && seconds > 0 {
+		return min(time.Duration(seconds)*time.Second, maxRetryAfter)
+	}
+	ceiling := gmailRetryBase << attempt
+	return ceiling/2 + time.Duration(rand.Int64N(int64(ceiling/2)+1))
 }
 
 func isInsufficientScope(err *gmailStatusError) bool {
@@ -250,15 +266,21 @@ func isNotFound(err error) bool {
 }
 
 func (g *Google) do(req *http.Request) ([]byte, int, error) {
+	body, status, _, err := g.doHeader(req)
+	return body, status, err
+}
+
+// doHeader is do with the reply's headers, which carry Retry-After.
+func (g *Google) doHeader(req *http.Request) ([]byte, int, http.Header, error) {
 	res, err := g.OAuth.HTTPClient().Do(req)
 	if err != nil {
-		return nil, 0, err
+		return nil, 0, nil, err
 	}
 	defer res.Body.Close()
 	// The transport asks for gzip and inflates it, so replies cross the wire compressed.
 	body, err := io.ReadAll(io.LimitReader(res.Body, maxGmailBody))
 	if err != nil {
-		return nil, 0, err
+		return nil, 0, nil, err
 	}
-	return body, res.StatusCode, nil
+	return body, res.StatusCode, res.Header, nil
 }

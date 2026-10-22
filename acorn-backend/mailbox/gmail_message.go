@@ -74,6 +74,23 @@ func (g *Google) Message(ctx context.Context, mailboxID, refreshToken, id string
 	if cached, ok := g.messages.get(key, time.Now()); ok {
 		return cached, nil
 	}
+	msg, err := g.readMessage(ctx, refreshToken, id, true)
+	if err != nil {
+		return FullMessage{}, err
+	}
+	g.messages.set(key, msg, time.Now())
+	return msg, nil
+}
+
+// ReadText reads one message for its words only: the headers and the text and HTML bodies, with
+// inline images left as cid: references and no attachment fetched. Nothing is cached, so the body
+// leaves memory with the caller. Auto-labeling reads each arriving email this way.
+func (g *Google) ReadText(ctx context.Context, refreshToken, id string) (FullMessage, error) {
+	g.init()
+	return g.readMessage(ctx, refreshToken, id, false)
+}
+
+func (g *Google) readMessage(ctx context.Context, refreshToken, id string, withImages bool) (FullMessage, error) {
 	access, err := g.accessToken(ctx, refreshToken)
 	if err != nil {
 		return FullMessage{}, err
@@ -117,11 +134,12 @@ func (g *Google) Message(ctx context.Context, mailboxID, refreshToken, id string
 	}
 	msg.HTML = strings.Join(walk.html, "\n")
 	msg.Text = strings.Join(walk.text, "\n\n")
-	msg.HTML = g.inlineImages(ctx, access, path, msg.HTML, walk.inline)
+	if withImages {
+		msg.HTML = g.inlineImages(ctx, access, path, msg.HTML, walk.inline)
+	}
 	for _, part := range walk.files {
 		msg.Attachments = append(msg.Attachments, Attachment{Filename: part.Filename, MimeType: part.MimeType, Size: part.Body.Size})
 	}
-	g.messages.set(key, msg, time.Now())
 	return msg, nil
 }
 

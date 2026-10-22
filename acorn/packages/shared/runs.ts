@@ -13,7 +13,12 @@ export const ACORN_RUNS_API = {
   runs: "/acorn/runs",
   /** GET the Runs of each day from..to (`?from=YYYY-MM-DD&to=YYYY-MM-DD`), with their time and cost. */
   daily: "/acorn/runs/daily",
+  /** PUT stores a Run's full-page JPEG (`image/jpeg` body); GET returns it. Owner only. */
+  screenshot: (id: string) => `/acorn/runs/${encodeURIComponent(id)}/screenshot`,
 } as const;
+
+/** How long acorn-backend keeps a Run's image (days); config.RunScreenshotRetention. */
+export const RUN_SCREENSHOT_RETENTION_DAYS = 90;
 
 /** What a record keeps of the page the Run started on; acorn-backend/runs holds the same bounds. */
 export const RUN_URL_MAX = 2048;
@@ -63,6 +68,8 @@ export type CompletedRun = {
   steps: number;
   modelCalls: number;
   screenChecks: number;
+  /** When the full-page image of the sent application was stored (ms since epoch); 0 without one. */
+  screenshotAt: number;
 };
 
 /** The Runs of one calendar day, summed. */

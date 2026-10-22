@@ -10,8 +10,9 @@ GitHub Actions workflow [`.github/workflows/docker-publish.yml`](../.github/work
 | acorn-frontend | `omnimuh730/acorn-web`   | `127.0.0.1:6005` (includes packed Chrome extension on **Apps**) |
 | acorn-admin    | `omnimuh730/acorn-admin` | `127.0.0.1:6011`                                                |
 | acorn-agent    | `omnimuh730/acorn-agent` | `127.0.0.1:8093` (`ACORN_AGENT_PORT`; the Run planner)          |
+| oak-backend    | `omnimuh730/acorn-oak`   | `127.0.0.1:8094` (`ACORN_OAK_PORT`; the Oak extension's API)    |
 
-The Acorn agent uses port `8093` (`ACORN_AGENT_PORT`).
+The Acorn agent uses port `8093` (`ACORN_AGENT_PORT`). Oak uses `8094` (`ACORN_OAK_PORT`).
 
 Images are tagged with the full commit SHA (`github.sha`) and optionally `latest`. Deploy always pulls the SHA tag, never `latest`. `workflow_dispatch` input `image_sha` redeploys that SHA's existing images (rollback) without rebuilding.
 
@@ -36,6 +37,12 @@ Each deploy run writes `ACORN_ADMIN_USERNAME` / `ACORN_ADMIN_PWD` into `/opt/aco
 The agent plans the extension's Run from screenshots. It has no database and writes nothing: each run lives in memory, and a deploy ends the runs in flight. It reads each person's profile and Library from the API with that person's own Acorn session (sent by the extension), over the Docker network, `http://acorn-api:8083`. Each person's OpenRouter key is the one in their profile, so there is no server AI key to set. It is rebuilt when `acorn-agent/*` or the shared `acorn-backend` packages change.
 
 The container gets only the `ACORN_AGENT_*` and `OPENROUTER_API_KEY` lines of `/opt/acorn/deploy.env`, never the API's database or Google settings, with traces off (`ACORN_AGENT_TRACE=false`) so no screenshot or profile is written to the server's disk. See [`server-setup.md`](server-setup.md) for the one-time nginx route that sends `/agent/v1/` on `api.acornapply.com` to the agent (no new DNS record or certificate); until that is done the deploy still succeeds and the public agent health check only warns.
+
+## oak-backend and the Oak extension
+
+oak-backend is the API of the Oak extension (`oak-agent`). It has no database of its own: it reads Acorn's accounts, sessions, profiles and résumé Library from the same MongoDB, signs people in through the API, and records usage and sent runs there. It is rebuilt when `oak-backend/*` changes. Its container gets only `MONGO_URI` (as `ACORN_MONGO_URI`), `ACORN_DB`, `CORS_ORIGINS` (as `CORS_ORIGIN`) and `OAK_*` lines of `/opt/acorn/deploy.env`, never the Google or admin settings. See [`server-setup.md`](server-setup.md) for the one-time nginx routes (`/api/oak/` and `/oak/` on `api.acornapply.com`); until they exist the deploy still succeeds and the public Oak health check only warns.
+
+The Oak extension is not an image. `tools/extension-release.mjs` also builds `oak-agent` (its own Bun project, installed with its own lockfile) against the production API and zips it to `/downloads/oak-chrome.zip`, which the website's Connections page offers next to the Acorn extension. A change under `oak-agent/` rebuilds the website image. Bump `oak-agent/extension/package.json` and `manifest.json` together so the page shows the new version.
 
 ## Same-host traffic
 

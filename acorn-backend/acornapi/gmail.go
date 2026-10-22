@@ -94,7 +94,21 @@ func (s *Server) finishGmailConnect(w http.ResponseWriter, r *http.Request) {
 		writeGmailError(w, err)
 		return
 	}
+	s.watchConnected(session.User.ID, box)
 	writeJSON(w, http.StatusOK, map[string]any{"mailbox": mailboxPayload([]mailbox.Mailbox{box})[0]})
+}
+
+// watchConnected starts watching a mailbox that was just connected, after the answer is on its way:
+// a watch that fails to register never fails the connection.
+func (s *Server) watchConnected(accountID string, box mailbox.Mailbox) {
+	if s.mailwatch == nil || !box.CanModify {
+		return
+	}
+	go func() {
+		ctx, cancel := context.WithTimeout(context.Background(), googleTimeout)
+		defer cancel()
+		s.mailwatch.Connected(ctx, accountID, box.ID, box.Email)
+	}()
 }
 
 func (s *Server) deleteGmailMailbox(w http.ResponseWriter, r *http.Request) {
@@ -107,6 +121,8 @@ func (s *Server) deleteGmailMailbox(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	id := strings.TrimSpace(r.PathValue("mailboxId"))
+	// The watch is stopped with the mailbox's grant, so before the grant goes.
+	s.mailwatch.Disconnected(r.Context(), session.User.ID, id)
 	if err := s.gmail.Disconnect(r.Context(), session.User.ID, id); err != nil {
 		writeGmailError(w, err)
 		return

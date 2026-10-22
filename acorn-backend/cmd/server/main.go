@@ -22,6 +22,7 @@ import (
 	"github.com/sid0709/acorn/acorn-backend/internal/platform"
 	"github.com/sid0709/acorn/acorn-backend/jev"
 	"github.com/sid0709/acorn/acorn-backend/mailbox"
+	"github.com/sid0709/acorn/acorn-backend/mailwatch"
 	"github.com/sid0709/acorn/acorn-backend/plainlog"
 	"github.com/sid0709/acorn/acorn-backend/profile"
 	"github.com/sid0709/acorn/acorn-backend/resume"
@@ -135,6 +136,12 @@ func main() {
 	})
 	gmailGoogle := &mailbox.Google{OAuth: oauth, RedirectURL: googleConfig.GmailRedirectURL}
 	gmailStore := mailbox.NewStore(p.Mongo(), db.DestDB, gmailGoogle)
+	mailWatchConfig, err := config.LoadMailWatch()
+	if err != nil {
+		slog.Error("Could not read the server settings", plainlog.ErrorKey, err)
+		os.Exit(1)
+	}
+	mailWatchStore := mailwatch.NewStore(p.Mongo(), db.DestDB)
 	// Process capture of every tab session (pages, trees, decisions, prompts), kept
 	// for debugtrace.SessionRetention so a support report can carry the whole session.
 	traces := debugtrace.NewMongoStore(p.Mongo(), db.DestDB)
@@ -153,6 +160,7 @@ func main() {
 		{"acorn admin", adminStore},
 		{"acorn support access", supportAccess},
 		{"acorn gmail", gmailStore},
+		{"acorn gmail watch", mailWatchStore},
 		{"acorn debug traces", traces},
 	}
 	indexGroup, indexCtx := errgroup.WithContext(context.Background())
@@ -178,6 +186,17 @@ func main() {
 	if debug != nil && debug.Dir() != "" {
 		slog.Warn("Debug capture also saves page HTML, applicant profiles and AI prompts to " + debug.Dir() + ". Use it on a developer machine only.")
 	}
+	var mailWatch *mailwatch.Service
+	if gmailStore.Ready() {
+		mailWatch = mailwatch.New(mailwatch.Options{
+			Config: mailWatchConfig, Store: mailWatchStore, Mailboxes: gmailStore,
+			Gmail: gmailGoogle, Profiles: profiles, Usage: usage,
+		})
+		mailWatch.Start()
+		defer mailWatch.Close()
+	} else {
+		slog.Warn("Arriving Gmail is not watched until Gmail is set up")
+	}
 	acornHandler, gateway := acornapi.New(accounts, p.Jobs, acorn.New(nil), acornapi.Options{
 		Resumes:            resumes,
 		Profiles:           profiles,
@@ -187,6 +206,8 @@ func main() {
 		GoogleRedirectURL:  googleConfig.SignInRedirectURL,
 		Gmail:              gmailStore,
 		GmailRedirectURL:   googleConfig.GmailRedirectURL,
+		GmailGoogle:        gmailGoogle,
+		MailWatch:          mailWatch,
 		Debug:              debug,
 		Usage:              usage,
 		Runs:               completedRuns,

@@ -4,6 +4,7 @@
 package runs
 
 import (
+	"bytes"
 	"context"
 	"errors"
 	"fmt"
@@ -12,6 +13,7 @@ import (
 	"time"
 	"unicode/utf8"
 
+	"github.com/sid0709/acorn/acorn-backend/config"
 	"go.mongodb.org/mongo-driver/v2/bson"
 )
 
@@ -52,8 +54,19 @@ const (
 // earliest is the oldest end a Run can report.
 var earliest = time.Date(2020, 1, 1, 0, 0, 0, 0, time.UTC)
 
-// ErrInvalid is a record or a read Acorn will not take.
-var ErrInvalid = errors.New("invalid run")
+var (
+	// ErrInvalid is a record or a read Acorn will not take.
+	ErrInvalid = errors.New("invalid run")
+	// ErrNotFound is a Run (or the image of one) this account does not have.
+	ErrNotFound = errors.New("run not found")
+	// ErrTooLarge is an image over config.MaxRunScreenshotBytes.
+	ErrTooLarge = errors.New("screenshot is too large")
+	// ErrNotJPEG is an image that is not a JPEG.
+	ErrNotJPEG = errors.New("screenshot must be a JPEG")
+)
+
+// jpegMagic opens every JPEG file.
+var jpegMagic = []byte{0xFF, 0xD8, 0xFF}
 
 // Record is what the extension reports when a Run ends with the application sent.
 type Record struct {
@@ -99,6 +112,8 @@ type Entry struct {
 	ScreenChecks  int       `bson:"screenChecks"`
 	ClientVersion string    `bson:"clientVersion"`
 	CreatedAt     time.Time `bson:"createdAt"`
+	// ScreenshotAt is when the full-page image was stored; zero without one.
+	ScreenshotAt time.Time `bson:"screenshotAt,omitempty"`
 }
 
 // Day is the Runs of one calendar day.
@@ -111,9 +126,14 @@ type Day struct {
 
 // backend is where the rows live: MongoDB in production, memory in tests.
 type backend interface {
-	// insert stores the entry and reports whether it was new: a record already stored for this
-	// account is left as it was.
-	insert(ctx context.Context, entry Entry) (bool, error)
+	// insert stores the entry and returns the stored one with whether it was new: a record already
+	// stored for this account is left as it was and returned.
+	insert(ctx context.Context, entry Entry) (Entry, bool, error)
+	// putScreenshot stores the image of the account's Run, replacing one already there, and marks
+	// the Run with it. ErrNotFound when the account has no such Run.
+	putScreenshot(ctx context.Context, accountID, runID string, data []byte, at time.Time) error
+	// screenshot is the image of the account's Run. ErrNotFound without one.
+	screenshot(ctx context.Context, accountID, runID string) ([]byte, error)
 	// daily sums the account's Runs by day, for the days from..to (both inclusive), oldest first.
 	daily(ctx context.Context, accountID, from, to string) ([]Day, error)
 	// recent is the account's newest Runs, newest first.
@@ -126,14 +146,37 @@ type Store struct {
 	now func() time.Time
 }
 
-// Record stores a completed Run for the account. It reports whether the Run was new: the same
-// record sent again (a retry after the answer was lost) is stored once.
-func (s *Store) Record(ctx context.Context, accountID string, in Record, clientVersion string) (bool, error) {
+// Record stores a completed Run for the account and returns its id. It reports whether the Run
+// was new: the same record sent again (a retry after the answer was lost) is stored once, and
+// answers the id of the Run already stored.
+func (s *Store) Record(ctx context.Context, accountID string, in Record, clientVersion string) (string, bool, error) {
 	entry, err := newEntry(accountID, in, clientVersion, s.now())
 	if err != nil {
-		return false, err
+		return "", false, err
 	}
-	return s.db.insert(ctx, entry)
+	stored, created, err := s.db.insert(ctx, entry)
+	return stored.ID, created, err
+}
+
+// SetScreenshot keeps the full-page JPEG of the account's Run, replacing an earlier one.
+func (s *Store) SetScreenshot(ctx context.Context, accountID, runID string, data []byte) error {
+	switch {
+	case accountID == "" || !plainKey(runID):
+		return ErrNotFound
+	case len(data) > config.MaxRunScreenshotBytes:
+		return ErrTooLarge
+	case !bytes.HasPrefix(data, jpegMagic):
+		return ErrNotJPEG
+	}
+	return s.db.putScreenshot(ctx, accountID, runID, data, s.now().UTC())
+}
+
+// Screenshot is the JPEG of the account's Run. ErrNotFound when it has none or it has expired.
+func (s *Store) Screenshot(ctx context.Context, accountID, runID string) ([]byte, error) {
+	if accountID == "" || !plainKey(runID) {
+		return nil, ErrNotFound
+	}
+	return s.db.screenshot(ctx, accountID, runID)
 }
 
 // Daily is the account's Runs summed by day, from..to inclusive (both `YYYY-MM-DD`), oldest
