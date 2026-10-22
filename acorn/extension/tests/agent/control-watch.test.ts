@@ -89,20 +89,27 @@ function innerLabelled(page: FakePage): FakeElement {
 }
 
 describe("the page's list of controls", () => {
-  it("is every drawn control that is not fixed to the window, with its kind, its place and its field", async () => {
+  it("is every drawn control, with its kind, its place and its field; one fixed to the window says so", async () => {
     const { page } = form();
     const watch = new ControlWatch();
     assert.equal(await watch.read(page.cdp()), true);
     assert.deepEqual(
-      watch.marks.map((mark) => [mark.id, mark.kind]),
+      watch.marks.map((mark) => [mark.id, mark.kind, mark.fixed]),
       [
-        ["input:text:first_name:First Name *", "input"],
-        ["input::country:", "select"],
-        ["button:::Back", "button"],
-        ["button:submit::Submit application", "button"],
+        ["input:text:first_name:First Name *", "input", undefined],
+        ["input::country:", "select", undefined],
+        ["button:::Back", "button", undefined],
+        ["button:submit::Submit application", "button", undefined],
+        ["button:::Accept", "button", true],
       ],
     );
-    const [first, country, back] = watch.marks;
+    const [first, country, back, , accept] = watch.marks;
+    assert.deepEqual(
+      [accept?.x, accept?.y, accept?.w, accept?.h],
+      [1000, 710, 100, 40],
+      "a fixed control's place is in the window, not moved by the page's scroll",
+    );
+    assert.deepEqual(accept?.box, { x: 0, y: 700, w: 1280, h: 60 }, "and so is its field");
     assert.deepEqual([first?.x, first?.y, first?.w, first?.h], [400, 300, 300, 40]);
     assert.deepEqual(
       first?.box,
@@ -395,7 +402,7 @@ describe("the page's list of controls", () => {
     const watch = new ControlWatch();
     assert.equal(await watch.read(page.cdp()), true);
     assert.equal(stopped, 1);
-    assert.equal(watch.marks.length, 4);
+    assert.equal(watch.marks.length, 5);
     assert.equal(page.observers.length, 2, "one for changes, one for size");
   });
 });

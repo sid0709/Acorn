@@ -134,6 +134,9 @@ type session struct {
 	// marks binds each point of the plan being carried out to the control it is on, by action id
 	// (marks.go).
 	marks map[string]MarkRef
+	// aimedFrom is each action of the plan that aim.go moved onto a control's entry, as the model planned
+	// it, by action id: the check of the points puts it back when the picture refutes the move.
+	aimedFrom map[string]Action
 	// settled is the parts of the page the model will not come back to (settled.go).
 	settled settledState
 	// viewport is the window as the last look saw it, to check the pictures sent mid-batch against.

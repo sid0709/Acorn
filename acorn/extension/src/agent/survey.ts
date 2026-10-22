@@ -531,6 +531,9 @@ export async function scrollForAction(
   if (action.x == null || action.y == null) throw new Error("the action has no point");
   const own = { x: action.x / scale, y: action.y / scale };
   if (action.scrollTo == null) return own;
+  // A control fixed to the window (a dialog's button) is at the same place in the window wherever the
+  // page is scrolled: the point is acted on where it was measured, with no scroll and no wait.
+  if (action.mark?.fixed) return own;
   const wanted = action.scrollTo / scale;
   // A point pinned to the screenshot it was measured on (no page height) is only put back when the
   // page has moved: most actions find it where they left it, and cost no scroll and no wait.

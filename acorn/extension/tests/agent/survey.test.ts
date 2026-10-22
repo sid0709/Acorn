@@ -213,6 +213,20 @@ describe("placing a point on a page that changed shape", () => {
     assert.ok(c.slept.includes(350), "the page moved, so it was given a moment to load");
   });
 
+  it("acts on a point bound to a control fixed to the window where it was measured, with no scroll", async () => {
+    // A dialog's button: at the same place in the window wherever the page is scrolled.
+    const c = setup({ fieldY: 3956, scrollY: 5000 });
+    const where = await scrollForAction(
+      c.page.cdp(),
+      click({ mark: { ...PLANNED, y: 100, fixed: true } }),
+      1,
+      c.deps,
+    );
+    assert.deepEqual(where, { x: 500, y: 100 });
+    assert.equal(c.page.scrollY, 5000, "the page did not move");
+    assert.deepEqual(c.slept, [], "nothing was waited for");
+  });
+
   it("reads the plan in the screenshot's pixels", async () => {
     const c = setup({ fieldY: 3956, scrollY: 5000 });
     const half = click({

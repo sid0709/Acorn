@@ -103,24 +103,37 @@ func pageX(action Action, obs Observation) float64 {
 	return obs.Viewport.ScrollX + *action.X
 }
 
-// markAt is the control a point of the page is on: the one whose own box holds it, else the one whose
-// field holds it (its label, the gap round it). A point that two controls hold alike, or that none
-// holds, is on no control.
-func markAt(marks []ControlMark, x, y float64) (ControlMark, bool) {
-	if mark, ok := smallestHolding(marks, func(m ControlMark) *Rect { return &m.Rect }, x, y); ok {
-		return mark, true
+// pointOn is the point of an action in the pixels a control's boxes are in: in the window for a control
+// fixed to it (its boxes are window boxes, and the point is measured in the window of its screen), else on
+// the page.
+func pointOn(mark ControlMark, action Action, obs Observation) (x, y float64) {
+	if mark.Fixed {
+		return *action.X, *action.Y
 	}
-	return smallestHolding(marks, func(m ControlMark) *Rect { return m.Box }, x, y)
+	return pageX(action, obs), pageY(action, obs)
+}
+
+// markAt is the control a point of a plan is on: the one whose own box holds it, else the one whose
+// field holds it (its label, the gap round it). A point that two controls hold alike, or that none
+// holds, is on no control. The second answer says whether the control's own box held it: a point held
+// only by a field is bound more loosely (boundMark).
+func markAt(marks []ControlMark, action Action, obs Observation) (mark ControlMark, ok, own bool) {
+	if mark, ok := smallestHolding(marks, func(m ControlMark) *Rect { return &m.Rect }, action, obs); ok {
+		return mark, true, true
+	}
+	mark, ok = smallestHolding(marks, func(m ControlMark) *Rect { return m.Box }, action, obs)
+	return mark, ok, false
 }
 
 // smallestHolding is the mark whose box (as boxOf gives it) holds the point and is the smallest such;
 // it is not found when a second mark's box is as small, since which of them the point is on is not known.
-func smallestHolding(marks []ControlMark, boxOf func(ControlMark) *Rect, x, y float64) (ControlMark, bool) {
+func smallestHolding(marks []ControlMark, boxOf func(ControlMark) *Rect, action Action, obs Observation) (ControlMark, bool) {
 	var best ControlMark
 	bestArea := math.Inf(1)
 	found, tied := false, false
 	for _, mark := range marks {
 		box := boxOf(mark)
+		x, y := pointOn(mark, action, obs)
 		if box == nil || !box.contains(x, y, markSlackPx) {
 			continue
 		}
@@ -139,18 +152,32 @@ func smallestHolding(marks []ControlMark, boxOf func(ControlMark) *Rect, x, y fl
 // a model aims at the middle of can be larger than what the page reports as the control (a phone box whose
 // input shares its wrapper with a flag button, a bordered box drawn round an input), and the model's own
 // label then says which control it meant: a recorded run clicked beside a phone box nine times.
+//
+// A point held only by a control's field, not its own box, is on that control only when the model did not
+// call it something else. A field is the largest box round a control that holds no other control, so a
+// button alone in a wide block has that block for a field, and a point on a dialog's button the page did
+// not list fell in it: a recorded Workday run named "Autofill with Resume" and was moved onto "Apply",
+// under the dialog, three times. The page's label and the model's are compared only when both are there
+// (labelsAgree): a control the page gives no name is bound as before.
 func boundMark(marks []ControlMark, action Action, obs Observation) (ControlMark, bool) {
-	x, y := pageX(action, obs), pageY(action, obs)
-	if mark, ok := markAt(marks, x, y); ok {
-		return mark, true
+	if mark, ok, own := markAt(marks, action, obs); ok {
+		if own || !labelsDisagree(action.Label, mark.Label) {
+			return mark, true
+		}
+		return ControlMark{}, false
 	}
-	return markByLabel(marks, action.Label, x, y)
+	return markByLabel(marks, action.Label, action, obs)
+}
+
+// labelsDisagree is whether the model and the page both name a control and name it differently.
+func labelsDisagree(planned, page string) bool {
+	return len(labelWords(planned)) >= minLabelAgreeChars && len(labelWords(page)) >= minLabelAgreeChars && !labelsAgree(planned, page)
 }
 
 // markByLabel is the one control the page calls what the model called it (labels.go) that the point lies
 // within a row of: its field grown by its own height on every side. None when no label agrees, when two
 // do, or when the point lies further away.
-func markByLabel(marks []ControlMark, label string, x, y float64) (ControlMark, bool) {
+func markByLabel(marks []ControlMark, label string, action Action, obs Observation) (ControlMark, bool) {
 	var found ControlMark
 	n := 0
 	for _, mark := range marks {
@@ -158,6 +185,7 @@ func markByLabel(marks []ControlMark, label string, x, y float64) (ControlMark, 
 			continue
 		}
 		field := mark.fieldOf()
+		x, y := pointOn(mark, action, obs)
 		if !field.grown(field.H).contains(x, y, markSlackPx) {
 			continue
 		}
@@ -196,7 +224,7 @@ func bindMarks(planned []Action, obs Observation) map[string]MarkRef {
 			continue
 		}
 		if mark, ok := boundMark(obs.Marks, action, obs); ok {
-			out[action.ID] = MarkRef{ID: mark.ID, Rect: mark.Rect, Label: mark.Label, Kind: mark.Kind}
+			out[action.ID] = MarkRef{ID: mark.ID, Fixed: mark.Fixed, Rect: mark.Rect, Label: mark.Label, Kind: mark.Kind}
 		}
 	}
 	return out

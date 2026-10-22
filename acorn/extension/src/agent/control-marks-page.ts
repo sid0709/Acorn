@@ -5,9 +5,11 @@
  * how long the page has been quiet. They are strings because the debugger runs them in the page.
  *
  * What is a control: an input, a text area, a select, a button, a link, or anything the page gives the
- * role of a button, a check, a radio or a combobox, that is drawn and not fixed to the window. A fixed or
- * sticky control (a cookie banner's button, a header's link) has a different place on the page at every
- * scroll position, so it says nothing of where the form is and is left out.
+ * role of a button, a check, a radio or a combobox, that is drawn. A control fixed to the window (a
+ * cookie banner's button, a header's link, the buttons of a dialog drawn as a fixed layer) is in the list
+ * too, marked `fixed`, with its place in the window rather than on the page: it sits at the same place in
+ * the window at every scroll position, so a point measured on any screen meets it there. Until 2.15.0 such
+ * a control was left out, and a point on a dialog's button bound to the control under the dialog instead.
  */
 
 import { EXTENSION_BUILD } from "../build-version";
@@ -59,8 +61,10 @@ function installBody(): string {
       lastActivity: performance.now(), stop: null,
     };
     const round = (value) => Math.round(value * 10) / 10;
-    const boxOf = (rect) => ({
-      x: round(rect.left + window.scrollX), y: round(rect.top + window.scrollY),
+    // A box on the page, or in the window for a control fixed to it (\`fixed\`): a fixed control has no one
+    // place on the page, and keeps its place in the window wherever the page is scrolled.
+    const boxOf = (rect, fixed) => ({
+      x: round(rect.left + (fixed ? 0 : window.scrollX)), y: round(rect.top + (fixed ? 0 : window.scrollY)),
       w: round(rect.width), h: round(rect.height),
     });
     const collapse = (text, max) => String(text || "").replace(/\\s+/g, " ").trim().slice(0, max);
@@ -98,7 +102,7 @@ function installBody(): string {
     // The part of a control's box that is not its label, when the label lies inside the box (a question
     // printed inside a bordered field): the line a value is typed or shown on. Null when the label is
     // elsewhere or what is left is too small to be a line.
-    const entryOf = (el, rect) => {
+    const entryOf = (el, rect, fixed) => {
       const labelEl = labelElOf(el);
       if (!labelEl || !labelEl.getBoundingClientRect) return null;
       const lab = labelEl.getBoundingClientRect();
@@ -106,8 +110,8 @@ function installBody(): string {
       const inside = lab.left >= rect.left - 1 && lab.right <= rect.right + 1 && lab.top >= rect.top - 1 && lab.bottom <= rect.bottom + 1;
       if (!inside) return null;
       const below = rect.bottom - lab.bottom, above = lab.top - rect.top;
-      if (below >= above && below >= ENTRY_MIN_H) return boxOf({ left: rect.left, top: lab.bottom, width: rect.width, height: below });
-      if (above >= ENTRY_MIN_H) return boxOf({ left: rect.left, top: rect.top, width: rect.width, height: above });
+      if (below >= above && below >= ENTRY_MIN_H) return boxOf({ left: rect.left, top: lab.bottom, width: rect.width, height: below }, fixed);
+      if (above >= ENTRY_MIN_H) return boxOf({ left: rect.left, top: rect.top, width: rect.width, height: above }, fixed);
       return null;
     };
     // Whether a control is empty, when the page can tell: a text box, a text area, a native list, an
@@ -250,7 +254,7 @@ function installBody(): string {
     // control that is filled. A button beside a field (a calendar, a flag, a clear cross, the arrow of a
     // dropdown) is part of the field, not a second one, so a field's climb passes it; a button's own field
     // holds nothing else at all. \`under\` counts the controls under each ancestor, \`fieldsUnder\` the filled ones.
-    const fieldOf = (el, own, kind, under, fieldsUnder) => {
+    const fieldOf = (el, own, kind, under, fieldsUnder, fixed) => {
       const alone = pressable(kind) ? (node) => under.get(node) === 1 : (node) => fieldsUnder.get(node) === 1;
       let best = null;
       for (let node = el.parentElement; node && node !== document.body && node !== document.documentElement; node = node.parentElement) {
@@ -262,7 +266,7 @@ function installBody(): string {
       if (!best || best.width < 1 || best.height < 1) return null;
       const left = Math.min(best.left, own.left), top = Math.min(best.top, own.top);
       const right = Math.max(best.right, own.right), bottom = Math.max(best.bottom, own.bottom);
-      return boxOf({ left, top, width: right - left, height: bottom - top });
+      return boxOf({ left, top, width: right - left, height: bottom - top }, fixed);
     };
     const collect = () => {
       scheduled = false;
@@ -277,10 +281,9 @@ function installBody(): string {
         const tag = el.tagName.toLowerCase();
         const rect = rectOf(el, tag);
         if (!sized(rect)) continue;
-        if (isFixed(el)) continue;
         const signature = tag + ":" + type + ":" + (el.getAttribute("name") || el.id || "") + ":" + labelOf(el);
         signatures.set(signature, (signatures.get(signature) || 0) + 1);
-        entries.push({ el, signature, type, tag, rect, kind: kindOf(el, tag, type), group: null });
+        entries.push({ el, signature, type, tag, rect, kind: kindOf(el, tag, type), group: null, fixed: isFixed(el) });
       }
       const under = new Map();
       const fieldsUnder = new Map();
@@ -314,12 +317,13 @@ function installBody(): string {
         const nth = (seen.get(entry.signature) || 0) + 1;
         seen.set(entry.signature, nth);
         const id = total === 1 ? entry.signature : entry.signature + "#" + nth + "/" + total;
-        const mark = { id, kind: entry.kind, ...boxOf(entry.rect) };
-        const field = fieldOf(entry.el, entry.rect, entry.kind, under, fieldsUnder);
+        const mark = { id, kind: entry.kind, ...boxOf(entry.rect, entry.fixed) };
+        if (entry.fixed) mark.fixed = true;
+        const field = fieldOf(entry.el, entry.rect, entry.kind, under, fieldsUnder, entry.fixed);
         if (field) mark.box = field;
         const label = labelOf(entry.el);
         if (label) mark.label = label;
-        const place = entryOf(entry.el, entry.rect);
+        const place = entryOf(entry.el, entry.rect, entry.fixed);
         if (place) mark.entry = place;
         if (entry.el.required === true || entry.el.getAttribute("aria-required") === "true") mark.required = true;
         const empty = emptyOf(entry.el, entry.tag, entry.type);
@@ -378,7 +382,7 @@ function installBody(): string {
       const el = live(id);
       if (!el) return null;
       const rect = rectOf(el, el.tagName.toLowerCase());
-      return sized(rect) ? boxOf(rect) : null;
+      return sized(rect) ? boxOf(rect, isFixed(el)) : null;
     };
     state.holds = (id, x, y) => {
       const el = live(id);
@@ -450,7 +454,7 @@ export function controlMarkReadScript(since: number, fresh: boolean): string {
   return withState(`${fresh ? "state.flush();" : ""} return state.read(${JSON.stringify(since)});`);
 }
 
-/** Where a control is now (a box on the page), or null when it is gone. The list is collected first. */
+/** Where a control is now (a box on the page, or in the window for a fixed one), or null when it is gone. The list is collected first. */
 export function controlMarkWhereScript(id: string): string {
   return withState(`state.flush(); return state.where(${JSON.stringify(id)});`);
 }

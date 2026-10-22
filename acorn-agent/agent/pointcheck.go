@@ -115,6 +115,10 @@ func (a *Agent) checkPlanPoints(ctx context.Context, s *session, planned []Actio
 	s.usage.Checks += len(zones)
 	s.usage.CheckCost += cost
 	s.usage.Cost += cost
+	if reverted := s.unaimDoubted(planned, wrong); len(reverted) > 0 {
+		slog.Info(fmt.Sprintf("%s: a checker refuted Acorn's own move of %s onto a control (%s); %s back where the model put %s.",
+			runName(s.id), plainlog.Count(len(reverted), "point"), strings.Join(reverted, ", "), isOrAre(len(reverted)), itOrThem(len(reverted))))
+	}
 	if len(wrong) == 0 {
 		return planned, calls
 	}
@@ -123,6 +127,39 @@ func (a *Agent) checkPlanPoints(ctx context.Context, s *session, planned []Actio
 	slog.Info(fmt.Sprintf("%s: a checker doubts %s of the plan %s on the control named; the plan runs and the model is told.",
 		runName(s.id), plainlog.Count(len(wrong), "point"), isOrAre(len(wrong))))
 	return planned, calls
+}
+
+// unaimDoubted puts each doubted point that Acorn itself moved onto a control's entry (aim.go) back where
+// the model put it, and takes it out of the doubts: the picture refutes Acorn's move, never the model. The
+// point then goes out bound to no control and with no anchor, as a point on no control does, so nothing
+// moves it again. A recorded Workday run named "Autofill with Resume"; the page's list did not hold the
+// dialog's buttons, the point was moved onto "Apply" under the dialog, the checker said so each time, and
+// the plan ran at "Apply" three times over. It says which labels went back.
+func (s *session) unaimDoubted(planned []Action, wrong map[string]pointVerdict) []string {
+	var reverted []string
+	for id, verdict := range wrong {
+		from, moved := s.aimedFrom[id]
+		if !moved {
+			continue
+		}
+		for i := range planned {
+			if planned[i].ID == id {
+				planned[i].X, planned[i].Y = from.X, from.Y
+			}
+		}
+		delete(s.marks, id)
+		delete(s.anchors, id)
+		delete(wrong, id)
+		reverted = append(reverted, fmt.Sprintf("%q", verdict.Action.Label))
+	}
+	return reverted
+}
+
+func itOrThem(n int) string {
+	if n == 1 {
+		return "it"
+	}
+	return "them"
 }
 
 // checkZonePoints asks the decision model about the labelled points on one survey screen.

@@ -54,22 +54,23 @@ func unreachedNote(click, failed Action, bound map[string]MarkRef, obs Observati
 	var out strings.Builder
 	fmt.Fprintf(&out, "Acorn clicked %s at (%.0f, %.0f)%s, but no control took focus there, so %s was not done.",
 		forLabel(click.Label), *click.X, *click.Y, atScreen(click), whatFailed(failed))
-	x, y := pageX(click, obs), pageY(click, obs)
 	if ref, ok := bound[click.ID]; ok {
 		fmt.Fprintf(&out, " The point is on the control the page names %q, so that control may be disabled, or covered by something: look at it before you try again.", ref.Label)
 		return out.String()
 	}
-	if mark, ok := markByLabel(obs.Marks, click.Label, x, y); ok {
+	if mark, ok := markByLabel(obs.Marks, click.Label, click, obs); ok {
+		x, y := pointOn(mark, click, obs)
 		fmt.Fprintf(&out, " The control the page names %q %s: aim inside its edges, at the middle of its value line.", mark.Label, fromPoint(mark.entryOf(), x, y))
 		return out.String()
 	}
-	near := nearestMarks(obs.Marks, x, y, nearControls)
+	near := nearestMarks(obs.Marks, click, obs, nearControls)
 	if len(near) == 0 {
 		out.WriteString(" The page reports no control near that point: look again and aim at a control.")
 		return out.String()
 	}
 	parts := make([]string, len(near))
 	for i, mark := range near {
+		x, y := pointOn(mark, click, obs)
 		parts[i] = fmt.Sprintf("%q %s", orUnlabelled(mark.Label), fromPoint(mark.entryOf(), x, y))
 	}
 	fmt.Fprintf(&out, " The page's controls near that point: %s. Aim inside the edges of the one you mean.", strings.Join(parts, "; "))
@@ -100,7 +101,7 @@ func fromPoint(box Rect, x, y float64) string {
 
 // nearestMarks are up to n controls on the row of the point (the point lies within a row's height of
 // their field, above or below), nearest first.
-func nearestMarks(marks []ControlMark, x, y float64, n int) []ControlMark {
+func nearestMarks(marks []ControlMark, action Action, obs Observation, n int) []ControlMark {
 	type near struct {
 		mark ControlMark
 		far  float64
@@ -108,6 +109,7 @@ func nearestMarks(marks []ControlMark, x, y float64, n int) []ControlMark {
 	var found []near
 	for _, mark := range marks {
 		field := mark.fieldOf()
+		x, y := pointOn(mark, action, obs)
 		if y < field.Y-field.H-markSlackPx || y > field.Y+2*field.H+markSlackPx {
 			continue
 		}

@@ -52,6 +52,7 @@ import {
   waitFields,
 } from "./client";
 import { buildCompletedRun, carriedLegs, jobPageOf, workedMs } from "./completed-run";
+import { anchored } from "./control-marks";
 import { snapToControl } from "./control-snap";
 import {
   marksOfLook,
@@ -1063,7 +1064,7 @@ export async function runAgent(args: AgentRunArgs): Promise<RunReport> {
                   onMove: showMap,
                   scroll: scrolls,
                   // A screen's edge cuts no control with its field: the plan's points are aimed at whole controls.
-                  controls: () => marks.marks.map((mark) => mark.box ?? mark),
+                  controls: () => marks.marks.filter(anchored).map((mark) => mark.box ?? mark),
                   // Each screen goes to the agent as it is taken, so the look that follows refers to it.
                   preload: (dataUrl) =>
                     preloadImage(args.agentUrl, must(sessionId), dataUrl, signal, onHttp),

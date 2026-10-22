@@ -20,10 +20,11 @@ import (
 // a choose whatever the page calls the control under it. A recorded run's dropdown hid a text input of its
 // own under its box; the page called the point a text box, the choose was typed into, and nothing was picked.
 
-// aimAtControls moves the points of a plan onto the entries of the controls they are on, and says how
-// many it moved. A look without marks changes nothing.
-func aimAtControls(planned []Action, obs Observation) ([]Action, int) {
-	moved := 0
+// aimAtControls moves the points of a plan onto the entries of the controls they are on, and gives back
+// each action it moved as the model planned it, by id (the check of the points puts a point back there
+// when the picture says the control was not the one the model meant). A look without marks changes nothing.
+func aimAtControls(planned []Action, obs Observation) ([]Action, map[string]Action) {
+	moved := map[string]Action{}
 	if len(obs.Marks) == 0 {
 		return planned, moved
 	}
@@ -40,8 +41,8 @@ func aimAtControls(planned []Action, obs Observation) ([]Action, int) {
 			continue
 		}
 		if aimed, ok := aimedAt(action, mark, obs); ok {
+			moved[action.ID] = action
 			action = aimed
-			moved++
 		}
 		out = append(out, action)
 	}
@@ -50,19 +51,23 @@ func aimAtControls(planned []Action, obs Observation) ([]Action, int) {
 
 // aimedAt is the action with its point on the control's entry, when it was not there: at the point's
 // own x when the entry reaches it, else the entry's middle; its y the entry's middle. Not moved when
-// the entry lies off the screen the point was measured on.
+// the entry lies off the screen the point was measured on. A control fixed to the window has its entry
+// in the window already.
 func aimedAt(action Action, mark ControlMark, obs Observation) (Action, bool) {
 	entry := mark.entryOf()
-	x, y := pageX(action, obs), pageY(action, obs)
+	x, y := pointOn(mark, action, obs)
 	if entry.contains(x, y, markSlackPx) {
 		return action, false
 	}
-	top := obs.Viewport.ScrollY
+	top, left := obs.Viewport.ScrollY, obs.Viewport.ScrollX
 	if action.ScrollTo != nil {
 		top = *action.ScrollTo
 	}
+	if mark.Fixed {
+		top, left = 0, 0
+	}
 	cx, cy := entry.center()
-	newX, newY := cx-obs.Viewport.ScrollX, cy-top
+	newX, newY := cx-left, cy-top
 	if x >= entry.X && x <= entry.X+entry.W {
 		newX = *action.X
 	}
@@ -77,8 +82,9 @@ func aimedAt(action Action, mark ControlMark, obs Observation) (Action, bool) {
 // aimAndLog aims the plan at the page's controls and says what it did.
 func (s *session) aimAndLog(planned []Action, obs Observation) []Action {
 	planned, moved := aimAtControls(planned, obs)
-	if moved > 0 {
-		slog.Info(fmt.Sprintf("%s: %s moved onto the entry of the control it was on.", runName(s.id), plainlog.Count(moved, "point")))
+	s.aimedFrom = moved
+	if len(moved) > 0 {
+		slog.Info(fmt.Sprintf("%s: %s moved onto the entry of the control it was on.", runName(s.id), plainlog.Count(len(moved), "point")))
 	}
 	return planned
 }

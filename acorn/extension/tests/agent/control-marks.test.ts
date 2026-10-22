@@ -87,6 +87,19 @@ describe("layoutMoves", () => {
     const after = PAGE.map((one) => ({ ...one, y: one.y + (one.y >= 600 ? 31 : 1.5) }));
     assert.deepEqual(layoutMoves(PAGE, after), [{ from: 240, at: 600, dy: 31 }]);
   });
+
+  it("leaves a control fixed to the window out of it: its place is in the window, not on the page", () => {
+    // A dialog's button sits 300 px down the window on both lists while the form below 600 moved 30 px; a
+    // page-anchored control at that height would have moved too, and a fixed one must not look like a move back.
+    const dialog = { ...mark("autofill", 300), fixed: true };
+    const after = [...pushed(PAGE, 600, 30), dialog];
+    assert.deepEqual(layoutMoves([...PAGE, dialog], after), [{ from: 240, at: 600, dy: 30 }]);
+    assert.equal(
+      layoutMoves([dialog], [dialog]),
+      null,
+      "fixed controls alone say nothing of the form",
+    );
+  });
 });
 
 describe("placeSpans", () => {
@@ -252,6 +265,17 @@ describe("what the page sends and what the agent is told", () => {
       invalid: true,
     });
     assert.deepEqual(bare, mark("b", 10));
+  });
+
+  it("keeps a control's fixed flag through the page's list and the agent's", () => {
+    const parsed = parseMarks([
+      { ...mark("close", 20), fixed: true },
+      { ...mark("name", 400), fixed: "yes" },
+    ]);
+    assert.equal(parsed?.[0]?.fixed, true);
+    assert.equal(parsed?.[1]?.fixed, undefined, "only a true flag is kept");
+    assert.equal(marksForAgent(parsed ?? [], 0.5)[0]?.fixed, true);
+    assert.equal("fixed" in (marksForAgent(parsed ?? [], 0.5)[1] ?? {}), false);
   });
 
   it("tells the agent the list in the screenshot's pixels, boxes included", () => {

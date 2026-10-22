@@ -252,10 +252,14 @@ type Rect struct {
 // the part of the control's own box that is not its label, when the label is printed inside the box
 // (a question's words inside a bordered field): the place to click or type. Required, Empty and
 // Invalid are what the page says of the control's state; the agent decides nothing by them (or by Kind):
-// the pictures say what a control is and holds, the page only where it is.
+// the pictures say what a control is and holds, the page only where it is. Fixed is a control fixed to
+// the window (a header's link, the buttons of a dialog drawn as a fixed layer): its Rect, Box and Entry
+// are in the window (screenshot pixels from the window's top left), not on the page, since it sits at the
+// same place in the window at every scroll position.
 type ControlMark struct {
-	ID   string `json:"id"`
-	Kind string `json:"kind"`
+	ID    string `json:"id"`
+	Kind  string `json:"kind"`
+	Fixed bool   `json:"fixed,omitempty"`
 	Rect
 	Box      *Rect  `json:"box,omitempty"`
 	Label    string `json:"label,omitempty"`
@@ -287,9 +291,11 @@ func isField(kind string) bool {
 
 // MarkRef is the control a point was bound to when it was planned, as it sat then. The extension finds
 // the same control by ID when the point is acted on, and the difference of the two places is how far
-// the point has moved. Label and Kind stay on the agent: the point is checked against the label.
+// the point has moved. Label and Kind stay on the agent: the point is checked against the label. A Fixed
+// control keeps its place in the window, so the extension acts on its point where it was measured.
 type MarkRef struct {
-	ID string `json:"id"`
+	ID    string `json:"id"`
+	Fixed bool   `json:"fixed,omitempty"`
 	Rect
 	Label string `json:"-"`
 	Kind  string `json:"-"`

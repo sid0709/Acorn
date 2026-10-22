@@ -344,11 +344,14 @@ export interface AgentRect {
  * on the control's own label is on its field. The agent binds each point of a plan to a control with it.
  * `label` is what the page calls the control; `entry` the part of its own box that is not its label, when
  * the label is printed inside the box (the place to click or type); `required`, `empty` and `invalid` what
- * the page says of its state (`empty` is left out when the page cannot tell).
+ * the page says of its state (`empty` is left out when the page cannot tell). A control fixed to the window
+ * (`fixed`: a header's link, a dialog drawn as a fixed layer) has its place, `box` and `entry` in the window,
+ * screenshot pixels from the window's top left, since it has no one place on the page (2.15.0).
  */
 export interface AgentControlMark extends AgentRect {
   id: string;
   kind: string;
+  fixed?: boolean;
   box?: AgentRect;
   label?: string;
   entry?: AgentRect;
@@ -378,10 +381,12 @@ export interface AgentOpenList {
 /**
  * The control a point was bound to when it was planned, as it sat then. The extension finds the same
  * control by `id` when the point is acted on, and the difference of the two places is how far the point
- * has moved.
+ * has moved. A `fixed` control keeps its place in the window at every scroll position, so its point is
+ * acted on where it was measured, with no scroll.
  */
 export interface AgentMarkRef extends AgentRect {
   id: string;
+  fixed?: boolean;
 }
 
 /**
