@@ -5,7 +5,7 @@ import { useState } from "react";
 import { Dialog, DialogHeader, Layout, LayoutContent, Text } from "sid-ui";
 
 import { describeRun } from "@/lib/workspace/progress";
-import { runScreenshotSrc } from "@/lib/workspace/run-screenshot";
+import { runScreenshotSrc } from "@/lib/workspace/run-screenshot-src";
 
 const PREVIEW_DIALOG_WIDTH = 900;
 

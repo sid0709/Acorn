@@ -4,11 +4,6 @@ import { sessionToken } from "@/lib/auth/cookie";
 import { acornHeaders } from "@/lib/auth/headers";
 import { acornApiUrl } from "@/lib/config";
 
-/** The browser reads a Run's image from this site; the route below adds the session. */
-export function runScreenshotSrc(id: string): string {
-  return `/api/runs/${encodeURIComponent(id)}/screenshot`;
-}
-
 const UNREACHABLE = "Couldn’t reach Acorn. Check that the API is running.";
 
 /** An image stays the same once stored; the browser may keep it as long as acorn-backend says. */
