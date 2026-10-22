@@ -1,111 +1,61 @@
-import {
-  BadRequestException,
-  Injectable,
-  NotFoundException,
-} from '@nestjs/common';
-import { AccountInfoRepository } from '../../auth/account-info.repository';
-import { AccountInfoService } from '../../auth/account-info.service';
-import {
-  DEEPSEEK_DEFAULT_MODEL,
-  normalizeDeepSeekModel,
-} from '../../personal/constants/deepseek-models.constants';
-import {
-  getLlmProvider,
-  isLlmProviderId,
-  type LlmProviderId,
-} from '../../personal/constants/llm-providers.constants';
-import { OBJECT_ID_PATTERN } from '../../personal/constants/profile-field.constants';
-import { asText } from '../../personal/mappers/as-text';
-import { ProfileSecretsService } from '../../personal/secrets/profile-secrets.service';
+import { BadRequestException, Injectable } from '@nestjs/common';
+import { AcornProfileService } from '../../acorn/acorn-profile.service';
+import type { ChatProvider } from '../openai/openai.types';
+
+/** Acorn calls its model through OpenRouter; the profile's OpenAI key is the fallback. */
+const OPENROUTER_MODEL =
+  process.env.OAK_OPENROUTER_MODEL?.trim() || 'openai/gpt-6-luna';
+const OPENAI_MODEL = process.env.OAK_OPENAI_MODEL?.trim() || 'gpt-6-luna';
 
 export type ProfileLlmAuth = {
   profileId: string;
   applierName: string;
-  provider: LlmProviderId;
+  provider: ChatProvider;
   model: string;
   apiKey: string;
 };
 
-/**
- * Resolve signed-in profile's decrypted LLM key + default model.
- * Used by Review Title / AI Analyze sessions (not a server env key).
- */
+/** Resolve the signed-in account's model key from its Acorn profile (never a server env key). */
 @Injectable()
 export class ProfileLlmAuthService {
-  constructor(
-    private readonly accounts: AccountInfoService,
-    private readonly accountRepo: AccountInfoRepository,
-    private readonly secrets: ProfileSecretsService,
-  ) {}
+  constructor(private readonly profiles: AcornProfileService) {}
 
   async resolve(input: {
+    profileId: string;
     applierName?: string;
-    profileId?: string;
-    provider?: string;
-    model?: string;
   }): Promise<ProfileLlmAuth> {
-    const acc = await this.resolveAccount(
-      asText(input.applierName),
-      asText(input.profileId),
-    );
-    if (!acc) {
-      throw new NotFoundException({
-        success: false,
-        message: 'Account not found for LLM auth.',
-        error: 'Account not found for LLM auth.',
-      });
-    }
-
-    const profile = asProfileRecord(acc.autoBidProfile);
-    const providerRaw =
-      asText(input.provider).trim() ||
-      asText(profile.defaultProvider).trim() ||
-      'openai';
-    const provider: LlmProviderId = isLlmProviderId(providerRaw)
-      ? providerRaw
-      : 'openai';
-    const p = getLlmProvider(provider);
-    const rawModel =
-      asText(input.model).trim() ||
-      asText(profile.defaultModel).trim() ||
-      (provider === 'openai' ? 'gpt-4o-mini' : DEEPSEEK_DEFAULT_MODEL);
-    const model =
-      provider === 'deepseek' ? normalizeDeepSeekModel(rawModel) : rawModel;
-
-    const decrypted = this.secrets.decryptSelected(profile, [p.keyField]);
-    const apiKey = asText(decrypted[p.keyField]).trim();
-    if (!apiKey) {
-      throw new BadRequestException({
-        success: false,
-        message: `No ${p.label} API key in profile. Add it in Settings and save first.`,
-        error: `No ${p.label} API key in profile.`,
-      });
-    }
-
-    return {
-      profileId: acc.id,
-      applierName: acc.name,
-      provider,
-      model,
-      apiKey,
+    const profile = await this.profiles.load(input.profileId);
+    const openrouter = text(profile.openrouterApiKey);
+    const openai = text(profile.openaiApiKey);
+    const base = {
+      profileId: input.profileId,
+      applierName: input.applierName ?? '',
     };
-  }
-
-  private async resolveAccount(name: string, profileIdRaw: string) {
-    const profileId = profileIdRaw.trim();
-    if (profileId && OBJECT_ID_PATTERN.test(profileId)) {
-      const byId = await this.accountRepo.findById(profileId);
-      if (byId) return byId;
+    if (openrouter) {
+      return {
+        ...base,
+        provider: 'openrouter',
+        model: OPENROUTER_MODEL,
+        apiKey: openrouter,
+      };
     }
-    const trimmed = name.trim();
-    if (!trimmed) return null;
-    return this.accounts.findByName(trimmed);
+    if (openai) {
+      return {
+        ...base,
+        provider: 'openai',
+        model: OPENAI_MODEL,
+        apiKey: openai,
+      };
+    }
+    throw new BadRequestException({
+      success: false,
+      message:
+        'No OpenRouter or OpenAI key in the Acorn profile. Add one on the website and save.',
+      error: 'No model API key in profile.',
+    });
   }
 }
 
-function asProfileRecord(value: unknown): Record<string, unknown> {
-  if (value && typeof value === 'object' && !Array.isArray(value)) {
-    return { ...(value as Record<string, unknown>) };
-  }
-  return {};
+function text(value: unknown): string {
+  return typeof value === 'string' ? value.trim() : '';
 }

@@ -1,9 +1,11 @@
 import { Injectable } from '@nestjs/common';
 import { ProfileLlmAuthService } from '../../ai/auth/profile-llm-auth.service';
 import { OpenAiChatService } from '../../ai/openai/openai-chat.service';
-import { AI_USAGE_FEATURES } from '../../ai-usage/constants/ai-usage.constants';
-import { AiUsageRecorderService } from '../../ai-usage/ai-usage-recorder.service';
-import { oakMatchOptionMaxOutputTokens } from '../constants/oak.constants';
+import { AcornUsageService } from '../../acorn/acorn-usage.service';
+import {
+  OAK_USAGE_FEATURES,
+  oakMatchOptionMaxOutputTokens,
+} from '../constants/oak.constants';
 import { MATCH_OPTION_SYSTEM_PROMPT } from './oak-prompt';
 import { summarizeUsage } from './oak-pricing';
 import { OakResponsesService } from './oak-responses.service';
@@ -15,7 +17,7 @@ export class OakMatchOptionService {
     private readonly llmAuth: ProfileLlmAuthService,
     private readonly responses: OakResponsesService,
     private readonly chat: OpenAiChatService,
-    private readonly usage: AiUsageRecorderService,
+    private readonly usage: AcornUsageService,
   ) {}
 
   async match(input: {
@@ -91,20 +93,17 @@ export class OakMatchOptionService {
       }
 
       await this.usage.record({
-        feature: AI_USAGE_FEATURES.oakMatchOption,
-        applierName: input.applierName,
+        feature: OAK_USAGE_FEATURES.matchOption,
+        accountId: input.profileId,
         path: '/api/oak/match-option',
-        provider: auth.provider,
         requestedModel: auth.model,
         billedModel: raw.model,
-        apiKey: auth.apiKey,
         usage: {
           promptTokens: raw.usage.inputTokens,
           completionTokens: raw.usage.outputTokens,
           totalTokens: raw.usage.totalTokens,
         },
         cachedTokens: raw.usage.cachedInputTokens,
-        startedAt,
         durationMs: Date.now() - t0,
         success: true,
       });
@@ -120,13 +119,10 @@ export class OakMatchOptionService {
       };
     } catch (error) {
       await this.usage.record({
-        feature: AI_USAGE_FEATURES.oakMatchOption,
-        applierName: input.applierName,
+        feature: OAK_USAGE_FEATURES.matchOption,
+        accountId: input.profileId,
         path: '/api/oak/match-option',
-        provider: auth.provider,
         requestedModel: auth.model,
-        apiKey: auth.apiKey,
-        startedAt,
         durationMs: Date.now() - t0,
         success: false,
         error: error instanceof Error ? error.message : String(error),

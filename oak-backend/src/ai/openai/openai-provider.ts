@@ -1,11 +1,16 @@
-import { deepseekThinkingBody } from './deepseek';
-import { normalizeDeepSeekModel } from '../../personal/constants/deepseek-models.constants';
-import type { ChatCompletionInput } from './openai.types';
+import type { ChatCompletionInput, ChatProvider } from './openai.types';
 
-export const PROVIDER_BASE: Record<'openai' | 'deepseek', string> = {
+export const PROVIDER_BASE: Record<ChatProvider, string> = {
   openai: 'https://api.openai.com/v1',
-  deepseek: 'https://api.deepseek.com/v1',
+  openrouter: 'https://openrouter.ai/api/v1',
 };
+
+/** Message text of one chat choice. */
+export function extractChatMessageContent(
+  message: { content?: string | null } | null | undefined,
+): string {
+  return String(message?.content ?? '');
+}
 
 export function abortError(signal?: AbortSignal): Error {
   return signal?.reason instanceof Error
@@ -53,6 +58,7 @@ export function openaiReasoningEffort(
     return String(model || '')
       .trim()
       .toLowerCase()
+      .replace(/^[^/]+\//, '')
       .startsWith('gpt-6')
       ? 'none'
       : 'minimal';
@@ -61,7 +67,7 @@ export function openaiReasoningEffort(
 }
 
 export function resolveResponseFormat(
-  provider: 'openai' | 'deepseek',
+  provider: ChatProvider,
   input: ChatCompletionInput,
 ): Record<string, unknown> | null {
   if (input.jsonSchema && provider === 'openai') {
@@ -82,9 +88,11 @@ export function resolveResponseFormat(
 
 /** GPT-5 / GPT-6 / o-series chat models reject a custom temperature (only the default is allowed). */
 export function openaiModelRejectsTemperature(model: string): boolean {
+  // OpenRouter ids carry the vendor: "openai/gpt-6-luna".
   const m = String(model || '')
     .trim()
-    .toLowerCase();
+    .toLowerCase()
+    .replace(/^[^/]+\//, '');
   return (
     m.startsWith('gpt-5') ||
     m.startsWith('gpt-6') ||
@@ -94,37 +102,27 @@ export function openaiModelRejectsTemperature(model: string): boolean {
   );
 }
 
-/** Build OpenAI-compatible chat body (DeepSeek: normalize model + thinking). */
+/** Build the OpenAI-compatible chat body. */
 export function buildChatCompletionBody(
-  provider: 'openai' | 'deepseek',
+  provider: ChatProvider,
   input: ChatCompletionInput,
   extras?: { stream?: boolean },
 ): Record<string, unknown> {
-  const model =
-    provider === 'deepseek' ? normalizeDeepSeekModel(input.model) : input.model;
   const responseFormat = resolveResponseFormat(provider, input);
   const includeTemperature =
     typeof input.temperature === 'number' &&
-    (provider !== 'openai' || !openaiModelRejectsTemperature(model));
+    !openaiModelRejectsTemperature(input.model);
   const body: Record<string, unknown> = {
-    model,
+    model: input.model,
     messages: input.messages,
     ...(extras?.stream ? { stream: true } : {}),
     ...(responseFormat ? { response_format: responseFormat } : {}),
     ...(includeTemperature ? { temperature: input.temperature } : {}),
   };
-  if (provider === 'deepseek') {
-    Object.assign(
-      body,
-      deepseekThinkingBody({
-        jsonMode: input.jsonMode,
-        jsonSchema: input.jsonSchema,
-        thinking: input.thinking,
-      }),
-    );
-  } else {
-    const effort = openaiReasoningEffort(model, input.reasoningEffort);
-    if (effort) body.reasoning_effort = effort;
+  const effort = openaiReasoningEffort(input.model, input.reasoningEffort);
+  if (effort) {
+    if (provider === 'openrouter') body.reasoning = { effort };
+    else body.reasoning_effort = effort;
   }
   if (extras?.stream && provider === 'openai') {
     body.stream_options = { include_usage: true };

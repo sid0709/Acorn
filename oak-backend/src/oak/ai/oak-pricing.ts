@@ -169,7 +169,11 @@ function normalizeModelId(model: string | null | undefined) {
   if (!model || typeof model !== 'string') {
     return { canonical: null as string | null, fastMultiplier: 1 };
   }
-  const raw = model.trim().toLowerCase();
+  // OpenRouter ids carry the vendor: "openai/gpt-6-luna".
+  const raw = model
+    .trim()
+    .toLowerCase()
+    .replace(/^[^/]+\//, '');
   const fastMultiplier =
     /(?:^|-)fast$/.test(raw) || raw.includes('-fast-') ? 2 : 1;
   const stripped = raw.replace(/-fast(?=-|$)/g, '');

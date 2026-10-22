@@ -1,15 +1,14 @@
 import { Injectable } from '@nestjs/common';
 import { ProfileLlmAuthService } from '../../ai/auth/profile-llm-auth.service';
 import { OpenAiChatService } from '../../ai/openai/openai-chat.service';
-import { AI_USAGE_FEATURES } from '../../ai-usage/constants/ai-usage.constants';
-import { AiUsageRecorderService } from '../../ai-usage/ai-usage-recorder.service';
+import { AcornUsageService } from '../../acorn/acorn-usage.service';
 import { appLogger } from '../../common/logger/app-logger';
 import {
+  OAK_USAGE_FEATURES,
   oakProseMaxOutputTokens,
   oakProseTemperature,
   oakProseTimeoutMs,
 } from '../constants/oak.constants';
-import { jobIdFromPage } from '../policy/analyze-page';
 import { parseProseAnswerMap } from './oak-prose-fields';
 import {
   buildQaUserPrompt,
@@ -30,7 +29,7 @@ export class OakQaService {
     private readonly profilePrompt: OakProfilePromptService,
     private readonly responses: OakResponsesService,
     private readonly chat: OpenAiChatService,
-    private readonly usage: AiUsageRecorderService,
+    private readonly usage: AcornUsageService,
   ) {}
 
   async answer(input: {
@@ -81,21 +80,17 @@ export class OakQaService {
       }
 
       await this.usage.record({
-        feature: AI_USAGE_FEATURES.oakAiQa,
-        applierName: input.applierName,
-        jobId: jobIdFromPage(input.page) ?? undefined,
+        feature: OAK_USAGE_FEATURES.qa,
+        accountId: input.profileId,
         path: '/api/oak/qa',
-        provider: auth.provider,
         requestedModel: auth.model,
         billedModel: raw.model,
-        apiKey: auth.apiKey,
         usage: {
           promptTokens: raw.usage.inputTokens,
           completionTokens: raw.usage.outputTokens,
           totalTokens: raw.usage.totalTokens,
         },
         cachedTokens: raw.usage.cachedInputTokens,
-        startedAt,
         durationMs: Date.now() - t0,
         success: true,
       });
@@ -115,14 +110,10 @@ export class OakQaService {
         'oak qa failed',
       );
       await this.usage.record({
-        feature: AI_USAGE_FEATURES.oakAiQa,
-        applierName: input.applierName,
-        jobId: jobIdFromPage(input.page) ?? undefined,
+        feature: OAK_USAGE_FEATURES.qa,
+        accountId: input.profileId,
         path: '/api/oak/qa',
-        provider: auth.provider,
         requestedModel: auth.model,
-        apiKey: auth.apiKey,
-        startedAt,
         durationMs: Date.now() - t0,
         success: false,
         error: error instanceof Error ? error.message : String(error),

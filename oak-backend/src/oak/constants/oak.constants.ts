@@ -1,15 +1,10 @@
-export const OAK_SESSIONS_COLLECTION = 'oak_sessions';
-
 export const OAK_SOCKET_PATH = '/oak';
 
 export const OAK_RUNTIME_FILE_KEY =
   process.env.OAK_RUNTIME_FILE_KEY?.trim() || 'runtime_file';
 
-/** Attached on resume_upload: generated Worker-pool file if present, else Library recommend. */
+/** Attached on resume_upload: the Library résumé Fill uploads. */
 export const OAK_RECOMMENDED_RESUME_KEY = 'recommended_resume';
-
-/** Attached on Custom-tab resume_upload: editor-generated DOCX for a remembered tab. */
-export const OAK_CUSTOM_RESUME_KEY = 'custom_resume';
 
 export const OPENAI_RESPONSES_URL =
   process.env.OAK_OPENAI_API_URL?.trim() ||
@@ -39,23 +34,6 @@ export function oakProseMaxOutputTokens(): number {
     10,
   );
   return Number.isFinite(n) && n > 0 ? n : 6000;
-}
-
-/** Custom generate JD extract; posting prose plus a short reason. */
-export function oakExtractJdMaxOutputTokens(): number {
-  const n = Number.parseInt(
-    String(process.env.OAK_EXTRACT_JD_MAX_OUTPUT_TOKENS || '6000'),
-    10,
-  );
-  return Number.isFinite(n) && n > 0 ? n : 6000;
-}
-
-export function oakExtractJdTimeoutMs(): number {
-  const n = Number.parseInt(
-    String(process.env.OAK_EXTRACT_JD_TIMEOUT_MS || '25000'),
-    10,
-  );
-  return Number.isFinite(n) && n > 0 ? n : 25000;
 }
 
 /** Fail open back to planner drafts if the writer exceeds this. */
@@ -137,19 +115,11 @@ export function oakReasoningEffortForModel(model: string): string | null {
   return null;
 }
 
-export function oakRuntimeFilePath(): string | null {
-  const raw = process.env.OAK_RUNTIME_FILE_PATH?.trim();
-  return raw || null;
-}
-
-export function oakSessionTtlSeconds(): number {
-  const DEFAULT = 12 * 60 * 60;
-  const MIN = 5 * 60;
-  const MAX = 7 * 24 * 60 * 60;
-  const configured = Number.parseInt(
-    String(process.env.OAK_SESSION_TTL_SECONDS || ''),
-    10,
-  );
-  if (!Number.isFinite(configured)) return DEFAULT;
-  return Math.min(MAX, Math.max(MIN, configured));
-}
+/** `acorn_ai_usage.feature` of each Oak model call. Q&A is Acorn's own "ask". */
+export const OAK_USAGE_FEATURES = {
+  analyze: 'oak_analyze',
+  matchOption: 'oak_match_option',
+  prose: 'oak_prose',
+  identity: 'oak_identity',
+  qa: 'ask',
+} as const;

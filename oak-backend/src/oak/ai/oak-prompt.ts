@@ -24,10 +24,10 @@ Rules:
    - NEVER emit placeholder tokens such as {{PLACEHOLDER}}, {{APPLICANT_FULL_NAME}}, {{target}}, or any {{...}} brace form. Always write a real fillable value or an exact option label from that control's options.
    - For textbox / textarea typing fields, a factual draft is enough. A later step may rewrite open-ended typed answers.
 7b. Work authorization vs visa sponsorship (do not mix these up):
-   - Map settings.immigrationStatus to "are you legally authorized to work in [this country]?" questions. A citizenship or residency status that already permits work there is Yes — never No.
-   - Map settings.sponsorship to visa / employer-sponsorship questions. Those are a different question: a No on sponsorship is not a No on work authorization.
+   - Map settings.citizenship and settings.workAuthorized to "are you legally authorized to work in [this country]?" questions. A citizenship or residency status that already permits work there is Yes — never No.
+   - Map settings.visaSponsorship to visa / employer-sponsorship questions. Those are a different question: a No on sponsorship is not a No on work authorization.
 7c. How did you hear about this job / job source / referral source:
-   - Route the answer from the applicant's saved professional-network URLs (settings.linkedin, then github / portfolioUrl).
+   - Route the answer from the applicant's saved professional-network URLs (settings.linkedin, then settings.github / settings.portfolio).
    - Choose the listed option that names the same site or network as that profile URL.
    - Do not pick a different job board when an option matches the profile network.
 8. The action plan may fill fields, upload files, select radio buttons / dropdowns, validate fields, and wait for dynamic updates.

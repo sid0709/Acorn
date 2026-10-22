@@ -1,13 +1,12 @@
 import { Injectable, Logger } from '@nestjs/common';
 import type { ProfileLlmAuth } from '../../ai/auth/profile-llm-auth.service';
 import { OpenAiChatService } from '../../ai/openai/openai-chat.service';
-import { AI_USAGE_FEATURES } from '../../ai-usage/constants/ai-usage.constants';
-import { AiUsageRecorderService } from '../../ai-usage/ai-usage-recorder.service';
+import { AcornUsageService } from '../../acorn/acorn-usage.service';
 import {
+  OAK_USAGE_FEATURES,
   oakIdentityMaxOutputTokens,
   oakIdentityTimeoutMs,
 } from '../constants/oak.constants';
-import { jobIdFromPage } from '../policy/analyze-page';
 import { collectIdentityQuestions } from './applicant-identity';
 import { parseApplicationAiIndexes } from './oak-identity-parse';
 import {
@@ -25,7 +24,7 @@ export class OakIdentityService {
   constructor(
     private readonly responses: OakResponsesService,
     private readonly chat: OpenAiChatService,
-    private readonly usage: AiUsageRecorderService,
+    private readonly usage: AcornUsageService,
   ) {}
 
   async classifyApplicationAiIndexes(input: {
@@ -122,14 +121,11 @@ export class OakIdentityService {
     error?: unknown,
   ) {
     return this.usage.record({
-      feature: AI_USAGE_FEATURES.oakAiIdentity,
-      applierName: input.applierName,
-      jobId: jobIdFromPage(input.page) ?? undefined,
+      feature: OAK_USAGE_FEATURES.identity,
+      accountId: input.auth.profileId,
       path: '/api/oak/ai-analyze',
-      provider: input.auth.provider,
       requestedModel: input.auth.model,
       billedModel: raw?.model,
-      apiKey: input.auth.apiKey,
       usage: raw
         ? {
             promptTokens: raw.usage.inputTokens,
@@ -138,7 +134,6 @@ export class OakIdentityService {
           }
         : undefined,
       cachedTokens: raw?.usage.cachedInputTokens,
-      startedAt,
       durationMs: Date.now() - t0,
       success,
       error: success

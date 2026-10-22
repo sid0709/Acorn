@@ -4,11 +4,11 @@ import {
   LLM_CHAT_RETRIES,
   LLM_CHAT_TIMEOUT_MS,
 } from '../constants/ai-concurrency.constants';
-import { extractChatMessageContent } from './deepseek';
 import { compactError, llmMessageStats } from './llm-log-fields';
 import {
   abortError,
   buildChatCompletionBody,
+  extractChatMessageContent,
   isRetryableStatus,
   PROVIDER_BASE,
   timeoutError,
@@ -32,7 +32,7 @@ function sleep(ms: number, signal?: AbortSignal): Promise<void> {
 }
 
 /**
- * Thin OpenAI-compatible chat client (OpenAI + DeepSeek).
+ * Thin OpenAI-compatible chat client (OpenAI + OpenRouter).
  * Callers supply messages; no domain prompts live here.
  */
 @Injectable()

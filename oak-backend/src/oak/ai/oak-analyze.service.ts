@@ -1,8 +1,8 @@
-import { Injectable, NotFoundException } from '@nestjs/common';
+import { Injectable } from '@nestjs/common';
 import { ProfileLlmAuthService } from '../../ai/auth/profile-llm-auth.service';
 import { OpenAiChatService } from '../../ai/openai/openai-chat.service';
-import { AI_USAGE_FEATURES } from '../../ai-usage/constants/ai-usage.constants';
-import { AiUsageRecorderService } from '../../ai-usage/ai-usage-recorder.service';
+import { AcornUsageService } from '../../acorn/acorn-usage.service';
+import { OAK_USAGE_FEATURES } from '../constants/oak.constants';
 import { OakFillPolicyService } from '../policy/oak-fill-policy.service';
 import { applyApplicantIdentityToPlan } from './applicant-identity';
 import { OakIdentityService } from './oak-identity.service';
@@ -20,7 +20,7 @@ export class OakAnalyzeService {
     private readonly profilePrompt: OakProfilePromptService,
     private readonly responses: OakResponsesService,
     private readonly chat: OpenAiChatService,
-    private readonly usage: AiUsageRecorderService,
+    private readonly usage: AcornUsageService,
     private readonly fillPolicy: OakFillPolicyService,
     private readonly prose: OakProseService,
     private readonly identity: OakIdentityService,
@@ -35,7 +35,7 @@ export class OakAnalyzeService {
     page?: unknown;
   }) {
     const policy = await this.fillPolicy.resolveForAnalyze({
-      applierName: input.applierName,
+      accountId: input.profileId,
       page: input.page,
     });
     const auth = await this.llmAuth.resolve({
@@ -64,20 +64,17 @@ export class OakAnalyzeService {
           : await this.analyzeViaChat(auth, systemPrompt, userPrompt);
 
       await this.usage.record({
-        feature: AI_USAGE_FEATURES.oakAiAnalyze,
-        applierName: input.applierName,
+        feature: OAK_USAGE_FEATURES.analyze,
+        accountId: input.profileId,
         path: '/api/oak/ai-analyze',
-        provider: auth.provider,
         requestedModel: auth.model,
         billedModel: result.model,
-        apiKey: auth.apiKey,
         usage: {
           promptTokens: result.usage.inputTokens,
           completionTokens: result.usage.outputTokens,
           totalTokens: result.usage.totalTokens,
         },
         cachedTokens: result.usage.cachedInputTokens,
-        startedAt,
         durationMs: Date.now() - t0,
         success: true,
       });
@@ -89,9 +86,9 @@ export class OakAnalyzeService {
           applierName: input.applierName,
           page: policy.page,
         });
-      const drafted = this.fillPolicy.applyPlanPolicy(
-        applyApplicantIdentityToPlan(result.plan, applicationAiIndexes),
-        policy.isAdmin,
+      const drafted = applyApplicantIdentityToPlan(
+        result.plan,
+        applicationAiIndexes,
       );
       const rewritten = await this.prose.rewriteTypingFills({
         plan: drafted,
@@ -113,13 +110,10 @@ export class OakAnalyzeService {
       };
     } catch (error) {
       await this.usage.record({
-        feature: AI_USAGE_FEATURES.oakAiAnalyze,
-        applierName: input.applierName,
+        feature: OAK_USAGE_FEATURES.analyze,
+        accountId: input.profileId,
         path: '/api/oak/ai-analyze',
-        provider: auth.provider,
         requestedModel: auth.model,
-        apiKey: auth.apiKey,
-        startedAt,
         durationMs: Date.now() - t0,
         success: false,
         error: error instanceof Error ? error.message : String(error),

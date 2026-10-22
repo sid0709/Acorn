@@ -1,3 +1,6 @@
+/** OpenAI-compatible chat endpoints Oak can call. */
+export type ChatProvider = 'openai' | 'openrouter';
+
 export type ChatMessage = {
   role: 'system' | 'user' | 'assistant';
   content: string;
@@ -7,8 +10,8 @@ export type ChatCompletionInput = {
   apiKey: string;
   model: string;
   messages: ChatMessage[];
-  /** openai | deepseek — selects API base URL. */
-  provider?: 'openai' | 'deepseek';
+  /** Selects the API base URL. */
+  provider?: ChatProvider;
   jsonMode?: boolean;
   /**
    * OpenAI structured outputs (`json_schema`). When set, preferred over jsonMode
