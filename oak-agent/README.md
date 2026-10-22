@@ -21,7 +21,7 @@ Engineering policy: [`policy-oak.md`](policy-oak.md).
                                                └──────────────────┘
 ```
 
-Auth: the Acorn email and the **extension password** from the Acorn profile (`POST /api/oak/auth/signin`, which signs in through acorn-backend). The token is an Acorn session, so it works on both backends. AI Analyze uses the profile's OpenRouter key (else OpenAI) and the saved profile, with passwords and keys stripped.
+Auth: the Acorn email and the **extension password** from the Acorn profile (`POST /api/oak/auth/signin`, which signs in through acorn-backend). The token is an Acorn session, so it works on both backends. AI Analyze uses the profile's OpenAI key (GPT-6 on OpenAI's API; OpenRouter is only for Jev) and the saved profile, with passwords and keys stripped.
 
 ## Projects
 
@@ -43,7 +43,7 @@ bun install
 bun run start:dev
 ```
 
-The Acorn profile needs an OpenRouter or OpenAI key, an extension password, and at least one Library résumé.
+The Acorn profile needs an OpenAI key (GPT-6 plans and fills each page on OpenAI's API), an OpenRouter key (Jev checks the JD shot and picks the résumé), an extension password, and at least one Library résumé.
 
 Add the UI board origin to `CORS_ORIGIN` (e.g. `http://localhost:5173`).
 
