@@ -59,6 +59,9 @@ const EMPTY_TAB_UI: TabUi = {
 
 const STEP_PAGE = 30;
 
+/** Oak's version, from extension/package.json: the same number the manifest and the website show. */
+const OAK_VERSION = import.meta.env.VITE_OAK_VERSION;
+
 export default function SidebarApp() {
   const activeTabId = useActiveTabId();
   const { page, pageList, pipelines, progress, setPipelines } = useTabSession(activeTabId);
@@ -916,6 +919,7 @@ export default function SidebarApp() {
             <span className={`oak-settings-dot ${connected ? "on" : "off"}`} aria-hidden="true" />
             <span className="oak-connection-title">Connection</span>
             <span className="oak-connection-state">{footerStatus}</span>
+            <span className="oak-connection-version">v{OAK_VERSION}</span>
           </summary>
           <div className="oak-connection-body">
             <label className="field">

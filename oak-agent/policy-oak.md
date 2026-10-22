@@ -61,7 +61,7 @@ Oak HTTP in `athens-backend/src/oak/**` should compose the existing My Resume Ed
 
 ## 6. Change discipline
 
-- Bump the Oak extension version (`extension/package.json` and `manifest.json`) on functional extension changes.
+- **Bump the Oak extension version on every shipped change.** It lives only in `extension/package.json`; the build copies it into the manifest, `VITE_OAK_VERSION` (shown in the side panel's Connection footer), and the build log, and the website's Connections page shows the same number. CI fails a change under `oak-agent/` that does not bump it. Rules: [`.claude/CLAUDE.md`](.claude/CLAUDE.md), [`.cursor/rules/oak-versioning.mdc`](.cursor/rules/oak-versioning.mdc).
 - Update `Oak/README.md` when routes or operator steps change.
 - Do not add Oak items to `Athens/src/app/features/changelog/milestones.ts`.
 

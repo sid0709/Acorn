@@ -1,7 +1,6 @@
 {
   "manifest_version": 3,
   "name": "Oak",
-  "version": "1.7.0",
   "description": "Fill job applications from the Oak side panel, match a résumé to a posting, and count a page as sent",
   "permissions": [
     "activeTab",

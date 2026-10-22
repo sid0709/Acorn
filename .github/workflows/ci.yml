@@ -114,9 +114,15 @@ jobs:
     timeout-minutes: 15
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          # The version check compares with the base commit.
+          fetch-depth: 0
       - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2.2.0
         with:
           bun-version-file: package.json
+      # Every shipped Oak change bumps oak-agent/extension/package.json (oak-agent/.claude/CLAUDE.md).
+      - name: Version bumped
+        run: bun tools/check-oak-version.mjs "${{ github.event.pull_request.base.sha || github.event.before }}"
       - name: Install
         working-directory: oak-agent
         run: bun install --frozen-lockfile
