@@ -1,0 +1,46 @@
+{
+  "name": "@nextoffer/shared",
+  "version": "1.0.0",
+  "type": "module",
+  "main": "./src/index.js",
+  "exports": {
+    ".": "./src/index.js",
+    "./pricing": {
+      "types": "./src/types.d.ts",
+      "import": "./src/pricing.js"
+    },
+    "./models": "./src/models.js",
+    "./skill-normalize": "./src/skill-normalize.js",
+    "./skill-compact": "./src/skill-compact.js",
+    "./skill-tokens": "./src/skill-tokens.js",
+    "./skill-match": "./src/skill-match.js",
+    "./job-status": {
+      "types": "./src/job-status.d.ts",
+      "import": "./src/job-status.js"
+    },
+    "./job-source": {
+      "types": "./src/job-source.d.ts",
+      "require": "./src/job-source.js",
+      "import": "./src/job-source.js",
+      "default": "./src/job-source.js"
+    },
+    "./score": "./src/score.js",
+    "./secretCrypto": "./src/secretCrypto.js",
+    "./profileApiKeys": "./src/profileApiKeys.js",
+    "./terminal-log": {
+      "types": "./src/terminal-log.d.ts",
+      "import": "./src/terminal-log.js"
+    },
+    "./ai-usage": {
+      "types": "./src/ai-usage.d.ts",
+      "import": "./src/ai-usage.js"
+    },
+    "./ai-api-usage": {
+      "types": "./src/ai-api-usage.d.ts",
+      "import": "./src/ai-api-usage.js"
+    },
+    "./document-id": "./src/document-id.js",
+    "./types": "./src/types.d.ts"
+  },
+  "types": "./src/types.d.ts"
+}
