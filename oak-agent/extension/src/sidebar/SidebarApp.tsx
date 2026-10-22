@@ -439,7 +439,7 @@ export default function SidebarApp() {
 
   const sendCurrentPage = useCallback(async () => {
     const tabId = activeTabId;
-    if (tabWorkBusy || tabId == null) return;
+    if (tabWorkBusy || tabId == null || page?.jdStatus !== "found") return;
     setSendingTabIds((prev) => new Set(prev).add(tabId));
     try {
       const res = await sendMessage<{ ok?: boolean; error?: string }>({
@@ -472,7 +472,7 @@ export default function SidebarApp() {
         return next;
       });
     }
-  }, [activeTabId, tabWorkBusy]);
+  }, [activeTabId, page?.jdStatus, tabWorkBusy]);
 
   // Each page's cost is read from the backend when it first shows up in the list.
   const costAskedRef = useRef<Set<number>>(new Set());
@@ -597,7 +597,14 @@ export default function SidebarApp() {
     ? "Reading this page for a job description"
     : "Take a shot of the job description: Oak checks it is a posting and picks a résumé";
   const sentLabel = sending ? "Sending…" : "Sent";
-  const sentTitle = "Take a full-page screenshot, count this page as sent, and close the tab";
+  // Sent needs a JD shot that found a posting: the application is counted against that job.
+  const jdDone = page?.jdStatus === "found";
+  const sentDisabled = actionsOff || !jdDone;
+  const sentTitle = jdBusy
+    ? "Wait for the JD shot to finish"
+    : jdDone
+      ? "Take a full-page screenshot, count this page as sent, and close the tab"
+      : "Take a JD shot of this page first";
   const fillLabel = fillBusy
     ? progress.message
     : progress.phase === "done"
@@ -870,7 +877,7 @@ export default function SidebarApp() {
           sentLabel={sentLabel}
           fillDisabled={actionsOff}
           jdShotDisabled={actionsOff}
-          sentDisabled={actionsOff}
+          sentDisabled={sentDisabled}
           fillTitle={fillLabel}
           jdShotTitle={jdShotTitle}
           sentTitle={sentTitle}

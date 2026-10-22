@@ -537,6 +537,10 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
           return;
         }
         await ensurePage(tabId);
+        if ((await getPage(tabId))?.jdStatus !== "found") {
+          sendResponse({ ok: false, error: "Take a JD shot of this page first" });
+          return;
+        }
         const result = await sendPage({ tabId, apiUrl: await getAthensApiUrl() });
         sendResponse({ ok: true, recorded: result.recorded, runId: result.runId });
         // Only after the backend has the screenshot: the page is done, so it goes.
