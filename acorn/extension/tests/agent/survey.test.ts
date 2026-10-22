@@ -5,6 +5,7 @@ import { ControlWatch } from "../../src/agent/control-watch.ts";
 import {
   SURVEY_OVERLAP_PX,
   SurveyKeeper,
+  actedOn,
   scrollForAction,
   settledStill,
   focusPositions,
@@ -212,6 +213,20 @@ describe("placing a point on a page that changed shape", () => {
     assert.ok(c.slept.includes(350), "the page moved, so it was given a moment to load");
   });
 
+  it("acts on a point bound to a control fixed to the window where it was measured, with no scroll", async () => {
+    // A dialog's button: at the same place in the window wherever the page is scrolled.
+    const c = setup({ fieldY: 3956, scrollY: 5000 });
+    const where = await scrollForAction(
+      c.page.cdp(),
+      click({ mark: { ...PLANNED, y: 100, fixed: true } }),
+      1,
+      c.deps,
+    );
+    assert.deepEqual(where, { x: 500, y: 100 });
+    assert.equal(c.page.scrollY, 5000, "the page did not move");
+    assert.deepEqual(c.slept, [], "nothing was waited for");
+  });
+
   it("reads the plan in the screenshot's pixels", async () => {
     const c = setup({ fieldY: 3956, scrollY: 5000 });
     const half = click({
@@ -349,5 +364,19 @@ describe("a field still to fill", () => {
     assert.ok(SURVEY_FOCUS_EDGE_PX > 0);
     assert.deepEqual(focusPositions([0], [800 - SURVEY_FOCUS_EDGE_PX], 3000, 800), []);
     assert.equal(focusPositions([0], [800 - SURVEY_FOCUS_EDGE_PX + 1], 3000, 800).length, 1);
+  });
+});
+
+describe("a screen the batch just carried out acted on", () => {
+  const zones = [{ zone: 3, screenshot: "data:,", scrollY: 3984 }];
+  it("is one that shares any of the page with a zone photographed when the zone was done", () => {
+    assert.equal(actedOn(3984, zones, 823), true);
+    assert.equal(actedOn(3645, zones, 823), true);
+    assert.equal(actedOn(4800, zones, 823), true);
+  });
+  it("is not one that begins where the zone's photo ends, or lies elsewhere", () => {
+    assert.equal(actedOn(4807, zones, 823), false);
+    assert.equal(actedOn(2000, zones, 823), false);
+    assert.equal(actedOn(3984, [], 823), false);
   });
 });

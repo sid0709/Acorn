@@ -19,8 +19,9 @@ import {
   type RunPointState,
 } from "@acorn/shared/run-types";
 
+import { anchored, type ControlMark, type LayoutMove } from "./control-marks";
+
 import type { Shot } from "./capture";
-import type { ControlMark, LayoutMove } from "./control-marks";
 import type { PageState } from "./page-scroll";
 import type { SettledMap } from "./survey";
 import type { AgentAction, AgentFieldState, AgentSurveyScreen } from "@acorn/shared/agent-contract";
@@ -150,10 +151,10 @@ export class PageMapKeeper {
 
   /**
    * The page's controls, as the page reports them (CSS pixels). A link is left out: a page has many, they
-   * are not questions, and a plan rarely aims at one.
+   * are not questions, and a plan rarely aims at one. A control fixed to the window has no place on the page.
    */
   setControls(marks: ControlMark[]): void {
-    this.marks = marks.filter((mark) => mark.kind !== "link");
+    this.marks = marks.filter((mark) => mark.kind !== "link" && anchored(mark));
     this.placeControls();
   }
 

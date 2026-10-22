@@ -71,8 +71,10 @@ type Snapshot struct {
 	// model can enter a password it never sees.
 	Secrets map[string]string
 	// APIKey is the OpenRouter key kept in the profile, used when the server has none of its own.
-	APIKey  string
-	Resumes []Resume
+	APIKey string
+	// OpenAIKey is the OpenAI key kept in the profile, for the decisions asked of OpenAI.
+	OpenAIKey string
+	Resumes   []Resume
 }
 
 // Store reads the data folder. It re-reads on every Snapshot so an edit applies to the

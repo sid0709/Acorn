@@ -28,13 +28,15 @@ type turn struct {
 
 // session is one application run: the applicant, the model's memory, and its history.
 type session struct {
-	id      string
-	key     string         // the person's OpenRouter key; held in memory only
-	auth    applicant.Auth // whose profile and files the run reads; held in memory only
-	start   Start
-	snap    applicant.Snapshot
-	system  string
-	created time.Time
+	id  string
+	key string // the person's OpenRouter key; held in memory only
+	// openaiKey is the person's OpenAI key, for the decisions asked of OpenAI; held in memory only.
+	openaiKey string
+	auth      applicant.Auth // whose profile and files the run reads; held in memory only
+	start     Start
+	snap      applicant.Snapshot
+	system    string
+	created   time.Time
 
 	mu      sync.Mutex
 	touched time.Time
@@ -73,8 +75,12 @@ type session struct {
 	jd       string
 	jdSeen   map[string]bool
 	jdChecks int
-	// vetted holds what the decision model already said about a control or window, by its description.
+	// vetted holds what the decision model already said about a window or frame, by its description.
 	vetted map[string]VetVerdict
+	// failedStreak counts model steps in a row whose every action failed the same way, and lastFailure is
+	// that failure: a plan refused whole, step after step, is a loop the model cannot see out of (repeat.go).
+	failedStreak int
+	lastFailure  string
 	// fallback is the résumé folder to offer when there is no job description ("" when none is set).
 	fallback string
 	// pendingUpload is an upload held until the person says which résumé to send.
@@ -128,6 +134,9 @@ type session struct {
 	// marks binds each point of the plan being carried out to the control it is on, by action id
 	// (marks.go).
 	marks map[string]MarkRef
+	// aimedFrom is each action of the plan that aim.go moved onto a control's entry, as the model planned
+	// it, by action id: the check of the points puts it back when the picture refutes the move.
+	aimedFrom map[string]Action
 	// settled is the parts of the page the model will not come back to (settled.go).
 	settled settledState
 	// viewport is the window as the last look saw it, to check the pictures sent mid-batch against.
@@ -139,6 +148,22 @@ type session struct {
 	reviews reviewState
 	// snaps are the photos of open dropdowns sent mid-batch, by action id (probe.go).
 	snaps map[string]ShotUpload
+	// lastClickKeys are the clicks of the plan before, by point (repeat.go), clickRepeats how many plans in a
+	// row carried a click at each such point on a field still empty, and checkRetry the click of this plan
+	// that is made again with a picture after it, so a check box the page toggled back is set with Space.
+	lastClickKeys map[string]string
+	clickRepeats  map[string]int
+	checkRetry    string
+	// checkRetryClick is that click as the plan had it, and checkRetrySpace that this time Space is pressed
+	// on the focused control instead of clicking it once more.
+	checkRetryClick Action
+	checkRetrySpace bool
+	// checkRetryPressed is that the retry being carried out pressed Space, for the note its picture earns.
+	checkRetryPressed bool
+	// typedAt is, for each type action of the plan being carried out, the point action before it (the
+	// click on its field), by the type action's id: typing that opens a list of suggestions is finished
+	// like a choose on that field (probe.go).
+	typedAt map[string]Action
 	// surveyAgain asks for the next look to be a survey: points of the last plan were not carried
 	// out, and the model must see the whole page again to plan them.
 	surveyAgain bool
@@ -157,6 +182,12 @@ type session struct {
 	listHold listHold
 	// alreadyApplied is that the done check read the page as saying the application was sent before.
 	alreadyApplied bool
+	// heldSend is the click that sends the page or goes on, held from a plan while the to-do list still had
+	// empty fields; reviewed is, by zone, whether the photo of each zone of the plan being carried out showed
+	// every field as planned; probeUnsure is that a dropdown of it showed no sure option (autosend.go).
+	heldSend    *heldSend
+	reviewed    map[int]bool
+	probeUnsure bool
 	// retry holds the fields whose fill did not verify since the model last looked (focus.go); planScrollY
 	// is where the page was scrolled when the plan being carried out was made.
 	retry       []focusTarget
@@ -178,6 +209,10 @@ type session struct {
 	fields        []FieldState
 	fieldsURL     string
 	fieldsChanged bool
+	// fieldsVersion counts the changes to the list, and fieldsWake is closed on each, so a wait for a newer
+	// list (WaitFields, fields.go) wakes: the sidebar follows the reviews as they come, not only the looks.
+	fieldsVersion int
+	fieldsWake    chan struct{}
 }
 
 // addTrace keeps the trace of an entry until the next answer carries it to the extension.

@@ -25,9 +25,12 @@ import {
   type AgentStart,
   type AgentStarted,
   type AgentStep,
+  type AgentFieldsUpdate,
   type AgentVetTarget,
   type AgentLocate,
   type AgentLocated,
+  type AgentAction,
+  type AgentShotAnswer,
   type AgentShotUpload,
   type AgentVetVerdict,
 } from "@acorn/shared/agent-contract";
@@ -57,6 +60,8 @@ import type { LanePriority } from "./upload-lane";
 export const STEP_TIMEOUT_MS = 6 * 60_000;
 /** Opening a run, ending one, and the health check are quick. */
 export const QUICK_TIMEOUT_MS = 20_000;
+/** The longest one wait for a newer to-do list runs: the server answers within 25 s either way. */
+export const FIELDS_WAIT_TIMEOUT_MS = 40_000;
 /** A file comes back whole (a résumé of a few hundred kilobytes): this, and what its size adds for a slow line. */
 export const FILE_TIMEOUT_MS = 60_000;
 /** How many times a look is sent when the server names pictures as missing; the last time it goes as bytes alone. */
@@ -376,7 +381,7 @@ export async function sendStep(
   }
 }
 
-/** Asks whether a control about to be clicked, or a window a click opened, is an online file source. */
+/** Asks whether a window a click opened, or a frame that appeared in the page, is an online file source, another service's sign-in or an autofill from elsewhere. */
 export async function vetTarget(
   base: string,
   sessionId: string,
@@ -420,6 +425,24 @@ export async function locateTarget(
 }
 
 /**
+ * Waits for the form's to-do list to change (a zone's photo reviewed, a look) and brings it, or brings the
+ * same version and no list when nothing changed for a while. It goes beside the upload lane: it carries
+ * nothing up the line, and the lane's turn-taking is for what does.
+ */
+export async function waitFields(
+  base: string,
+  sessionId: string,
+  since: number,
+  signal: AbortSignal,
+): Promise<AgentFieldsUpdate> {
+  const response = await call(base, AGENT_ROUTES.fields(sessionId, since), {
+    signal,
+    timeoutMs: FIELDS_WAIT_TIMEOUT_MS,
+  });
+  return parseJson<AgentFieldsUpdate>(response);
+}
+
+/**
  * Sends a picture while a batch is still being carried out; the agent works on it meanwhile. The server
  * keeps it, so the look after the batch refers to it instead of carrying it again. A zone photo goes in
  * the background, behind whatever an action is waiting on; a dropdown's picture is waited on itself.
@@ -431,9 +454,9 @@ export async function sendShot(
   signal: AbortSignal,
   onTiming?: CallOptions["onTiming"],
   priority: LanePriority = "urgent",
-): Promise<void> {
+): Promise<AgentAction[]> {
   const transport = transportOf(sessionId);
-  const sending = (async () => {
+  const sending = (async (): Promise<AgentAction[]> => {
     const hashes = await imageHashes(packableShot(upload));
     for (let attempt = 0; ; attempt += 1) {
       const refs = transport.can.blobs === true && attempt === 0;
@@ -444,7 +467,7 @@ export async function sendShot(
         refs,
       );
       try {
-        await transport.lane.run(priority, () =>
+        const answer = await transport.lane.run(priority, () =>
           call(base, AGENT_ROUTES.shots(sessionId), {
             method: "POST",
             body: packed.body,
@@ -455,7 +478,7 @@ export async function sendShot(
           }),
         );
         if (transport.can.blobs) for (const hash of hashes) transport.held.add(hash);
-        return;
+        return parseJson<AgentShotAnswer>(answer).then ?? [];
       } catch (err) {
         if (!namesMissingPictures(err) || attempt > 0) throw err;
         for (const hash of err.missing) transport.held.delete(hash);
@@ -463,7 +486,7 @@ export async function sendShot(
     }
   })();
   trackPending(transport, upload.screenshot, sending);
-  await sending;
+  return sending;
 }
 
 /**

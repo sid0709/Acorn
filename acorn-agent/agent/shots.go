@@ -39,10 +39,14 @@ type ShotUpload struct {
 // ReceiveShot takes a picture the extension sent mid-batch. A zone shot starts its review at once; a snap
 // is kept for the probe that is waiting for it. A picture that is not an image the size of the page's
 // window is dropped (the run goes on; it is looked at again after the plan).
-func (a *Agent) ReceiveShot(ctx context.Context, id string, upload ShotUpload) error {
+//
+// A snap of a dropdown the plan is setting in one pass is answered at once with what the extension does next
+// while the list is open (probe.go answerSnap): the option to click, the text to type and a picture again, or
+// the key that closes it.
+func (a *Agent) ReceiveShot(ctx context.Context, id string, upload ShotUpload) ([]Action, error) {
 	s, ok := a.sessions.get(id)
 	if !ok {
-		return ErrNoSession
+		return nil, ErrNoSession
 	}
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -51,7 +55,7 @@ func (a *Agent) ReceiveShot(ctx context.Context, id string, upload ShotUpload) e
 		width, height, err := imageSize(upload.Screenshot)
 		if err != nil || abs(width-s.viewport.Width) > sizeTolerance || abs(height-s.viewport.Height) > sizeTolerance {
 			slog.Debug(runName(id) + ": a picture sent mid-batch was not the size of the window and was dropped.")
-			return nil
+			return nil, nil
 		}
 	}
 	switch upload.Kind {
@@ -59,7 +63,7 @@ func (a *Agent) ReceiveShot(ctx context.Context, id string, upload ShotUpload) e
 		a.startReview(s, ZoneShot{Zone: upload.Zone, Screenshot: upload.Screenshot, ScrollY: upload.ScrollY})
 	case ShotSnap:
 		if upload.ID == "" {
-			return fmt.Errorf("%w: a snap has no action id", ErrBadObservation)
+			return nil, fmt.Errorf("%w: a snap has no action id", ErrBadObservation)
 		}
 		if s.snaps == nil {
 			s.snaps = map[string]ShotUpload{}
@@ -68,8 +72,9 @@ func (a *Agent) ReceiveShot(ctx context.Context, id string, upload ShotUpload) e
 			s.snaps = map[string]ShotUpload{}
 		}
 		s.snaps[upload.ID] = upload
+		return a.answerSnap(ctx, s, upload), nil
 	default:
-		return fmt.Errorf("%w: a shot of kind %q", ErrBadObservation, upload.Kind)
+		return nil, fmt.Errorf("%w: a shot of kind %q", ErrBadObservation, upload.Kind)
 	}
-	return nil
+	return nil, nil
 }

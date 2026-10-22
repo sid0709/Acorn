@@ -14,65 +14,48 @@ import (
 )
 
 // The applicant has not allowed online file sources (a cloud drive, a file-sharing service, a
-// sign-in to one) and a file only ever comes from this computer. The prompt says so, and the model
-// that drives the run sees the screen; this check reads only a description of a control taken from
-// the page, so it never overrides that model: a control the decision model takes for such a source
-// is clicked as planned, and the model is told the doubt in the result, to judge from the screen (a
-// live run was locked out of a plain location box for seven steps when a description was misread).
-// A window or frame a click opened is another matter: it is an outcome, not a guess, so one that is
-// more likely than not an online file source or another service's sign-in is closed, and the model
-// is told. There is no list of services in code: the model judges what a control or page is, and
-// no tunable cutoff: "more likely than not" is the one reading of a yes/no answer.
+// sign-in to one), another service's sign-in (single sign-on through a social network, an e-mail or
+// search provider, a work platform), or an autofill from anything but a résumé file uploaded from
+// this computer (a saved profile or earlier application kept at the job board or another service,
+// an account connected or signed in to fetch the applicant's details: "Autofill my application",
+// "Apply with" a service). The prompt says so, and the model that drives the run sees the screen and
+// chooses what to click: nothing here judges a control before it is clicked. A window or frame a
+// click opened is another matter: it is an outcome, not a guess, so one that is more likely than not
+// one of those is closed, and the model is told. There is no list of services in code: the decision
+// model judges what a page is, and no tunable cutoff: "more likely than not" is the one reading of a
+// yes/no answer.
 //
-// The same check keeps the run from signing in through another service's account (single sign-on
-// through a social network, an e-mail or search provider, a work platform): the applicant's own
-// e-mail and password are used, and a window that would start one is closed.
-//
-// A third question keeps the run from filling the form from anything but a résumé file: a saved
-// profile or earlier application kept at the job board or another service, an account that is
-// connected or signed in to fetch the applicant's details ("Autofill my application", "Apply with
-// X"). Unlike the other two, this one refuses the control itself: the prompt already forbids such a
-// button, a recorded run pressed one anyway, landed on the job board's own sign-in and typed the
-// job's address into its e-mail box; the click is the harm, so it is not made. The one autofill that
-// is allowed is the page reading a résumé file uploaded from this computer, and the question says so.
+// Until 2.10.0 the control under the pointer was described from the page and judged the same way
+// before every click, and an autofill from elsewhere refused the click. A description alone misled
+// the decision model: in a recorded Greenhouse run the options "Indeed", "Linkedin" and "Glassdoor"
+// of "How did you learn about this job?" and the form's own container were judged such an autofill
+// (0.55 to 0.76), the refusal was cached for the run, and one click was refused 33 times over 854 s
+// while the fields planned below it were never reached. Only the model, which sees the screen,
+// decides now; the prompt tells it that it is the one check, and what a slip opens is closed here.
 
 const (
 	askOnlineSource  = "online_source"
 	askSingleSignOn  = "single_sign_on"
 	askOtherAutofill = "other_autofill"
-	// Why a click was refused: it reached an online file source, another service's sign-in, or an
+	// Why a window or frame was closed: it is an online file source, another service's sign-in, or an
 	// autofill from anything but a résumé file.
 	CauseOnlineSource  = "online_source"
 	CauseSingleSignOn  = "single_sign_on"
 	CauseOtherAutofill = "other_autofill"
-	// Kinds of thing the extension asks about.
-	VetControl = "control"
-	VetWindow  = "window"
-	VetFrame   = "frame"
+	// Kinds of thing the extension asks about: a window a click opened, or a frame that appeared in the page.
+	VetWindow = "window"
+	VetFrame  = "frame"
 	// maxVetText bounds each piece of a description.
 	maxVetText = 240
 	// likely is the one reading of a yes/no answer: more likely than not.
 	likely = 0.5
 )
 
-// VetTarget describes what is about to be clicked (VetControl), or a window or frame a click
-// opened (VetWindow, VetFrame). The extension reads it from the page; nothing in it is a
-// judgment.
+// VetTarget describes a window or frame a click opened (VetWindow, VetFrame). The extension reads it
+// from the page; nothing in it is a judgment.
 type VetTarget struct {
 	Kind string `json:"kind"`
-	// A control: its tag and what it says of itself, and whether it sits in a component that
-	// holds a file input (where the buttons that attach a file live).
-	Tag             string `json:"tag,omitempty"`
-	Type            string `json:"type,omitempty"`
-	Role            string `json:"role,omitempty"`
-	Text            string `json:"text,omitempty"`
-	Label           string `json:"label,omitempty"`
-	Title           string `json:"title,omitempty"`
-	Alt             string `json:"alt,omitempty"`
-	LinkHost        string `json:"linkHost,omitempty"`
-	IDClass         string `json:"idClass,omitempty"`
-	InFileComponent bool   `json:"inFileComponent,omitempty"`
-	// A window or frame: where it went and what it shows.
+	// Where it went and what it shows.
 	URL     string `json:"url,omitempty"`
 	Title2  string `json:"windowTitle,omitempty"`
 	Excerpt string `json:"excerpt,omitempty"`
@@ -80,19 +63,15 @@ type VetTarget struct {
 	PageURL string `json:"pageUrl,omitempty"`
 }
 
-// VetVerdict says whether to go ahead. A control is never blocked: Hint carries the doubt, for the
-// model to weigh against the screen. A window or frame is blocked when it is more likely than not what
-// the applicant has not allowed.
+// VetVerdict says whether to go ahead: a window or frame is blocked (closed) when it is more likely
+// than not what the applicant has not allowed.
 type VetVerdict struct {
 	Blocked     bool    `json:"blocked"`
 	Probability float64 `json:"probability"`
-	// Cause is what it looks like: CauseOnlineSource or CauseSingleSignOn.
+	// Cause is what it looks like: one of the Cause* values.
 	Cause string `json:"cause,omitempty"`
 	// Reason is for the model and the person, in plain words, when Blocked.
 	Reason string `json:"reason,omitempty"`
-	// Hint is for the model, when a control it is about to click looks like something the applicant
-	// has not allowed: the click goes ahead, and the model judges from the screen.
-	Hint string `json:"hint,omitempty"`
 }
 
 func clipField(text string) string {
@@ -107,43 +86,23 @@ func (t VetTarget) state() string {
 			fmt.Fprintf(&out, "%s: %s\n", name, value)
 		}
 	}
-	switch t.Kind {
-	case VetWindow, VetFrame:
-		what := "A new browser window"
-		if t.Kind == VetFrame {
-			what = "A new frame inside the page"
-		}
-		out.WriteString(what + " opened after a click on a job application page.\n")
-		field("Address", t.URL)
-		field("Title", t.Title2)
-		field("Text on it", t.Excerpt)
-	default:
-		out.WriteString("A control on a job application page that is about to be clicked.\n")
-		field("Element", t.Tag)
-		field("Type", t.Type)
-		field("Role", t.Role)
-		field("Text", t.Text)
-		field("Label", t.Label)
-		field("Title", t.Title)
-		field("Image description", t.Alt)
-		field("Link goes to", t.LinkHost)
-		field("Id and classes", t.IDClass)
-		if t.InFileComponent {
-			out.WriteString("It sits in a file upload component.\n")
-		}
+	what := "A new browser window"
+	if t.Kind == VetFrame {
+		what = "A new frame inside the page"
 	}
+	out.WriteString(what + " opened after a click on a job application page.\n")
+	field("Address", t.URL)
+	field("Title", t.Title2)
+	field("Text on it", t.Excerpt)
 	field("On the page", t.PageURL)
 	return out.String()
 }
 
+// question asks whether a window or frame is an online file source or a place to paste a document's text.
 func (t VetTarget) question() jev.Question {
-	subject := "control"
-	if t.Kind != VetControl {
-		subject = "window or frame"
-	}
 	return jev.Question{
 		Type: jev.TypeNoul,
-		Instructions: "Is this " + subject + " a way to choose, import or sign in to a file from an online service or cloud storage " +
+		Instructions: "Is this window or frame a way to choose, import or sign in to a file from an online service or cloud storage " +
 			"(a cloud drive, a file-sharing service, an account of such a service), or a way to type or paste a document's text instead of uploading a file from the computer? " +
 			"Answer yes only for such a source. A button that opens the computer's own file picker, a form field, a navigation button, a submit button, " +
 			"or a page of the employer's own application is not one.",
@@ -151,15 +110,11 @@ func (t VetTarget) question() jev.Question {
 	}
 }
 
-// signOnQuestion asks whether a control, window or frame signs in with another service's account.
+// signOnQuestion asks whether a window or frame signs in with another service's account.
 func (t VetTarget) signOnQuestion() jev.Question {
-	subject := "control"
-	if t.Kind != VetControl {
-		subject = "window or frame"
-	}
 	return jev.Question{
 		Type: jev.TypeNoul,
-		Instructions: "Is this " + subject + " a way to sign in or sign up with an account of another service " +
+		Instructions: "Is this window or frame a way to sign in or sign up with an account of another service " +
 			"(single sign-on through a social network, an e-mail or search provider, a developer or work platform), " +
 			"instead of the employer's own e-mail and password form? " +
 			"Answer yes only for such a button, link, window or page. The employer's own sign-in, sign-up, continue or submit buttons, " +
@@ -168,16 +123,12 @@ func (t VetTarget) signOnQuestion() jev.Question {
 	}
 }
 
-// autofillQuestion asks whether a control, window or frame fills the application from anything but a
-// résumé file uploaded from this computer.
+// autofillQuestion asks whether a window or frame fills the application from anything but a résumé
+// file uploaded from this computer.
 func (t VetTarget) autofillQuestion() jev.Question {
-	subject := "control"
-	if t.Kind != VetControl {
-		subject = "window or frame"
-	}
 	return jev.Question{
 		Type: jev.TypeNoul,
-		Instructions: "Is this " + subject + " a way to fill in the application from somewhere other than a résumé file uploaded from this computer: " +
+		Instructions: "Is this window or frame a way to fill in the application from somewhere other than a résumé file uploaded from this computer: " +
 			"a profile or an earlier application saved at the job board or at another service, an account of another service that is connected, " +
 			"linked or signed in to fetch the applicant's details, or a page that asks for such a sign-in or a code to do so? " +
 			"Answer yes for such a button, link, window or page (\"Autofill my application\", \"Use my saved application\", \"Apply with\" a service, \"Import profile\"). " +
@@ -191,18 +142,19 @@ func (t VetTarget) questions() map[string]jev.Question {
 	return map[string]jev.Question{askOnlineSource: t.question(), askSingleSignOn: t.signOnQuestion(), askOtherAutofill: t.autofillQuestion()}
 }
 
-// Hints for the model about a control that goes ahead though it looks like something not allowed.
+// Why a window or frame was closed, for the model and the person.
 const (
-	hintOnlineSource = "a checker read this control's description as an online file source or a place to paste a document's text; " +
-		"Acorn only ever attaches a file from this computer with upload, so if the screen shows that is what it is, leave it and use the file upload instead"
-	hintSingleSignOn = "a checker read this control's description as a sign-in through another service's account, which Acorn never uses; " +
-		"if the screen shows that is what it is, close what it opened and use the employer's own e-mail and password form"
-	// reasonOtherAutofill is why an autofill from elsewhere is refused, for the model and the person.
+	reasonOnlineSource  = "it looks like an online file source or a place to paste text"
+	reasonSingleSignOn  = "it signs in through another service's account, and Acorn never does; use the employer's own e-mail and password"
 	reasonOtherAutofill = "it fills the application from a saved profile or another service, and only a résumé file from this computer may fill it; " +
 		"fill the fields from the applicant's details instead"
+	// reasonNotJudged answers a kind this server does not judge (an older extension asking about a
+	// control before a click): it goes ahead.
+	reasonNotJudged = "only a window or frame is judged"
 )
 
-// Vet judges something the extension is about to click, or has just had opened.
+// Vet judges a window a click opened, or a frame that appeared in the page. Anything else goes ahead
+// without a question.
 func (a *Agent) Vet(ctx context.Context, id string, target VetTarget) (VetVerdict, error) {
 	s, ok := a.sessions.get(id)
 	if !ok {
@@ -211,12 +163,15 @@ func (a *Agent) Vet(ctx context.Context, id string, target VetTarget) (VetVerdic
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	s.touched = a.now()
+	if target.Kind != VetWindow && target.Kind != VetFrame {
+		return VetVerdict{Reason: reasonNotJudged}, nil
+	}
 	state := target.state()
 	if cached, ok := s.vetted[state]; ok {
 		return cached, nil
 	}
 	started := a.now()
-	res, err := a.newDecider(s.key).Decide(ctx, jev.Request{
+	res, err := a.decideText(ctx, s, "what the window or frame is", jev.Request{
 		State:     state,
 		Questions: target.questions(),
 	})
@@ -244,34 +199,19 @@ func (a *Agent) Vet(ctx context.Context, id string, target VetTarget) (VetVerdic
 			autofill = *other.Noul
 		}
 		switch {
-		// An autofill from a saved profile or another service is refused outright, so it comes first: it
-		// often looks like a sign-in too, and the sign-in reading would only hint.
+		// An autofill from elsewhere often looks like a sign-in too, so it is read first.
 		case autofill >= likely:
-			verdict.Cause, verdict.Probability = CauseOtherAutofill, autofill
+			verdict.Cause, verdict.Probability, verdict.Reason = CauseOtherAutofill, autofill, reasonOtherAutofill
 		case verdict.Probability >= likely:
-			verdict.Cause = CauseOnlineSource
+			verdict.Cause, verdict.Reason = CauseOnlineSource, reasonOnlineSource
 		case signOn >= likely:
-			verdict.Cause, verdict.Probability = CauseSingleSignOn, signOn
+			verdict.Cause, verdict.Probability, verdict.Reason = CauseSingleSignOn, signOn, reasonSingleSignOn
 		}
-		// A control goes ahead with the doubt told to the model, except an autofill from elsewhere, which is
-		// refused; a window or frame that opened is closed.
-		switch {
-		case verdict.Cause == "":
-		case verdict.Cause == CauseOtherAutofill:
-			verdict.Blocked, verdict.Reason = true, reasonOtherAutofill
-		case target.Kind == VetControl && verdict.Cause == CauseOnlineSource:
-			verdict.Hint = hintOnlineSource
-		case target.Kind == VetControl:
-			verdict.Hint = hintSingleSignOn
-		case verdict.Cause == CauseOnlineSource:
-			verdict.Blocked, verdict.Reason = true, "it looks like an online file source or a place to paste text"
-		default:
-			verdict.Blocked, verdict.Reason = true, "it signs in through another service's account, and Acorn never does; use the employer's own e-mail and password"
-		}
+		verdict.Blocked = verdict.Cause != ""
 	}
 	if failed != "" {
-		// Nothing is blocked on a check that could not be made: a failed check must not stop a click or
-		// close a page the application opened.
+		// Nothing is blocked on a check that could not be made: a failed check must not close a page the
+		// application opened.
 		verdict.Reason = "could not be checked"
 		slog.Warn(runName(s.id)+": could not check a "+target.Kind+" for online file sources, so it is let be.", plainlog.ErrorKey, failed)
 	}

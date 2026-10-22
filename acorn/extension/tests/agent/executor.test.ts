@@ -110,6 +110,24 @@ describe("a batch after an action that failed", () => {
     );
   });
 
+  it("marks what reached no control as unreached, so the agent does not give the plan up for it", async () => {
+    const page = new FakePage();
+    const { ctx } = context({ cdp: page.cdp() });
+    const results = await runActions(ctx, [
+      { id: "a1", kind: "type", text: "Stanley" },
+      { id: "a2", kind: "key", keys: "Tab" },
+      { id: "a3", kind: "click", x: 10, y: 10 },
+    ]);
+    assert.deepEqual(
+      results.map((result) => [result.id, result.ok, result.unreached]),
+      [
+        ["a1", false, true],
+        ["a2", false, true],
+        ["a3", true, undefined],
+      ],
+    );
+  });
+
   it("stops at any other failure, as what follows was planned for a page that failure did not leave", async () => {
     const { ctx } = context();
     const results = await runActions(ctx, [
@@ -126,5 +144,35 @@ describe("a batch after an action that failed", () => {
       ],
     );
     assert.equal(results[1]?.error, SKIPPED_ERROR);
+  });
+});
+
+describe("a dropdown set in one pass", () => {
+  it("carries out what the agent answers its picture with before the rest of the batch", async () => {
+    const order: string[] = [];
+    const { ctx } = context({
+      snap: (action) => {
+        order.push(action.id);
+        return Promise.resolve([{ id: "s1ch9", kind: "click", x: 40, y: 90 }]);
+      },
+      afterClick: () => Promise.resolve(),
+      progress: (action, state) => {
+        if (state === "started") order.push(action.id);
+      },
+    });
+    const results = await runActions(ctx, [
+      { id: "s1ch2", kind: "click", x: 40, y: 50 },
+      { id: "s1ch1", kind: "snap" },
+      { id: "s1a3", kind: "click", x: 40, y: 200 },
+    ]);
+    assert.deepEqual(
+      results.map((result) => [result.id, result.ok]),
+      [
+        ["s1ch2", true],
+        ["s1ch1", true],
+        ["s1ch9", true],
+        ["s1a3", true],
+      ],
+    );
   });
 });

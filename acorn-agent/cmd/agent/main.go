@@ -20,7 +20,6 @@ import (
 	"github.com/sid0709/acorn/acorn-agent/httpapi"
 	"github.com/sid0709/acorn/acorn-agent/llm"
 	"github.com/sid0709/acorn/acorn-backend/config"
-	"github.com/sid0709/acorn/acorn-backend/jev"
 	"github.com/sid0709/acorn/acorn-backend/plainlog"
 )
 
@@ -74,8 +73,17 @@ const (
 	envUnavailableSure = "ACORN_AGENT_UNAVAILABLE_PERCENT"
 	envProbe           = "ACORN_AGENT_PROBE_DROPDOWNS"
 	envChecks          = "ACORN_AGENT_CHECKS"
-	envScreenModel     = "ACORN_AGENT_SCREEN_MODEL"
-	envDecisionsURL    = "ACORN_AGENT_DECISIONS_URL"
+	// The decision routes (decide.Gateway): questions asked of text go to envDecisionTextModel on OpenRouter
+	// (Jev by default); questions about a screenshot to envDecisionImageProvider (OpenRouter by default, where
+	// GPT-6 Luna Decisions answered in about a second; "openai" for OpenAI's own Decisions API, on the profile's
+	// OpenAI key) and its model, envDecisionImageModel. envScreenModel is the older name of the image model on
+	// OpenRouter, which is also the route when the provider is OpenAI and the profile has no OpenAI key.
+	envDecisionTextModel     = "ACORN_AGENT_DECISION_TEXT_MODEL"
+	envDecisionImageModel    = "ACORN_AGENT_DECISION_IMAGE_MODEL"
+	envDecisionImageProvider = "ACORN_AGENT_DECISION_IMAGE_PROVIDER"
+	envOpenAIDecisionsURL    = "ACORN_AGENT_OPENAI_DECISIONS_URL"
+	envScreenModel           = "ACORN_AGENT_SCREEN_MODEL"
+	envDecisionsURL          = "ACORN_AGENT_DECISIONS_URL"
 	// envFallbackResume names the résumé folder offered to the person when a résumé is wanted and no
 	// job description was found, when the applicant is a local folder.
 	envFallbackResume = "DEFAULT_FALLBACK_RESUME"
@@ -93,6 +101,7 @@ const (
 	envKeepTurns     = "ACORN_AGENT_KEEP_TURNS"
 	envKeepImages    = "ACORN_AGENT_KEEP_IMAGES"
 	envMaxStale      = "ACORN_AGENT_MAX_STALE"
+	envMaxFailed     = "ACORN_AGENT_MAX_FAILED_STEPS"
 	envMaxModelCalls = "ACORN_AGENT_MAX_MODEL_CALLS"
 	envAgentPort     = "ACORN_AGENT_PORT"
 )
@@ -171,6 +180,7 @@ func run() error {
 	cfg.KeepTurns = config.EnvInt(envKeepTurns, cfg.KeepTurns)
 	cfg.KeepImages = config.EnvInt(envKeepImages, cfg.KeepImages)
 	cfg.MaxStale = config.EnvInt(envMaxStale, cfg.MaxStale)
+	cfg.MaxFailedSteps = config.EnvInt(envMaxFailed, cfg.MaxFailedSteps)
 	if !isOff(config.Env(envTrace, "")) {
 		cfg.TraceDir = config.Env(envTraceDir, defaultTraceDir)
 	}
@@ -196,16 +206,29 @@ func run() error {
 		cfg.FallbackResume = config.Env(envFallbackResume, "")
 	}
 
-	// The checks between a plan's runs of actions need a decision model that reads a screenshot.
+	// Every decision goes through one gateway, which sends a question about a screenshot to the image route and
+	// any other to the text route, on the person's keys; the checks between a plan's runs of actions are its
+	// questions about pictures.
 	decisionsURL := config.Env(envDecisionsURL, config.OpenRouterDecisionsURL)
-	var newScreen func(key string) agent.Screen
-	screenModel := config.Env(envScreenModel, config.ScreenDecisionModel)
-	if !isOff(config.Env(envChecks, "")) {
-		newScreen = func(key string) agent.Screen { return decide.New(key, screenModel, decisionsURL) }
+	openAIDecisionsURL := config.Env(envOpenAIDecisionsURL, config.OpenAIDecisionsURL)
+	openRouterImage := decide.Route{Provider: decide.ProviderOpenRouter, Model: config.Env(envScreenModel, config.ScreenDecisionModel), URL: decisionsURL}
+	image := decide.Route{Provider: decide.ProviderOpenRouter, Model: config.Env(envDecisionImageModel, openRouterImage.Model), URL: decisionsURL}
+	if config.Env(envDecisionImageProvider, decide.ProviderOpenRouter) == decide.ProviderOpenAI {
+		image = decide.Route{Provider: decide.ProviderOpenAI, Model: config.Env(envDecisionImageModel, config.OpenAIDecisionModel), URL: openAIDecisionsURL}
 	}
+	routes := decide.Routes{
+		Text:          decide.Route{Provider: decide.ProviderOpenRouter, Model: config.Env(envDecisionTextModel, config.JevModel), URL: decisionsURL},
+		Image:         image,
+		ImageFallback: openRouterImage,
+	}
+	var newScreen func(keys decide.Keys) agent.Screen
+	if !isOff(config.Env(envChecks, "")) {
+		newScreen = func(keys decide.Keys) agent.Screen { return decide.NewGateway(keys, routes) }
+	}
+	screenModel := decide.NewGateway(decide.Keys{OpenAI: "set"}, routes).Name()
 	a := agent.New(cfg, source,
 		func(key string) llm.Model { return llm.NewOpenRouter(key, model, baseURL, reasoning) },
-		func(key string) agent.Decider { return jev.NewWithURL(key, decisionsURL) },
+		func(keys decide.Keys) agent.Decider { return decide.NewGateway(keys, routes) },
 		newScreen,
 	)
 	defaultKey := config.Env(envOpenRouterKey, "")
@@ -225,10 +248,13 @@ func run() error {
 
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
-	go jev.Warm(ctx)
-	if newScreen != nil {
+	warm := func(ctx context.Context) {
+		go llm.Warm(ctx, baseURL)
 		go decide.Warm(ctx, decisionsURL)
+		decide.Warm(ctx, openAIDecisionsURL)
 	}
+	a.SetWarm(warm)
+	go warm(ctx)
 	failed := make(chan error, 1)
 	go func() {
 		slog.Info(listeningStory(httpConfig.Addr, model, screenModel, newScreen != nil, source.Kind(), location, defaultKey != "", cfg.TraceDir, cfg.StopBeforeSubmit))
@@ -263,7 +289,7 @@ func logLevel() slog.Level {
 func listeningStory(addr, model, screenModel string, checks bool, applicantKind, from string, hasKey bool, traceDir string, stopBeforeSubmit bool) string {
 	line := fmt.Sprintf("The agent is ready on %s. It drives the browser with %s", addr, model)
 	if checks {
-		line += " and checks the screen with " + screenModel
+		line += " and asks its decisions of " + screenModel
 	} else {
 		line += ", with screen checks turned off"
 	}

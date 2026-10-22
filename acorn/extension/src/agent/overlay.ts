@@ -29,10 +29,14 @@ const OVERLAY_GLOBAL = "__acornAgentOverlay";
 const OVERLAY_Z_INDEX = 2147483647;
 /** How close (CSS px) the gliding cursor must come to a point to count as there: the 44px cursor looks arrived. */
 const CURSOR_ARRIVE_PX = 6;
-/** The longest a move waits for the cursor to arrive (a background tab draws no frames). */
-const CURSOR_ARRIVE_MAX_MS = 900;
+/**
+ * The longest a move waits for the cursor to arrive (a background tab draws no frames). The cursor is what the
+ * person watches, not what clicks: the click goes to the point whatever the cursor's place, so it is not held
+ * for the cursor's flight (2.9.0: it was 900 ms, up to a second a click).
+ */
+const CURSOR_ARRIVE_MAX_MS = 150;
 /** How long the cursor stays pressed for a click: the demo's mouse-down to mouse-up. */
-const CLICK_PRESS_MS = 140;
+const CLICK_PRESS_MS = 60;
 /** How long the overlay takes to fade back in after a screenshot. */
 const CAPTURE_FADE_IN_MS = 180;
 /**
@@ -194,7 +198,7 @@ const OVERLAY_CSS = `
  * may forbid it) and its stylesheet without a style element (a page's CSP may forbid
  * that), and calling it again on a page that has it only reconnects it.
  *
- * The cursor's motion is the demo's: every frame the cursor moves a fifth of the way to its
+ * The cursor's motion is the demo's: every frame the cursor moves a third of the way to its
  * target, tilts with its smoothed sideways speed (at most 45 degrees), and sheds sparks when
  * it moves; a click presses it and bursts 45 sparks. moveTo resolves when it has arrived.
  */
@@ -389,7 +393,7 @@ export const OVERLAY_SCRIPT = `(() => {
 
   // The person asked their system for less motion: no sparks, and a short glide.
   const reduced = Boolean(window.matchMedia && window.matchMedia("(prefers-reduced-motion: reduce)").matches);
-  const chase = reduced ? 0.45 : 0.2;
+  const chase = reduced ? 0.6 : 0.35;
 
   function spawnParticles(x, y, count, isClick = false) {
     if (reduced) return;

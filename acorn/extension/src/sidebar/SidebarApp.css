@@ -4,3 +4,8 @@
 @import "./styles/run-details.css";
 @import "./styles/celebration.css";
 @import "./styles/run-board.css";
+
+/* The model keys' state, always under the header. */
+.acorn-key-status {
+  padding: 0 var(--spacing-3) var(--spacing-2);
+}

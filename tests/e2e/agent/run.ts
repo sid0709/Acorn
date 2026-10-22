@@ -654,8 +654,9 @@ try {
     );
   }
 
-  // 1i. A control that brings a file from an online service is clicked as the model planned (the model
-  // sees the screen; a description never overrides it), and the model is told the checker's doubt.
+  // 1i. A control that brings a file from an online service is clicked as the model planned: nothing judges
+  // a control before a click (2.10.0: the model sees the screen, and the prompt says it is the one check), so
+  // no description of it is read or asked about, and the next look says nothing of it.
   script = (step, at) =>
     step === 1
       ? answer({
@@ -664,18 +665,22 @@ try {
           actions: [{ ...click(at.dropbox as Point) }],
         })
       : answer({ status: "done", message: "ok" });
+  const controlsAsked = () =>
+    decisionRequests.filter(
+      (r) => typeof r.state === "string" && r.state.includes("A control on a job application page"),
+    ).length;
   const beforeCloud = requests.length;
+  const controlsAskedBefore = controlsAsked();
   const cloud = await newForm("?cloud=dropbox");
   await run(cloud.tabId);
   check(
     (await cloud.page.evaluate(
       () => (window as unknown as { __dropboxClicked?: boolean }).__dropboxClicked,
     )) === true &&
-      lookText(beforeCloud + 1).includes(
-        "a checker read this control's description as an online file source",
-      ),
-    "a click on what looks like an online file source goes ahead, and the model is told the doubt",
-    lookText(beforeCloud + 1).slice(0, 500),
+      controlsAsked() === controlsAskedBefore &&
+      !lookText(beforeCloud + 1).includes("a checker read"),
+    "a click on what looks like an online file source goes ahead unjudged, and the model is told nothing of it",
+    { asked: controlsAsked() - controlsAskedBefore, look: lookText(beforeCloud + 1).slice(0, 500) },
   );
 
   // 1j. A control the guard cannot tell: it opens a window for an online file source, which is closed.

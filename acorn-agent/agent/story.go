@@ -203,12 +203,3 @@ func startStory(id string, start Start, stacks int, tracing bool) string {
 	}
 	return line + "."
 }
-
-// vetOutcome is the end of the sentence about a file-source check that failed: what happened to
-// the control it was about.
-func vetOutcome(blocked bool) string {
-	if blocked {
-		return ", so the control stays blocked"
-	}
-	return ", so the control is allowed"
-}

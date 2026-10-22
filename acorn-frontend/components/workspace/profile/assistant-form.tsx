@@ -25,7 +25,7 @@ export function AssistantForm({
 
 function JobBid({ profile, onChange }: { profile: ApplicantProfile; onChange: SetProfileField }) {
   return (
-    <SectionCard title="Job bid assistant" description="Salary, API key, and resume path.">
+    <SectionCard title="Job bid assistant" description="Salary, API keys, and resume path.">
       <FormLayout>
         <TextInput
           label="Desired salary (annual)"
@@ -39,7 +39,14 @@ function JobBid({ profile, onChange }: { profile: ApplicantProfile; onChange: Se
           type="password"
           value={profile.openrouterApiKey}
           onChange={(value) => onChange("openrouterApiKey", value.slice(0, SECRET_MAX))}
-          description="Used for every AI request."
+          description="Used for GPT-6 Luna, which plans each page, and for Jev's decisions about text."
+        />
+        <TextInput
+          label="OpenAI API key"
+          type="password"
+          value={profile.openaiApiKey}
+          onChange={(value) => onChange("openaiApiKey", value.slice(0, SECRET_MAX))}
+          description="Used for screenshot decisions when Acorn's agent is set to OpenAI's Decisions API."
         />
         <TextInput label="Model" value={AI_MODEL_LABEL} isReadOnly />
         <TextInput

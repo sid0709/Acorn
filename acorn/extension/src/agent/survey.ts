@@ -207,12 +207,26 @@ export function isReusableBatch(actions: AgentAction[], results: AgentActionResu
 }
 
 /**
+ * Whether a screen that starts at `at` (screenshot pixels) shares any of the page with a zone photographed
+ * when the batch just carried out left it: the batch acted there (a dropdown set, a field typed), so the
+ * last survey's picture of that screen is stale and is not reused; the zone's own photo stands for it when
+ * it was taken at that position, else the screen is shot again. A run that reused such screens showed the
+ * model a race field as "Select…" on two screens beside a fresh photo of it reading "Asian", and the model
+ * set it three times over; the same run showed a referral box empty beside a photo with its choices in it,
+ * and the model declared it unset.
+ */
+export function actedOn(at: number, zones: readonly AgentZoneShot[], viewHeight: number): boolean {
+  return zones.some((zone) => Math.abs(zone.scrollY - at) < viewHeight);
+}
+
+/**
  * Takes the screens of a page. A screen is left out when it lies wholly in a part the model settled (it
  * will not come back to it), while the page is as tall as when that was settled. A screen is reused, not
  * scrolled for and shot again, when a photo of its zone was taken when the zone was done (the freshest
- * look at it), or the last survey has it and nothing in the batch just done touched it; both only while the
- * page is as tall as the last survey saw it (±12 px), since a page that grew may have moved what is below
- * the growth. The rest are taken by scrolling to them with the wheel, slowly, crossing the page once from
+ * look at it), or the last survey has it and nothing in the batch just done touched it (`actedOn`: a screen
+ * that shares the page with a zone photographed this batch is shot again, since the batch acted there);
+ * both only while the page is as tall as the last survey saw it (±12 px), since a page that grew may have
+ * moved what is below the growth. The rest are taken by scrolling to them with the wheel, slowly, crossing the page once from
  * where it is, and waiting for it to rest before each shot; the page is left where the last shot was taken.
  * When no screen needs taking the page does not move at all. `first` is the look just taken: the screen
  * at its own position is never shot again. Returns null when the page is about one screen tall, or
@@ -276,7 +290,9 @@ export async function captureSurvey(
     }
     const have = unchanged(at)
       ? (reuse?.zones.find((zone) => near(zone.scrollY, at)) ??
-        reuse?.previous?.screens.find((screen) => near(screen.scrollY, at)))
+        (actedOn(at, reuse?.zones ?? [], first.viewport.height)
+          ? undefined
+          : reuse?.previous?.screens.find((screen) => near(screen.scrollY, at))))
       : undefined;
     if (have) {
       taken.set(y, { screenshot: have.screenshot, scrollY: have.scrollY });
@@ -515,6 +531,9 @@ export async function scrollForAction(
   if (action.x == null || action.y == null) throw new Error("the action has no point");
   const own = { x: action.x / scale, y: action.y / scale };
   if (action.scrollTo == null) return own;
+  // A control fixed to the window (a dialog's button) is at the same place in the window wherever the
+  // page is scrolled: the point is acted on where it was measured, with no scroll and no wait.
+  if (action.mark?.fixed) return own;
   const wanted = action.scrollTo / scale;
   // A point pinned to the screenshot it was measured on (no page height) is only put back when the
   // page has moved: most actions find it where they left it, and cost no scroll and no wait.

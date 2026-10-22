@@ -10,13 +10,13 @@ import type { Cdp } from "./cdp";
 /** Text up to this long is typed one key at a time, so a page that listens to keys hears them. */
 export const KEYSTROKE_TEXT_MAX_CHARS = 240;
 /**
- * The pause between one key and the next while typing, in ms: the least, and the most. A person's keys
- * come tens of milliseconds apart; keys with no gap at all are one of the things a page's spam filter
- * weighs (a recorded application was refused as possible spam after forty characters went in at once).
- * The gap varies between the two bounds, as a person's does.
+ * The pause between one key and the next while typing, in ms: the least, and the most. Keys with no gap at
+ * all are one of the things a page's spam filter weighs (a recorded application was refused as possible spam
+ * after forty characters went in at once), so there is a gap, varying between the two bounds; it is a fast
+ * typist's (2.9.0: it was 30 to 90 ms, a slow one's, and a page of answers took tens of seconds to type).
  */
-export const KEY_INTERVAL_MIN_MS = 30;
-export const KEY_INTERVAL_MAX_MS = 90;
+export const KEY_INTERVAL_MIN_MS = 8;
+export const KEY_INTERVAL_MAX_MS = 20;
 
 /** A pause between keys, somewhere between the bounds. */
 function keyInterval(): number {

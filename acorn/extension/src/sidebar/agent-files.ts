@@ -49,12 +49,102 @@ function uniqueName(taken: ReadonlySet<string>, name: string): string {
 
 type Call = {
   kind?: string;
+  /** The model that answered, as the provider named it (with its dated version). */
+  model?: string;
+  error?: string;
   latencyMs?: number;
   usage?: { inputTokens?: number; outputTokens?: number; cachedTokens?: number; cost?: number };
+  /** Each HTTP request the call sent, timed. */
+  requests?: Request[];
 };
 
 function seconds(ms: number): string {
   return `${(ms / 1000).toFixed(1)}s`;
+}
+
+/** The timing of one HTTP request a call sent (llm.Attempt in acorn-agent). */
+type Request = {
+  connectMs?: number;
+  sendMs?: number;
+  ttfbMs?: number;
+  waitMs?: number;
+  readMs?: number;
+  totalMs?: number;
+  sendBytesPerSec?: number;
+};
+
+/** What a model is used for in the run: driving (plans) or decisions (checks and picks). */
+function roleOf(call: Call): string {
+  return call.kind === "decision" ? "decision" : "driving";
+}
+
+function median(values: number[]): number {
+  if (values.length === 0) return 0;
+  const sorted = [...values].sort((a, b) => a - b);
+  return sorted[Math.floor((sorted.length - 1) / 2)] ?? 0;
+}
+
+/** The request that answered a call: its last one (the earlier ones were retried). */
+function answering(call: Call): Request | undefined {
+  return call.requests?.[call.requests.length - 1];
+}
+
+/**
+ * Two lines per model the run called, slowest first by its median: what it did, how many calls, how many
+ * failed and what it cost; then, as medians over its calls, the whole call and the slowest, the time to the
+ * first byte of the answer, and where that went (connecting, sending the request, the provider's wait,
+ * reading the answer), the speed of the answer (output tokens a second, or input tokens a second for a
+ * decision model, which writes none) and of the upload. So two models can be compared by running the same job
+ * with each.
+ */
+export function modelLatencyLines(calls: readonly Call[]): string[] {
+  const byModel = new Map<string, { model: string; role: string; group: Call[] }>();
+  for (const call of calls) {
+    const model = call.model || "(no answer)";
+    const role = roleOf(call);
+    const key = `${role} ${model}`;
+    const row = byModel.get(key) ?? { model, role, group: [] };
+    row.group.push(call);
+    byModel.set(key, row);
+  }
+  const rows = [...byModel.values()].map(({ model, role, group }) => {
+    const answered = group.filter((call) => !call.error);
+    const of = (pick: (request: Request) => number | undefined) =>
+      median(answered.map((call) => pick(answering(call) ?? {}) ?? 0));
+    const speed = median(
+      answered.map((call) => {
+        const out = call.usage?.outputTokens ?? 0;
+        const seconds =
+          role === "driving" ? (answering(call)?.readMs ?? 0) / 1000 : (call.latencyMs ?? 0) / 1000;
+        const tokens = role === "driving" ? out : (call.usage?.inputTokens ?? 0);
+        return seconds > 0 ? tokens / seconds : 0;
+      }),
+    );
+    return {
+      model,
+      role,
+      n: group.length,
+      failed: group.length - answered.length,
+      cost: group.reduce((sum, call) => sum + (call.usage?.cost ?? 0), 0),
+      total: median(answered.map((call) => call.latencyMs ?? 0)),
+      slowest: Math.max(0, ...group.map((call) => call.latencyMs ?? 0)),
+      ttfb: of((request) => request.ttfbMs),
+      connect: of((request) => request.connectMs),
+      send: of((request) => request.sendMs),
+      wait: of((request) => request.waitMs),
+      read: of((request) => request.readMs),
+      upload: of((request) => request.sendBytesPerSec) / 1024,
+      speed,
+      unit: role === "driving" ? "out" : "in",
+    };
+  });
+  rows.sort((a, b) => b.total - a.total);
+  return rows.flatMap((row) => [
+    `  ${row.model} (${row.role}): ${row.n} calls${row.failed ? `, ${row.failed} failed` : ""}, $${row.cost.toFixed(4)}`,
+    `      median ${seconds(row.total)}, slowest ${seconds(row.slowest)} · first byte ${seconds(row.ttfb)}` +
+      ` (connect ${seconds(row.connect)}, send ${seconds(row.send)}, wait ${seconds(row.wait)}) · read ${seconds(row.read)}` +
+      ` · ${Math.round(row.speed)} tokens/s ${row.unit} · upload ${Math.round(row.upload)} KB/s`,
+  ]);
 }
 
 /**
@@ -74,6 +164,7 @@ export function summarizeAgentRun(
   let output = 0;
   let cached = 0;
   let cost = 0;
+  const all: Call[] = [];
   for (const text of modelFiles) {
     let calls: Call[];
     try {
@@ -81,6 +172,7 @@ export function summarizeAgentRun(
     } catch {
       continue;
     }
+    all.push(...calls);
     for (const call of calls) {
       const isCheck = call.kind === "decision";
       if (isCheck) {
@@ -103,6 +195,8 @@ export function summarizeAgentRun(
     `        ${input} tokens in (${cached} cached), ${output} out, ${driving ? Math.round(input / driving) : 0} in a call`,
     `checks: ${checks} calls, ${seconds(checkMs)} in all, ${per(checkMs, checks)} a call`,
     `cost: $${cost.toFixed(4)}`,
+    "models:",
+    ...modelLatencyLines(all),
     ...trafficLines(modelFiles, logEntries).map((line) => `traffic ${line}`),
     "",
   ].join("\n");

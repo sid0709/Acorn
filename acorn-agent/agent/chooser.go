@@ -9,6 +9,7 @@ import (
 	"strings"
 
 	"github.com/sid0709/acorn/acorn-agent/applicant"
+	"github.com/sid0709/acorn/acorn-agent/decide"
 	"github.com/sid0709/acorn/acorn-backend/jev"
 )
 
@@ -19,9 +20,10 @@ const (
 	maxJobForChoice = 1200
 )
 
-// Decider is the decision model that picks among things that already exist. *jev.Client is the real one.
+// Decider is the decision model that picks among things that already exist, asked of text. The gateway
+// (decide.Gateway) is the real one; decideText (decisions.go) asks it.
 type Decider interface {
-	Decide(ctx context.Context, req jev.Request) (jev.Response, error)
+	Decide(ctx context.Context, req decide.Request) (decide.Response, error)
 }
 
 // preferredFormats is the order a résumé's formats are tried when nothing says which to send:
@@ -106,6 +108,11 @@ func (a *Agent) pickResume(ctx context.Context, s *session, requested string) (r
 		stack = s.resume
 	case len(stacks) == 1:
 		stack = stacks[0]
+	case s.jd == "" && s.fallback != "" && contains(stacks, s.fallback):
+		// No job description was found on any page: the applicant's default résumé, the one they marked
+		// default in their Library for this case, is uploaded without asking them.
+		stack = s.fallback
+		note = fmt.Sprintf("no job description was found, so the applicant's default résumé (%s) was uploaded", s.fallback)
 	default:
 		chosen, err := a.askJev(ctx, s, stacks)
 		if err != nil {
@@ -248,7 +255,7 @@ func (a *Agent) askJev(ctx context.Context, s *session, stacks []string) (string
 		// The whole description, read from the page: far better to choose from than a one-line summary.
 		posting = "Job description:\n" + clipText(s.jd, maxJDChars)
 	}
-	res, err := a.newDecider(s.key).Decide(ctx, jev.Request{
+	res, err := a.decideText(ctx, s, "which résumé to upload", jev.Request{
 		State: posting + "\n\nApplicant profile:\n" + clipText(s.snap.Profile, maxJobForChoice*2),
 		Questions: map[string]jev.Question{resumeQuestion: {
 			Type:         jev.TypeChoice,

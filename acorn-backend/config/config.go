@@ -28,7 +28,15 @@ const (
 	// tokens only, at the same rate as GPT-6 Luna's input.
 	ScreenDecisionModel    = "openai/gpt-6-luna-decisions"
 	OpenRouterDecisionsURL = "https://openrouter.ai/api/alpha/decisions"
-	envFileName            = ".env"
+	// OpenAIDecisionsURL is OpenAI's own Decisions API, and OpenAIDecisionModel the model it serves: the
+	// acorn-agent asks its decisions about screenshots there, on the profile's OpenAI key.
+	OpenAIDecisionsURL  = "https://api.openai.com/v1/decisions"
+	OpenAIDecisionModel = "gpt-6-luna"
+	// OpenRouterKeyURL and OpenAIModelsURL answer 200 for a working key and 401 for one that is not: the
+	// cheapest way to tell the person whether each key of the profile works.
+	OpenRouterKeyURL = "https://openrouter.ai/api/v1/key"
+	OpenAIModelsURL  = "https://api.openai.com/v1/models"
+	envFileName      = ".env"
 )
 
 // Database is the MongoDB Acorn's server uses: its own collections and the shared job catalog.

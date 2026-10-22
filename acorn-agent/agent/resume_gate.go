@@ -77,7 +77,7 @@ func (a *Agent) learnJD(ctx context.Context, s *session, obs Observation) {
 	}
 	s.jdSeen[key] = true
 	s.jdChecks++
-	res, err := a.newDecider(s.key).Decide(ctx, jev.Request{
+	res, err := a.decideText(ctx, s, "whether the page holds a job description", jev.Request{
 		State: "Page: " + orNone(obs.Title) + " (" + orNone(obs.URL) + ")\n\n" + clipText(text, maxJDNoteChars),
 		Questions: map[string]jev.Question{askJobDescription: {
 			Type: jev.TypeNoul,
@@ -106,18 +106,13 @@ func (a *Agent) learnJD(ctx context.Context, s *session, obs Observation) {
 	s.notes = append(s.notes, "The job description, read from the page text ("+orNone(obs.Title)+"). The screenshot, not this text, shows what the form holds and what is filled in:\n"+clipText(text, maxJDNoteChars))
 }
 
-// needsAsk is whether choosing a résumé now would be a guess the person should confirm: a résumé
-// is wanted (the model named no other document), there is a choice of them, no job description
-// was found, and a default résumé is set to offer.
+// needsAsk is whether choosing a résumé now must wait for the person. It no longer does: without a job
+// description the applicant's default résumé is uploaded (pickResume), as the one they marked default
+// in their Library is what they chose for this case; the question used to stop every such run for an
+// answer that was always the default. The ask (askStep, answerPending) stays for a run resumed from
+// before, and for a profile with no default and no description, where pickResume judges from the page.
 func (a *Agent) needsAsk(s *session, requested string) bool {
-	if s.fallback == "" || s.jd != "" {
-		return false
-	}
-	resumes := s.snap.Resumes
-	if found, ok := resolve(resumes, requested); ok && found.Stack == "" {
-		return false // a loose document such as a cover letter is not a résumé
-	}
-	return len(stackNames(resumes)) > 1
+	return false
 }
 
 // askStep waits on the person: an upload at a point is held until they say which résumé.

@@ -1,9 +1,11 @@
 package agent
 
 import (
+	"context"
 	"fmt"
 	"log/slog"
 	"strings"
+	"time"
 
 	"github.com/sid0709/acorn/acorn-backend/plainlog"
 )
@@ -52,7 +54,8 @@ func (s *session) noteFields(answer reply, obs Observation) {
 		}
 		fields = append(fields, FieldState{Label: label, Y: obs.Survey[*f.Screen-1].ScrollY + *f.Y, State: state})
 	}
-	s.fields, s.fieldsURL, s.fieldsChanged = fields, withoutFragment(obs.URL), true
+	s.fields, s.fieldsURL = fields, withoutFragment(obs.URL)
+	s.bumpFields()
 	slog.Info(fmt.Sprintf("%s: the model read %s on the page, %d of them empty.", runName(s.id), plainlog.Count(len(fields), "field"), len(s.emptyFieldsOn(s.fieldsURL))))
 }
 
@@ -80,7 +83,8 @@ func (s *session) emptyFieldsOn(url string) []string {
 func (s *session) setField(label, state string) {
 	for i := range s.fields {
 		if labelsAgree(s.fields[i].Label, label) && s.fields[i].State != state {
-			s.fields[i].State, s.fieldsChanged = state, true
+			s.fields[i].State = state
+			s.bumpFields()
 		}
 	}
 }
@@ -92,6 +96,76 @@ func (s *session) takeFields() []FieldState {
 	}
 	s.fieldsChanged = false
 	return append([]FieldState{}, s.fields...)
+}
+
+// bumpFields counts a change to the list, for the next answer and for a wait on it (WaitFields). The
+// session is locked.
+func (s *session) bumpFields() {
+	s.fieldsChanged = true
+	s.fieldsVersion++
+	if s.fieldsWake != nil {
+		close(s.fieldsWake)
+		s.fieldsWake = nil
+	}
+}
+
+// fieldsWaking is a channel closed when the list next changes. The session is locked.
+func (s *session) fieldsWaking() <-chan struct{} {
+	if s.fieldsWake == nil {
+		s.fieldsWake = make(chan struct{})
+	}
+	return s.fieldsWake
+}
+
+// fieldsWaitMax bounds one wait for a newer list: the extension asks again when it ends with none.
+const fieldsWaitMax = 25 * time.Second
+
+// FieldsUpdate is the to-do list as the run has it, with the count of its changes so far.
+type FieldsUpdate struct {
+	Version int          `json:"version"`
+	Fields  []FieldState `json:"fields"`
+}
+
+// WaitFields answers with the to-do list once it has changed since `since` (its version count), or with the
+// same version and no list when nothing changed within fieldsWaitMax. A review that ended is taken in first:
+// that is what changes the list between looks (review.go), so the sidebar's list follows each zone's photo
+// within about a second of its being read, instead of waiting for the next look. A run that is over ends the
+// wait with ErrSessionOver, and a wait the caller gave up on answers with the same version.
+func (a *Agent) WaitFields(ctx context.Context, id string, since int) (FieldsUpdate, error) {
+	s, ok := a.sessions.get(id)
+	if !ok {
+		return FieldsUpdate{}, ErrNoSession
+	}
+	deadline := time.After(fieldsWaitMax)
+	for {
+		s.mu.Lock()
+		if s.finished {
+			s.mu.Unlock()
+			return FieldsUpdate{}, ErrSessionOver
+		}
+		for _, result := range s.reviews.take() {
+			s.applyReview(result)
+		}
+		if s.fieldsVersion > since {
+			update := FieldsUpdate{Version: s.fieldsVersion, Fields: append([]FieldState{}, s.fields...)}
+			s.mu.Unlock()
+			return update, nil
+		}
+		changed := s.fieldsWaking()
+		ended := s.reviews.waking()
+		version := s.fieldsVersion
+		s.mu.Unlock()
+		select {
+		case <-changed:
+		case <-ended:
+		case <-deadline:
+			return FieldsUpdate{Version: version}, nil
+		case <-ctx.Done():
+			// The caller's time ran out (a step held the session the while, or the line dropped): the same
+			// version, and it asks again.
+			return FieldsUpdate{Version: version}, nil
+		}
+	}
 }
 
 // emptyFieldNear is whether a field the model read as empty lies in a stretch of the page.

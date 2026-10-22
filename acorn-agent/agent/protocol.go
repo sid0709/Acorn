@@ -22,6 +22,14 @@ const (
 	// KindChoose is not sent to the extension: it sets a dropdown the page draws itself to an
 	// answer given in words. The agent opens it, finds the option and picks it (choose.go).
 	KindChoose = "choose"
+	// KindFocus and KindSelect are the agent's own, never the model's, for a list the browser draws itself
+	// (a select element): its popup is a window of the operating system, in no screenshot and out of reach
+	// of a click or a key, so the control is given focus without being opened (focus), the page's own words
+	// for its options are read from the focus report, the decision model picks one, and that option is set
+	// by its place in the list (select), which the browser then shows in the closed box, where the photo of
+	// the zone confirms it (probe.go, choose.go).
+	KindFocus  = "focus"
+	KindSelect = "select"
 	// KindSurvey is not sent to the extension: it asks for the next look to be a survey of
 	// the whole page (Step.Survey).
 	KindSurvey = "survey"
@@ -164,6 +172,10 @@ type ActionResult struct {
 	Detail string `json:"detail,omitempty"`
 	// Opened names something the action set off that a screenshot cannot show (OpenedFilePicker).
 	Opened string `json:"opened,omitempty"`
+	// Unreached is an action that reached no control (typing or keys with nothing focused, or what was meant
+	// for that control and skipped with it): the rest of the batch went on, so the plan is not given up for
+	// it. The field it was for stays empty on the to-do list and is filled from the next survey.
+	Unreached bool `json:"unreached,omitempty"`
 }
 
 // Observation is what the extension sees on one step.
@@ -240,10 +252,14 @@ type Rect struct {
 // the part of the control's own box that is not its label, when the label is printed inside the box
 // (a question's words inside a bordered field): the place to click or type. Required, Empty and
 // Invalid are what the page says of the control's state; the agent decides nothing by them (or by Kind):
-// the pictures say what a control is and holds, the page only where it is.
+// the pictures say what a control is and holds, the page only where it is. Fixed is a control fixed to
+// the window (a header's link, the buttons of a dialog drawn as a fixed layer): its Rect, Box and Entry
+// are in the window (screenshot pixels from the window's top left), not on the page, since it sits at the
+// same place in the window at every scroll position.
 type ControlMark struct {
-	ID   string `json:"id"`
-	Kind string `json:"kind"`
+	ID    string `json:"id"`
+	Kind  string `json:"kind"`
+	Fixed bool   `json:"fixed,omitempty"`
 	Rect
 	Box      *Rect  `json:"box,omitempty"`
 	Label    string `json:"label,omitempty"`
@@ -275,9 +291,11 @@ func isField(kind string) bool {
 
 // MarkRef is the control a point was bound to when it was planned, as it sat then. The extension finds
 // the same control by ID when the point is acted on, and the difference of the two places is how far
-// the point has moved. Label and Kind stay on the agent: the point is checked against the label.
+// the point has moved. Label and Kind stay on the agent: the point is checked against the label. A Fixed
+// control keeps its place in the window, so the extension acts on its point where it was measured.
 type MarkRef struct {
-	ID string `json:"id"`
+	ID    string `json:"id"`
+	Fixed bool   `json:"fixed,omitempty"`
 	Rect
 	Label string `json:"-"`
 	Kind  string `json:"-"`
@@ -350,6 +368,10 @@ type Action struct {
 	Resume string `json:"resume,omitempty"`
 	// FileName is set by the agent on KindUpload once the résumé is chosen.
 	FileName string `json:"fileName,omitempty"`
+	// Index is the place (from 0) of the option a KindSelect sets in the browser's own list at the point,
+	// and Option that option in the page's words, for the log and the person.
+	Index  *int   `json:"index,omitempty"`
+	Option string `json:"option,omitempty"`
 	// ScrollTo, when set, is the scroll position (screenshot pixels) the page must be at before
 	// the action, because its point was measured on that screen of a survey; PageHeight is the
 	// page's height then, so the extension can tell the page changed shape since and refuse.

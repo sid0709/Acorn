@@ -24,10 +24,17 @@ bun run build:acorn                              # then load acorn/extension/dis
 ```
 
 - Models: GPT-6 Luna (`openai/gpt-6-luna`) drives each step from the screenshot and plans a whole
-  screen at a time; GPT-6 Luna Decisions (`openai/gpt-6-luna-decisions`, input tokens only) checks
-  the screen between the runs of a plan so Luna need not look at every one; TypeSafe Jev chooses
-  which résumé to upload. All go through OpenRouter on `OPENROUTER_API_KEY`. The checks are on by
-  default; `ACORN_AGENT_CHECKS=false` turns them off.
+  screen at a time. Every decision (the checks of the screen, the reviews of what was filled, reading
+  a dropdown's list, which résumé to upload, what a frame that opened is) goes through one gateway
+  (`decide.Gateway`) to the route set for its kind: questions asked of text to TypeSafe Jev
+  (`typesafe/jev-1.13`, `ACORN_AGENT_DECISION_TEXT_MODEL`) on OpenRouter with the profile's OpenRouter
+  key; questions about a screenshot to GPT-6 Luna Decisions (`openai/gpt-6-luna-decisions`) on
+  OpenRouter, or, with `ACORN_AGENT_DECISION_IMAGE_PROVIDER=openai`, to GPT-6 Luna (`gpt-6-luna`) on
+  OpenAI's own Decisions API with the profile's OpenAI key (`openaiApiKey`; back to OpenRouter when the
+  profile has none). `ACORN_AGENT_DECISION_IMAGE_MODEL` names the image model on either. The driving model goes
+  through OpenRouter on `OPENROUTER_API_KEY` or the profile's OpenRouter key. The checks are on by default;
+  `ACORN_AGENT_CHECKS=false` turns them off. A downloaded log's `summary.txt` lists each model the run
+  called with its median and slowest latency, to compare them.
 - What a run cost and where its time went: `go run -C acorn-agent ./cmd/tracesum traces/<session>`.
 - Each run is recorded under `traces/<session>/`: per step the screenshot the model saw, the same
   screenshot with every click drawn on it (`NNN.marked.jpg`), what the model was sent and answered

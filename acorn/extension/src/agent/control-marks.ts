@@ -62,7 +62,9 @@ export type Box = { x: number; y: number; w: number; h: number };
  * label is printed inside the box), what the page says of its state (`empty` is left out when the page
  * cannot tell; a radio button, or a check box of a shared name, is empty while none of its group is ticked
  * and required when any of them is), and the question such a group answers together (`group`, `question`).
- * Moving a mark changes only its place.
+ * Moving a mark changes only its place. A control fixed to the window (`fixed`: a header's link, the
+ * buttons of a dialog drawn as a fixed layer) has its place, field and entry in the window, not on the
+ * page; it says nothing of where the form moved (`layoutMoves` leaves it out) and is not on the page map.
  *
  * The rest is for the person, not the agent (`marksForAgent` leaves it out): what the control shows now
  * (`value`, never a password) and whether a check is ticked.
@@ -70,6 +72,7 @@ export type Box = { x: number; y: number; w: number; h: number };
 export type ControlMark = Box & {
   id: string;
   kind: ControlKind;
+  fixed?: boolean;
   box?: Box;
   label?: string;
   entry?: Box;
@@ -100,8 +103,9 @@ type Stretch = { from: number; to: number };
  */
 export function layoutMoves(before: ControlMark[], after: ControlMark[]): LayoutMove[] | null {
   if (before.length === 0 || after.length === 0) return null;
-  const now = new Map(after.map((mark) => [mark.id, mark]));
+  const now = new Map(after.filter(anchored).map((mark) => [mark.id, mark]));
   const pairs = before
+    .filter(anchored)
     .flatMap((old) => {
       const cur = now.get(old.id);
       return cur ? [{ old, dy: cur.y - old.y }] : [];
@@ -126,6 +130,11 @@ export function layoutMoves(before: ControlMark[], after: ControlMark[]): Layout
     reach = Math.max(reach, pair.old.y + pair.old.h);
   }
   return moves;
+}
+
+/** Whether a mark sits on the page (not fixed to the window): the ones the form's moves and the page map are read from. */
+export function anchored(mark: ControlMark): boolean {
+  return mark.fixed !== true;
 }
 
 /** The moves in other pixels (a list in CSS pixels, told to the agent in the screenshot's). */
@@ -278,6 +287,7 @@ function cleanMark(mark: ControlMark): ControlMark {
     w: mark.w,
     h: mark.h,
   };
+  if (mark.fixed === true) out.fixed = true;
   if (mark.box) out.box = mark.box;
   if (typeof mark.label === "string" && mark.label !== "") out.label = mark.label;
   if (isBox(mark.entry)) out.entry = mark.entry;

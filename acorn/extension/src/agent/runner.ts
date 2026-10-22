@@ -49,8 +49,11 @@ import {
   sendStep,
   startSession,
   vetTarget,
+  waitFields,
 } from "./client";
 import { buildCompletedRun, carriedLegs, jobPageOf, workedMs } from "./completed-run";
+import { anchored } from "./control-marks";
+import { snapToControl } from "./control-snap";
 import {
   marksOfLook,
   noteLook,
@@ -68,13 +71,7 @@ import {
   type ActionProgress,
   type ExecutorContext,
 } from "./executor";
-import {
-  createClickGuard,
-  createFrameSweep,
-  describeWindow,
-  watchFrameEvents,
-  windowClosedNote,
-} from "./guard";
+import { createFrameSweep, describeWindow, watchFrameEvents, windowClosedNote } from "./guard";
 import { afterLook, foundIn, lookLogFields, missed, startMailSearch } from "./mail-search";
 import {
   isEmailVerificationStop,
@@ -111,6 +108,9 @@ import type { PipelineProgress } from "@acorn/shared/pipeline-types";
 import type { CompletedRunRecord } from "@acorn/shared/runs";
 
 /** The most times one step is sent again when the model is busy or briefly down. */
+/** The key that closes a dropdown's list when its picture could not reach the agent. */
+const SNAP_CLOSE_KEY = "Escape";
+
 export const STEP_RETRY_LIMIT = 3;
 /** Waits between those retries, in order. */
 export const STEP_RETRY_BACKOFF_MS = [2_000, 6_000, 15_000] as const;
@@ -219,6 +219,8 @@ export function describeAction(action: AgentAction): string {
       return `wait ${action.ms ?? 0}ms`;
     case "snap":
       return "take a picture of the page";
+    case "select":
+      return `select option ${(action.index ?? 0) + 1} at ${Math.round(action.x ?? 0)},${Math.round(action.y ?? 0)}`;
     case "upload":
       return `upload ${action.fileName ?? action.resume ?? ""} at ${Math.round(action.x ?? 0)},${Math.round(action.y ?? 0)}`;
     default:
@@ -431,6 +433,8 @@ export async function runAgent(args: AgentRunArgs): Promise<RunReport> {
   /** What the run is reading in Gmail, shown on the Now card; kept after the code is found. */
   let mailSearch: MailSearch | undefined;
   const MAIL_VERIFY_WINDOW_MS = 10 * 60 * 1000;
+  /** The pause before the to-do list is waited for again after a failure to reach the agent. */
+  const FIELDS_RETRY_MS = 2000;
   let pendingTab: number | null = null;
   let pageUrl = "";
   /** Notes from things that happened between looks (a frame the guard closed), told on the next look. */
@@ -444,11 +448,6 @@ export async function runAgent(args: AgentRunArgs): Promise<RunReport> {
   const resumeSizes = new Map<string, number>();
   const vet = (target: Parameters<typeof vetTarget>[2]) =>
     vetTarget(args.agentUrl, must(sessionId), target, signal, onHttp);
-  const clickGuard = createClickGuard({
-    cdp: () => must(current).cdp,
-    vet,
-    pageUrl: () => pageUrl,
-  });
   /** Judges the frames of another origin that appear in the tab the run is in. */
   const watchFrames = (tab: AgentTab) => {
     const deps = {
@@ -513,6 +512,38 @@ export async function runAgent(args: AgentRunArgs): Promise<RunReport> {
   const showMap = (viewTop: number) => {
     pageMap.moveTo(viewTop);
     showRun();
+  };
+  /**
+   * Follows the form's to-do list between looks. The agent reads each zone's photo on the side and ticks its
+   * fields off (or puts them back) within about a second; one request waits on the server until the list
+   * changes (at most 25 s), then the next goes, so the sidebar shows each change as it happens instead of at
+   * the next look. It carries nothing up the line, so it stays out of the upload lane. An agent without the
+   * route, or a run that is over, ends it: the list then comes with each look, as before.
+   */
+  const followFields = (id: string) => {
+    let since = 0;
+    void (async () => {
+      while (!signal.aborted) {
+        try {
+          const update = await waitFields(args.agentUrl, id, since, signal);
+          if (update.version > since) {
+            since = update.version;
+            if (update.fields && update.fields.length > 0) {
+              pageMap.setFields(update.fields);
+              showRun();
+            }
+          }
+        } catch (err) {
+          if (signal.aborted) return;
+          if (err instanceof AgentApiError && err.status >= 400 && err.status < 500) return;
+          try {
+            await sleep(FIELDS_RETRY_MS);
+          } catch {
+            return;
+          }
+        }
+      }
+    })();
   };
   /** Puts the page on the map before the first look, so the card shows it at once. A page that cannot be read waits for the look. */
   const seedMap = async (tab: AgentTab) => {
@@ -664,7 +695,17 @@ export async function runAgent(args: AgentRunArgs): Promise<RunReport> {
     },
     sleep,
     checkStopped,
-    guard: clickGuard,
+    aim: async (x, y) => {
+      const snapped = await snapToControl(must(current).tabId, x, y);
+      if (snapped) {
+        log.event("agent-aim", {
+          from: [Math.round(x), Math.round(y)],
+          to: [Math.round(snapped.x), Math.round(snapped.y)],
+          detail: snapped.detail,
+        });
+      }
+      return snapped;
+    },
     afterClick: () => frames.sweep(),
     scroll: scrolls,
     marks: placeMarksFor({ tab: () => must(current), watch: marks, log, sleep }),
@@ -685,8 +726,9 @@ export async function runAgent(args: AgentRunArgs): Promise<RunReport> {
           readFocus(here.cdp),
           readOpenList(here.cdp, photo.scale),
         ]);
-        // A picture that did not get through is not an error: the dropdown goes back to being set one at a time.
-        await sendShot(
+        // The agent answers with what to do while the list is open. A picture that did not get through is not
+        // an error: the list is closed, and the dropdown is set one at a time when the plan is done.
+        return await sendShot(
           args.agentUrl,
           must(sessionId),
           {
@@ -699,8 +741,9 @@ export async function runAgent(args: AgentRunArgs): Promise<RunReport> {
           },
           signal,
           onHttp,
-        ).catch((err: unknown) => {
+        ).catch((err: unknown): AgentAction[] => {
           if (signal.aborted) throw err;
+          return [{ id: `${action.id}esc`, kind: "key", keys: SNAP_CLOSE_KEY }];
         });
       } finally {
         await here.overlay.hideForCapture(false);
@@ -911,6 +954,7 @@ export async function runAgent(args: AgentRunArgs): Promise<RunReport> {
         lastUsage = continued.usage;
         log.step = continued.number;
         log.event("agent-continue", { step: continued.number, calls: continued.usage.calls });
+        followFields(sessionId);
       } catch (err) {
         // A run the agent forgot (it expired, or the server restarted) cannot be continued: start over.
         if (!(err instanceof AgentApiError && err.code === AGENT_ERROR_CODE.noSession)) throw err;
@@ -951,6 +995,7 @@ export async function runAgent(args: AgentRunArgs): Promise<RunReport> {
         onHttp,
       );
       sessionId = started.sessionId;
+      followFields(sessionId);
       // The server may turn fast fill on for every run, and a fast-fill run surveys.
       surveyOn = followServerSurvey(surveyOn, started);
       serverFastFill = started.fastFill === true;
@@ -1019,7 +1064,7 @@ export async function runAgent(args: AgentRunArgs): Promise<RunReport> {
                   onMove: showMap,
                   scroll: scrolls,
                   // A screen's edge cuts no control with its field: the plan's points are aimed at whole controls.
-                  controls: () => marks.marks.map((mark) => mark.box ?? mark),
+                  controls: () => marks.marks.filter(anchored).map((mark) => mark.box ?? mark),
                   // Each screen goes to the agent as it is taken, so the look that follows refers to it.
                   preload: (dataUrl) =>
                     preloadImage(args.agentUrl, must(sessionId), dataUrl, signal, onHttp),

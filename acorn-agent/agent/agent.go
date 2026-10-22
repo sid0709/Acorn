@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/sid0709/acorn/acorn-agent/applicant"
+	"github.com/sid0709/acorn/acorn-agent/decide"
 	"github.com/sid0709/acorn/acorn-agent/llm"
 	"github.com/sid0709/acorn/acorn-backend/plainlog"
 )
@@ -111,6 +112,9 @@ type Config struct {
 	// MaxStale is how many steps in a row the screen may stay the same before the run is
 	// declared stuck without asking the model again.
 	MaxStale int
+	// MaxFailedSteps is how many model steps in a row may end with every action failing the same way
+	// before the run is declared stuck without asking the model again (repeat.go); 0 turns it off.
+	MaxFailedSteps int
 	// SessionTTL is how long an untouched session is kept.
 	SessionTTL time.Duration
 	// TraceDir, when set, records every step to disk.
@@ -156,6 +160,7 @@ func DefaultConfig() Config {
 		KeepImages:         0,
 		HistoryTokens:      30_000,
 		MaxStale:           6,
+		MaxFailedSteps:     3,
 		SessionTTL:         time.Hour,
 	}
 }
@@ -166,19 +171,26 @@ type Agent struct {
 	cfg        Config
 	applicants applicant.Source
 	newModel   func(key string) llm.Model
-	newDecider func(key string) Decider
+	newDecider func(keys decide.Keys) Decider
 	// newScreen builds the decision model that checks the screen; nil means no checks.
-	newScreen func(key string) Screen
+	newScreen func(keys decide.Keys) Screen
 	sessions  *store
 	trace     *tracer
 	now       func() time.Time
+	// warm opens the connections to the model providers, so a run's first calls do not pay the handshake;
+	// nil does nothing (SetWarm).
+	warm func(ctx context.Context)
 }
+
+// SetWarm sets what a run's start does to open the connections to the model providers. It is done in the
+// background while the run looks at the page, which takes longer than a handshake.
+func (a *Agent) SetWarm(warm func(ctx context.Context)) { a.warm = warm }
 
 // New is an agent over the applicant's data. newModel builds the model that drives a run,
 // newDecider the model that chooses among existing things, and newScreen the decision model
 // that checks the screen between runs of actions (nil turns the checks off); each is given
 // the run's key.
-func New(cfg Config, applicants applicant.Source, newModel func(key string) llm.Model, newDecider func(key string) Decider, newScreen func(key string) Screen) *Agent {
+func New(cfg Config, applicants applicant.Source, newModel func(key string) llm.Model, newDecider func(keys decide.Keys) Decider, newScreen func(keys decide.Keys) Screen) *Agent {
 	now := time.Now
 	return &Agent{
 		cfg:        cfg,
@@ -217,6 +229,9 @@ func (a *Agent) Start(ctx context.Context, key string, auth applicant.Auth, star
 		return Started{}, llm.ErrNoKey
 	}
 	now := a.now()
+	if a.warm != nil {
+		go a.warm(context.WithoutCancel(ctx))
+	}
 	// A fast-fill run plans a page from a survey of it, so surveys are on for it.
 	start.FastFill = start.FastFill || a.cfg.FastFill
 	start.Survey = start.Survey || start.FastFill
@@ -243,14 +258,14 @@ func (a *Agent) Start(ctx context.Context, key string, auth applicant.Auth, star
 		return Started{}, err
 	}
 	fresh := &session{
-		id: id, key: key, auth: auth, start: start, snap: snap, system: system, maxActions: maxActions, checks: checks, fallback: fallback,
+		id: id, key: key, openaiKey: strings.TrimSpace(snap.OpenAIKey), auth: auth, start: start, snap: snap, system: system, maxActions: maxActions, checks: checks, fallback: fallback,
 		created: now, touched: now, wantTrace: start.Trace, wantTraceImages: start.Trace && start.TraceImages, stepLimit: a.cfg.MaxSteps,
 	}
 	fresh.remember(start.Memory)
 	a.sessions.add(fresh)
 	stacks, documents := catalog(snap.Resumes)
 	startTrace, err := a.trace.recordSession(id, system, sessionTrace{
-		Started: now, Start: start, Model: a.modelName(key), ScreenModel: a.screenName(key), Config: a.cfg, Resumes: stacks, Documents: documents,
+		Started: now, Start: start, Model: a.modelName(key), ScreenModel: a.screenName(decide.Keys{OpenRouter: key, OpenAI: strings.TrimSpace(snap.OpenAIKey)}), Config: a.cfg, Resumes: stacks, Documents: documents,
 	}, start.Trace)
 	if err != nil {
 		slog.Warn("The trace of this run could not be saved, so its folder will be missing: "+runName(id)+".", plainlog.ErrorKey, err)
@@ -320,6 +335,7 @@ func (a *Agent) Continue(id string) (Continued, error) {
 	s.pendingUpload = nil
 	s.plan, s.verify, s.planned, s.sent, s.parts = nil, "", 0, 0, 0
 	s.stale, s.lastSig, s.loadWaits = 0, nil, 0
+	s.failedStreak, s.lastFailure = 0, ""
 	s.script = nil
 	s.notes = append(s.notes, note)
 	slog.Info(fmt.Sprintf("%s continues after step %d, with room for %d steps in all.", runName(s.id), s.step, s.stepLimit))
@@ -420,6 +436,9 @@ func (a *Agent) step(ctx context.Context, id string, obs Observation) (Step, err
 	// runs of one plan.
 	results := withoutChoose(append(append([]ActionResult(nil), s.carried...), obs.Results...))
 	s.noteCommitResults(obs.Results)
+	// Whether the click that sends the application went through on the batch just carried out; the refusal
+	// check below may clear what is known of it.
+	justSent := s.commit.done && s.commit.send
 	a.noteRefusedSend(ctx, s, obs)
 	s.notes = append(s.notes, unreachedNotes(obs.Results, s.byID, s.marks, obs)...)
 	s.noteUnreachedFields(obs.Results)
@@ -461,6 +480,13 @@ func (a *Agent) step(ctx context.Context, id string, obs Observation) (Step, err
 		}), nil
 	}
 
+	// The page just sent: the decision model reads whether it shows the application received, and the run ends
+	// there without asking the driving model (autosend.go).
+	if justSent && !s.sendRefused {
+		if step, ok := a.confirmSent(ctx, s, obs); ok {
+			return step, nil
+		}
+	}
 	if step, ok := a.handlePicker(ctx, s, obs, results, sig); ok {
 		return step, nil
 	}
@@ -475,6 +501,25 @@ func (a *Agent) step(ctx context.Context, id string, obs Observation) (Step, err
 	}
 	if step, ok := a.tryNavigate(ctx, s, obs, len(screens), results, sig, stale); ok {
 		return step, nil
+	}
+
+	// The plan's fields are all confirmed from the photos: the click it held is pressed without asking the
+	// driving model (autosend.go).
+	if step, ok := a.pressHeldSend(s, obs, results, sig); ok {
+		return step, nil
+	}
+
+	// A plan refused whole, the same way, step after step, is a loop the model cannot see out of: the page
+	// changes a little each time (a list opens, a cursor moves), so the unchanged-screen count above never
+	// trips. The run ends before the model is asked to plan it again (repeat.go).
+	failure := firstFailure(results)
+	streak := s.failedStreakAfter(failure)
+	if a.cfg.MaxFailedSteps > 0 && streak >= a.cfg.MaxFailedSteps {
+		return a.endWithTrace(s, obs, stale, StatusStuck, fmt.Sprintf("The same action failed %d steps in a row: %s", streak, failure), &StopInfo{
+			Reason:  StopPageProblem,
+			Problem: fmt.Sprintf("Acorn tried the same step %d times and the page would not take it: %s", streak, failure),
+			Action:  "Do that part on the page yourself, then press Continue.",
+		}), nil
 	}
 
 	// The model looks now, so the form-finding gate has had its turn (the model finds its own way from here).
@@ -526,6 +571,7 @@ func (a *Agent) step(ctx context.Context, id string, obs Observation) (Step, err
 	}
 	// Only a step the model answered counts: a retry of a failed call sends the same screen.
 	s.step, s.stale, s.lastSig = number, stale, sig
+	s.failedStreak, s.lastFailure = streak, failure
 	s.carried, s.notes = nil, nil
 	// A memo of null means the notes did not change.
 	if answer.Memo != nil {
@@ -594,6 +640,8 @@ func (a *Agent) step(ctx context.Context, id string, obs Observation) (Step, err
 	lost += checkable - len(planned)
 	calls = append(calls, pointCalls...)
 	entry.Usage = s.usage
+	// A send held from an earlier plan is the model's again: it has planned anew.
+	s.heldSend = nil
 	if held := a.holdCommits(s, &planned, lost); len(held) > 0 {
 		dropped = append(dropped, fmt.Sprintf("the click that sends the page was held back: the plan lost %s", plainlog.Count(lost, "action")))
 	}
@@ -611,7 +659,12 @@ func (a *Agent) step(ctx context.Context, id string, obs Observation) (Step, err
 	s.setFence(planned, obs)
 	// What this plan fills in, by zone, for the reviews of its zones.
 	s.planGen++
+	s.reviewed, s.probeUnsure = map[int]bool{}, false
+	if s.heldSend != nil {
+		s.heldSend.planGen = s.planGen
+	}
 	s.expect, s.expectURL = expectationsOf(planned, obs), withoutFragment(obs.URL)
+	s.typedAt = typedPointsOf(planned)
 	s.planScrollY = obs.Viewport.ScrollY
 	status := answer.Status
 	// "Done" is the page's confirmation, not the model's word: a done the screen does not show is sent back.
@@ -645,6 +698,27 @@ func (a *Agent) step(ctx context.Context, id string, obs Observation) (Step, err
 		planned = []Action{{ID: fmt.Sprintf("s%da1", number), Kind: KindWait, Ms: stopPassWaitMs}}
 		s.notes = append(s.notes, stopNote)
 	}
+	// A click planned again at the same point on a field still empty: the second time it is made with a
+	// picture after it (a check box the page toggled back is set with Space), the third time Space alone is
+	// pressed on it, the fourth time the run stops naming the field, before the model drifts to other points
+	// (repeat.go).
+	var forcedStop *StopInfo
+	if status == StatusWorking {
+		if repeat, count := s.repeatedClick(planned, obs); repeat != nil {
+			switch {
+			case count >= clickRepeatStop:
+				status = StatusStuck
+				answer.Message = fmt.Sprintf("The page did not take the click on %q, %d times over.", repeat.Label, count)
+				forcedStop = &StopInfo{
+					Reason:  StopPageProblem,
+					Problem: fmt.Sprintf("Acorn clicked %q %d times and the page did not take it.", repeat.Label, count),
+					Action:  "Set that field on the page yourself, then press Continue.",
+				}
+			case a.probing(s):
+				s.checkRetry, s.checkRetryClick, s.checkRetrySpace = repeat.ID, *repeat, count >= clickRepeatSpace
+			}
+		}
+	}
 	var actions []Action
 	switch {
 	case status != StatusWorking:
@@ -676,6 +750,9 @@ func (a *Agent) step(ctx context.Context, id string, obs Observation) (Step, err
 		Status: status, Message: strings.TrimSpace(answer.Message), Stop: stopFor(status, answer), Actions: actions,
 		Number: number, Usage: s.usage, Dropped: dropped, Survey: status == StatusWorking && a.surveyNext(s, actions, surveyAsked),
 		Settled: s.takeSettledMap(), ReadyToSubmit: ready, AlreadyApplied: status == StatusDone && s.alreadyApplied,
+	}
+	if forcedStop != nil {
+		step.Stop = forcedStop
 	}
 	entry.Observation, entry.Memo, entry.Job = answer.Observation, s.memo, s.job
 	entry.Status, entry.Message, entry.Actions, entry.Dropped = status, step.Message, actions, dropped

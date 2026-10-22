@@ -11,6 +11,7 @@ import { pushAcornNotice } from "./acorn-notice";
 import { AgentPanel } from "./AgentPanel";
 import { JobsPanel } from "./JobsPanel";
 import { LogsPanel } from "./LogsPanel";
+import { ModelKeyStatus } from "./ModelKeyStatus";
 import { NowCard } from "./NowCard";
 import { ReportDialog } from "./ReportDialog";
 import { sendMessage } from "./runtime";
@@ -24,6 +25,7 @@ import { UpdateDialog } from "./UpdateDialog";
 import { useActiveTabId } from "./use-active-tab";
 import { useAgentQueue } from "./use-agent-queue";
 import { useAvailableUpdate } from "./use-available-update";
+import { useModelKeys } from "./use-model-keys";
 import { useNoticeActions } from "./use-notice-actions";
 import { useSidebarAuth } from "./use-sidebar-auth";
 import { useSocketStatus } from "./use-socket-status";
@@ -52,6 +54,7 @@ export default function SidebarApp() {
     onSignedOut: () => setHelpOpen(false),
   });
   const connected = useSocketStatus(session, apiUrl);
+  const modelKeys = useModelKeys(Boolean(session));
   const support = useSupportClaims({
     signedIn: Boolean(session),
     visible: mainTab === "support",
@@ -193,6 +196,7 @@ export default function SidebarApp() {
               reportDisabled={reportDisabled}
               onSignOut={() => void handleSignOut()}
             />
+            <ModelKeyStatus status={modelKeys} />
             <SidebarNav
               value={mainTab}
               onChange={setMainTab}

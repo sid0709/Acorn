@@ -19,6 +19,9 @@ export const AGENT_ROUTES = {
   locate: (sessionId: string) => `/agent/v1/sessions/${encodeURIComponent(sessionId)}/locate`,
   shots: (sessionId: string) => `/agent/v1/sessions/${encodeURIComponent(sessionId)}/shots`,
   blobs: (sessionId: string) => `/agent/v1/sessions/${encodeURIComponent(sessionId)}/blobs`,
+  /** Waits for the form's to-do list to change since version `since` (a long poll), and brings it. */
+  fields: (sessionId: string, since: number) =>
+    `/agent/v1/sessions/${encodeURIComponent(sessionId)}/fields?since=${encodeURIComponent(String(since))}`,
 } as const;
 
 /**
@@ -53,7 +56,21 @@ export const ACTION_KIND = {
   wait: "wait",
   /** The agent's own, never the model's: take a picture of the page now and send it at once (a dropdown's list). */
   snap: "snap",
+  /**
+   * The agent's own, for a list the browser draws itself (a select element), whose popup is a window of the
+   * operating system that no screenshot shows and no click or key reaches: `focus` gives the control at the
+   * point focus without opening it (the focus report then names its options), and `select` sets the option
+   * at `index` by its place, so the closed box shows it for the photo that confirms it.
+   */
+  focus: "focus",
+  select: "select",
 } as const;
+
+/**
+ * Ends the id of the picture the extension takes when typing into a field opened a list of suggestions
+ * under it: the type action's id and this. The agent reads the picture as it reads a dropdown's.
+ */
+export const TYPED_LIST_SNAP_SUFFIX = "l";
 
 export type ActionKind = (typeof ACTION_KIND)[keyof typeof ACTION_KIND];
 
@@ -154,24 +171,14 @@ export interface AgentFocus {
 }
 
 /**
- * What the extension reads from the page about a control about to be clicked, or a window or
- * frame a click opened. The server's decision model judges it: a file only ever comes from this
- * computer, never an online service. Nothing here is a judgment.
+ * What the extension reads about a window a click opened, or a frame that appeared in the page: its
+ * address, title and the start of its text. The server's decision model judges it: a file only ever
+ * comes from this computer, and the applicant's details from their profile. Nothing here is a
+ * judgment, and no control is described before a click (2.10.0: the model, which sees the screen,
+ * chooses what to click; the prompt says it is the one check).
  */
 export interface AgentVetTarget {
-  kind: "control" | "window" | "frame";
-  tag?: string;
-  type?: string;
-  role?: string;
-  text?: string;
-  label?: string;
-  title?: string;
-  alt?: string;
-  linkHost?: string;
-  idClass?: string;
-  /** The control sits in a component that holds a file input. */
-  inFileComponent?: boolean;
-  /** A window or frame: its address, title and the start of its text. */
+  kind: "window" | "frame";
   url?: string;
   windowTitle?: string;
   excerpt?: string;
@@ -179,27 +186,21 @@ export interface AgentVetTarget {
   pageUrl?: string;
 }
 
-/** Why the agent refused a click or closed a window: the thing it reached. */
+/** Why the agent closed a window or frame: the thing it reached. */
 export const VET_CAUSE = {
   onlineSource: "online_source",
   singleSignOn: "single_sign_on",
-  /** An autofill from a saved profile or another service: the one cause for which a control itself is refused. */
+  /** A page that fills the application from a saved profile or another service. */
   otherAutofill: "other_autofill",
 } as const;
 export type VetCause = (typeof VET_CAUSE)[keyof typeof VET_CAUSE];
 
 export interface AgentVetVerdict {
-  /**
-   * A window or frame a click opened is blocked (closed) when it is what the applicant has not allowed; a
-   * control goes ahead with a hint, except one that fills the application from a saved profile or another
-   * service (`other_autofill`), which is refused before the click.
-   */
+  /** A window or frame a click opened is blocked (closed) when it is what the applicant has not allowed. */
   blocked: boolean;
   probability: number;
   cause?: VetCause;
   reason?: string;
-  /** For a control that looks like something not allowed: the doubt, told to the model with the click's result. */
-  hint?: string;
 }
 
 /** What an action set off beyond itself, that a screenshot cannot show. */
@@ -220,6 +221,11 @@ export interface AgentActionResult {
   error?: string;
   detail?: string;
   opened?: ActionOpened;
+  /**
+   * The action reached no control: typing or keys with nothing focused, or what was meant for that control and
+   * skipped with it. The rest of the batch went on; the agent does not count it as the batch failing.
+   */
+  unreached?: boolean;
 }
 
 /**
@@ -240,6 +246,17 @@ export interface AgentShotUpload {
   focus?: AgentFocus | null;
   /** The list open on the page when the photo was taken, as the page names its options; null when it names none. */
   list?: AgentOpenList | null;
+}
+
+/**
+ * The agent's answer to a picture sent mid-batch. For the photo of a dropdown being set in one pass, `then` is
+ * what to do at once while its list is open (click the option; type and take another picture; close it),
+ * carried out before the rest of the batch.
+ */
+export interface AgentShotAnswer {
+  ok: boolean;
+  hash?: string;
+  then?: AgentAction[] | null;
 }
 
 /** Pictures sent ahead of the look that will refer to them (a survey's screens, as each is taken). */
@@ -327,11 +344,14 @@ export interface AgentRect {
  * on the control's own label is on its field. The agent binds each point of a plan to a control with it.
  * `label` is what the page calls the control; `entry` the part of its own box that is not its label, when
  * the label is printed inside the box (the place to click or type); `required`, `empty` and `invalid` what
- * the page says of its state (`empty` is left out when the page cannot tell).
+ * the page says of its state (`empty` is left out when the page cannot tell). A control fixed to the window
+ * (`fixed`: a header's link, a dialog drawn as a fixed layer) has its place, `box` and `entry` in the window,
+ * screenshot pixels from the window's top left, since it has no one place on the page (2.15.0).
  */
 export interface AgentControlMark extends AgentRect {
   id: string;
   kind: string;
+  fixed?: boolean;
   box?: AgentRect;
   label?: string;
   entry?: AgentRect;
@@ -361,10 +381,12 @@ export interface AgentOpenList {
 /**
  * The control a point was bound to when it was planned, as it sat then. The extension finds the same
  * control by `id` when the point is acted on, and the difference of the two places is how far the point
- * has moved.
+ * has moved. A `fixed` control keeps its place in the window at every scroll position, so its point is
+ * acted on where it was measured, with no scroll.
  */
 export interface AgentMarkRef extends AgentRect {
   id: string;
+  fixed?: boolean;
 }
 
 /**
@@ -420,6 +442,9 @@ export interface AgentAction {
   /** A résumé id from the session's list, chosen by the server for an upload. */
   resume?: string;
   fileName?: string;
+  /** `select`: the place (from 0) of the option to set in the browser's own list at the point, and its words. */
+  index?: number;
+  option?: string;
   /**
    * The scroll position (screenshot pixels) the page must be at before this action, because its
    * point was measured on that screen of a survey; `pageHeight` is the page's height then, so the
@@ -510,6 +535,16 @@ export interface AgentFieldState {
   /** Screenshot pixels from the page's top. */
   y: number;
   state: FieldState;
+}
+
+/**
+ * The form's to-do list as the agent has it, with the count of its changes so far. A wait on the `fields`
+ * route answers once the count is past the one asked for (a zone's photo reviewed, a look), or with the same
+ * count and no list after a while; the sidebar follows it between looks.
+ */
+export interface AgentFieldsUpdate {
+  version: number;
+  fields?: AgentFieldState[] | null;
 }
 
 /** One file of a run's trace the server made: text in `text`, an image as base64 in `data`. */

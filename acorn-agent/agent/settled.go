@@ -326,6 +326,10 @@ func (s *session) settleRows(obs Observation) {
 	}
 	var rows []*row
 	for _, mark := range obs.Marks {
+		// A control fixed to the window has no row of the page.
+		if mark.Fixed {
+			continue
+		}
 		y := mark.Rect.centerY()
 		var at *row
 		for _, r := range rows {
