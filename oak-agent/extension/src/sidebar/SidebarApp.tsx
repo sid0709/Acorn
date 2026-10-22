@@ -26,6 +26,7 @@ import { pageHasResume } from "../tab-page-session";
 import { MSG, OAK_SIDEBAR_PORT, type DomNode } from "../types";
 import { InspectPanel, useInspectWindow } from "./InspectPanel";
 import { LoadMoreFooter } from "./LoadMoreFooter";
+import { EmailsPanel } from "./EmailsPanel";
 import { QaPanel } from "./QaPanel";
 import { SidebarMainTabs, type OakMainTab } from "./SidebarMainTabs";
 import { sendMessage } from "./runtime";
@@ -741,6 +742,18 @@ export default function SidebarApp() {
                     tabId={activeTabId}
                     page={page ? { title: page.title, url: page.url } : null}
                   />
+                </div>
+              ) : null}
+
+              {session ? (
+                <div
+                  id="oak-panel-emails"
+                  className="sidebar-tab-panel"
+                  role="tabpanel"
+                  aria-labelledby="oak-tab-emails"
+                  hidden={mainTab !== "emails"}
+                >
+                  <EmailsPanel active={mainTab === "emails"} />
                 </div>
               ) : null}
 

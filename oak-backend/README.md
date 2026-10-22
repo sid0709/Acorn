@@ -59,3 +59,12 @@ Every request should carry `X-Acorn-Tab: <uuid per Chrome tab>` and `X-Acorn-Cli
 ### Upload name
 
 A résumé is served as `<profile name><its own extension>` (`Backend.pdf` → `Eli Taylor.pdf`, `Frontend.docx` → `Eli Taylor.docx`), the way Athens Lens' resume hook renamed uploads. The profile name is `fullName`, else first, middle and last name, else the account name. Anyone looking at the form can tell the right person's file went in, and its type. Characters a file name cannot hold become spaces.
+
+## Emails
+
+| Method | Path                     | Notes                                                                                                                                                                        |
+| ------ | ------------------------ | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| GET    | `/emails`                | Verification emails the Gmail watcher labelled `oak-verify-email`, across the account's mailboxes, newest first. Forwards to acorn-backend's `GET /acorn/gmail/verify-mail`. |
+| GET    | `/emails/:mailboxId/:id` | One of them in full (`html`, `text`, headers, attachment names), read live from Gmail through `GET /acorn/gmail/verify-mail/{mailboxId}/{id}`.                               |
+
+Oak keeps no email content and never logs it. Errors from acorn-backend pass through with their status and `error`.

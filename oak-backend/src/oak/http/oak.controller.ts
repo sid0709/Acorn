@@ -21,6 +21,7 @@ import { OakMatchOptionDto } from './dto/match-option.dto';
 import { OakQaDto } from './dto/qa.dto';
 import { OakJdShotDto } from './dto/jd-shot.dto';
 import { OakSentDto } from './dto/sent.dto';
+import { OakEmailsService } from './oak-emails.service';
 import { OakJdShotService } from './oak-jd-shot.service';
 import { OakResumeFilesService } from './oak-resume-files.service';
 import { OakSentService } from './oak-sent.service';
@@ -37,6 +38,7 @@ export class OakController {
     private readonly resumeFiles: OakResumeFilesService,
     private readonly jdShot: OakJdShotService,
     private readonly sent: OakSentService,
+    private readonly emails: OakEmailsService,
     private readonly usage: AcornUsageService,
   ) {}
 
@@ -138,6 +140,24 @@ export class OakController {
   @UseGuards(OakAuthGuard)
   markSent(@Req() req: OakAuthedRequest, @Body() dto: OakSentDto) {
     return this.sent.record(req.oakToken!, req.oakSession!, dto);
+  }
+
+  /** Verification emails the Gmail watcher labelled, newest first. */
+  @Get('emails')
+  @UseGuards(OakAuthGuard)
+  listEmails(@Req() req: OakAuthedRequest) {
+    return this.emails.list(req.oakToken!);
+  }
+
+  /** One labelled email in full, read live from Gmail. */
+  @Get('emails/:mailboxId/:id')
+  @UseGuards(OakAuthGuard)
+  getEmail(
+    @Req() req: OakAuthedRequest,
+    @Param('mailboxId') mailboxId: string,
+    @Param('id') id: string,
+  ) {
+    return this.emails.get(req.oakToken!, mailboxId, id);
   }
 
   /** The account's primary Acorn Library résumé. */

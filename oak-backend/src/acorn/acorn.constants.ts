@@ -24,6 +24,8 @@ export const OAK_CLIENT = 'oak';
 /** Acorn routes Oak forwards to, with the caller's own session token. */
 export const ACORN_RECOMMEND_PATH = '/acorn/custom/recommend';
 export const ACORN_RUNS_PATH = '/acorn/runs';
+/** Mail the Gmail watcher labelled as a verification email, across the account's mailboxes. */
+export const ACORN_VERIFY_MAIL_PATH = '/acorn/gmail/verify-mail';
 export const ACORN_RUN_SCREENSHOT_SUFFIX = 'screenshot';
 /** acorn-backend's cap on one run screenshot (config.MaxRunScreenshotBytes). */
 export const ACORN_RUN_SCREENSHOT_MAX_BYTES = 6 * 1024 * 1024;

@@ -329,3 +329,63 @@ export async function requestSent(
   }
   return { recorded: Boolean(data.recorded), runId: readId(data.runId) };
 }
+
+/** One verification email in the Emails list. */
+export type OakEmailRow = {
+  mailboxId: string;
+  mailboxEmail: string;
+  id: string;
+  from: string;
+  subject: string;
+  snippet: string;
+  /** ms since epoch. */
+  receivedAt: number;
+  unread: boolean;
+};
+
+export type OakEmailAttachment = { filename: string; mimeType: string; size: number };
+
+/** One verification email in full. `html` has its inline images folded in as data URLs. */
+export type OakEmailMessage = {
+  mailboxId: string;
+  id: string;
+  from: string;
+  to: string;
+  cc: string;
+  subject: string;
+  /** ms since epoch. */
+  date: number;
+  html: string;
+  text: string;
+  attachments: OakEmailAttachment[];
+};
+
+async function getEmailJson<T>(path: string, fallback: string): Promise<T> {
+  const base = await apiBase();
+  const res = await fetch(`${base}${path}`, { headers: await authHeaders() });
+  const data = (await res.json().catch(() => ({}))) as T & {
+    error?: unknown;
+    message?: unknown;
+  };
+  if (!res.ok) throw new Error(extractError(data, `${fallback} (${res.status})`));
+  return data;
+}
+
+/** The emails the Gmail watcher labelled `oak-verify-email`, newest first. */
+export async function fetchEmails(): Promise<OakEmailRow[]> {
+  const data = await getEmailJson<{ messages?: OakEmailRow[] }>(
+    "/api/oak/emails",
+    "Could not load the emails",
+  );
+  return Array.isArray(data.messages) ? data.messages : [];
+}
+
+/** One labelled email in full, read live from Gmail. */
+export async function fetchEmail(mailboxId: string, id: string): Promise<OakEmailMessage> {
+  const data = await getEmailJson<{ message?: OakEmailMessage }>(
+    `/api/oak/emails/${encodeURIComponent(mailboxId)}/${encodeURIComponent(id)}`,
+    "Could not load the email",
+  );
+  if (!data.message) throw new Error("The email came back empty");
+  return data.message;
+}

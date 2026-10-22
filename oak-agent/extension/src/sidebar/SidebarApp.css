@@ -36,14 +36,16 @@
   flex-shrink: 0;
 }
 
-.sidebar-app.tab-qa .tools {
+.sidebar-app.tab-qa .tools,
+.sidebar-app.tab-emails .tools {
   flex: 1 1 auto;
   min-height: 0;
   display: flex;
   flex-direction: column;
 }
 
-.sidebar-app.tab-qa .sidebar-tab-panel:not([hidden]) {
+.sidebar-app.tab-qa .sidebar-tab-panel:not([hidden]),
+.sidebar-app.tab-emails .sidebar-tab-panel:not([hidden]) {
   flex: 1 1 auto;
   min-height: 0;
 }
@@ -1713,4 +1715,214 @@
 
 .worker-pool-cost {
   font-variant-numeric: tabular-nums;
+}
+
+/* Emails: verification mail the Gmail watcher labelled, and one email in full. */
+.emails-panel {
+  display: flex;
+  flex-direction: column;
+  gap: var(--athens-space-3);
+  flex: 1 1 auto;
+  min-height: 0;
+}
+
+.emails-toolbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.emails-toolbar h3 {
+  margin-bottom: 0;
+}
+
+.emails-refresh,
+.emails-back {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--athens-space-1);
+  background: var(--athens-surface-subtle);
+  border: 1px solid var(--athens-border);
+  border-radius: var(--athens-radius-pill);
+  color: var(--athens-text);
+  font-size: var(--athens-font-size-sm);
+  font-weight: 600;
+  cursor: pointer;
+  box-shadow: var(--athens-shadow-control);
+}
+
+.emails-refresh {
+  padding: var(--athens-space-2);
+}
+
+.emails-back {
+  align-self: flex-start;
+  padding: var(--athens-space-1) var(--athens-space-3) var(--athens-space-1) var(--athens-space-2);
+}
+
+.emails-refresh:not(:disabled):hover,
+.emails-back:hover {
+  background: var(--athens-hover);
+  border-color: var(--athens-border-strong);
+}
+
+.emails-refresh:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+
+.emails-error {
+  margin: 0;
+  font-size: var(--athens-font-size-xs);
+  color: var(--athens-danger);
+  line-height: 1.4;
+}
+
+.emails-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: var(--athens-space-2);
+}
+
+.emails-row {
+  width: 100%;
+  display: flex;
+  align-items: flex-start;
+  gap: var(--athens-space-2);
+  padding: var(--athens-space-3);
+  text-align: left;
+  background: var(--athens-canvas);
+  border: 1px solid var(--athens-border);
+  border-radius: var(--athens-radius-md);
+  color: var(--athens-text);
+  cursor: pointer;
+}
+
+.emails-row:hover {
+  background: var(--athens-hover);
+  border-color: var(--athens-border-strong);
+}
+
+.emails-dot {
+  flex-shrink: 0;
+  width: 8px;
+  height: 8px;
+  margin-top: 6px;
+  border-radius: var(--athens-radius-pill);
+  background: transparent;
+}
+
+.emails-dot.unread {
+  background: var(--athens-brand);
+}
+
+.emails-row-main {
+  min-width: 0;
+  flex: 1 1 auto;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.emails-row-top {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: var(--athens-space-2);
+}
+
+.emails-from {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: var(--athens-font-size-sm);
+  font-weight: 600;
+}
+
+.emails-when {
+  flex-shrink: 0;
+  font-size: var(--athens-font-size-xs);
+  color: var(--athens-text-muted);
+}
+
+.emails-row-subject,
+.emails-row-snippet {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: var(--athens-font-size-sm);
+}
+
+.emails-row-snippet {
+  font-size: var(--athens-font-size-xs);
+  color: var(--athens-text-secondary);
+}
+
+.emails-head {
+  display: flex;
+  flex-direction: column;
+  gap: var(--athens-space-2);
+}
+
+.emails-subject {
+  margin: 0;
+  font-size: var(--athens-font-size-md);
+  font-weight: 600;
+  line-height: 1.3;
+  overflow-wrap: anywhere;
+}
+
+.emails-meta {
+  display: grid;
+  grid-template-columns: auto 1fr;
+  gap: 2px var(--athens-space-3);
+  margin: 0;
+  font-size: var(--athens-font-size-xs);
+}
+
+.emails-meta dt {
+  color: var(--athens-text-muted);
+}
+
+.emails-meta dd {
+  margin: 0;
+  color: var(--athens-text-secondary);
+  overflow-wrap: anywhere;
+}
+
+.emails-images-bar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--athens-space-2);
+  padding: var(--athens-space-2) var(--athens-space-3);
+  background: var(--athens-brand-subtle);
+  border: 1px solid var(--athens-brand-border);
+  border-radius: var(--athens-radius-sm);
+  font-size: var(--athens-font-size-xs);
+  color: var(--athens-text-secondary);
+}
+
+.emails-images-bar button {
+  background: none;
+  border: none;
+  padding: 0;
+  color: var(--athens-brand-strong);
+  font-weight: 600;
+  font-size: inherit;
+  cursor: pointer;
+}
+
+/* The email sits on white, like Gmail's reading pane, and scrolls inside the panel. */
+.emails-frame {
+  flex: 1 1 auto;
+  width: 100%;
+  min-height: 360px;
+  border: 1px solid var(--athens-border);
+  border-radius: var(--athens-radius-md);
+  background: var(--athens-canvas);
 }

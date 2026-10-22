@@ -88,8 +88,9 @@ Oak works on **pages**: Chrome tabs it remembers. One list, one set of buttons.
    - **Sent** is enabled only after a JD shot found a posting on the page, and not while a JD shot or Fill is running. It takes a full-page screenshot of the tab (through the Chrome debugger, so Chrome shows its "debugging this tab" banner for a moment), counts the page as sent on your Acorn dashboard with that screenshot, then closes the tab and drops the card. If the upload fails the tab stays open and the card stays.
 4. **Cost** is read from the backend (the sum of that tab's `acorn_ai_usage` rows, including the JD shot and Q&A), not estimated in the extension. It refreshes while a step runs and when a step ends.
 5. If Fill leaves a text field blank, open the **Q&A** tab in the sidebar (or the UI board) — same human-like writer as Oak text-field fill. Or drag-select the question on the page: an Oak chip appears; click it for an in-page answer, then **Copy**.
-6. In the sidebar: **Pure Tree**, **Meta Tree**, **AI Analyze**, and the plan-run step list (verified / skipped).
-7. **Fetch DOM** still sends a snapshot to the UI board if you want the desktop board.
+6. **Emails** lists the verification emails (codes and verify links) that Acorn's Gmail watcher labelled `oak-verify-email`, newest first, with an unread dot; it reloads each time you open the tab, and **Refresh** reloads it on demand. Click one to read it in full: it is shown on white with its own styling, links open in a new tab. **Remote images are blocked by default** (opening one would tell the sender you read the email); the bar above the message has **Load images**. Pictures embedded in the email always show. The message is read live from Gmail and Oak keeps nothing.
+7. In the sidebar: **Pure Tree**, **Meta Tree**, **AI Analyze**, and the plan-run step list (verified / skipped).
+8. **Fetch DOM** still sends a snapshot to the UI board if you want the desktop board.
 
 Every request carries `X-Acorn-Tab` (a UUID per Chrome tab, kept in `chrome.storage.session`) and `X-Acorn-Client: oak/<version>`, so the backend can file each model call under its page.
 

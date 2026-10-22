@@ -121,3 +121,31 @@ export function FillIcon() {
     </svg>
   );
 }
+
+export function BackIcon() {
+  return (
+    <svg viewBox="0 0 20 20" width="16" height="16" aria-hidden="true" fill="none">
+      <path
+        stroke="currentColor"
+        strokeWidth="1.5"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+        d="M11.5 5 6.5 10l5 5"
+      />
+    </svg>
+  );
+}
+
+export function RefreshIcon() {
+  return (
+    <svg viewBox="0 0 20 20" width="16" height="16" aria-hidden="true" fill="none">
+      <path
+        stroke="currentColor"
+        strokeWidth="1.5"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+        d="M16.5 10a6.5 6.5 0 1 1-1.9-4.6M16.5 3.5v3h-3"
+      />
+    </svg>
+  );
+}

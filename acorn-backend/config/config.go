@@ -45,6 +45,26 @@ const (
 	OpenRouterKeyURL = "https://openrouter.ai/api/v1/key"
 	OpenAIModelsURL  = "https://api.openai.com/v1/models"
 	envFileName      = ".env"
+
+	// GmailWatchCollection holds one row per watched mailbox: its history cursor and watch expiry.
+	GmailWatchCollection = "acorn_gmail_watch"
+	// GmailProcessedCollection holds the ids of messages already looked at, never their content.
+	GmailProcessedCollection = "acorn_gmail_processed"
+	// GmailProcessedRetention is how long a message id is remembered. Pub/Sub delivers at least once,
+	// so a repeat inside this span is skipped without a second model call.
+	GmailProcessedRetention = 7 * 24 * time.Hour
+	// VerifyMailLabel is the one Gmail label put on mail that delivers a verification code or link.
+	VerifyMailLabel = "oak-verify-email"
+	// VerifyMailFeature is the usage feature of the model call that classifies an arriving email.
+	VerifyMailFeature = "mail_verify_label"
+	// VerifyMailClient is the usage client of that call: the server itself, not a browser.
+	VerifyMailClient = "acorn-backend"
+
+	defaultMailVerifyMinConfidence = 0.8
+	// DefaultMailVerifyPollInterval is how often polling mode reads each mailbox's history, and
+	// MinMailVerifyPollInterval the shortest it may be set to: each read costs Gmail quota.
+	DefaultMailVerifyPollInterval = 30 * time.Second
+	MinMailVerifyPollInterval     = 10 * time.Second
 )
 
 // Database is the MongoDB Acorn's server uses: its own collections and the shared job catalog.
@@ -69,6 +89,27 @@ type HTTP struct {
 	Addr    string
 	Origins []string
 }
+
+// MailWatch is how arriving Gmail is noticed. With a Topic, Gmail publishes a mailbox's changes
+// to a Pub/Sub topic and a push subscription calls POST /acorn/gmail/push on this server (real
+// time, and Google Cloud must have billing on for Pub/Sub). Without one, the server polls each
+// mailbox's history every PollInterval instead: a light history.list call, 2 Gmail quota units.
+type MailWatch struct {
+	// Topic is the full Pub/Sub topic name, "projects/<project>/topics/<topic>". Empty means poll.
+	Topic string
+	// Audience and ServiceAccount are what the push subscription's OIDC token must carry: the
+	// "aud" claim, and the "email" of the service account the subscription signs with.
+	Audience       string
+	ServiceAccount string
+	// MinConfidence is the least probability, 0 to 1, that an email delivers a verification code or
+	// link before it is labelled.
+	MinConfidence float64
+	// PollInterval is how often polling mode reads each mailbox; unused with a Topic.
+	PollInterval time.Duration
+}
+
+// Push reports whether Gmail push is configured; otherwise mail is polled.
+func (m MailWatch) Push() bool { return m.Topic != "" }
 
 // ErrorReporting is optional monitoring. Empty fields mean no outbound calls.
 type ErrorReporting struct {
@@ -121,6 +162,38 @@ func GmailRedirectFromSignIn(signInRedirectURL string) string {
 		return ""
 	}
 	return strings.TrimSuffix(signInRedirectURL, signInSuffix) + gmailSuffix
+}
+
+// LoadMailWatch reads the Gmail watch settings. Push needs all three of GMAIL_PUSH_TOPIC,
+// GMAIL_PUSH_AUDIENCE and GMAIL_PUSH_SERVICE_ACCOUNT: with a topic but not the other two, the push
+// endpoint could not tell Pub/Sub's calls from anyone else's, so the error says which is missing.
+// Without a topic the settings are the polling ones (MAIL_VERIFY_POLL_INTERVAL).
+func LoadMailWatch() (MailWatch, error) {
+	watch := MailWatch{
+		Topic:          Env("GMAIL_PUSH_TOPIC", ""),
+		Audience:       Env("GMAIL_PUSH_AUDIENCE", ""),
+		ServiceAccount: Env("GMAIL_PUSH_SERVICE_ACCOUNT", ""),
+		MinConfidence:  defaultMailVerifyMinConfidence,
+		PollInterval:   DefaultMailVerifyPollInterval,
+	}
+	if raw := Env("MAIL_VERIFY_MIN_CONFIDENCE", ""); raw != "" {
+		value, err := strconv.ParseFloat(raw, 64)
+		if err != nil || value <= 0 || value > 1 {
+			return MailWatch{}, fmt.Errorf("MAIL_VERIFY_MIN_CONFIDENCE must be a number above 0 and at most 1")
+		}
+		watch.MinConfidence = value
+	}
+	if raw := Env("MAIL_VERIFY_POLL_INTERVAL", ""); raw != "" {
+		value, err := time.ParseDuration(raw)
+		if err != nil || value < MinMailVerifyPollInterval {
+			return MailWatch{}, fmt.Errorf("MAIL_VERIFY_POLL_INTERVAL must be a duration of at least %s, like 30s", MinMailVerifyPollInterval)
+		}
+		watch.PollInterval = value
+	}
+	if watch.Topic != "" && (watch.Audience == "" || watch.ServiceAccount == "") {
+		return MailWatch{}, fmt.Errorf("GMAIL_PUSH_TOPIC needs GMAIL_PUSH_AUDIENCE and GMAIL_PUSH_SERVICE_ACCOUNT too")
+	}
+	return watch, nil
 }
 
 // LoadHTTP reads HTTP_ADDR and CORS_ORIGINS, falling back to the service's defaults.
