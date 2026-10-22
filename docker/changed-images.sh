@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # Read changed repo paths on stdin, one per line.
-# Print the images those paths affect: api, web, admin, agent. The extension is not an image.
+# Print the images those paths affect: api, web, admin, agent, oak. The extensions are not images.
 # Nginx files are reference-only and do not trigger an image rebuild.
 set -euo pipefail
 
@@ -8,6 +8,7 @@ api=0
 web=0
 admin=0
 agent=0
+oak=0
 while IFS= read -r path || [[ -n "${path}" ]]; do
   [[ -z "${path}" ]] && continue
   case "${path}" in
@@ -22,7 +23,11 @@ while IFS= read -r path || [[ -n "${path}" ]]; do
     acorn-agent/*)
       agent=1
       ;;
-    acorn-frontend/* | acorn/extension/* | tools/extension-release.mjs)
+    oak-backend/*)
+      oak=1
+      ;;
+    # The Oak extension is packed into the website image (Apps and Connections download).
+    acorn-frontend/* | acorn/extension/* | oak-agent/* | tools/extension-release.mjs)
       web=1
       ;;
     acorn-admin/*)
@@ -37,6 +42,7 @@ while IFS= read -r path || [[ -n "${path}" ]]; do
       web=1
       admin=1
       agent=1
+      oak=1
       ;;
   esac
 done
@@ -52,4 +58,7 @@ if [[ "${admin}" == 1 ]]; then
 fi
 if [[ "${agent}" == 1 ]]; then
   printf '%s\n' agent
+fi
+if [[ "${oak}" == 1 ]]; then
+  printf '%s\n' oak
 fi

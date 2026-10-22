@@ -1,4 +1,5 @@
-// Production extension build for deploy: apply VITE_* env, build, zip for the Apps page.
+// Production extension builds for deploy: apply VITE_* env, build, zip for the Connections page.
+// Two extensions: Acorn (a workspace) and Oak (oak-agent, its own Bun project).
 import { spawnSync } from "node:child_process";
 import { mkdir } from "node:fs/promises";
 import path from "node:path";
@@ -12,14 +13,20 @@ const extensionPkgPath = path.join(extensionDir, "package.json");
 
 const VITE_KEYS = ["VITE_ACORN_API_URL", "VITE_ACORN_WEB_URL"];
 
+const oakDir = path.join(repoRoot, "oak-agent");
+const oakDistDir = path.join(oakDir, "extension", "dist");
+const oakExtensionPkgPath = path.join(oakDir, "extension", "package.json");
+
 function parseArgs(argv) {
   let zipOut = path.join(repoRoot, "acorn-frontend", "public", "downloads", "acorn-chrome.zip");
+  let oakZipOut = path.join(repoRoot, "acorn-frontend", "public", "downloads", "oak-chrome.zip");
   let nextEnvOut = path.join(repoRoot, "acorn-frontend", ".env.production.local");
   for (let i = 0; i < argv.length; i++) {
     if (argv[i] === "--zip" && argv[i + 1]) zipOut = path.resolve(argv[++i]);
+    if (argv[i] === "--oak-zip" && argv[i + 1]) oakZipOut = path.resolve(argv[++i]);
     if (argv[i] === "--next-env" && argv[i + 1]) nextEnvOut = path.resolve(argv[++i]);
   }
-  return { zipOut, nextEnvOut };
+  return { zipOut, oakZipOut, nextEnvOut };
 }
 
 async function loadEnvFile(filePath) {
@@ -62,27 +69,53 @@ function run(command, args, cwd = repoRoot) {
   }
 }
 
-async function zipDist(outZip) {
+async function zipDist(outZip, fromDir = distDir) {
   await mkdir(path.dirname(outZip), { recursive: true });
-  run("zip", ["-qr", outZip, "."], distDir);
+  run("zip", ["-qr", outZip, "."], fromDir);
   console.log(`extension-release: ${path.relative(repoRoot, outZip)}`);
 }
 
-async function writeNextExtensionVersion(nextEnvOut) {
-  const pkg = await Bun.file(extensionPkgPath).json();
+async function readVersion(pkgPath) {
+  const pkg = await Bun.file(pkgPath).json();
   const version = String(pkg.version ?? "").trim();
   if (!version) {
-    console.error("extension-release: missing version in acorn/extension/package.json");
+    console.error(`extension-release: missing version in ${path.relative(repoRoot, pkgPath)}`);
     process.exit(1);
   }
-  await mkdir(path.dirname(nextEnvOut), { recursive: true });
-  await Bun.write(nextEnvOut, `NEXT_PUBLIC_ACORN_EXTENSION_VERSION=${version}\n`);
-  console.log(`extension-release: Apps page version ${version}`);
+  return version;
 }
 
-const { zipOut, nextEnvOut } = parseArgs(process.argv.slice(2));
+async function writeNextExtensionVersions(nextEnvOut) {
+  const acornVersion = await readVersion(extensionPkgPath);
+  const oakVersion = await readVersion(oakExtensionPkgPath);
+  await mkdir(path.dirname(nextEnvOut), { recursive: true });
+  await Bun.write(
+    nextEnvOut,
+    `NEXT_PUBLIC_ACORN_EXTENSION_VERSION=${acornVersion}\nNEXT_PUBLIC_OAK_EXTENSION_VERSION=${oakVersion}\n`,
+  );
+  console.log(
+    `extension-release: Connections page versions acorn ${acornVersion}, oak ${oakVersion}`,
+  );
+}
+
+/** Oak is its own Bun project: install its dependencies, then build it against the production API. */
+function buildOak() {
+  // Oak talks to oak-backend, which nginx serves on the same host as the Acorn API.
+  const apiUrl = process.env.VITE_OAK_API_URL?.trim() || process.env.VITE_ACORN_API_URL?.trim();
+  const env = apiUrl ? { ...process.env, VITE_OAK_API_URL: apiUrl } : process.env;
+  const step = (args) => {
+    const result = spawnSync("bun", args, { cwd: oakDir, stdio: "inherit", env });
+    if (result.status !== 0) process.exit(result.status ?? 1);
+  };
+  step(["install", "--frozen-lockfile"]);
+  step(["run", "--filter", "oak-extension", "build"]);
+}
+
+const { zipOut, oakZipOut, nextEnvOut } = parseArgs(process.argv.slice(2));
 
 await writeExtensionEnv();
 run("bun", ["run", "--filter", "acorn-extension", "build"]);
 await zipDist(zipOut);
-await writeNextExtensionVersion(nextEnvOut);
+buildOak();
+await zipDist(oakZipOut, oakDistDir);
+await writeNextExtensionVersions(nextEnvOut);

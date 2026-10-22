@@ -91,6 +91,42 @@ jobs:
       - run: bun run --filter acorn-admin typecheck
       - run: bun run --filter acorn-admin build
 
+  oak-backend:
+    name: Oak backend build and test
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    defaults:
+      run:
+        working-directory: oak-backend
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2.2.0
+        with:
+          bun-version-file: package.json
+      # oak-backend is its own Bun project, with its own lockfile, outside the root workspaces.
+      - run: bun install --frozen-lockfile
+      - run: bun run build
+      - run: bun run test
+
+  oak-agent:
+    name: Oak extension build and test
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2.2.0
+        with:
+          bun-version-file: package.json
+      - name: Install
+        working-directory: oak-agent
+        run: bun install --frozen-lockfile
+      - name: Build
+        working-directory: oak-agent
+        run: bun run build
+      - name: Test
+        working-directory: oak-agent
+        run: bun run test
+
   extension:
     name: Extension build
     runs-on: ubuntu-latest

@@ -43,8 +43,11 @@ const (
 	// OpenRouterKeyURL and OpenAIModelsURL answer 200 for a working key and 401 for one that is not: the
 	// cheapest way to tell the person whether each key of the profile works.
 	OpenRouterKeyURL = "https://openrouter.ai/api/v1/key"
-	OpenAIModelsURL  = "https://api.openai.com/v1/models"
-	envFileName      = ".env"
+	// GoogleOIDCCertsURL publishes the keys Google signs ID tokens with, among them the token a
+	// Pub/Sub push subscription sends.
+	GoogleOIDCCertsURL = "https://www.googleapis.com/oauth2/v3/certs"
+	OpenAIModelsURL    = "https://api.openai.com/v1/models"
+	envFileName        = ".env"
 
 	// GmailWatchCollection holds one row per watched mailbox: its history cursor and watch expiry.
 	GmailWatchCollection = "acorn_gmail_watch"

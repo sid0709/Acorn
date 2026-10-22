@@ -23,6 +23,7 @@ import (
 	"github.com/sid0709/acorn/acorn-backend/internal/jobs"
 	"github.com/sid0709/acorn/acorn-backend/internal/killswitch"
 	"github.com/sid0709/acorn/acorn-backend/mailbox"
+	"github.com/sid0709/acorn/acorn-backend/mailwatch"
 	"github.com/sid0709/acorn/acorn-backend/profile"
 	"github.com/sid0709/acorn/acorn-backend/resume"
 	"github.com/sid0709/acorn/acorn-backend/runs"
@@ -75,6 +76,7 @@ type Server struct {
 	gmail          *mailbox.Store
 	gmailGoogle    *mailbox.Google
 	gmailRedirect  string
+	mailwatch      *mailwatch.Service
 	resumes        *resume.Service
 	profiles       *profile.Store
 	debug          *debugtrace.Recorder
@@ -108,6 +110,12 @@ type Options struct {
 	Gmail *mailbox.Store
 	// GmailRedirectURL is acorn-frontend's Gmail OAuth callback.
 	GmailRedirectURL string
+	// GmailGoogle is the Gmail client the server shares with MailWatch, so a label the watcher
+	// applies clears the API's cached pages. Nil builds the API its own.
+	GmailGoogle *mailbox.Google
+	// MailWatch labels arriving verification mail and receives Gmail's push notifications. Nil
+	// leaves both off.
+	MailWatch *mailwatch.Service
 	// Resumes is the template, generation, library, and history engine. Nil uses an in-memory store.
 	Resumes *resume.Service
 	// Profiles is the account profile. Nil uses an in-memory store.
@@ -141,7 +149,7 @@ func New(accounts Accounts, listings *jobs.Store, brain *acorn.Service, opts Opt
 		accounts: accounts, listings: listings, acorn: brain,
 		cookie: opts.SessionCookie, switches: opts.KillSwitches,
 		google: opts.Google, googleRedirect: opts.GoogleRedirectURL,
-		gmail: opts.Gmail, gmailRedirect: opts.GmailRedirectURL,
+		gmail: opts.Gmail, gmailRedirect: opts.GmailRedirectURL, mailwatch: opts.MailWatch,
 		resumes: opts.Resumes, profiles: opts.Profiles, debug: opts.Debug,
 		selector: opts.Selector, usage: opts.Usage, runs: opts.Runs, claims: opts.Claims,
 		admins: opts.Admins, adminCookie: opts.AdminSessionCookie,
@@ -165,7 +173,10 @@ func New(accounts Accounts, listings *jobs.Store, brain *acorn.Service, opts Opt
 	if s.adminCookie == "" {
 		s.adminCookie = DefaultAdminSessionCookie
 	}
-	if s.gmail != nil && opts.GmailRedirectURL != "" && opts.Google != nil {
+	switch {
+	case opts.GmailGoogle != nil:
+		s.gmailGoogle = opts.GmailGoogle
+	case s.gmail != nil && opts.GmailRedirectURL != "" && opts.Google != nil:
 		s.gmailGoogle = &mailbox.Google{OAuth: opts.Google, RedirectURL: opts.GmailRedirectURL}
 	}
 	gw := gateway.New(s.authenticateSocket)
@@ -281,6 +292,10 @@ func New(accounts Accounts, listings *jobs.Store, brain *acorn.Service, opts Opt
 	mux.HandleFunc("GET /acorn/gmail/label-guides", s.listLabelGuides)
 	mux.HandleFunc("PUT /acorn/gmail/label-guides", s.saveLabelGuides)
 	mux.HandleFunc("POST /acorn/gmail/autolabel", s.requireAI(s.autolabelGmail))
+	// Pub/Sub calls the push route with its own signed token, not a session.
+	mux.HandleFunc("POST /acorn/gmail/push", s.pushGmail)
+	mux.HandleFunc("GET /acorn/gmail/verify-mail", s.listVerifyMail)
+	mux.HandleFunc("GET /acorn/gmail/verify-mail/{mailboxId}/{id}", s.getVerifyMail)
 	mux.HandleFunc("POST /acorn/run/mail-verification", s.requireAI(s.runMailVerification))
 
 	socket := gw.Handler()

@@ -45,6 +45,22 @@ export function extensionDownloadUrl(): string | null {
   return null;
 }
 
+/** Packed Oak Chrome extension, built with the website image like the Acorn one. */
+export const OAK_EXTENSION_DOWNLOAD_PATH = "/downloads/oak-chrome.zip";
+
+/** Version of the Oak extension baked into the website image when it was built in CI/CD. */
+export function oakExtensionVersion(): string | null {
+  const version = process.env.NEXT_PUBLIC_OAK_EXTENSION_VERSION?.trim();
+  return version || null;
+}
+
+/** The Oak build (.zip) for sideloading. Website Docker images always build it before `next build`. */
+export function oakExtensionDownloadUrl(): string | null {
+  if (oakExtensionVersion()) return OAK_EXTENSION_DOWNLOAD_PATH;
+  if (process.env.NODE_ENV === "production") return OAK_EXTENSION_DOWNLOAD_PATH;
+  return null;
+}
+
 /** Gmail on the web, for "Open in Gmail". */
 export const GMAIL_WEB_URL = "https://mail.google.com/mail";
 

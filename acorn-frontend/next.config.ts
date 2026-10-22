@@ -2,9 +2,9 @@ import type { NextConfig } from "next";
 import { readFileSync } from "node:fs";
 import path from "node:path";
 
-function extensionPackageVersion(): string {
+function extensionPackageVersion(relativePath: string): string {
   try {
-    const pkgPath = path.join(__dirname, "../acorn/extension/package.json");
+    const pkgPath = path.join(__dirname, relativePath);
     const pkg = JSON.parse(readFileSync(pkgPath, "utf8")) as { version?: string };
     return String(pkg.version ?? "").trim();
   } catch {
@@ -12,7 +12,8 @@ function extensionPackageVersion(): string {
   }
 }
 
-const extensionVersion = extensionPackageVersion();
+const extensionVersion = extensionPackageVersion("../acorn/extension/package.json");
+const oakExtensionVersion = extensionPackageVersion("../oak-agent/extension/package.json");
 
 /** Revisits of a dynamic page within this window skip the server round trip. */
 const DYNAMIC_ROUTE_CACHE_SECONDS = 30;
@@ -27,7 +28,10 @@ const LEGACY_REDIRECTS = [
 ];
 
 const nextConfig: NextConfig = {
-  env: extensionVersion ? { NEXT_PUBLIC_ACORN_EXTENSION_VERSION: extensionVersion } : undefined,
+  env: {
+    ...(extensionVersion ? { NEXT_PUBLIC_ACORN_EXTENSION_VERSION: extensionVersion } : {}),
+    ...(oakExtensionVersion ? { NEXT_PUBLIC_OAK_EXTENSION_VERSION: oakExtensionVersion } : {}),
+  },
   experimental: {
     staleTimes: {
       dynamic: DYNAMIC_ROUTE_CACHE_SECONDS,
