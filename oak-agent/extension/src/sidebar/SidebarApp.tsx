@@ -59,6 +59,9 @@ const EMPTY_TAB_UI: TabUi = {
 
 const STEP_PAGE = 30;
 
+/** Oak's version, from extension/package.json: the same number the manifest and the website show. */
+const OAK_VERSION = import.meta.env.VITE_OAK_VERSION;
+
 export default function SidebarApp() {
   const activeTabId = useActiveTabId();
   const { page, pageList, pipelines, progress, setPipelines } = useTabSession(activeTabId);
@@ -303,7 +306,7 @@ export default function SidebarApp() {
 
   const startPipeline = useCallback(async () => {
     const tabId = activeTabId;
-    if (tabWorkBusy || tabId == null) return;
+    if (tabWorkBusy || tabId == null || page?.jdStatus !== "found") return;
     setTabProgress(tabId, { phase: "fetching", message: "Starting…" });
     try {
       const res = await sendMessage<{ ok?: boolean; error?: string }>({
@@ -339,7 +342,7 @@ export default function SidebarApp() {
         error: detail,
       });
     }
-  }, [activeTabId, tabWorkBusy, setTabProgress]);
+  }, [activeTabId, page?.jdStatus, tabWorkBusy, setTabProgress]);
 
   const rememberFocusedTab = useCallback(async () => {
     const tabId = activeTabId;
@@ -598,9 +601,16 @@ export default function SidebarApp() {
     ? "Reading this page for a job description"
     : "Take a shot of the job description: Oak checks it is a posting and picks a résumé";
   const sentLabel = sending ? "Sending…" : "Sent";
-  // Sent needs a JD shot that found a posting: the application is counted against that job.
+  // Fill and Sent need a JD shot that found a posting: the job description picks the résumé Fill
+  // uploads, and the application is counted against that job.
   const jdDone = page?.jdStatus === "found";
   const sentDisabled = actionsOff || !jdDone;
+  const fillDisabled = actionsOff || !jdDone;
+  const fillTitle = jdBusy
+    ? "Wait for the JD shot to finish"
+    : jdDone
+      ? undefined
+      : "Take a JD shot of this page first";
   const sentTitle = jdBusy
     ? "Wait for the JD shot to finish"
     : jdDone
@@ -888,10 +898,10 @@ export default function SidebarApp() {
           fillLabel={fillLabel}
           jdShotLabel={jdShotLabel}
           sentLabel={sentLabel}
-          fillDisabled={actionsOff}
+          fillDisabled={fillDisabled}
           jdShotDisabled={actionsOff}
           sentDisabled={sentDisabled}
-          fillTitle={fillLabel}
+          fillTitle={fillTitle ?? fillLabel}
           jdShotTitle={jdShotTitle}
           sentTitle={sentTitle}
           onFill={() => void startPipeline()}
@@ -909,6 +919,7 @@ export default function SidebarApp() {
             <span className={`oak-settings-dot ${connected ? "on" : "off"}`} aria-hidden="true" />
             <span className="oak-connection-title">Connection</span>
             <span className="oak-connection-state">{footerStatus}</span>
+            <span className="oak-connection-version">v{OAK_VERSION}</span>
           </summary>
           <div className="oak-connection-body">
             <label className="field">

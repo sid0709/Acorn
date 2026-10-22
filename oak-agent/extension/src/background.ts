@@ -585,6 +585,10 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
         sendResponse({ error: err instanceof Error ? err.message : String(err) });
         return;
       }
+      if ((await getPage(tabId))?.jdStatus !== "found") {
+        sendResponse({ error: "Take a JD shot of this page first" });
+        return;
+      }
 
       pipelineRunningTabIds.add(tabId);
       syncWorkKeepAlive();

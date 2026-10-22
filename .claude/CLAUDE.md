@@ -46,7 +46,7 @@ Follow the rule that matches the folder you are editing, and use only that folde
 | Go: `acorn-backend` | `.claude/rules/go.md` |
 | Vite: `acorn/extension`, `acorn/demo`, `acorn/packages` | `.claude/rules/vite.md` |
 
-Acorn's rules in `acorn/.claude/CLAUDE.md` and `acorn/.cursor/rules/` still apply on top of these.
+Acorn's rules in `acorn/.claude/CLAUDE.md` and `acorn/.cursor/rules/` still apply on top of these. Oak's rules in `oak-agent/.claude/CLAUDE.md` and `oak-agent/.cursor/rules/` apply to `oak-agent/`: every shipped Oak change bumps `oak-agent/extension/package.json`.
 
 ## Best practice
 

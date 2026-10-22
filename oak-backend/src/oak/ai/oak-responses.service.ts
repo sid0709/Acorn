@@ -2,7 +2,10 @@ import { Injectable } from '@nestjs/common';
 import {
   OPENAI_RESPONSES_URL,
   oakMaxOutputTokens,
+  OAK_PROMPT_CACHE_KEYS,
   oakModelRejectsTemperature,
+  oakHelperTimeoutMs,
+  oakPlannerTimeoutMs,
   oakReasoningEffortForModel,
   oakTemperature,
 } from '../constants/oak.constants';
@@ -20,6 +23,7 @@ export class OakResponsesService {
     auth: OakLlmAuth,
     systemPrompt: string,
     userPrompt: string,
+    reasoningEffort?: string,
   ): Promise<{
     plan: Record<string, unknown>;
     model: string;
@@ -39,12 +43,17 @@ export class OakResponsesService {
         },
       ],
       max_output_tokens: oakMaxOutputTokens(),
+      prompt_cache_key: OAK_PROMPT_CACHE_KEYS.planner,
       text: { format: ACTION_PLAN_FORMAT },
     };
 
-    applySamplingParams(body, auth.model);
+    applySamplingParams(body, auth.model, { reasoningEffort });
 
-    const data = await this.postResponses(auth.apiKey, body);
+    const data = await this.postResponses(
+      auth.apiKey,
+      body,
+      AbortSignal.timeout(oakPlannerTimeoutMs()),
+    );
     const text = extractOutputText(data);
     if (!text?.trim()) throw new Error('OpenAI returned empty output');
 
@@ -74,6 +83,9 @@ export class OakResponsesService {
       format: Record<string, unknown>;
       maxOutputTokens?: number;
       clampReasoningToLow?: boolean;
+      reasoningEffort?: string;
+      /** OpenAI prompt cache key for this kind of call (OAK_PROMPT_CACHE_KEYS). */
+      cacheKey?: string;
       temperature?: number;
       signal?: AbortSignal;
     },
@@ -91,15 +103,21 @@ export class OakResponsesService {
         },
       ],
       max_output_tokens: input.maxOutputTokens ?? 400,
+      ...(input.cacheKey ? { prompt_cache_key: input.cacheKey } : {}),
       text: { format: input.format },
     };
 
     applySamplingParams(body, auth.model, {
       clampReasoningToLow: input.clampReasoningToLow,
+      reasoningEffort: input.reasoningEffort,
       temperature: input.temperature,
     });
 
-    const data = await this.postResponses(auth.apiKey, body, input.signal);
+    const data = await this.postResponses(
+      auth.apiKey,
+      body,
+      input.signal ?? AbortSignal.timeout(oakHelperTimeoutMs()),
+    );
     const text = extractOutputText(data);
     if (!text?.trim()) {
       throw new Error('OpenAI returned empty output');
@@ -146,9 +164,15 @@ export class OakResponsesService {
 function applySamplingParams(
   body: Record<string, unknown>,
   model: string,
-  opts?: { clampReasoningToLow?: boolean; temperature?: number },
+  opts?: {
+    clampReasoningToLow?: boolean;
+    temperature?: number;
+    reasoningEffort?: string;
+  },
 ): void {
-  const effort = oakReasoningEffortForModel(model);
+  const effort = oakModelRejectsTemperature(model)
+    ? (opts?.reasoningEffort ?? oakReasoningEffortForModel(model))
+    : oakReasoningEffortForModel(model);
   if (effort) {
     let next = effort === 'xhigh' ? 'high' : effort;
     if (

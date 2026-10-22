@@ -1031,6 +1031,12 @@
   max-width: 60%;
 }
 
+.oak-connection-version {
+  color: var(--athens-text-muted);
+  white-space: nowrap;
+  font-variant-numeric: tabular-nums;
+}
+
 .oak-connection-body {
   padding: 0 var(--athens-space-4) var(--athens-space-3);
 }

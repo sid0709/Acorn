@@ -107,6 +107,64 @@ export function oakModelRejectsTemperature(model: string): boolean {
   );
 }
 
+const REASONING_EFFORTS = new Set([
+  'none',
+  'minimal',
+  'low',
+  'medium',
+  'high',
+  'xhigh',
+  'max',
+]);
+
+function effortFromEnv(name: string, fallback: string): string {
+  const raw = process.env[name]?.trim().toLowerCase();
+  return raw && REASONING_EFFORTS.has(raw) ? raw : fallback;
+}
+
+/**
+ * Reasoning effort of the page planner. `none` answers fastest: the plan is read straight off the
+ * page and the profile. Raise it (OAK_PLANNER_REASONING_EFFORT=low) if plans start missing fields.
+ */
+export function oakPlannerReasoningEffort(): string {
+  return effortFromEnv('OAK_PLANNER_REASONING_EFFORT', 'none');
+}
+
+/** Reasoning effort of the short follow-up calls: identity check, typed answers, option match, Q&A. */
+export function oakHelperReasoningEffort(): string {
+  return effortFromEnv('OAK_HELPER_REASONING_EFFORT', 'none');
+}
+
+/**
+ * OpenAI's prompt cache keys, one per kind of call: requests with the same fixed system prompt
+ * share a key, so they reach a server that already holds that prefix.
+ */
+export const OAK_PROMPT_CACHE_KEYS = {
+  planner: 'oak-planner',
+  identity: 'oak-identity',
+  prose: 'oak-prose',
+  matchOption: 'oak-match-option',
+  qa: 'oak-qa',
+} as const;
+
+/** The longest a page plan may take before Fill gives up on it (it answers in well under this). */
+export function oakPlannerTimeoutMs(): number {
+  const n = Number.parseInt(
+    String(process.env.OAK_PLANNER_TIMEOUT_MS || '120000'),
+    10,
+  );
+  return Number.isFinite(n) && n > 0 ? n : 120000;
+}
+
+/** The longest a follow-up call (option match, identity, typed answers, Q&A) may take when its caller sets no limit. */
+export function oakHelperTimeoutMs(): number {
+  const n = Number.parseInt(
+    String(process.env.OAK_HELPER_TIMEOUT_MS || '30000'),
+    10,
+  );
+  return Number.isFinite(n) && n > 0 ? n : 30000;
+}
+
 /** Reasoning effort to send when temperature is unsupported. */
 export function oakReasoningEffortForModel(model: string): string | null {
   const configured = oakReasoningEffort();

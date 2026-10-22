@@ -451,13 +451,13 @@ Worker Pool jobs come from the shared jobs catalog ([`acorn-backend/internal/job
 
 ### 13.1 Who decides what
 
-| Decision                                                            | Model | Where                                                    |
-| ------------------------------------------------------------------- | ----- | -------------------------------------------------------- |
-| Free-text answers, first person                                     | text  | `acorn.Answer`, prompt `prompts/prose_system.txt`        |
-| Is this text a job posting, and which Library résumé fits it        | Jev   | `selector.MatchPosting`                                  |
-| Gmail labels for a message (the site's labeling)                    | Jev   | [`maillabel`](../../../acorn-backend/maillabel/label.go) |
-| Does an arriving email exist to deliver a verification code or link | Jev   | `selector.ClassifyVerificationMail` (§12.8)              |
-| Everything the agent Run does on a page                             | text  | acorn-agent (§19), not acorn-backend                     |
+| Decision                                                                                                                | Model | Where                                                    |
+| ----------------------------------------------------------------------------------------------------------------------- | ----- | -------------------------------------------------------- |
+| Free-text answers, first person                                                                                         | text  | `acorn.Answer`, prompt `prompts/prose_system.txt`        |
+| Is this text a job posting, and which Library résumé fits it                                                            | Jev   | `selector.MatchPosting`                                  |
+| Gmail labels for a message (the site's labeling)                                                                        | Jev   | [`maillabel`](../../../acorn-backend/maillabel/label.go) |
+| Does an arriving email exist to deliver an account code or link (verify, sign up, sign in, reset or recover a password) | Jev   | `selector.ClassifyVerificationMail` (§12.8)              |
+| Everything the agent Run does on a page                                                                                 | text  | acorn-agent (§19), not acorn-backend                     |
 
 Jev is asked typed questions (`choice` among keyed criteria, or `noul` = P(yes)) about a text `state`; it answers each with a choice, a confidence, and probabilities, and never generates text. Options are sent as keys (`option_0`, …) so labels round-trip exactly. A question lists at most 255 options. The client retries transient failures (3 attempts, 30 s timeout) on one shared keep-alive connection pool.
 
@@ -471,16 +471,16 @@ The writer prompt ([`prose_system.txt`](../../../acorn-backend/acorn/prompts/pro
 
 ### 14.1 What each party sees
 
-| Data                                                               | Text model                                  | Jev                                                                                    | Stored server-side                                                           |
-| ------------------------------------------------------------------ | ------------------------------------------- | -------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------- |
-| Profile facts (name, contact, history, demographics)               | yes (applicant JSON, for Q&A)               | no                                                                                     | `acorn_profiles`                                                             |
-| Page text                                                          | nothing (the extension no longer sends Q&A) | only the job posting text, for Recommend                                               | the tab's local log; a support claim if reported                             |
-| Default account password                                           | never                                       | never                                                                                  | `acorn_profiles` (plain text)                                                |
-| Extension password, OpenRouter key                                 | never                                       | never                                                                                  | `acorn_profiles` (plain text)                                                |
-| Completed Runs (the job's link and title, time, cost)              | never                                       | never                                                                                  | `acorn_runs`                                                                 |
-| Full-page screenshot of a sent application                         | never                                       | never                                                                                  | `acorn_run_screenshots`, 90 days                                             |
-| Gmail contents                                                     | never                                       | message rows, for the site's labeling only                                             | Gmail refresh token in `acorn_gmail_mailboxes`                               |
-| Arriving email (sender, subject, plain text up to 3000 characters) | never                                       | each new inbox email, to decide whether it carries a verification code or link (§12.8) | message ids only (`acorn_gmail_processed`, 7 days); never the text or a code |
+| Data                                                               | Text model                                  | Jev                                                                                | Stored server-side                                                           |
+| ------------------------------------------------------------------ | ------------------------------------------- | ---------------------------------------------------------------------------------- | ---------------------------------------------------------------------------- |
+| Profile facts (name, contact, history, demographics)               | yes (applicant JSON, for Q&A)               | no                                                                                 | `acorn_profiles`                                                             |
+| Page text                                                          | nothing (the extension no longer sends Q&A) | only the job posting text, for Recommend                                           | the tab's local log; a support claim if reported                             |
+| Default account password                                           | never                                       | never                                                                              | `acorn_profiles` (plain text)                                                |
+| Extension password, OpenRouter key                                 | never                                       | never                                                                              | `acorn_profiles` (plain text)                                                |
+| Completed Runs (the job's link and title, time, cost)              | never                                       | never                                                                              | `acorn_runs`                                                                 |
+| Full-page screenshot of a sent application                         | never                                       | never                                                                              | `acorn_run_screenshots`, 90 days                                             |
+| Gmail contents                                                     | never                                       | message rows, for the site's labeling only                                         | Gmail refresh token in `acorn_gmail_mailboxes`                               |
+| Arriving email (sender, subject, plain text up to 3000 characters) | never                                       | each new inbox email, to decide whether it carries an account code or link (§12.8) | message ids only (`acorn_gmail_processed`, 7 days); never the text or a code |
 
 The agent Run (§19) sends the model a **screenshot** of the page and the applicant's `profile.json`; see §19.8 for who sees what.
 

@@ -8,6 +8,8 @@ import {
   oakProseMaxOutputTokens,
   oakProseTemperature,
   oakProseTimeoutMs,
+  oakHelperReasoningEffort,
+  OAK_PROMPT_CACHE_KEYS,
 } from '../constants/oak.constants';
 import { parseProseAnswerMap } from './oak-prose-fields';
 import {
@@ -51,8 +53,6 @@ export class OakQaService {
       question,
       page: input.page,
     });
-
-    const startedAt = new Date();
     const t0 = Date.now();
     const controller = new AbortController();
     const timer = setTimeout(() => controller.abort(), oakProseTimeoutMs());
@@ -66,6 +66,8 @@ export class OakQaService {
                 systemPrompt: PROSE_SYSTEM_PROMPT,
                 userPrompt,
                 format: PROSE_ANSWERS_FORMAT,
+                reasoningEffort: oakHelperReasoningEffort(),
+                cacheKey: OAK_PROMPT_CACHE_KEYS.qa,
                 maxOutputTokens: oakProseMaxOutputTokens(),
                 temperature: oakProseTemperature(),
                 signal: controller.signal,
@@ -139,6 +141,7 @@ export class OakQaService {
         { role: 'user', content: userPrompt },
       ],
       jsonMode: true,
+      reasoningEffort: oakHelperReasoningEffort(),
       temperature: oakProseTemperature(),
       timeoutMs: oakProseTimeoutMs(),
       retries: 0,

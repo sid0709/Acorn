@@ -1,4 +1,5 @@
 /** Characters no file name may hold on Windows or macOS. */
+// eslint-disable-next-line no-control-regex -- control characters are exactly what is removed
 const UNSAFE_NAME_CHARS = /[\\/:*?"<>|\u0000-\u001f]/g;
 const MAX_STEM_LENGTH = 100;
 /** Used when neither the file nor the profile gives an extension. */

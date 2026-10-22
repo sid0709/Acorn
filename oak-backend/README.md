@@ -54,7 +54,7 @@ Worker-pool jobs and mark-applied, and Custom generate / recommend / extract-JD 
 | GET    | `/tab-cost` | `costNanos` and `calls` for the tab named by `X-Acorn-Tab`, summed from `acorn_ai_usage` (Oak's calls and the ones acorn-backend made for the same tab).                                                                                                                                                          |
 | POST   | `/sent`     | `{ url, title, durationMs, steps, endedAt?, utcOffsetMinutes, screenshot }` (base64 JPEG). Records a Run through acorn-backend (`POST /acorn/runs`, with the tab's cost) and uploads the screenshot (`PUT /acorn/runs/{id}/screenshot`). The record id is a hash of account, tab and URL, so a retry counts once. |
 
-Every request should carry `X-Acorn-Tab: <uuid per Chrome tab>` and `X-Acorn-Client: oak/<version>`. Oak stamps them on its usage rows and forwards them to acorn-backend, so one tab's cost is one sum. With an OpenRouter key the cost is the amount OpenRouter billed for each call (`usage.cost`); with an OpenAI key it is priced from a table.
+Every request should carry `X-Acorn-Tab: <uuid per Chrome tab>` and `X-Acorn-Client: oak/<version>`. Oak stamps them on its usage rows and forwards them to acorn-backend, so one tab's cost is one sum. GPT-6 calls go to OpenAI's API and are priced from OpenAI's list rates (cached input tokens at the cached rate); the JD shot's Jev call is the amount OpenRouter billed.
 
 ### Upload name
 
